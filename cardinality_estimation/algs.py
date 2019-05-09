@@ -21,7 +21,7 @@ class CardinalityEstimationAlg():
 
 class Postgres(CardinalityEstimationAlg):
     def test(self, test_samples):
-        return np.array([s.pg_sel for s in test_samples])
+        return np.array([s.pg_count for s in test_samples])
 
 class Independent(CardinalityEstimationAlg):
     '''
