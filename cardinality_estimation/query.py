@@ -10,8 +10,9 @@ class Query():
         self.pred_column_names = pred_column_names
         self.vals = vals
         self.cmp_ops = cmp_ops
-        self.count = count
+        self.true_count = count
         self.total_count = total_count
+        self.true_sel = float(self.true_count) / self.total_count
         self.count = count
         self.pg_count = pg_count
         self.pg_marginal_sels = pg_marginal_sels

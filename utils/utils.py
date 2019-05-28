@@ -29,6 +29,24 @@ def load_object(file_name):
             res = pickle.loads(f.read())
     return res
 
+def save_or_update(obj_name, obj):
+    # TODO: generalize this functionality
+    dir_name = os.path.dirname(obj_name)
+    if not os.path.exists(dir_name):
+        make_dir(dir_name)
+    saved_obj = load_object(obj_name)
+    if saved_obj is None:
+        saved_obj = obj
+    else:
+        if isinstance(saved_obj, dict):
+            saved_obj.update(obj)
+        elif isinstance(saved_obj, list):
+            saved_obj.append(obj)
+        else:
+            # TODO: not sure best way to handle pandas
+            saved_obj = saved_obj.append(obj)
+    save_object(obj_name, saved_obj)
+
 def deterministic_hash(string):
     return int(hashlib.sha1(str(string).encode("utf-8")).hexdigest(), 16)
 
