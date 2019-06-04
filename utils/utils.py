@@ -8,7 +8,22 @@ import glob
 import string
 import hashlib
 import pickle
+import re
+import pdb
+import random
+from utils.tf_summaries import TensorboardSummaries
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+import time
 
+def is_float(val):
+    try:
+        float(val)
+        return True
+    except:
+        return False
+
+def extract_ints_from_string(string):
+    return re.findall(r'\d+', string)
 
 # Generalized from:
 #https://stackoverflow.com/questions/18683821/generating-random-correlated-x-and-y-points-using-numpy
@@ -147,3 +162,88 @@ def adjust_learning_rate(args, optimizer, epoch):
         print("new lr is: ", lr)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+
+def train_nn(net, X, Y, lr=0.00001, max_iter=10000, mb_size=32,
+        loss_func=None, tfboard_dir=None, adaptive_lr=False,
+        min_lr=1e-17, loss_threshold=1.0):
+    '''
+    very simple implementation of training loop for NN.
+    '''
+    if loss_func is None:
+        loss_func = torch.nn.MSELoss()
+
+    if tfboard_dir:
+        make_dir(tfboard_dir)
+        tfboard = TensorboardSummaries(tfboard_dir + "/tflogs/" +
+            time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
+        tfboard.add_variables([
+            'train-loss', 'lr', 'mse-loss'], 'training_set_loss')
+
+        tfboard.init()
+
+    optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+    # update learning rate
+    if adaptive_lr:
+        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=20,
+                        verbose=True, factor=0.1, eps=min_lr)
+        plateau_min_lr = 0
+
+    num_iter = 0
+    X = np.array(X)
+    Y = np.array(Y)
+
+    while True:
+        if (num_iter % 100 == 0):
+            # test on the full train set
+            xbatch = X
+            xbatch = to_variable(xbatch).float()
+            ybatch = Y
+            ybatch = to_variable(ybatch).float()
+            pred = net(xbatch)
+            pred = pred.squeeze(1)
+            train_loss = loss_func(pred, ybatch).item()
+            mse_loss = torch.nn.functional.mse_loss(pred, ybatch).item()
+            print("num iter: {}, num samples: {}, mse loss: {}, loss func: {}".format(
+                num_iter, len(X), mse_loss, train_loss))
+
+            cur_lr = optimizer.param_groups[0]['lr']
+            if adaptive_lr:
+                # FIXME: should we do this for minibatch / or for train loss?
+                scheduler.step(train_loss)
+                if cur_lr*0.1 <= min_lr:
+                    plateau_min_lr += 1
+
+            if train_loss < loss_threshold:
+                print("breaking because train_loss < {}".format(loss_threshold))
+                break
+            if plateau_min_lr >= 5:
+                print("breaking because min lr and learning stopped")
+                break
+
+            if tfboard_dir:
+                tfboard.report(num_iter,
+                    [train_loss, cur_lr, mse_loss], 'training_set_loss')
+
+        idxs = np.random.choice(list(range(len(X))), mb_size)
+        xbatch = X[idxs]
+        xbatch = to_variable(xbatch).float()
+        ybatch = Y[idxs]
+        ybatch = to_variable(ybatch).float()
+
+        pred = net(xbatch)
+        pred = pred.squeeze(1)
+        loss = loss_func(pred, ybatch)
+
+        if (num_iter > max_iter):
+            print("breaking because max iter done")
+            break
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        num_iter += 1
+
+    print("done with training")
+    print("training loss: ", train_loss)
+
+

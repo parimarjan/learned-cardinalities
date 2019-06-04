@@ -2,6 +2,7 @@ from cardinality_estimation.db import DB
 from cardinality_estimation.cardinality_sample import CardinalitySample
 from cardinality_estimation.query import Query
 from cardinality_estimation.algs import *
+from cardinality_estimation.losses import *
 import argparse
 from park.param import parser
 import psycopg2 as pg
@@ -16,6 +17,7 @@ import pdb
 import pandas as pd
 import random
 import itertools
+import klepto
 
 def get_alg(alg):
     if alg == "independent":
@@ -23,9 +25,11 @@ def get_alg(alg):
     elif alg == "postgres":
         return Postgres()
     elif alg == "chow":
-        return BN(alg="chow-liu")
+        return BN(alg="chow-liu", num_bins=args.num_bins)
     elif alg == "bn-exact":
-        return BN(alg="exact-dp")
+        return BN(alg="exact-dp", num_bins=args.num_bins)
+    elif alg == "nn1":
+        return NN1(max_iter = args.max_iter)
     else:
         assert False
 
@@ -36,6 +40,8 @@ def get_loss(loss):
         return compute_relative_loss
     elif loss == "qerr":
         return compute_qerror
+    elif loss == "join-loss":
+        return compute_join_order_loss
     else:
         assert False
 
@@ -50,14 +56,15 @@ def get_columns(num_columns, column_type = "varchar"):
     return col_header
 
 def get_table_name():
-    return args.synth_table + str(args.synth_num_columns) + str(args.seed)
+    return args.synth_table + str(args.synth_num_columns) + str(args.random_seed)
+    # return args.synth_table + gen_exp_hash()[0:5]
 
 def get_gaussian_data_params():
     '''
-    @ret: means, covariance matrix. This should depend on the random seed.
+    @ret: means, covariance matrix. This should depend on the random random_seed.
     '''
-    # random seed used for generating the correlations
-    random.seed(args.seed)
+    # random random_seed used for generating the correlations
+    random.seed(args.random_seed)
     RANGES = []
     for i in range(args.synth_num_columns):
         RANGES.append([i*args.synth_period_len, i*args.synth_period_len+args.synth_period_len])
@@ -103,7 +110,7 @@ def gen_synth_data():
     cur = con.cursor()
     table_name = get_table_name()
     exists = check_table_exists(cur, table_name)
-    print("exists: ", exists)
+    # print("exists: ", exists)
     # if exists:
         # return
     con.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
@@ -123,9 +130,29 @@ def gen_synth_data():
             page_size=100)
     con.commit()
     print("generate and inserted new data!")
+    # drop_index = "DROP INDEX IF EXISTS myindex"
+    # cur.execute(drop_index)
+    # INDEX_TMP = "CREATE INDEX myindex ON {TABLE} ({COLUMNS});"
+    # index_cmd = INDEX_TMP.format(TABLE=table_name,
+                    # COLUMNS = columns.replace("varchar",""))
+    # cur.execute(index_cmd)
+    # con.commit()
+    # print("created index")
 
     # let's run vacuum to update stats, annoyingly slow on large DB's.
     db_vacuum(con, cur)
+    cur.close()
+    con.close()
+
+def remove_doubles(samples):
+    new_samples = []
+    seen_samples = set()
+    for s in samples:
+        if s.query in seen_samples:
+            continue
+        seen_samples.add(s.query)
+        new_samples.append(s)
+    return new_samples
 
 def main():
     def init_result_row(result):
@@ -133,17 +160,65 @@ def main():
         result["dbname"].append(args.db_name)
         result["num_vals"].append(len(test_queries))
         result["template_dir"].append(args.template_dir)
-        result["seed"].append(args.seed)
+        result["seed"].append(args.random_seed)
         result["means"].append(means)
         result["covs"].append(covs)
+        result["args"].append(args)
+        result["num_bins"].append(args.num_bins)
 
     if args.gen_synth_data:
         gen_synth_data()
+    # elif args.db_name == "osm":
+    elif "osm" in args.db_name:
+        # if the table doesn't already exist, then load it in
+        con = pg.connect(user=args.user, host=args.db_host, port=args.port,
+                password=args.pwd, database=args.db_name)
+        cur = con.cursor()
+        table_name = args.db_name
+        exists = check_table_exists(cur, table_name)
+        if not exists:
+            con.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            cur.execute("DROP TABLE IF EXISTS {TABLE}".format(TABLE=table_name))
+            column_header = ["c0 bigint", "c1 bigint", "c2 bigint",
+                "d0 int", "d1 int"]
+            column_header = ",".join(column_header)
+            columns = ["c0", "c1", "c2",
+                "d0", "d1"]
+            columns = ",".join(columns)
+            data = np.fromfile('osm.bin',
+                    dtype=np.int64).reshape(-1, 6)
+            # drop the index column
+            data = data[:,1:6]
+            from psycopg2.extensions import register_adapter, AsIs
+            def addapt_numpy_float64(numpy_float64):
+                    return AsIs(numpy_float64)
+            def addapt_numpy_int64(numpy_int64):
+                    return AsIs(numpy_int64)
+            register_adapter(np.float64, addapt_numpy_float64)
+            register_adapter(np.int64, addapt_numpy_int64)
+
+            create_sql = CREATE_TABLE_TEMPLATE.format(name = table_name,
+                                                     columns = column_header)
+            cur.execute(create_sql)
+            insert_sql = INSERT_TEMPLATE.format(name = table_name,
+                                                columns = columns)
+            pg.extras.execute_values(cur, insert_sql, data, template=None,
+                    page_size=100)
+            con.commit()
+            print("inserted osm data!")
+            pdb.set_trace()
+
+            # let's run vacuum to update stats, annoyingly slow on large DB's.
+            db_vacuum(con, cur)
+            cur.close()
+            con.close()
+
     db = DB(args.user, args.pwd, args.db_host, args.port,
             args.db_name)
+    print("started using db: ", args.db_name)
+    query_templates = []
 
     samples = []
-    query_templates = []
     if args.template_dir is None:
         # artificially generate the query templates based on synthetic data
         # generation stuff
@@ -151,25 +226,26 @@ def main():
         # add a select count(*) for every combination of columns
         meta_tmp = "SELECT COUNT(*) FROM {TABLE} WHERE {CONDS}"
         # TEST.col2 = 'col2'
-        cond_meta_tmp = "{TABLE}.{COLUMN} = '{COLUMN}'"
+        cond_meta_tmp = "{TABLE}.{COLUMN} in (X{COLUMN})"
         column_list = []
         combs = []
         for i in range(args.synth_num_columns):
             column_list.append("col" + str(i))
 
-        for i in range(2, args.synth_num_columns+1):
-            combs += itertools.combinations(column_list, i)
-        print(combs)
-        for all_cols in combs:
-            # each set of columns should lead to a new query template.
-            conditions = []
-            for col in all_cols:
-                conditions.append(cond_meta_tmp.format(TABLE  = table_name,
-                                                       COLUMN = col))
-            cond_str = " AND ".join(conditions)
-            query_tmp = meta_tmp.format(TABLE = table_name,
-                            CONDS = cond_str)
-            query_templates.append(query_tmp)
+        # for i in range(2, args.synth_num_columns+1):
+            # combs += itertools.combinations(column_list, i)
+        # for all_cols in combs:
+            # # each set of columns should lead to a new query template.
+            # conditions = []
+        # for col in all_cols:
+        conditions = []
+        for col in column_list:
+            conditions.append(cond_meta_tmp.format(TABLE  = table_name,
+                                                   COLUMN = col))
+        cond_str = " AND ".join(conditions)
+        query_tmp = meta_tmp.format(TABLE = table_name,
+                        CONDS = cond_str)
+        query_templates.append(query_tmp)
     else:
         for fn in glob.glob(args.template_dir+"/*"):
             with open(fn, "r") as f:
@@ -180,9 +256,24 @@ def main():
         samples += db.get_samples(template,
                 num_samples=args.num_samples_per_template)
 
-    print("len samples: " , len(samples))
+    print("len all samples: " , len(samples))
+    if args.only_nonzero_samples:
+        nonzero_samples = []
+        for s in samples:
+            if s.true_sel != 0.00:
+                nonzero_samples.append(s)
+        print("len nonzero samples: ", len(nonzero_samples))
+        samples = nonzero_samples
+
+    if args.use_subqueries:
+        for q in samples:
+            q.subqueries = db.gen_subqueries(q)
+            print("{} subqueries generated".format(len(q.subqueries)))
+
+    samples = remove_doubles(samples)
+
     train_queries, test_queries = train_test_split(samples, test_size=args.test_size,
-            random_state=args.seed)
+            random_state=args.random_seed)
 
     result = defaultdict(list)
 
@@ -197,24 +288,44 @@ def main():
     # this is deterministic, so just using it to store this in the saved data.
     for alg in algorithms:
         start = time.time()
-        alg.train(db, train_queries)
+        alg.train(db, train_queries, use_subqueries=args.use_subqueries)
+        alg.save_model(save_dir=args.result_dir, suffix_name=gen_exp_hash()[0:3])
         train_time = round(time.time() - start, 2)
-
-        start - time.time()
-        yhat = alg.test(test_queries)
-        test_time = round(time.time() - start, 2)
+        print("{}, train-time: {}".format(alg, train_time))
 
         for loss_func in losses:
-            cur_loss = loss_func(yhat, test_queries)
+            start = time.time()
+            cur_loss = loss_func(alg, train_queries, db, args.use_subqueries,
+                    baseline=args.baseline_join_alg)
+            test_time = round(time.time() - start, 2)
             init_result_row(result)
             result["train-time"].append(train_time)
             result["test-time"].append(test_time)
             result["alg_name"].append(alg.__str__())
             result["loss-type"].append(loss_func.__name__)
             result["loss"].append(cur_loss)
-            print("case: {}, alg: {}, samples: {}, test_time: {}, train_time: {}, {}: {}"\
-                    .format(args.db_name, alg, len(yhat), train_time,
-                        test_time, loss_func.__name__, cur_loss))
+            result["test-set"].append(0)
+
+            print("case: {}: training-set, alg: {}, samples: {}, train_time: {}, {}: {}"\
+                    .format(args.db_name, alg, len(train_queries), train_time,
+                        loss_func.__name__, cur_loss))
+
+        if args.test:
+            start = time.time()
+            test_time = round(time.time() - start, 2)
+            for loss_func in losses:
+                cur_loss = loss_func(alg, test_queries, db,
+                        args.use_subqueries, baseline=args.baseline_join_alg)
+                init_result_row(result)
+                result["train-time"].append(train_time)
+                result["test-time"].append(test_time)
+                result["alg_name"].append(alg.__str__())
+                result["loss-type"].append(loss_func.__name__)
+                result["loss"].append(cur_loss)
+                result["test-set"].append(1)
+                print("case: {}: test-set, alg: {}, samples: {}, test_time: {}, {}: {}"\
+                        .format(args.db_name, alg, len(test_queries),
+                            test_time, loss_func.__name__, cur_loss))
 
         ## generate bar plot with how errors are spread out.
         # ytrue = [t.true_count for t in test_queries]
@@ -228,13 +339,23 @@ def main():
     save_or_update(file_name, df)
     db.save_cache()
 
-    pdb.set_trace()
-
 def gen_results_name():
-    return "./results.pd"
+    return args.result_dir + "/results" + gen_exp_hash()[0:3] + ".pd"
+
+def gen_exp_hash():
+    return str(deterministic_hash(str(args)))
+
+def gen_samples_hash():
+    string = ""
+    sample_keys = ["db_name", "db_host", "user", "pwd", "template_dir",
+            "gen_synth_data"]
+    d = vars(args)
+    for k in sample_keys:
+        string += str(d[k])
+    return deterministic_hash(string)
 
 def read_flags():
-    parser = argparse.ArgumentParser()
+    # parser = argparse.ArgumentParser()
     parser.add_argument("--db_name", type=str, required=False,
             default="card_est")
     parser.add_argument("--db_host", type=str, required=False,
@@ -253,11 +374,17 @@ def read_flags():
             default=5432)
     parser.add_argument("--data_dir", type=str, required=False,
             default="/data/pari/cards/")
-    parser.add_argument("--num_samples_per_template", type=int,
+    parser.add_argument("-n", "--num_samples_per_template", type=int,
             required=False, default=1000)
+    parser.add_argument("--max_iter", type=int,
+            required=False, default=100000)
 
     # synthetic data flags
     parser.add_argument("--gen_synth_data", type=int, required=False,
+            default=0)
+    parser.add_argument("--only_nonzero_samples", type=int, required=False,
+            default=1)
+    parser.add_argument("--use_subqueries", type=int, required=False,
             default=0)
     parser.add_argument("--synth_table", type=str, required=False,
             default="test")
@@ -271,15 +398,22 @@ def read_flags():
             type=int, required=False, default=10)
     parser.add_argument('--synth_num_vals', help='delimited list correlations',
             type=int, required=False, default=100000)
-    parser.add_argument("--seed", type=int, required=False,
-            default=1234)
+    parser.add_argument("--random_seed", type=int, required=False,
+            default=2112)
+    parser.add_argument("--test", type=int, required=False,
+            default=1)
+    parser.add_argument("--num_bins", type=int, required=False,
+            default=10)
     parser.add_argument("--test_size", type=float, required=False,
             default=0.5)
     parser.add_argument("--algs", type=str, required=False,
             default="postgres")
     parser.add_argument("--losses", type=str, required=False,
             default="abs,rel,qerr", help="comma separated list of loss names")
-    parser.add_argument("--store_results", action="store_true")
+    parser.add_argument("--result_dir", type=str, required=False,
+            default="./results/")
+    parser.add_argument("--baseline_join_alg", type=str, required=False,
+            default="EXHAUSTIVE")
 
     return parser.parse_args()
 

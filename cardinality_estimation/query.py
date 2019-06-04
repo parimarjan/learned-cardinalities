@@ -1,5 +1,6 @@
 import pdb
 import psycopg2 as pg
+from db_utils.utils import *
 
 class Query():
     '''
@@ -7,14 +8,20 @@ class Query():
     def __init__(self, query, pred_column_names, vals, cmp_ops, count,
             total_count, pg_count, pg_marginal_sels=None, marginal_sels=None):
         self.query = query
+
+        # TODO: all this could be extracted just from the query str maybe?
         self.pred_column_names = pred_column_names
         self.vals = vals
         self.cmp_ops = cmp_ops
         self.true_count = count
         self.total_count = total_count
         self.true_sel = float(self.true_count) / self.total_count
-        self.count = count
         self.pg_count = pg_count
+
+        # FIXME: handle this better
+        self.table_names = extract_from_clause(query)
+        self.joins = extract_join_clause(query)
+
         self.pg_marginal_sels = pg_marginal_sels
         self.marginal_sels = marginal_sels
 
