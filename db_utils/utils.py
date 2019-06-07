@@ -7,6 +7,8 @@ import pdb
 import re
 import sqlparse
 import itertools
+import psycopg2 as pg
+from utils.utils import *
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
@@ -445,3 +447,95 @@ def gen_all_subqueries(query):
     # pdb.set_trace()
     all_subqueries = _gen_subqueries(tables, where_clauses)
     return all_subqueries
+
+def cached_execute_query(sql, user, db_host, port, pwd, db_name,
+        execution_cache_threshold, sql_cache=None, timeout=None):
+    '''
+    executes the given sql on the DB, and caches the results in a
+    persistent store if it took longer than self.execution_cache_threshold.
+    '''
+    hashed_sql = deterministic_hash(sql)
+    if sql_cache is not None and hashed_sql in sql_cache:
+        print("loaded {} from in memory cache".format(hashed_sql))
+        return sql_cache[hashed_sql]
+
+    # archive only considers the stuff stored in disk
+    if hashed_sql in sql_cache.archive:
+        # load it and return
+        print("loaded {} from cache".format(hashed_sql))
+        # pdb.set_trace()
+        return sql_cache.archive[hashed_sql]
+    start = time.time()
+
+    con = pg.connect(user=user, host=db_host, port=port,
+            password=pwd, database=db_name)
+    cursor = con.cursor()
+    if timeout is not None:
+        cursor.execute("SET statement_timeout = {}".format(timeout))
+    try:
+        cursor.execute(sql)
+    except Exception as e:
+        print("query failed to execute: ", sql)
+        print(e)
+        cursor.execute("ROLLBACK")
+        con.commit()
+        cursor.close()
+        con.close()
+        print("returning arbitrary large value for now")
+        return [[1000000]]
+        # return None
+    exp_output = cursor.fetchall()
+    cursor.close()
+    con.close()
+    end = time.time()
+    if (end - start > execution_cache_threshold) \
+            and sql_cache is not None:
+        # print(hashed_sql)
+        # print(sql)
+        # print(exp_output)
+        # pdb.set_trace()
+        sql_cache[hashed_sql] = exp_output
+    return exp_output
+
+def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
+        total_count=None,execution_cache_threshold=None,
+        sql_cache=None, timeout=None):
+    '''
+    @sql: string sql.
+    @ret: Query object with all fields appropriately initialized.
+          If it fails anywhere, then return None.
+    '''
+    if execution_cache_threshold is None:
+        execution_cache_threshold = 60
+    print("sql to query sample")
+    print(sql)
+    output = cached_execute_query(sql, user, db_host, port, pwd, db_name,
+            execution_cache_threshold, sql_cache, timeout)
+    if output is None:
+        return None
+    # from query string, to Query object
+    true_val = output[0][0]
+    print(true_val)
+    exp_query = "EXPLAIN " + sql
+    exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
+            execution_cache_threshold, sql_cache, timeout)
+    if exp_output is None:
+        return None
+    pg_est = pg_est_from_explain(exp_output)
+    print(pg_est)
+
+    if total_count is None:
+        pass
+        ## FIXME!
+        # total_count = self._get_total_count(sql)
+        # if total_count is None:
+            # return None
+
+    # need to extract predicate columns, predicate operators, and predicate
+    # values now.
+    pred_columns, pred_types, pred_vals = extract_predicates(sql)
+
+    from cardinality_estimation.query import Query
+    query = Query(sql, pred_columns, pred_vals, pred_types,
+            true_val, total_count, pg_est)
+    return query

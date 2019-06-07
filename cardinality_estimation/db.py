@@ -8,6 +8,8 @@ from cardinality_estimation.query import Query
 import klepto
 import time
 from collections import OrderedDict
+from multiprocessing import Pool
+import concurrent.futures
 
 SUBQUERY_TIMEOUT = 3*60000
 class DB():
@@ -304,14 +306,26 @@ class DB():
         sql_subqueries = gen_all_subqueries(sql_query)
         # TODO: create query objects for each subqueries
         queries = []
-        print("num of generated subqueries: ", len(sql_subqueries))
-        for i, sql in enumerate(sql_subqueries):
-            if i % 10 == 0:
-                print("generating: {} subquery".format(i))
-            query = self._sql_to_query_sample(sql)
-            if query is None:
-                continue
-            queries.append(query)
+
+        with Pool(processes=4) as pool:
+            args = [(cur_query, self.user, self.db_host, self.port,
+                self.pwd, self.db_name, total_count,
+                self.execution_cache_threshold, self.sql_cache) for
+                cur_query in sql_subqueries]
+            all_query_objs = pool.starmap(sql_to_query_object, args)
+        print("len all query objs: ", len(all_query_objs))
+        for q in all_query_objs:
+            queries.append(q)
+
+        # print("num of generated subqueries: ", len(sql_subqueries))
+        # for i, sql in enumerate(sql_subqueries):
+            # if i % 10 == 0:
+                # print("generating: {} subquery".format(i))
+            # query = self._sql_to_query_sample(sql)
+            # if query is None:
+                # continue
+            # queries.append(query)
+
         self.sql_cache[hashed_key] = queries
         self.sql_cache.dump()
         return queries
@@ -440,26 +454,39 @@ class DB():
         total_count = self.execute(count_query)[0][0]
 
         assert len(all_query_strs) == len(all_cmp_ops) == len(all_vals)
-        # FIXME: faster way to execute these in a batch
-        for i, cur_query in enumerate(all_query_strs):
-            if i % 100 == 0:
-                print("queries generated: ", i)
-            output = self.execute(cur_query)
-            print(output)
-            if output is None:
-                continue
-            # from query string, to Query object
-            true_val = output[0][0]
-            exp_query = "EXPLAIN " + cur_query
-            exp_output = self.execute(exp_query)
-            if exp_output is None:
-                continue
-            # FIXME: need to verify if this is correct in all cases
-            pg_est = pg_est_from_explain(exp_output)
 
-            query = Query(cur_query, pred_columns, all_vals[i], all_cmp_ops[i],
-                    true_val, total_count, pg_est)
-            queries.append(query)
+        print("num queries: ", len(all_query_strs))
+
+        # TODO: clean up code, thread seems pointless.
+        THREAD = False
+        if THREAD:
+            # We can use a with statement to ensure threads are cleaned up promptly
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                # Start the load operations and mark each future with its URL
+                future_to_queries = {executor.submit(sql_to_query_object, cur_query,
+                    self.user, self.db_host, self.port, self.pwd, self.db_name,
+                    total_count, self.execution_cache_threshold, self.sql_cache):
+                                            cur_query for cur_query in all_query_strs}
+                for future in concurrent.futures.as_completed(future_to_queries):
+                    cur_query = future_to_queries[future]
+                    print(cur_query)
+                    try:
+                        query_obj = future.result()
+                        queries.append(query_obj)
+                    except Exception as exc:
+                        print('%r generated an exception: %s' % (cur_query, exc))
+                    else:
+                        print('generated query object for: %s' % (query_obj))
+        else:
+            with Pool(processes=4) as pool:
+                args = [(cur_query, self.user, self.db_host, self.port,
+                    self.pwd, self.db_name, total_count,
+                    self.execution_cache_threshold, self.sql_cache) for
+                    cur_query in all_query_strs]
+                all_query_objs = pool.starmap(sql_to_query_object, args)
+            print("len all query objs: ", len(all_query_objs))
+            for q in all_query_objs:
+                queries.append(q)
 
         print("generated {} samples in {} secs".format(len(queries),
             time.time()-start))
