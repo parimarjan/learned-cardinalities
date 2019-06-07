@@ -298,18 +298,18 @@ class DB():
         hashed_key = deterministic_hash("subquery: " + query.query)
         queries = []
         if hashed_key in self.sql_cache.archive:
-            print("loading hashed key")
+            # print("loading hashed key")
             queries = self.sql_cache.archive[hashed_key]
             return queries
-
+        start = time.time()
         sql_query = query.query
         sql_subqueries = gen_all_subqueries(sql_query)
         # TODO: create query objects for each subqueries
         queries = []
 
-        with Pool(processes=4) as pool:
+        with Pool(processes=8) as pool:
             args = [(cur_query, self.user, self.db_host, self.port,
-                self.pwd, self.db_name, total_count,
+                self.pwd, self.db_name, None,
                 self.execution_cache_threshold, self.sql_cache) for
                 cur_query in sql_subqueries]
             all_query_objs = pool.starmap(sql_to_query_object, args)
@@ -325,7 +325,8 @@ class DB():
             # if query is None:
                 # continue
             # queries.append(query)
-
+        print("{} subqueries generated in {} seconds".format(
+            len(queries), time.time() - start))
         self.sql_cache[hashed_key] = queries
         self.sql_cache.dump()
         return queries
@@ -478,7 +479,7 @@ class DB():
                     else:
                         print('generated query object for: %s' % (query_obj))
         else:
-            with Pool(processes=4) as pool:
+            with Pool(processes=8) as pool:
                 args = [(cur_query, self.user, self.db_host, self.port,
                     self.pwd, self.db_name, total_count,
                     self.execution_cache_threshold, self.sql_cache) for

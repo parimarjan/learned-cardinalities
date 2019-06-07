@@ -9,6 +9,7 @@ import sqlparse
 import itertools
 import psycopg2 as pg
 from utils.utils import *
+from cardinality_estimation.query import Query
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
@@ -497,6 +498,25 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         sql_cache[hashed_sql] = exp_output
     return exp_output
 
+def _get_total_count_query(sql):
+    '''
+    @ret: sql query.
+    '''
+    froms = extract_from_clause(sql)
+    # FIXME: should be able to store this somewhere and not waste
+    # re-executing it always
+    from_clause = " , ".join(froms)
+    joins = extract_join_clause(sql)
+    join_clause = ' AND '.join(joins)
+    if len(join_clause) > 0:
+        from_clause += " WHERE " + join_clause
+    count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
+    return count_query
+    # total_count = self.execute(count_query, timeout=SUBQUERY_TIMEOUT)
+    # if total_count is None:
+        # return total_count
+    # return total_count[0][0]
+
 def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         total_count=None,execution_cache_threshold=None,
         sql_cache=None, timeout=None):
@@ -507,35 +527,36 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     '''
     if execution_cache_threshold is None:
         execution_cache_threshold = 60
-    print("sql to query sample")
-    print(sql)
+    # print("sql to query sample")
+    # print(sql)
     output = cached_execute_query(sql, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
     if output is None:
         return None
     # from query string, to Query object
     true_val = output[0][0]
-    print(true_val)
+    # print("true_val: ", true_val)
     exp_query = "EXPLAIN " + sql
     exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
     if exp_output is None:
         return None
     pg_est = pg_est_from_explain(exp_output)
-    print(pg_est)
+    # print("pg_est: ", pg_est)
 
     if total_count is None:
-        pass
-        ## FIXME!
-        # total_count = self._get_total_count(sql)
-        # if total_count is None:
-            # return None
+        total_count_query = _get_total_count_query(sql)
+        exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
+                execution_cache_threshold, sql_cache, timeout)
+        if exp_output is None:
+            return None
+        total_count = exp_output[0][0]
+        # print(total_count_query, total_count)
 
     # need to extract predicate columns, predicate operators, and predicate
     # values now.
     pred_columns, pred_types, pred_vals = extract_predicates(sql)
 
-    from cardinality_estimation.query import Query
     query = Query(sql, pred_columns, pred_vals, pred_types,
             true_val, total_count, pg_est)
     return query
