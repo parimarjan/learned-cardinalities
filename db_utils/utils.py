@@ -13,8 +13,7 @@ INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
 GROUPBY_TEMPLATE = "SELECT {COLS}, COUNT(*) FROM {FROM_CLAUSE} GROUP BY {COLS}"
 COUNT_SIZE_TEMPLATE = "SELECT COUNT(*) FROM {FROM_CLAUSE}"
 
-SELECT_ALL_COL_TEMPLATE = "SELECT {COL} FROM {TABLE} WHERE {COL} IS NOT NULL \
-AND random() < 0.01"
+SELECT_ALL_COL_TEMPLATE = "SELECT {COL} FROM {TABLE} WHERE {COL} IS NOT NULL"
 ALIAS_FORMAT = "{TABLE} AS {ALIAS}"
 MIN_TEMPLATE = "SELECT {COL} FROM {TABLE} WHERE {COL} IS NOT NULL ORDER BY {COL} ASC LIMIT 1"
 MAX_TEMPLATE = "SELECT {COL} FROM {TABLE} WHERE {COL} IS NOT NULL ORDER BY {COL} DESC LIMIT 1"
@@ -195,8 +194,11 @@ def extract_predicates(query):
             vals = pred[pred_type][1]
             # print(vals)
             # pdb.set_trace()
+            if isinstance(vals, dict):
+                vals = vals["literal"]
             if not isinstance(vals, list):
                 vals = [vals]
+
             predicate_types.append(pred_type)
             predicate_cols.append(column)
             predicate_vals.append(vals)
@@ -383,7 +385,7 @@ def _gen_subqueries(all_tables, wheres):
             cur_tables.append(all_tables[idx])
 
         matches = find_all_clauses(cur_tables, wheres)
-        print("matches: ", matches)
+        # print("matches: ", matches)
         # pdb.set_trace()
         cond_string = " AND ".join(matches)
         if cond_string != "":
@@ -393,12 +395,13 @@ def _gen_subqueries(all_tables, wheres):
         # the predicates must include a join in between them
         if len(cur_tables) > 1:
             all_joins = True
-            for alias in cur_tables:
+            for ctable in cur_tables:
                 joined = False
                 for match in matches:
-                    if match.count(".") == 2:
-                        # FIXME: so hacky ugh.
-                        if (" " + alias + "." in " " + match):
+                    # FIXME: so hacky ugh. more band-aid
+                    if match.count(".") == 2 \
+                            and "=" in match:
+                        if (" " + ctable + "." in " " + match):
                             joined = True
                 if not joined:
                     all_joins = False
@@ -407,10 +410,18 @@ def _gen_subqueries(all_tables, wheres):
                 continue
         from_clause = " , ".join(cur_tables)
         query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause) + cond_string
-        # print(query)
-        # pdb.set_trace()
+        # final sanity checks
+        joins = extract_join_clause(query)
+        tables = extract_from_clause(query)
+        # stuff i was doing before was letting queries come up that weren't
+        # joined completely
+        if len(tables) != len(joins)+1:
+            # print(query)
+            # pdb.set_trace()
+            continue
         all_subqueries.append(query)
 
+    print("num generated subqueries: ", len(all_subqueries))
     return all_subqueries
 
 def gen_all_subqueries(query):
@@ -419,18 +430,18 @@ def gen_all_subqueries(query):
     @ret: [sql strings], that represent all subqueries excluding cross-joins.
     FIXME: mix-match of moz_sql_parser AND sqlparse...
     '''
-    print("gen all subqueries!")
-    print(query)
+    # print("gen all subqueries!")
+    # print(query)
     tables = extract_from_clause(query)
     parsed = sqlparse.parse(query)[0]
-    print(tables)
+    # print(tables)
     # let us go over all the where clauses
     where_clauses = None
     for token in parsed.tokens:
         if (type(token) == sqlparse.sql.Where):
             where_clauses = token
     assert where_clauses is not None
-    print(where_clauses)
+    # print(where_clauses)
     # pdb.set_trace()
     all_subqueries = _gen_subqueries(tables, where_clauses)
     return all_subqueries

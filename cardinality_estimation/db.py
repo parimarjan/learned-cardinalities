@@ -9,6 +9,7 @@ import klepto
 import time
 from collections import OrderedDict
 
+SUBQUERY_TIMEOUT = 3*60000
 class DB():
 
     def __init__(self, user, pwd, db_host, port, db_name,
@@ -33,8 +34,8 @@ class DB():
         # TODO: collect other stats about each table in the DB etc.
         # get a random sample of values from each column so we can use it to
         # generate sensible queries
-        self.con = pg.connect(user=self.user, host=self.db_host, port=self.port,
-                password=self.pwd, database=self.db_name)
+        # self.con = pg.connect(user=self.user, host=self.db_host, port=self.port,
+                # password=self.pwd, database=self.db_name)
         self.sql_cache = klepto.archives.dir_archive(cache_dir)
         # self.sql_cache = klepto.archives.dir_archive()
 
@@ -56,7 +57,7 @@ class DB():
         '''
         pass
 
-    def execute(self, sql):
+    def execute(self, sql, timeout=None):
         '''
         executes the given sql on the DB, and caches the results in a
         persistent store if it took longer than self.execution_cache_threshold.
@@ -74,16 +75,26 @@ class DB():
             return self.sql_cache.archive[hashed_sql]
         start = time.time()
 
-        cursor = self.con.cursor()
+        con = pg.connect(user=self.user, host=self.db_host, port=self.port,
+                password=self.pwd, database=self.db_name)
+        cursor = con.cursor()
+        if timeout is not None:
+            cursor.execute("SET statement_timeout = {}".format(timeout))
         try:
             cursor.execute(sql)
         except Exception as e:
             print("query failed to execute: ", sql)
             print(e)
-            pdb.set_trace()
-            return None
+            cursor.execute("ROLLBACK")
+            con.commit()
+            cursor.close()
+            con.close()
+            print("returning arbitrary large value for now")
+            return [[1000000]]
+            # return None
         exp_output = cursor.fetchall()
         cursor.close()
+        con.close()
         end = time.time()
         if (end - start > self.execution_cache_threshold):
             # print(hashed_sql)
@@ -172,6 +183,9 @@ class DB():
             val = query.vals[i]
 
             if cmp_op == "in":
+                # bandaid...
+                if isinstance(val[0], dict):
+                    val = val[0]["literal"]
                 val = set(val)
                 # if len(val) <= num_pred_vals:
                     # print(query)
@@ -233,7 +247,7 @@ class DB():
         '''
         print("sql to query sample")
         print(sql)
-        output = self.execute(sql)
+        output = self.execute(sql, timeout=SUBQUERY_TIMEOUT)
         if output is None:
             return None
         # from query string, to Query object
@@ -246,6 +260,8 @@ class DB():
         pg_est = pg_est_from_explain(exp_output)
         print(pg_est)
         total_count = self._get_total_count(sql)
+        if total_count is None:
+            return None
 
         # need to extract predicate columns, predicate operators, and predicate
         # values now.
@@ -265,9 +281,11 @@ class DB():
             from_clause += " WHERE " + join_clause
         count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
         print(count_query)
-        total_count = self.execute(count_query)[0][0]
-        print("total: ", total_count)
-        return total_count
+        total_count = self.execute(count_query, timeout=SUBQUERY_TIMEOUT)
+        if total_count is None:
+            return total_count
+        return total_count[0][0]
+        # return total_count
 
     def gen_subqueries(self, query):
         '''
@@ -286,8 +304,13 @@ class DB():
         sql_subqueries = gen_all_subqueries(sql_query)
         # TODO: create query objects for each subqueries
         queries = []
-        for sql in sql_subqueries:
+        print("num of generated subqueries: ", len(sql_subqueries))
+        for i, sql in enumerate(sql_subqueries):
+            if i % 10 == 0:
+                print("generating: {} subquery".format(i))
             query = self._sql_to_query_sample(sql)
+            if query is None:
+                continue
             queries.append(query)
         self.sql_cache[hashed_key] = queries
         self.sql_cache.dump()
@@ -373,10 +396,12 @@ class DB():
                         pass
                     elif pred_types[i] == "in":
                         max_col_vals = self.column_stats[col]["num_values"]
+                        max_col_vals = min(max_col_vals, 100)
                         num_pred_vals = random.randint(1,max_col_vals)
                         # find this many values randomly from the given col, and
                         # update col_vals with it.
-                        vals = ["'{}'".format(random.choice(col_all_vals[i])[0]) for k in range(num_pred_vals)]
+                        vals = ["'{}'".format(random.choice(col_all_vals[i])[0].replace("'",""))
+                                    for k in range(num_pred_vals)]
                         vals = [s for s in set(vals)]
                         vals.sort()
                         pred_str = ",".join(vals)

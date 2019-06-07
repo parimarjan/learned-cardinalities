@@ -112,6 +112,13 @@ def compute_join_order_loss(alg, queries, db, use_subqueries,
     env = park.make('query_optimizer')
     # Set queries
     query_dict = {}
+
+    # TMP: debugging, hardcoded-queries
+    # queries = queries[0:1]
+    # fname = "/home/pari/query-optimizer/simple-queries/0.sql"
+    # with open(fname, "r") as f:
+        # queries[0].query = f.read()
+
     for i, q in enumerate(queries):
         query_dict[i] = q.query
 

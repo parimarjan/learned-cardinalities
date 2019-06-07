@@ -19,6 +19,12 @@ import random
 import itertools
 import klepto
 
+def get_loss_name(loss_name):
+    if "qerr" in loss_name:
+        return "qerr"
+    elif "join" in loss_name:
+        return "join"
+
 def get_alg(alg):
     if alg == "independent":
         return Independent()
@@ -266,9 +272,10 @@ def main():
         samples = nonzero_samples
 
     if args.use_subqueries:
-        for q in samples:
+        for i, q in enumerate(samples):
             q.subqueries = db.gen_subqueries(q)
-            print("{} subqueries generated".format(len(q.subqueries)))
+            if i % 10 == 0:
+                print("{} subqueries generated for query {}".format(len(q.subqueries), i))
 
     samples = remove_doubles(samples)
 
@@ -285,6 +292,8 @@ def main():
         losses.append(get_loss(loss_name))
 
     print("going to run algorithms: ", args.algs)
+    print("num train queries: ", len(train_queries))
+    print("num test queries: ", len(test_queries))
     # this is deterministic, so just using it to store this in the saved data.
     for alg in algorithms:
         start = time.time()
@@ -305,15 +314,15 @@ def main():
             result["loss-type"].append(loss_func.__name__)
             result["loss"].append(cur_loss)
             result["test-set"].append(0)
-
+            # lname = get_loss_name(loss_func.__name__)
             print("case: {}: training-set, alg: {}, samples: {}, train_time: {}, {}: {}"\
                     .format(args.db_name, alg, len(train_queries), train_time,
-                        loss_func.__name__, cur_loss))
-
+                        get_loss_name(loss_func.__name__), round(cur_loss,3)))
         if args.test:
             start = time.time()
             test_time = round(time.time() - start, 2)
             for loss_func in losses:
+                lname = get_loss_name(loss_func.__name__)
                 cur_loss = loss_func(alg, test_queries, db,
                         args.use_subqueries, baseline=args.baseline_join_alg)
                 init_result_row(result)
@@ -325,7 +334,7 @@ def main():
                 result["test-set"].append(1)
                 print("case: {}: test-set, alg: {}, samples: {}, test_time: {}, {}: {}"\
                         .format(args.db_name, alg, len(test_queries),
-                            test_time, loss_func.__name__, cur_loss))
+                            test_time, lname, round(cur_loss,3)))
 
         ## generate bar plot with how errors are spread out.
         # ytrue = [t.true_count for t in test_queries]
