@@ -212,7 +212,10 @@ class BN(CardinalityEstimationAlg):
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
                 continue
+            start = time.time()
             model_sample = _query_to_sample(query)
+            print("generating model sample took {} seconds"\
+                    .format(time.time()-start))
             # FIXME: generalize
             all_points = model_sample
             # FIXME: ugh
@@ -237,6 +240,7 @@ class BN(CardinalityEstimationAlg):
                     model_sample[1])).T.reshape(-1,2)
             else:
                 assert False
+            print("total points to evaluate: ", len(all_points))
             # we shouldn't assume the order of column names in the trained model
             # est_sel = self.get_selectivity(sample)
             # print(est_sel)
@@ -246,6 +250,7 @@ class BN(CardinalityEstimationAlg):
 
             # print(all_points[0])
             # print(self.model.marginal()[0])
+            start = time.time()
             if self.db.db_name == "imdb":
                 est_sel = 0.0
                 for p in all_points:
@@ -257,7 +262,8 @@ class BN(CardinalityEstimationAlg):
                         continue
             else:
                 est_sel = np.sum(self.model.probability(all_points))
-
+            print("evaluating {} points took {} seconds"\
+                    .format(len(all_points), time.time()-start))
             self.test_cache[hashed_query] = est_sel
             estimates.append(est_sel)
         return np.array(estimates)

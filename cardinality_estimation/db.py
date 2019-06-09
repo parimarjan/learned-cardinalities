@@ -3,6 +3,7 @@ import pdb
 import time
 import random
 from db_utils.utils import *
+from db_utils.query_generator import QueryGenerator
 from utils.utils import *
 from cardinality_estimation.query import Query
 import klepto
@@ -236,58 +237,13 @@ class DB():
                 assert lb_val <= ub_val
                 feature_vector[pred_idx_start] = lb_val
                 feature_vector[pred_idx_start+1] = ub_val
+            elif cmp_op == "eq":
+                # FIXME: !!
+                continue
             else:
                 assert False
 
         return feature_vector
-
-    def _sql_to_query_sample(self, sql):
-        '''
-        TODO: ideally, should be separate from the DB class.
-        @sql: string sql.
-        @ret: Query object with all fields appropriately initialized.
-        '''
-        print("sql to query sample")
-        print(sql)
-        output = self.execute(sql, timeout=SUBQUERY_TIMEOUT)
-        if output is None:
-            return None
-        # from query string, to Query object
-        true_val = output[0][0]
-        print(true_val)
-        exp_query = "EXPLAIN " + sql
-        exp_output = self.execute(exp_query)
-        if exp_output is None:
-            return None
-        pg_est = pg_est_from_explain(exp_output)
-        print(pg_est)
-        total_count = self._get_total_count(sql)
-        if total_count is None:
-            return None
-
-        # need to extract predicate columns, predicate operators, and predicate
-        # values now.
-        pred_columns, pred_types, pred_vals = extract_predicates(sql)
-        query = Query(sql, pred_columns, pred_vals, pred_types,
-                true_val, total_count, pg_est)
-        return query
-
-    def _get_total_count(self, sql):
-        froms = extract_from_clause(sql)
-        # FIXME: should be able to store this somewhere and not waste
-        # re-executing it always
-        from_clause = " , ".join(froms)
-        joins = extract_join_clause(sql)
-        join_clause = ' AND '.join(joins)
-        if len(join_clause) > 0:
-            from_clause += " WHERE " + join_clause
-        count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
-        print(count_query)
-        total_count = self.execute(count_query, timeout=SUBQUERY_TIMEOUT)
-        if total_count is None:
-            return total_count
-        return total_count[0][0]
-        # return total_count
 
     def gen_subqueries(self, query):
         '''
@@ -313,18 +269,8 @@ class DB():
                 self.execution_cache_threshold, self.sql_cache) for
                 cur_query in sql_subqueries]
             all_query_objs = pool.starmap(sql_to_query_object, args)
-        print("len all query objs: ", len(all_query_objs))
         for q in all_query_objs:
             queries.append(q)
-
-        # print("num of generated subqueries: ", len(sql_subqueries))
-        # for i, sql in enumerate(sql_subqueries):
-            # if i % 10 == 0:
-                # print("generating: {} subquery".format(i))
-            # query = self._sql_to_query_sample(sql)
-            # if query is None:
-                # continue
-            # queries.append(query)
         print("{} subqueries generated in {} seconds".format(
             len(queries), time.time() - start))
         self.sql_cache[hashed_key] = queries
@@ -382,67 +328,9 @@ class DB():
             # generate just the remaining queries
             num_samples -= len(queries)
 
-        ## FIXME: this can be simplified for sure...
-        # sample for each column based on the predicate_type for that
-        # column, and then finally fill in the template
-        all_query_strs = []
-        all_cmp_ops = []
-        all_vals = []
-
-        # Will loop over stuff until enough samples generated. Let's
-        # collect values for each of the columns first.
-        col_all_vals = [None]*len(pred_columns)
-        for i, col in enumerate(pred_columns):
-            # assumes table.col format in the predicates
-            col_table = col[0:col.find(".")]
-            all_vals_query = SELECT_ALL_COL_TEMPLATE.format(COL = col,
-                    TABLE = col_table)
-            col_all_vals[i] = self.execute(all_vals_query)
-
-        # FIXME: improve performance by executing these in a batch.
-        while len(all_query_strs) < num_samples:
-            cur_query = query_template
-            cur_cmp_ops = []
-            cur_vals = []
-            try:
-                for i, col in enumerate(pred_columns):
-                    cur_cmp_ops.append(pred_types[i])
-                    if pred_types[i] == "eq":
-                        pass
-                    elif pred_types[i] == "in":
-                        max_col_vals = self.column_stats[col]["num_values"]
-                        max_col_vals = min(max_col_vals, 100)
-                        num_pred_vals = random.randint(1,max_col_vals)
-                        # find this many values randomly from the given col, and
-                        # update col_vals with it.
-                        vals = ["'{}'".format(random.choice(col_all_vals[i])[0].replace("'",""))
-                                    for k in range(num_pred_vals)]
-                        vals = [s for s in set(vals)]
-                        vals.sort()
-                        pred_str = ",".join(vals)
-                        cur_vals.append(vals)
-                        # remove the table name from col
-                        unknown_pred = "X" + col[col.find(".")+1:]
-                        cur_query = cur_query.replace(unknown_pred, pred_str)
-                    elif pred_types[i] == "lte" or pred_types[i] == "lt":
-                        val1 = random.choice(col_all_vals[i])[0]
-                        val2 = random.choice(col_all_vals[i])[0]
-                        low_pred = "X" + col[col.find(".")+1:]
-                        high_pred = "Y" + col[col.find(".")+1:]
-                        low_val = str(min(val1, val2))
-                        high_val = str(max(val1, val2))
-                        cur_query = cur_query.replace(low_pred, low_val)
-                        cur_query = cur_query.replace(high_pred, high_val)
-                        cur_vals.append((low_val, high_val))
-            except Exception as e:
-                print(e)
-                print("exception!")
-                pdb.set_trace()
-                continue
-
-            all_query_strs.append(cur_query)
-            all_cmp_ops.append(cur_cmp_ops)
-            all_vals.append(cur_vals)
+        qg = QueryGenerator(query_template, self.user, self.db_host, self.port,
+                self.pwd, self.db_name)
+        all_query_strs = qg.gen_queries(num_samples)
 
         # get total count
         from_clause = ','.join(froms)
@@ -453,8 +341,6 @@ class DB():
         # total count, without any predicates being applied
         count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
         total_count = self.execute(count_query)[0][0]
-
-        assert len(all_query_strs) == len(all_cmp_ops) == len(all_vals)
 
         print("num queries: ", len(all_query_strs))
 
@@ -470,7 +356,6 @@ class DB():
                                             cur_query for cur_query in all_query_strs}
                 for future in concurrent.futures.as_completed(future_to_queries):
                     cur_query = future_to_queries[future]
-                    print(cur_query)
                     try:
                         query_obj = future.result()
                         queries.append(query_obj)
@@ -485,7 +370,6 @@ class DB():
                     self.execution_cache_threshold, self.sql_cache) for
                     cur_query in all_query_strs]
                 all_query_objs = pool.starmap(sql_to_query_object, args)
-            print("len all query objs: ", len(all_query_objs))
             for q in all_query_objs:
                 queries.append(q)
 

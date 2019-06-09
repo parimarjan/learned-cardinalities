@@ -9,7 +9,6 @@ import sqlparse
 import itertools
 import psycopg2 as pg
 from utils.utils import *
-from cardinality_estimation.query import Query
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
@@ -461,7 +460,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         return sql_cache[hashed_sql]
 
     # archive only considers the stuff stored in disk
-    if hashed_sql in sql_cache.archive:
+    if sql_cache is not None and hashed_sql in sql_cache.archive:
         # load it and return
         print("loaded {} from cache".format(hashed_sql))
         # pdb.set_trace()
@@ -491,10 +490,6 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
     end = time.time()
     if (end - start > execution_cache_threshold) \
             and sql_cache is not None:
-        # print(hashed_sql)
-        # print(sql)
-        # print(exp_output)
-        # pdb.set_trace()
         sql_cache[hashed_sql] = exp_output
     return exp_output
 
@@ -551,12 +546,12 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         if exp_output is None:
             return None
         total_count = exp_output[0][0]
-        # print(total_count_query, total_count)
 
     # need to extract predicate columns, predicate operators, and predicate
     # values now.
     pred_columns, pred_types, pred_vals = extract_predicates(sql)
 
+    from cardinality_estimation.query import Query
     query = Query(sql, pred_columns, pred_vals, pred_types,
             true_val, total_count, pg_est)
     return query

@@ -24,6 +24,10 @@ def get_loss_name(loss_name):
         return "qerr"
     elif "join" in loss_name:
         return "join"
+    elif "abs" in loss_name:
+        return "abs"
+    elif "rel" in loss_name:
+        return "rel"
 
 def get_alg(alg):
     if alg == "independent":
@@ -268,6 +272,10 @@ def main():
         for s in samples:
             if s.true_sel != 0.00:
                 nonzero_samples.append(s)
+            # else:
+                # print("zero sample!")
+                # print(s)
+                # pdb.set_trace()
         print("len nonzero samples: ", len(nonzero_samples))
         samples = nonzero_samples
 
