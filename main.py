@@ -35,7 +35,8 @@ def get_alg(alg):
     elif alg == "postgres":
         return Postgres()
     elif alg == "chow":
-        return BN(alg="chow-liu", num_bins=args.num_bins)
+        return BN(alg="chow-liu", num_bins=args.num_bins,
+                        avg_factor=args.avg_factor)
     elif alg == "bn-exact":
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn1":
@@ -168,17 +169,17 @@ def main():
     def init_result_row(result):
         means, covs = get_gaussian_data_params()
         result["dbname"].append(args.db_name)
-        result["num_vals"].append(len(test_queries))
         result["template_dir"].append(args.template_dir)
         result["seed"].append(args.random_seed)
         result["means"].append(means)
         result["covs"].append(covs)
         result["args"].append(args)
         result["num_bins"].append(args.num_bins)
+        result["avg_factor"].append(args.avg_factor)
+        result["num_columns"].append(len(db.column_stats))
 
     if args.gen_synth_data:
         gen_synth_data()
-    # elif args.db_name == "osm":
     elif "osm" in args.db_name:
         # if the table doesn't already exist, then load it in
         con = pg.connect(user=args.user, host=args.db_host, port=args.port,
@@ -222,6 +223,24 @@ def main():
             db_vacuum(con, cur)
             cur.close()
             con.close()
+
+    elif "dmv" in args.db_name:
+        # if the table doesn't already exist, then load it in
+        print("going to setup dmv")
+        con = pg.connect(user=args.user, host=args.db_host, port=args.port,
+                password=args.pwd, database=args.db_name)
+        cur = con.cursor()
+        table_name = args.db_name
+        exists = check_table_exists(cur, table_name)
+        if not exists:
+            from sqlalchemy import create_engine
+            df = pd.read_csv("/data/pari/dmv.csv")
+            no_space_column_names = []
+            for k in df.keys():
+                no_space_column_names.append(k.replace(" ", "_").lower())
+            df.columns = no_space_column_names
+            engine = create_engine('postgresql://pari@localhost:5432/dmv')
+            df.to_sql(table_name, engine)
 
     db = DB(args.user, args.pwd, args.db_host, args.port,
             args.db_name)
@@ -310,46 +329,47 @@ def main():
         train_time = round(time.time() - start, 2)
         print("{}, train-time: {}".format(alg, train_time))
 
+        eval_time = None
         for loss_func in losses:
             start = time.time()
             cur_loss = loss_func(alg, train_queries, db, args.use_subqueries,
                     baseline=args.baseline_join_alg)
-            test_time = round(time.time() - start, 2)
+            if eval_time is None:
+                eval_time = round(time.time() - start, 2)
             init_result_row(result)
             result["train-time"].append(train_time)
-            result["test-time"].append(test_time)
+            result["eval-time"].append(eval_time)
             result["alg_name"].append(alg.__str__())
             result["loss-type"].append(loss_func.__name__)
             result["loss"].append(cur_loss)
             result["test-set"].append(0)
+            result["num_vals"].append(len(train_queries))
             # lname = get_loss_name(loss_func.__name__)
             print("case: {}: training-set, alg: {}, samples: {}, train_time: {}, {}: {}"\
                     .format(args.db_name, alg, len(train_queries), train_time,
                         get_loss_name(loss_func.__name__), round(cur_loss,3)))
+
         if args.test:
             start = time.time()
-            test_time = round(time.time() - start, 2)
+            eval_time = None
             for loss_func in losses:
                 lname = get_loss_name(loss_func.__name__)
                 cur_loss = loss_func(alg, test_queries, db,
                         args.use_subqueries, baseline=args.baseline_join_alg)
+                if eval_time is None:
+                    # since testing results are cached right now.
+                    eval_time = time.time() - start
                 init_result_row(result)
                 result["train-time"].append(train_time)
-                result["test-time"].append(test_time)
+                result["eval-time"].append(eval_time)
                 result["alg_name"].append(alg.__str__())
                 result["loss-type"].append(loss_func.__name__)
                 result["loss"].append(cur_loss)
                 result["test-set"].append(1)
+                result["num_vals"].append(len(test_queries))
                 print("case: {}: test-set, alg: {}, samples: {}, test_time: {}, {}: {}"\
                         .format(args.db_name, alg, len(test_queries),
-                            test_time, lname, round(cur_loss,3)))
-
-        ## generate bar plot with how errors are spread out.
-        # ytrue = [t.true_count for t in test_queries]
-        # yhat_abs = []
-        # for i, y in enumerate(yhat):
-            # yhat_abs.append(y*queries[i].total_count)
-        # errors = np.abs(np.array(yhat_abs) - np.array(ytrue))
+                            eval_time, lname, round(cur_loss,3)))
 
     df = pd.DataFrame(result)
     file_name = gen_results_name()
@@ -421,6 +441,8 @@ def read_flags():
             default=1)
     parser.add_argument("--num_bins", type=int, required=False,
             default=10)
+    parser.add_argument("--avg_factor", type=int, required=False,
+            default=1)
     parser.add_argument("--test_size", type=float, required=False,
             default=0.5)
     parser.add_argument("--algs", type=str, required=False,
