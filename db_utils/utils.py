@@ -415,15 +415,16 @@ def _gen_subqueries(all_tables, wheres):
         # final sanity checks
         joins = extract_join_clause(query)
         tables = extract_from_clause(query)
-        # stuff i was doing before was letting queries come up that weren't
-        # joined completely
+        # Note: suppose 3 tables clique, then it is possible to have 3 joins as
+        # well. But a join-order algorithm would never care about the
+        # cardinality of such a join.
         if len(tables) != len(joins)+1:
             # print(query)
             # pdb.set_trace()
             continue
         all_subqueries.append(query)
 
-    print("num generated subqueries: ", len(all_subqueries))
+    # print("num generated subqueries: ", len(all_subqueries))
     return all_subqueries
 
 def gen_all_subqueries(query):

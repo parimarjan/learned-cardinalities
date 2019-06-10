@@ -23,6 +23,7 @@ class QueryGenerator():
         '''
         @ret: [sql queries]
         '''
+        start = time.time()
         pred_columns, pred_types, pred_strs = extract_predicates(self.query_template)
         froms = extract_from_clause(self.query_template)
         joins = extract_join_clause(self.query_template)
@@ -47,10 +48,10 @@ class QueryGenerator():
                                 100, None, None)
                         self.valid_pred_vals[col] = output
 
-
-                    min_val = max(1, len(self.valid_pred_vals[col]) / 1000)
+                    min_val = 1
                     # replace pred_sql by a value from the valid ones
                     num_pred_vals = random.randint(min_val, self.max_in_vals)
+
                     # # find this many values randomly from the given col, and
                     # # update col_vals with it.
                     vals = ["'{}'".format(random.choice(self.valid_pred_vals[col])[0].replace("'",""))
@@ -61,19 +62,27 @@ class QueryGenerator():
                     gen_query = gen_query.replace("'" + pred_sql + "'", new_pred_str)
 
                 elif pred_types[i] == "lte" or pred_types[i] == "lt":
-                    pass
-                    # val1 = random.choice(col_all_vals[i])[0]
-                    # val2 = random.choice(col_all_vals[i])[0]
-                    # low_pred = "X" + col[col.find(".")+1:]
-                    # high_pred = "Y" + col[col.find(".")+1:]
-                    # low_val = str(min(val1, val2))
-                    # high_val = str(max(val1, val2))
-                    # cur_query = cur_query.replace(low_pred, low_val)
-                    # cur_query = cur_query.replace(high_pred, high_val)
-                    # cur_vals.append((low_val, high_val))
+                    assert len(pred_str) == 2
+                    if col not in self.valid_pred_vals:
+                        sel_query = SELECT_ALL_COL_TEMPLATE.format(COL = col,
+                                                TABLE = col[0:col.find(".")])
+                        output = cached_execute_query(sel_query, self.user,
+                                self.db_host, self.port, self.pwd, self.db_name,
+                                100, None, None)
+                        self.valid_pred_vals[col] = output
+
+                    val1 = random.choice(self.valid_pred_vals[col])[0]
+                    val2 = random.choice(self.valid_pred_vals[col])[0]
+                    low_pred = "X" + col[col.find(".")+1:]
+                    high_pred = "Y" + col[col.find(".")+1:]
+                    low_val = str(min(val1, val2))
+                    high_val = str(max(val1, val2))
+                    gen_query = gen_query.replace(low_pred, low_val)
+                    gen_query = gen_query.replace(high_pred, high_val)
 
             all_query_strs.append(gen_query)
-        print(len(all_query_strs))
+        print("{} took {} seconds to generate".format(len(all_query_strs),
+            time.time()-start))
         return all_query_strs
         # pdb.set_trace()
 
