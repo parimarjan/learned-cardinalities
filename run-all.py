@@ -124,7 +124,7 @@ def plot_losses(df, pdf):
             ax = sns.barplot(x="num_columns", y="loss", hue="alg_name",
                     data=cur_df, estimator=np.mean, ci=75)
         else:
-            ax = sns.barplot(x="test-set", y="loss", hue="alg_name",
+            ax = sns.barplot(x="alg_name", y="loss", hue="alg_name",
                     data=cur_df, estimator=np.mean, ci=75)
 
         fig = ax.get_figure()
@@ -149,7 +149,18 @@ def plot_synth():
         orig_df["num_columns"] = orig_df.apply(lambda row: len(row["means"]),
                 axis=1)
     orig_df = orig_df[orig_df["dbname"] == args.db_name]
+    orig_df = orig_df[orig_df["test-set"] == 0]
+    # temporary solutions
+    # orig_df.loc[orig_df.alg_name == "BN-chow-liu-bins100-avg_factor1",
+            # "alg_name"] = "BN-chow-liu"
+    # orig_df.loc[orig_df.alg_name == "BN-exact-dp-bins100-avg_factor1",
+            # "alg_name"] = "BN-exact-dp"
+
     print(orig_df.keys())
+    ## groupby stuff:
+    gb = orig_df.groupby(["alg_name", "loss-type", "num_bins"]).mean()
+    gb = gb.xs("compute_qerror", level=1)
+    print(gb)
     pdb.set_trace()
     ## parameters
     firstPage = plt.figure()
@@ -166,13 +177,13 @@ def plot_synth():
     pdf.savefig()
     plt.close()
 
-    ## training / test-time
+    ## training / eval-time
 
     if "synth" in args.db_name:
         ax = sns.barplot(x="num_columns", y="train-time", hue="alg_name",
                 data=orig_df, estimator=np.mean, ci=75)
     else:
-        ax = sns.barplot(x="test-set", y="train-time", hue="alg_name",
+        ax = sns.barplot(x="alg_name", y="train-time", hue="alg_name",
                 data=orig_df, estimator=np.mean, ci=75)
 
     fig = ax.get_figure()
@@ -182,27 +193,24 @@ def plot_synth():
     plt.clf()
 
     if "synth" in args.db_name:
-        ax = sns.barplot(x="num_columns", y="test-time", hue="alg_name",
+        ax = sns.barplot(x="num_columns", y="eval-time", hue="alg_name",
                 data=orig_df, estimator=np.mean, ci=75)
     else:
-        ax = sns.barplot(x="test-set", y="test-time", hue="alg_name",
+        ax = sns.barplot(x="alg_name", y="eval-time", hue="alg_name",
                 data=orig_df, estimator=np.mean, ci=75)
 
     fig = ax.get_figure()
     # fig.get_axes()[0].set_yscale('log')
-    plt.title("Test Time (seconds)")
+    plt.title("Evaluaton Time (seconds)")
     plt.tight_layout()
     pdf.savefig()
     plt.clf()
 
-    ## groupby stuff:
-    # gb = orig_df.groupby(["alg_name", "loss-type", "num_columns"]).mean()
-    # gb.xs("compute_abs_loss", level=1)
 
-    # per experiment plots
     plot_losses(orig_df, pdf)
 
     for i, fn in enumerate(fns):
+        continue
         df = load_object(fn)
         if "dbname" not in df:
             continue
@@ -215,10 +223,10 @@ def plot_synth():
         firstPage.clf()
         txt = "Experiment: " + exp_hash + "\n"
         txt += "DB: " + str(set(df["dbname"])) + "\n"
-        txt += "means: \n"
-        txt += str(df["means"][0]) + "\n"
-        txt += "covs: \n"
-        txt += str(df["covs"][0]) + "\n"
+        # txt += "means: \n"
+        # txt += str(df["means"][0]) + "\n"
+        # txt += "covs: \n"
+        # txt += str(df["covs"][0]) + "\n"
         firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
         pdf.savefig()
         plt.clf()
@@ -231,11 +239,21 @@ def plot_synth():
             plt.title(img_name)
             pdf.savefig()
             plt.clf()
+        # FIXME:
+        # also do this
+        bn_imgs = glob.glob(args.result_dir + "/*" + exp_hash + "*.pdf")
+        for img_name in bn_imgs:
+            img = mpimg.imread(img_name)
+            imgplot = plt.imshow(img)
+            plt.title(img_name)
+            pdf.savefig()
+            plt.clf()
 
-        if "num_columns" not in df:
-            df["num_columns"] = df.apply(lambda row: len(row["means"]),
-                    axis=1)
-        plot_losses(df, pdf)
+        # if "num_columns" not in df:
+            # df["num_columns"] = df.apply(lambda row: len(row["means"]),
+                    # axis=1)
+        # no point in plotting each individual loss ...
+        # plot_losses(df, pdf)
 
     pdf.close()
 

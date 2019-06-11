@@ -307,11 +307,14 @@ class DB():
                                             COL   = column)
             count_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
                                                       COL = column)
+            total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
+
             if column not in self.column_stats:
                 self.column_stats[column] = {}
                 self.column_stats[column]["min_value"] = self.execute(min_query)[0][0]
                 self.column_stats[column]["max_value"] = self.execute(max_query)[0][0]
                 self.column_stats[column]["num_values"] = self.execute(count_query)[0][0]
+                self.column_stats[column]["total_vals"] = self.execute(total_count_query)[0][0]
 
         print("collected stats on all columns")
         # first, try and see if we have enough queries with the given template

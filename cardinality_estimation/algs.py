@@ -10,6 +10,7 @@ from utils.net import SimpleRegression
 from cardinality_estimation.losses import *
 import pandas as pd
 import json
+from multiprocessing import Pool
 
 class CardinalityEstimationAlg():
 
@@ -57,10 +58,17 @@ class BN(CardinalityEstimationAlg):
             self.num_bins = kwargs["num_bins"]
         else:
             self.num_bins = 5
+
+        if "avg_factor" in kwargs:
+            self.avg_factor = kwargs["avg_factor"]
+        else:
+            self.avg_factor = 1
+
         print("num bins: ", self.num_bins)
         self.model = None
         # non-persistent cast, just to avoid running same alg again
         self.test_cache = {}
+        self.min_groupby = 2
 
     def train(self, db, training_samples, **kwargs):
         # generate the group-by over all the columns we care about.
@@ -72,6 +80,13 @@ class BN(CardinalityEstimationAlg):
             self._load_osm_model(db, training_samples, **kwargs)
         elif "imdb" in db.db_name:
             self._load_imdb_model(db, training_samples, **kwargs)
+        elif "dmv" in db.db_name:
+            # self.model = self.load_model()
+            if self.model is None:
+                self._load_dmv_model(db, training_samples, **kwargs)
+        else:
+            assert False
+
         self.save_model()
 
     def _load_osm_model(self, db, training_samples, **kwargs):
@@ -119,6 +134,38 @@ class BN(CardinalityEstimationAlg):
         self.model = BayesianNetwork.from_samples(samples, weights=weights,
                 state_names=columns, algorithm=self.alg, n_jobs=-1)
 
+    def _load_dmv_model(self, db, training_samples, **kwargs):
+        columns = list(db.column_stats.keys())
+        columns_str = ",".join(columns)
+        # sel_all = "SELECT {COLS} FROM dmv".format(COLS = columns_str)
+        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE="dmv")
+        # group_by += " ORDER BY COUNT(*) DESC"
+        group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
+        print(group_by)
+        # TODO: use db_utils
+        groupby_output = db.execute(group_by)
+        print("output len: ", len(groupby_output))
+
+        start = time.time()
+        samples = []
+        weights = []
+        for i, sample in enumerate(groupby_output):
+            samples.append([])
+            for j in range(len(sample)-1):
+                if sample[j] is None:
+                    # FIXME: what should be the sentinel value?
+                    samples[i].append("-1")
+                else:
+                    samples[i].append(sample[j])
+            weights.append(sample[j+1])
+        samples = np.array(samples)
+        weights = np.array(weights)
+        print(samples.shape)
+        print(weights.shape)
+        print("constructing samples took: ", time.time()-start)
+        self.model = BayesianNetwork.from_samples(samples, weights=weights,
+                state_names=columns, algorithm=self.alg, n_jobs=-1)
+
     def _load_imdb_model(self, db, training_samples, **kwargs):
         # tables = [t for t in db.tables]
         # columns = list(db.column_stats.keys())
@@ -151,8 +198,9 @@ class BN(CardinalityEstimationAlg):
             weights.append(sample[j+1])
         samples = np.array(samples)
         weights = np.array(weights)
-        self.model = BayesianNetwork.from_samples(samples, weights=weights,
-                state_names=pred_columns, algorithm=self.alg, n_jobs=-1)
+        if self.model is None:
+            self.model = BayesianNetwork.from_samples(samples, weights=weights,
+                    state_names=pred_columns, algorithm=self.alg, n_jobs=-1)
 
     def test(self, db, test_samples):
         def _query_to_sample(sample):
@@ -205,25 +253,56 @@ class BN(CardinalityEstimationAlg):
                             print(column)
                             print(cmp_op)
                             pdb.set_trace()
+                if len(possible_vals) == 0:
+                    # print("possible vals = 0, so adding all from marginal")
+                    # print(sample)
+                    # print(state.name)
+                    # pdb.set_trace()
+                    assert "county" != state.name
+                    for dv in self.model.marginal()[len(model_sample)].parameters:
+                        for k in dv:
+                            possible_vals.append(k)
+                    # pdb.set_trace()
+                    # possible_vals.append(None)
                 model_sample.append(possible_vals)
             return model_sample
 
         estimates = []
         for qi, query in enumerate(test_samples):
-            if qi % 100 == 0:
-                print("test query: ", qi)
             hashed_query = deterministic_hash(query.query)
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
                 continue
-            start = time.time()
             model_sample = _query_to_sample(query)
-            print("generating model sample took {} seconds"\
-                    .format(time.time()-start))
+            # pdb.set_trace()
             # FIXME: generalize
             all_points = model_sample
             # FIXME: ugh
-            if len(model_sample) == 7:
+            if len(model_sample) == 11:
+                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
+                    model_sample[3], model_sample[4], model_sample[5],
+                    model_sample[6], model_sample[7], model_sample[8],
+                    model_sample[9], model_sample[10])).T.reshape(-1,11)
+            elif len(model_sample) == 10:
+                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
+                    model_sample[3], model_sample[4], model_sample[5],
+                    model_sample[6], model_sample[7],
+                    model_sample[8], model_sample[9])).T.reshape(-1,10)
+
+            elif len(model_sample) == 9:
+                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
+                    model_sample[3], model_sample[4], model_sample[5],
+                    model_sample[6], model_sample[7], model_sample[8])).T.reshape(-1,9)
+
+            elif len(model_sample) == 9:
+                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
+                    model_sample[3], model_sample[4], model_sample[5],
+                    model_sample[6], model_sample[7], model_sample[8])).T.reshape(-1,9)
+            elif len(model_sample) == 8:
+                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
+                    model_sample[3], model_sample[4], model_sample[5],
+                    model_sample[6], model_sample[7])).T.reshape(-1,8)
+            elif len(model_sample) == 7:
                 all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
                     model_sample[3], model_sample[4], model_sample[5],
                     model_sample[6])).T.reshape(-1,7)
@@ -244,19 +323,13 @@ class BN(CardinalityEstimationAlg):
                     model_sample[1])).T.reshape(-1,2)
             else:
                 assert False
-            print("total points to evaluate: ", len(all_points))
+            # print("total points to evaluate: ", len(all_points))
             # we shouldn't assume the order of column names in the trained model
-            # est_sel = self.get_selectivity(sample)
-            # print(est_sel)
-            # print(query.true_sel)
-            # print(query.pg_count / query.total_count)
-            # print("abs loss: ", query.count - (est_sel*query.total_count))
-
-            # print(all_points[0])
-            # print(self.model.marginal()[0])
             start = time.time()
+            # print(all_points[0])
+            # print("len all points: ", len(all_points))
+            est_sel = 0.0
             if self.db.db_name == "imdb":
-                est_sel = 0.0
                 for p in all_points:
                     try:
                         est_sel += self.model.probability(p)
@@ -264,62 +337,61 @@ class BN(CardinalityEstimationAlg):
                         # unknown key ...
                         # guest seems to be failing ...
                         continue
+            elif self.db.db_name == "dmv":
+                if self.avg_factor == 1:
+                    for p in all_points:
+                        try:
+                            est_sel += self.model.probability(p)
+                        except Exception as e:
+                            # FIXME: add minimum amount.
+                            # unknown key ...
+                            total = self.db.column_stats["dmv.record_type"]["total_vals"]
+                            est_sel += float(self.min_groupby) / total
+                            continue
+                else:
+                    N = len(all_points)
+                    samples_to_use = max(1000, int(N/self.avg_factor))
+                    # print("orig samples: {}, using: {}".format(N,
+                        # samples_to_use))
+                    np.random.shuffle(all_points)
+                    est_samples = all_points[0:samples_to_use]
+                    for p in est_samples:
+                        try:
+                            est_sel += self.model.probability(p)
+                        except Exception as e:
+                            # FIXME: add minimum amount.
+                            # unknown key ...
+                            continue
+                    est_sel = N*(est_sel / len(est_samples))
+
             else:
-                est_sel = np.sum(self.model.probability(all_points))
-            print("evaluating {} points took {} seconds"\
-                    .format(len(all_points), time.time()-start))
+                if self.avg_factor == 1:
+                    # don't do any averaging
+                    est_sel = np.sum(self.model.probability(all_points))
+                else:
+                    N = len(all_points)
+                    samples_to_use = max(1000, int(N/self.avg_factor))
+                    # print("orig samples: {}, using: {}".format(N,
+                        # samples_to_use))
+                    np.random.shuffle(all_points)
+                    est_samples = all_points[0:samples_to_use]
+                    est_sel = N*np.average(self.model.probability(est_samples))
+
+            # print(est_sel)
+            if qi % 10 == 0:
+                print("test query: ", qi)
+                print("evaluating {} points took {} seconds"\
+                        .format(len(all_points), time.time()-start))
             self.test_cache[hashed_query] = est_sel
             estimates.append(est_sel)
         return np.array(estimates)
-
-    def get_selectivity(self, sample):
-        '''
-        sample is in the form of samples for the trained bayesian net
-        model: [val0, val1, ..., valN] for the N random values. values can be
-        a known value, or None if it is unknown, and we will need to
-        marginalize those out.
-        '''
-        def recursive_sel_cal(idx, pred_proba, cur_sample):
-            '''
-            Marginalizes over the unknown variables, and builds the selectivity
-            estimate.
-            Recursively builds cur_sample, and evaluates using the estimate for
-            the joint probability distribution in the bayesian net self.model,
-            for every possible value.
-
-            @ret: calculated selecitivity
-            '''
-            cur_sel = 0.00
-            if idx == len(pred_proba):
-                # base case
-                # print("final sample after recursion: ", cur_sample)
-                return self.model.probability(cur_sample)
-
-            pred_val = pred_proba[idx]
-            # is it just an element, or a distribution of values?
-            if "Discrete" in str(type(pred_val)):
-                for val, prob in pred_val.items():
-                    cur_sample[idx] = val
-                    assert isinstance(prob, float)
-                    cur_sel += prob * recursive_sel_cal(idx+1, pred_proba,
-                            cur_sample)
-            else:
-                cur_sample[idx] = pred_val
-                cur_sel += recursive_sel_cal(idx+1, pred_proba, cur_sample)
-            return cur_sel
-
-        pred_proba = self.model.predict_proba(sample, n_jobs=-1)
-        cur_sample = [0]*len(pred_proba)
-        final_sel = recursive_sel_cal(0, pred_proba, cur_sample)
-        # print("final sel: ", final_sel)
-        # pdb.set_trace()
-        return final_sel
 
     def get_name(self, suffix_name):
         '''
         unique name.
         '''
         name = self.alg + str(self.num_bins) + self.db.db_name + suffix_name
+        name += str(self.min_groupby)
         return name
 
     def save_model(self, save_dir="./models/", suffix_name=""):
@@ -327,7 +399,7 @@ class BN(CardinalityEstimationAlg):
         if not os.path.exists(save_dir):
             make_dir(save_dir)
         unique_name = self.get_name(suffix_name)
-        plt.savefig(save_dir + "/" + unique_name + ".png")
+        plt.savefig(save_dir + "/" + unique_name + ".pdf")
         with open(save_dir + "/" + unique_name + ".json", "w") as f:
             f.write(self.model.to_json())
 
@@ -343,7 +415,10 @@ class BN(CardinalityEstimationAlg):
         pass
     def __str__(self):
         # FIXME: add parameters of the learning model etc.
-        return self.__class__.__name__ + "-" + self.alg
+        name = self.__class__.__name__ + "-" + self.alg
+        name += "-bins" + str(self.num_bins)
+        name += "-avg_factor" + str(self.avg_factor)
+        return name
 
 def rel_loss_torch(pred, ytrue):
     '''
