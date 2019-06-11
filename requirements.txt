@@ -1,0 +1,2 @@
+moz-sql-parser
+klepto

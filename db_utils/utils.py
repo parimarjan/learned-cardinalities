@@ -418,28 +418,28 @@ def _gen_subqueries(all_tables, wheres):
         tables = extract_from_clause(query)
 
         # TODO: maybe this should be done somewhere earlier in the pipeline?
-        # join_graph = nx.Graph()
-        # for j in joins:
-            # j1 = j.split("=")[0]
-            # j2 = j.split("=")[1]
-            # t1 = j1[0:j1.find(".")].strip()
-            # t2 = j2[0:j2.find(".")].strip()
-            # try:
-                # assert t1 in tables
-                # assert t2 in tables
-            # except:
-                # print(t1, t2)
-                # print(tables)
-                # print(joins)
-                # print("table not in tables!")
+        join_graph = nx.Graph()
+        for j in joins:
+            j1 = j.split("=")[0]
+            j2 = j.split("=")[1]
+            t1 = j1[0:j1.find(".")].strip()
+            t2 = j2[0:j2.find(".")].strip()
+            try:
+                assert t1 in tables
+                assert t2 in tables
+            except:
+                print(t1, t2)
+                print(tables)
+                print(joins)
+                print("table not in tables!")
                 # pdb.set_trace()
-            # join_graph.add_edge(t1, t2)
-        # if len(joins) > 0 and not nx.is_connected(join_graph):
-            # print("skipping query!")
-            # print(tables)
-            # print(joins)
+            join_graph.add_edge(t1, t2)
+        if len(joins) > 0 and not nx.is_connected(join_graph):
+            print("skipping query!")
+            print(tables)
+            print(joins)
             # pdb.set_trace()
-            # continue
+            continue
         all_subqueries.append(query)
         # print("num subqueries: ", len(all_subqueries))
 
