@@ -133,7 +133,8 @@ def compute_join_order_loss(alg, queries, db, use_subqueries,
                         dtype=np.float32)
         est_cards = np.multiply(yhat, totals)
         update_cards(cardinalities, est_cards, q)
-
+        # print(cardinalities[i].keys())
+    # pdb.set_trace()
     env.initialize_cardinalities(cardinalities)
     # print("num cards: ", len(cardinalities))
     # Learn optimal agent for estimated cardinalities

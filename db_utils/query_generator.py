@@ -54,8 +54,12 @@ class QueryGenerator():
 
                     # # find this many values randomly from the given col, and
                     # # update col_vals with it.
-                    vals = ["'{}'".format(random.choice(self.valid_pred_vals[col])[0].replace("'",""))
-                                for k in range(num_pred_vals)]
+                    vals = []
+                    for k in range(num_pred_vals):
+                        val = random.choice(self.valid_pred_vals[col])
+                        if val is not None:
+                            vals.append("'{}'".format(val[0].replace("'","")))
+                    # "'{}'".format(random.choice(self.valid_pred_vals[col])[0].replace("'",""))
                     vals = [s for s in set(vals)]
                     vals.sort()
                     new_pred_str = ",".join(vals)

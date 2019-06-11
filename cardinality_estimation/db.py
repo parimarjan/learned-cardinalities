@@ -254,10 +254,11 @@ class DB():
         hashed_key = deterministic_hash("subquery: " + query.query)
         queries = []
         if hashed_key in self.sql_cache.archive:
-            # print("loading hashed key")
+            print("loading hashed key")
             queries = self.sql_cache.archive[hashed_key]
             return queries
         start = time.time()
+        # sql_subqueries = query.sql_subqueries
         sql_query = query.query
         sql_subqueries = gen_all_subqueries(sql_query)
         # TODO: create query objects for each subqueries
@@ -332,6 +333,8 @@ class DB():
                 self.pwd, self.db_name)
         all_query_strs = qg.gen_queries(num_samples)
 
+        print("num queries: ", len(all_query_strs))
+
         # get total count
         from_clause = ','.join(froms)
         join_clause = ' AND '.join(joins)
@@ -341,8 +344,8 @@ class DB():
         # total count, without any predicates being applied
         count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
         total_count = self.execute(count_query)[0][0]
-
-        print("num queries: ", len(all_query_strs))
+        print("total count: ", total_count)
+        print(all_query_strs[0])
 
         # TODO: clean up code, thread seems pointless.
         THREAD = False

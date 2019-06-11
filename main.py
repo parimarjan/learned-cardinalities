@@ -18,6 +18,7 @@ import pandas as pd
 import random
 import itertools
 import klepto
+from multiprocessing import Pool
 
 def get_loss_name(loss_name):
     if "qerr" in loss_name:
@@ -34,6 +35,8 @@ def get_alg(alg):
         return Independent()
     elif alg == "postgres":
         return Postgres()
+    elif alg == "random":
+        return Random()
     elif alg == "chow":
         return BN(alg="chow-liu", num_bins=args.num_bins)
     elif alg == "bn-exact":
@@ -280,6 +283,18 @@ def main():
         samples = nonzero_samples
 
     if args.use_subqueries:
+        # with Pool(processes=16) as pool:
+                # args = [(cur_query, self.user, self.db_host, self.port,
+                    # self.pwd, self.db_name, total_count,
+                    # self.execution_cache_threshold, self.sql_cache) for
+                    # cur_query in all_query_strs]
+                # all_query_objs = pool.starmap(sql_to_query_object, args)
+            # par_args = [(str(s.query)) for s in samples]
+            # pdb.set_trace()
+            # all_subqueries = pool.starmap(gen_all_subqueries, par_args)
+        # for i, sq in enumerate(all_subqueries):
+            # samples[i].sql_subqueries = sq
+        # print("generated all subqueries")
         for i, q in enumerate(samples):
             q.subqueries = db.gen_subqueries(q)
             if i % 10 == 0:

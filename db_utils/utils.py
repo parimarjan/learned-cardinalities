@@ -9,6 +9,7 @@ import sqlparse
 import itertools
 import psycopg2 as pg
 from utils.utils import *
+import networkx as nx
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
@@ -380,7 +381,7 @@ def _gen_subqueries(all_tables, wheres):
     combs = []
     for i in range(1, len(all_tables)+1):
         combs += itertools.combinations(list(range(len(all_tables))), i)
-
+    # print("num combs: ", len(combs))
     for comb in combs:
         cur_tables = []
         for i, idx in enumerate(comb):
@@ -415,16 +416,34 @@ def _gen_subqueries(all_tables, wheres):
         # final sanity checks
         joins = extract_join_clause(query)
         tables = extract_from_clause(query)
-        # Note: suppose 3 tables clique, then it is possible to have 3 joins as
-        # well. But a join-order algorithm would never care about the
-        # cardinality of such a join.
-        if len(tables) != len(joins)+1:
-            # print(query)
-            # pdb.set_trace()
-            continue
-        all_subqueries.append(query)
 
-    # print("num generated subqueries: ", len(all_subqueries))
+        # TODO: maybe this should be done somewhere earlier in the pipeline?
+        # join_graph = nx.Graph()
+        # for j in joins:
+            # j1 = j.split("=")[0]
+            # j2 = j.split("=")[1]
+            # t1 = j1[0:j1.find(".")].strip()
+            # t2 = j2[0:j2.find(".")].strip()
+            # try:
+                # assert t1 in tables
+                # assert t2 in tables
+            # except:
+                # print(t1, t2)
+                # print(tables)
+                # print(joins)
+                # print("table not in tables!")
+                # pdb.set_trace()
+            # join_graph.add_edge(t1, t2)
+        # if len(joins) > 0 and not nx.is_connected(join_graph):
+            # print("skipping query!")
+            # print(tables)
+            # print(joins)
+            # pdb.set_trace()
+            # continue
+        all_subqueries.append(query)
+        # print("num subqueries: ", len(all_subqueries))
+
+    print("num generated subqueries: ", len(all_subqueries))
     return all_subqueries
 
 def gen_all_subqueries(query):

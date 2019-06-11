@@ -33,6 +33,10 @@ class Postgres(CardinalityEstimationAlg):
     def test(self, db, test_samples):
         return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
 
+class Random(CardinalityEstimationAlg):
+    def test(self, db, test_samples):
+        return np.array([random.random() for _ in test_samples])
+
 class Independent(CardinalityEstimationAlg):
     '''
     independent assumption on true marginal values.
