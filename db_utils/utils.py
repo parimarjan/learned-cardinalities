@@ -469,8 +469,9 @@ def gen_all_subqueries(query):
     return all_subqueries
 
 def cached_execute_query(sql, user, db_host, port, pwd, db_name,
-        execution_cache_threshold, sql_cache=None, timeout=None):
+        execution_cache_threshold, sql_cache=None, timeout=120000):
     '''
+    @timeout:
     executes the given sql on the DB, and caches the results in a
     persistent store if it took longer than self.execution_cache_threshold.
     '''
@@ -502,7 +503,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         cursor.close()
         con.close()
         print("returning arbitrary large value for now")
-        return [[1000000]]
+        return [[10000000]]
         # return None
     exp_output = cursor.fetchall()
     cursor.close()
