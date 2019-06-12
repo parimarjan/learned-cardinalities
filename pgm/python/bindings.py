@@ -11,7 +11,6 @@ system = platform.system()
 if system == 'Linux':
     lib_file = "libpgm.so"
 else:
-    # assume mac
     lib_file = "libpgm.dylib"
 
 lib_file = pkg_resources.resource_filename(__name__, lib_file)
@@ -28,3 +27,5 @@ pgm.test_init(mat.ctypes.data_as(c_void_p), c_long(mat.shape[0]),
 
 # TODO: for testing, use something like this to pass int ** to C code
 # https://stackoverflow.com/questions/13436218/how-can-i-pass-an-array-of-integer-pointers-to-a-function-in-c-library-from-py
+=======
+# pgm.init(mat)
