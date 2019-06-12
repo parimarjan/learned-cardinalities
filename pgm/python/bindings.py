@@ -11,7 +11,8 @@ system = platform.system()
 if system == 'Linux':
     lib_file = "libpgm.so"
 else:
-    assert False
+    # assume mac
+    lib_file = "libpgm.dylib"
 
 lib_file = pkg_resources.resource_filename(__name__, lib_file)
 
