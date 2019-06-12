@@ -25,7 +25,7 @@ class QueryGenerator():
         '''
         start = time.time()
         pred_columns, pred_types, pred_strs = extract_predicates(self.query_template)
-        froms = extract_from_clause(self.query_template)
+        # from_clauses, aliases, tables = extract_from_clause(query_template)
         joins = extract_join_clause(self.query_template)
         all_query_strs = []
 
@@ -37,8 +37,8 @@ class QueryGenerator():
                 if pred_types[i] == "eq":
                     pass
                 elif pred_types[i] == "in":
-                    # pdb.set_trace()
                     if not "SELECT" in pred_str[0]:
+                            # or not "select" in pred_str[0]:
                         # leave this as is.
                         continue
                     pred_sql = pred_str[0]

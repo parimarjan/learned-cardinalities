@@ -19,7 +19,7 @@ class Query():
         self.pg_count = pg_count
 
         # FIXME: handle this better
-        self.table_names = extract_from_clause(query)
+        _, _, self.table_names = extract_from_clause(query)
         self.joins = extract_join_clause(query)
 
         self.pg_marginal_sels = pg_marginal_sels
