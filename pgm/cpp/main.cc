@@ -492,6 +492,19 @@ struct Graphical_Model
 
 Graphical_Model pgm;
 
+extern "C" void test(int test)
+{
+  cout << "hello! " << endl;
+  cout << test << endl;
+}
+
+extern "C" void test_init(int *arr, int dim1, int dim2)
+{
+  cout << "hello! " << endl;
+  cout << dim1 << endl;
+  cout << dim2 << endl;
+}
+
 void init(vector<vector<int> > &data_matrix,vector<int> &count_column)
 {
 	pgm.init(data_matrix,count_column);

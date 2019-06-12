@@ -215,24 +215,35 @@ def extract_from_clause(query):
     Extracts the from statement, and the relevant joins when there are multiple
     tables.
     '''
-    froms = []
-    parsed_query = parse(query)
-
-    from_clause = parsed_query["from"]
-    if isinstance(from_clause, str):
-        # only one table.
-        return [from_clause]
-
-    assert isinstance(from_clause, list)
-    for i, table in enumerate(from_clause):
+    def handle_table(table):
         if isinstance(table, dict):
             alias = ALIAS_FORMAT.format(TABLE = table["value"],
                                 ALIAS = table["name"])
             froms.append(alias)
+            aliases[table["name"]] = table["value"]
+            tables.append(table["value"])
         else:
             froms.append(table)
+            tables.append(table)
 
-    return froms
+    froms = []
+    # key: alias, val: table name
+    aliases = {}
+    # just table names
+    tables = []
+
+    parsed_query = parse(query)
+    from_clause = parsed_query["from"]
+    if isinstance(from_clause, str):
+        # only one table.
+        # return [from_clause]
+        handle_table(from_clause)
+    else:
+        assert isinstance(from_clause, list)
+        for i, table in enumerate(from_clause):
+            handle_table(table)
+
+    return froms, aliases, tables
 
 def check_table_exists(cur, table_name):
     cur.execute("select exists(select * from information_schema.tables where\
@@ -334,6 +345,9 @@ def find_next_match(tables, wheres, index):
     # print("tables in pred: ", tables_in_pred)
     for table in tables_in_pred:
         if table not in tables:
+            # print(tables)
+            # print(table)
+            # pdb.set_trace()
             # print("returning index, None")
             return index, None
 
@@ -415,7 +429,7 @@ def _gen_subqueries(all_tables, wheres):
         query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause) + cond_string
         # final sanity checks
         joins = extract_join_clause(query)
-        tables = extract_from_clause(query)
+        _,_, tables = extract_from_clause(query)
 
         # TODO: maybe this should be done somewhere earlier in the pipeline?
         join_graph = nx.Graph()
@@ -432,7 +446,7 @@ def _gen_subqueries(all_tables, wheres):
                 print(tables)
                 print(joins)
                 print("table not in tables!")
-                # pdb.set_trace()
+                pdb.set_trace()
             join_graph.add_edge(t1, t2)
         if len(joins) > 0 and not nx.is_connected(join_graph):
             print("skipping query!")
@@ -454,7 +468,7 @@ def gen_all_subqueries(query):
     '''
     # print("gen all subqueries!")
     # print(query)
-    tables = extract_from_clause(query)
+    _,_,tables = extract_from_clause(query)
     parsed = sqlparse.parse(query)[0]
     # print(tables)
     # let us go over all the where clauses
