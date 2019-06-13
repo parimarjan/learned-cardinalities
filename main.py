@@ -181,6 +181,8 @@ def main():
         result["avg_factor"].append(args.avg_factor)
         result["num_columns"].append(len(db.column_stats))
 
+    file_name = gen_results_name()
+    print(file_name)
     if args.gen_synth_data:
         gen_synth_data()
     elif "osm" in args.db_name:
@@ -302,6 +304,7 @@ def main():
         samples = nonzero_samples
 
     if args.use_subqueries:
+        # TODO: parallelize the generation of subqueries
         # with Pool(processes=16) as pool:
                 # args = [(cur_query, self.user, self.db_host, self.port,
                     # self.pwd, self.db_name, total_count,

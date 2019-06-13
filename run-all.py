@@ -158,6 +158,7 @@ def plot_synth():
 
     print(orig_df.keys())
     ## groupby stuff:
+    pdb.set_trace()
     gb = orig_df.groupby(["alg_name", "loss-type", "num_bins"]).mean()
     gb = gb.xs("compute_qerror", level=1)
     print(gb)
@@ -170,7 +171,6 @@ def plot_synth():
     txt += "Num Experiments: " + str(len(set(orig_df["train-time"]))) + "\n"
     txt += "DB: " + str(set(orig_df["dbname"])) + "\n"
     txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
-    txt += "Seeds: " + str(set(orig_df["alg_name"])) + "\n"
     txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
 
     firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
@@ -210,7 +210,6 @@ def plot_synth():
     plot_losses(orig_df, pdf)
 
     for i, fn in enumerate(fns):
-        continue
         df = load_object(fn)
         if "dbname" not in df:
             continue
@@ -233,15 +232,6 @@ def plot_synth():
 
         ## find the relevant pngs
         bn_imgs = glob.glob(args.result_dir + "/*" + exp_hash + "*.png")
-        for img_name in bn_imgs:
-            img = mpimg.imread(img_name)
-            imgplot = plt.imshow(img)
-            plt.title(img_name)
-            pdf.savefig()
-            plt.clf()
-        # FIXME:
-        # also do this
-        bn_imgs = glob.glob(args.result_dir + "/*" + exp_hash + "*.pdf")
         for img_name in bn_imgs:
             img = mpimg.imread(img_name)
             imgplot = plt.imshow(img)

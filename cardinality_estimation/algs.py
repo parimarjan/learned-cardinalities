@@ -64,7 +64,6 @@ class BN(CardinalityEstimationAlg):
         else:
             self.avg_factor = 1
 
-        print("num bins: ", self.num_bins)
         self.model = None
         # non-persistent cast, just to avoid running same alg again
         self.test_cache = {}
@@ -81,7 +80,7 @@ class BN(CardinalityEstimationAlg):
         elif "imdb" in db.db_name:
             self._load_imdb_model(db, training_samples, **kwargs)
         elif "dmv" in db.db_name:
-            # self.model = self.load_model()
+            self.model = self.load_model()
             if self.model is None:
                 self._load_dmv_model(db, training_samples, **kwargs)
         else:
@@ -144,7 +143,7 @@ class BN(CardinalityEstimationAlg):
         print(group_by)
         # TODO: use db_utils
         groupby_output = db.execute(group_by)
-        print("output len: ", len(groupby_output))
+        print("DMV groupby output len: ", len(groupby_output))
 
         start = time.time()
         samples = []
@@ -160,8 +159,6 @@ class BN(CardinalityEstimationAlg):
             weights.append(sample[j+1])
         samples = np.array(samples)
         weights = np.array(weights)
-        print(samples.shape)
-        print(weights.shape)
         print("constructing samples took: ", time.time()-start)
         self.model = BayesianNetwork.from_samples(samples, weights=weights,
                 state_names=columns, algorithm=self.alg, n_jobs=-1)
@@ -174,7 +171,7 @@ class BN(CardinalityEstimationAlg):
         # group_by += " ORDER BY COUNT(*) DESC"
         # FIXME: temporary
         sql = training_samples[0].query
-        froms = extract_from_clause(sql)
+        froms, _, _ = extract_from_clause(sql)
         # FIXME: should be able to store this somewhere and not waste
         # re-executing it always
         from_clause = " , ".join(froms)
@@ -254,16 +251,10 @@ class BN(CardinalityEstimationAlg):
                             print(cmp_op)
                             pdb.set_trace()
                 if len(possible_vals) == 0:
-                    # print("possible vals = 0, so adding all from marginal")
-                    # print(sample)
-                    # print(state.name)
-                    # pdb.set_trace()
                     assert "county" != state.name
                     for dv in self.model.marginal()[len(model_sample)].parameters:
                         for k in dv:
                             possible_vals.append(k)
-                    # pdb.set_trace()
-                    # possible_vals.append(None)
                 model_sample.append(possible_vals)
             return model_sample
 
@@ -323,11 +314,8 @@ class BN(CardinalityEstimationAlg):
                     model_sample[1])).T.reshape(-1,2)
             else:
                 assert False
-            # print("total points to evaluate: ", len(all_points))
             # we shouldn't assume the order of column names in the trained model
             start = time.time()
-            # print(all_points[0])
-            # print("len all points: ", len(all_points))
             est_sel = 0.0
             if self.db.db_name == "imdb":
                 for p in all_points:
@@ -350,7 +338,8 @@ class BN(CardinalityEstimationAlg):
                             continue
                 else:
                     N = len(all_points)
-                    samples_to_use = max(1000, int(N/self.avg_factor))
+                    # samples_to_use = max(1000, int(N/self.avg_factor))
+                    samples_to_use = min(self.avg_factor, N)
                     # print("orig samples: {}, using: {}".format(N,
                         # samples_to_use))
                     np.random.shuffle(all_points)
@@ -361,6 +350,8 @@ class BN(CardinalityEstimationAlg):
                         except Exception as e:
                             # FIXME: add minimum amount.
                             # unknown key ...
+                            total = self.db.column_stats["dmv.record_type"]["total_vals"]
+                            est_sel += float(self.min_groupby) / total
                             continue
                     est_sel = N*(est_sel / len(est_samples))
 
@@ -377,8 +368,7 @@ class BN(CardinalityEstimationAlg):
                     est_samples = all_points[0:samples_to_use]
                     est_sel = N*np.average(self.model.probability(est_samples))
 
-            # print(est_sel)
-            if qi % 10 == 0:
+            if qi % 100 == 0:
                 print("test query: ", qi)
                 print("evaluating {} points took {} seconds"\
                         .format(len(all_points), time.time()-start))
@@ -416,8 +406,8 @@ class BN(CardinalityEstimationAlg):
     def __str__(self):
         # FIXME: add parameters of the learning model etc.
         name = self.__class__.__name__ + "-" + self.alg
-        name += "-bins" + str(self.num_bins)
-        name += "-avg_factor" + str(self.avg_factor)
+        # name += "-bins" + str(self.num_bins)
+        name += "avg:" + str(self.avg_factor)
         return name
 
 def rel_loss_torch(pred, ytrue):

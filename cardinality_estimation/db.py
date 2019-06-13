@@ -52,6 +52,7 @@ class DB():
         self.featurizer = None
         self.cmp_ops = set()
         self.tables = set()
+        self.aliases = {}
         self.cmp_ops_onehot = {}
 
     def get_entropies(self):
@@ -294,13 +295,16 @@ class DB():
         pred_columns, pred_types, pred_vals = extract_predicates(query_template)
         for cmp_op in pred_types:
             self.cmp_ops.add(cmp_op)
-        froms = extract_from_clause(query_template)
-        for table in froms:
-            self.tables.add(table)
+        from_clauses, aliases, tables = extract_from_clause(query_template)
+        self.aliases.update(aliases)
+        self.tables.update(tables)
         joins = extract_join_clause(query_template)
 
         for column in pred_columns:
             table = column[0:column.find(".")]
+            if table in self.aliases:
+                table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
+                                    ALIAS = table)
             min_query = MIN_TEMPLATE.format(TABLE = table,
                                             COL   = column)
             max_query = MAX_TEMPLATE.format(TABLE = table,
@@ -337,9 +341,10 @@ class DB():
         all_query_strs = qg.gen_queries(num_samples)
 
         print("num queries: ", len(all_query_strs))
+        print(all_query_strs[0])
 
         # get total count
-        from_clause = ','.join(froms)
+        from_clause = ','.join(from_clauses)
         join_clause = ' AND '.join(joins)
         if len(join_clause) > 0:
             from_clause += " WHERE " + join_clause
@@ -348,36 +353,15 @@ class DB():
         count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
         total_count = self.execute(count_query)[0][0]
         print("total count: ", total_count)
-        print(all_query_strs[0])
 
-        # TODO: clean up code, thread seems pointless.
-        THREAD = False
-        if THREAD:
-            # We can use a with statement to ensure threads are cleaned up promptly
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                # Start the load operations and mark each future with its URL
-                future_to_queries = {executor.submit(sql_to_query_object, cur_query,
-                    self.user, self.db_host, self.port, self.pwd, self.db_name,
-                    total_count, self.execution_cache_threshold, self.sql_cache):
-                                            cur_query for cur_query in all_query_strs}
-                for future in concurrent.futures.as_completed(future_to_queries):
-                    cur_query = future_to_queries[future]
-                    try:
-                        query_obj = future.result()
-                        queries.append(query_obj)
-                    except Exception as exc:
-                        print('%r generated an exception: %s' % (cur_query, exc))
-                    else:
-                        print('generated query object for: %s' % (query_obj))
-        else:
-            with Pool(processes=8) as pool:
-                args = [(cur_query, self.user, self.db_host, self.port,
-                    self.pwd, self.db_name, total_count,
-                    self.execution_cache_threshold, self.sql_cache) for
-                    cur_query in all_query_strs]
-                all_query_objs = pool.starmap(sql_to_query_object, args)
-            for q in all_query_objs:
-                queries.append(q)
+        with Pool(processes=8) as pool:
+            args = [(cur_query, self.user, self.db_host, self.port,
+                self.pwd, self.db_name, total_count,
+                self.execution_cache_threshold, self.sql_cache) for
+                cur_query in all_query_strs]
+            all_query_objs = pool.starmap(sql_to_query_object, args)
+        for q in all_query_objs:
+            queries.append(q)
 
         print("generated {} samples in {} secs".format(len(queries),
             time.time()-start))
