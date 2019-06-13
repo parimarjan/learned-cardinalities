@@ -385,6 +385,26 @@ def find_all_clauses(tables, wheres):
 
     return matched
 
+def get_join_graph(joins, tables=None):
+    join_graph = nx.Graph()
+    for j in joins:
+        j1 = j.split("=")[0]
+        j2 = j.split("=")[1]
+        t1 = j1[0:j1.find(".")].strip()
+        t2 = j2[0:j2.find(".")].strip()
+        if tables is not None:
+            try:
+                assert t1 in tables
+                assert t2 in tables
+            except:
+                print(t1, t2)
+                print(tables)
+                print(joins)
+                print("table not in tables!")
+                pdb.set_trace()
+        join_graph.add_edge(t1, t2)
+    return join_graph
+
 def _gen_subqueries(all_tables, wheres):
     '''
     my old shitty sqlparse code that should be updated...

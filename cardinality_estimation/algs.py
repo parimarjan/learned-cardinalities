@@ -12,23 +12,6 @@ import pandas as pd
 import json
 from multiprocessing import Pool
 
-def get_alg(alg):
-    if alg == "independent":
-        return Independent()
-    elif alg == "postgres":
-        return Postgres()
-    elif alg == "random":
-        return Random()
-    elif alg == "chow":
-        return BN(alg="chow-liu", num_bins=args.num_bins,
-                        avg_factor=args.avg_factor)
-    elif alg == "bn-exact":
-        return BN(alg="exact-dp", num_bins=args.num_bins)
-    elif alg == "nn1":
-        return NN1(max_iter = args.max_iter)
-    else:
-        assert False
-
 class CardinalityEstimationAlg():
 
     def __init__(self, *args, **kwargs):

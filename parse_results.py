@@ -3,6 +3,7 @@ import os
 import pandas
 import time
 from utils.utils import *
+from db_utils.utils import *
 import pdb
 import glob
 import numpy as np
@@ -46,9 +47,87 @@ def read_flags():
             default="./results/")
     return parser.parse_args()
 
+def visualize_query_class(queries, pdf):
+    q0 = queries[0]
+    jc = extract_join_clause(q0.query)
+    pred_columns, pred_types, _ = extract_predicates(q0.query)
+    pred_columns = [p[0:p.find(".")] for p in pred_columns]
+    jg = get_join_graph(jc)
+    other_tables = []
+    pred_tables = []
+    for table in jg.nodes():
+        if table in pred_columns:
+            pred_tables.append(table)
+        else:
+            other_tables.append(table)
+
+    pos=nx.spring_layout(jg) # positions for all nodes
+    nx.draw_networkx_nodes(jg , pos,
+			   nodelist=pred_tables,
+			   node_color='r',
+			   node_size=2500,
+		           alpha=0.3)
+    nx.draw_networkx_nodes(jg,pos,
+			   nodelist=other_tables,
+			   node_color='b',
+			   node_size=2500,
+                           alpha=0.3)
+    nx.draw_networkx_edges(jg, pos)
+    nx.draw_networkx_labels(jg, pos)
+
+    # nx.draw(jg, with_labels=True)
+
+    pdf.savefig()
+    plt.close()
+
+    # TODO: add graph on first page
+    firstPage = plt.figure()
+    firstPage.clf()
+    ## TODO: just paste all the args here?
+    txt = ""
+    txt += q0.query
+
+    firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
+    pdf.savefig()
+    plt.close()
+
+    true_sels = [q.true_sel for q in queries]
+    x = pd.Series(true_sels, name="true selectivities")
+    ax = sns.distplot(x, kde=False)
+    total_count = q0.total_count
+    plt.title("Selectivities, total: " + str(total_count))
+    plt.tight_layout()
+    pdf.savefig()
+    plt.clf()
+
+    use_losses = ["qerr", "rel", "join"]
+    # for each loss key, make a new plot
+    all_losses = []
+    for q in queries:
+        for alg_name, losses in q.losses.items():
+            for loss_type, loss in losses.items():
+                if not loss_type in use_losses:
+                    continue
+                tmp = {}
+                tmp["alg_name"] = alg_name
+                tmp["loss_type"] = loss_type
+                tmp["loss"] = loss
+                all_losses.append(tmp)
+
+    df = pd.DataFrame(all_losses)
+    ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
+            data=df, estimator=np.median, ci=99)
+
+    fig = ax.get_figure()
+    plt.title(",".join(q0.table_names))
+    plt.tight_layout()
+    pdf.savefig()
+    plt.clf()
+
 def parse_query_file(fn):
     '''
     Plot List:
+        - plot query structure graph at first
         - selectivity hist for all main queries
         - selectivity buckets for each subquery CLASS
             - plot tables used as a graph
@@ -59,26 +138,26 @@ def parse_query_file(fn):
     print(fn)
     pdf_name = fn.replace(".pickle", ".pdf")
     queries = load_object(fn)
-    print(len(queries))
+    # TODO: add average results page
 
     pdf = PdfPages(pdf_name)
-    firstPage = plt.figure()
-    firstPage.clf()
-    ## TODO: just paste all the args here?
-    txt = ""
-    txt += queries[0].query
+    visualize_query_class(queries, pdf)
+    all_subq_list = []
+    # if len(queries[0].subqueries) > 0:
+    if False:
+        for i in range(len(queries[0].subqueries)):
+            # class of subqueries
+            sq_sample = queries[0].subqueries[i]
+            # only visualize these if it has some predicates
+            if len(sq_sample.pred_column_names) > 0 \
+                    and len(sq_sample.table_names) > 1:
+                subqs = [q.subqueries[i] for q in queries]
+                qerrs = [sq.losses["Postgres"]["qerr"] for sq in subqs]
+                all_subq_list.append((subqs, np.mean(qerrs)))
 
-    firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
-    pdf.savefig()
-    plt.close()
-
-    true_sels = [q.true_sel for q in queries]
-    x = pd.Series(true_sels, name="true selectivities")
-    ax = sns.distplot(x)
-    plt.title("Distribution of True Selectivities")
-    plt.tight_layout()
-    pdf.savefig()
-    plt.clf()
+        all_subq_list = sorted(all_subq_list, key=lambda x: x[1], reverse=True)
+        for sqs in all_subq_list:
+            visualize_query_class(sqs[0], pdf)
 
     pdf.close()
 
