@@ -44,9 +44,10 @@ def compute_abs_loss(alg, queries, db, use_subqueries, **kwargs):
                     dtype=np.float32)
     yhat_total = np.multiply(yhat, totals)
     errors = np.abs(yhat_total - ytrue)
-    error = np.sum(errors)
-    error = error / len(yhat)
-    return round(error, 3)
+    # error = np.sum(errors)
+    # error = error / len(yhat)
+    # return round(error, 3)
+    return errors
 
 def compute_qerror(alg, queries, db, use_subqueries, **kwargs):
     if use_subqueries:
@@ -59,8 +60,9 @@ def compute_qerror(alg, queries, db, use_subqueries, **kwargs):
 
     # TODO: check this
     errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
-    error = errors.sum() / len(yhat)
-    return error
+    # error = errors.sum() / len(yhat)
+    # return error
+    return errors
 
 def run_all_eps(env, fixed_agent=None):
     '''
@@ -162,21 +164,24 @@ def compute_join_order_loss(alg, queries, db, use_subqueries,
     # algorithm
     assert len(agents) == 1
     # TODO: save the data / compare across queries etc.
-    for rep, fixed_agent in enumerate(agents):
-        test_q = run_all_eps(env, fixed_agent=fixed_agent)
-        total_error = 0.00
-        baseline_costs = []
-        est_card_costs = []
-        for q in test_q:
-            info = test_q[q]
-            bcost = info["costs"][baseline]
-            card_cost = info["costs"]["RL"]
-            cur_error = card_cost - bcost
-            total_error += card_cost - bcost
-            baseline_costs.append(float(bcost))
-            est_card_costs.append(float(card_cost))
+    # for rep, fixed_agent in enumerate(agents):
+    fixed_agent = agents[0]
 
-        total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
-        # print("total avg error: {}: {}".format(baseline, total_avg_err))
-        rel_error = np.mean(est_card_costs) / np.mean(baseline_costs)
-    return rel_error
+    test_q = run_all_eps(env, fixed_agent=fixed_agent)
+    total_error = 0.00
+    baseline_costs = []
+    est_card_costs = []
+    for q in test_q:
+        info = test_q[q]
+        bcost = info["costs"][baseline]
+        card_cost = info["costs"]["RL"]
+        cur_error = card_cost - bcost
+        total_error += card_cost - bcost
+        baseline_costs.append(float(bcost))
+        est_card_costs.append(float(card_cost))
+
+    total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
+    # print("total avg error: {}: {}".format(baseline, total_avg_err))
+    rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
+
+    return rel_errors

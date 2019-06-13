@@ -323,6 +323,8 @@ def main():
 
     train_queries, test_queries = train_test_split(samples, test_size=args.test_size,
             random_state=args.random_seed)
+    if len(train_queries) == 0:
+        train_queries = test_queries
 
     result = defaultdict(list)
 
@@ -362,7 +364,7 @@ def main():
             # lname = get_loss_name(loss_func.__name__)
             print("case: {}: training-set, alg: {}, samples: {}, train_time: {}, {}: {}"\
                     .format(args.db_name, alg, len(train_queries), train_time,
-                        get_loss_name(loss_func.__name__), round(cur_loss,3)))
+                        get_loss_name(loss_func.__name__), np.round(cur_loss,3)))
 
         if args.test:
             start = time.time()
@@ -384,7 +386,7 @@ def main():
                 result["num_vals"].append(len(test_queries))
                 print("case: {}: test-set, alg: {}, samples: {}, test_time: {}, {}: {}"\
                         .format(args.db_name, alg, len(test_queries),
-                            eval_time, lname, round(cur_loss,3)))
+                            eval_time, lname, np.round(cur_loss,3)))
 
     df = pd.DataFrame(result)
     file_name = gen_results_name()
