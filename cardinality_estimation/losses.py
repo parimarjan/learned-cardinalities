@@ -7,6 +7,28 @@ EPSILON = 0.000001
 REL_LOSS_EPSILON = EPSILON
 QERR_MIN_EPS = EPSILON
 
+def get_loss(loss):
+    if loss == "abs":
+        return compute_abs_loss
+    elif loss == "rel":
+        return compute_relative_loss
+    elif loss == "qerr":
+        return compute_qerror
+    elif loss == "join-loss":
+        return compute_join_order_loss
+    else:
+        assert False
+
+def get_loss_name(loss_name):
+    if "qerr" in loss_name:
+        return "qerr"
+    elif "join" in loss_name:
+        return "join"
+    elif "abs" in loss_name:
+        return "abs"
+    elif "rel" in loss_name:
+        return "rel"
+
 def get_all_subqueries(queries):
     # FIXME: don't remember if the full query, Q, is part of subqueries or not.
     new_queries = []
@@ -17,26 +39,24 @@ def get_all_subqueries(queries):
     return new_queries
 
 # TODO: put the yhat, ytrue parts in db_utils
-def compute_relative_loss(alg, queries, db, use_subqueries, **kwargs):
+def compute_relative_loss(alg, queries, use_subqueries, **kwargs):
     '''
     as in the quicksel paper.
     '''
     if use_subqueries:
         queries = get_all_subqueries(queries)
-    yhat = alg.test(db, queries)
-    ytrue = [s.true_sel for s in queries]
-    error = 0.00
-    # FIXME: move to numpy
-    for i, y in enumerate(ytrue):
-        yh = yhat[i]
-        error += abs(y - yh) / (max(REL_LOSS_EPSILON, y))
-    error = error / len(yhat)
-    return round(error * 100, 3)
+    yhat = alg.test(queries)
+    yhat = np.array(yhat)
+    ytrue = np.array([s.true_sel for s in queries])
+    epsilons = np.array([REL_LOSS_EPSILON]*len(yhat))
+    ytrue = np.maximum(ytrue, epsilons)
+    errors = np.abs(ytrue - yhat) / ytrue
+    return errors
 
-def compute_abs_loss(alg, queries, db, use_subqueries, **kwargs):
+def compute_abs_loss(alg, queries, use_subqueries, **kwargs):
     if use_subqueries:
         queries = get_all_subqueries(queries)
-    yhat = alg.test(db, queries)
+    yhat = alg.test(queries)
     ytrue = np.array([t.true_count for t in queries],
             dtype=np.float32)
     yhat = np.array(yhat, dtype=np.float32)
@@ -44,24 +64,17 @@ def compute_abs_loss(alg, queries, db, use_subqueries, **kwargs):
                     dtype=np.float32)
     yhat_total = np.multiply(yhat, totals)
     errors = np.abs(yhat_total - ytrue)
-    # error = np.sum(errors)
-    # error = error / len(yhat)
-    # return round(error, 3)
     return errors
 
-def compute_qerror(alg, queries, db, use_subqueries, **kwargs):
+def compute_qerror(alg, queries, use_subqueries, **kwargs):
     if use_subqueries:
         queries = get_all_subqueries(queries)
-    yhat = alg.test(db, queries)
+    yhat = alg.test(queries)
     ytrue = [s.true_sel for s in queries]
     epsilons = np.array([QERR_MIN_EPS]*len(yhat))
     ytrue = np.maximum(ytrue, epsilons)
     yhat = np.maximum(yhat, epsilons)
-
-    # TODO: check this
     errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
-    # error = errors.sum() / len(yhat)
-    # return error
     return errors
 
 def run_all_eps(env, fixed_agent=None):
@@ -95,7 +108,7 @@ def run_all_eps(env, fixed_agent=None):
         queries[query] = info
     return queries
 
-def compute_join_order_loss(alg, queries, db, use_subqueries,
+def compute_join_order_loss(alg, queries, use_subqueries,
         baseline="EXHAUSTIVE"):
     def update_cards(cardinalities, est_cards, q):
         for j, subq in enumerate(q.subqueries):
@@ -129,7 +142,7 @@ def compute_join_order_loss(alg, queries, db, use_subqueries,
     # Set estimated cardinalities
     for i, q in enumerate(queries):
         cardinalities[i] = {}
-        yhat = alg.test(db, q.subqueries)
+        yhat = alg.test(q.subqueries)
         yhat = np.array(yhat, dtype=np.float32)
         totals = np.array([q.total_count for q in q.subqueries],
                         dtype=np.float32)

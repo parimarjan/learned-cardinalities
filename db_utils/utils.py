@@ -457,7 +457,7 @@ def _gen_subqueries(all_tables, wheres):
         all_subqueries.append(query)
         # print("num subqueries: ", len(all_subqueries))
 
-    print("num generated subqueries: ", len(all_subqueries))
+    print("num generated sql subqueries: ", len(all_subqueries))
     return all_subqueries
 
 def gen_all_subqueries(query):
@@ -532,7 +532,7 @@ def _get_total_count_query(sql):
     '''
     @ret: sql query.
     '''
-    froms = extract_from_clause(sql)
+    froms, _, _ = extract_from_clause(sql)
     # FIXME: should be able to store this somewhere and not waste
     # re-executing it always
     from_clause = " , ".join(froms)

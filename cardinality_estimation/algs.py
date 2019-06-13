@@ -12,13 +12,30 @@ import pandas as pd
 import json
 from multiprocessing import Pool
 
+def get_alg(alg):
+    if alg == "independent":
+        return Independent()
+    elif alg == "postgres":
+        return Postgres()
+    elif alg == "random":
+        return Random()
+    elif alg == "chow":
+        return BN(alg="chow-liu", num_bins=args.num_bins,
+                        avg_factor=args.avg_factor)
+    elif alg == "bn-exact":
+        return BN(alg="exact-dp", num_bins=args.num_bins)
+    elif alg == "nn1":
+        return NN1(max_iter = args.max_iter)
+    else:
+        assert False
+
 class CardinalityEstimationAlg():
 
     def __init__(self, *args, **kwargs):
         pass
     def train(self, db, training_samples, **kwargs):
         pass
-    def test(self, db, test_samples, **kwargs):
+    def test(self, test_samples, **kwargs):
         pass
     def size(self):
         '''
@@ -31,18 +48,18 @@ class CardinalityEstimationAlg():
         pass
 
 class Postgres(CardinalityEstimationAlg):
-    def test(self, db, test_samples):
+    def test(self, test_samples):
         return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
 
 class Random(CardinalityEstimationAlg):
-    def test(self, db, test_samples):
+    def test(self, test_samples):
         return np.array([random.random() for _ in test_samples])
 
 class Independent(CardinalityEstimationAlg):
     '''
     independent assumption on true marginal values.
     '''
-    def test(self, db, test_samples):
+    def test(self, test_samples):
         return np.array([np.prod(np.array(s.marginal_sels)) \
                 for s in test_samples])
 
@@ -199,7 +216,7 @@ class BN(CardinalityEstimationAlg):
             self.model = BayesianNetwork.from_samples(samples, weights=weights,
                     state_names=pred_columns, algorithm=self.alg, n_jobs=-1)
 
-    def test(self, db, test_samples):
+    def test(self, test_samples):
         def _query_to_sample(sample):
             '''
             takes in a Query object, and converts it to the representation to
@@ -258,6 +275,7 @@ class BN(CardinalityEstimationAlg):
                 model_sample.append(possible_vals)
             return model_sample
 
+        db = self.db
         estimates = []
         for qi, query in enumerate(test_samples):
             hashed_query = deterministic_hash(query.query)
@@ -453,6 +471,7 @@ class NN1(CardinalityEstimationAlg):
         self.max_iter = kwargs["max_iter"]
 
     def train(self, db, training_samples, use_subqueries=False):
+        self.db = db
         if use_subqueries:
             training_samples = get_all_subqueries(training_samples)
         db.init_featurizer()
@@ -489,10 +508,10 @@ class NN1(CardinalityEstimationAlg):
         print("train done!")
         self.net = net
 
-    def test(self, db, test_samples):
+    def test(self, test_samples):
         X = []
         for sample in test_samples:
-            X.append(db.get_features(sample))
+            X.append(self.db.get_features(sample))
         # just pass each sample through net and done!
         X = to_variable(X).float()
 
