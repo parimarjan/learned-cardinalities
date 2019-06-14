@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <math.h> 
 #include <set>
+#include <map> 
+
 
 
 using namespace std;
@@ -306,162 +308,66 @@ struct Graphical_Model
 		MST();
 	}
 
-	double dfs(int curr_node,int par_val,vector<set<int> > &filter,bool approx,double frac)
+	map<int ,double> eval(int curr_node,vector<set<int>  > &filter,bool approx,double frac)
 	{
-		int parent_ptr=node_list[curr_node].parent_ptr;
-		Edges* temp_edge;
-
-		if(curr_node<parent_ptr)
-		{
-			temp_edge=&edge_matrix[curr_node][parent_ptr-1-curr_node];	
-		}
-		else
-		{
-			temp_edge=&edge_matrix[parent_ptr][curr_node-1-parent_ptr];
-		}
-		
 		double ans=0.0;
 		int alp_size=node_list[curr_node].alphabet_size;
-
 
 		int filter_size=filter[curr_node].size();
 		int actual_eval=filter_size*frac;
 		set<int> new_filter;
 		set<int>::iterator iter=filter[curr_node].begin();
 
+		map<int,double> curr_vals;
 
-		if(approx)
-		{	int count=0;
-			while(true)
-			{
-				int ind=rand()%filter_size;
-				advance(iter,ind);
-				ind= *(iter);
-				iter=filter[curr_node].begin();
-
-				if(new_filter.find(ind)==new_filter.end())
-				{
-					count++;
-					new_filter.insert(ind);
-				}
-
-				if(count>=actual_eval)
-				{
-					break;
-				}
-			}
-		}
-		else
+		for(std::set<int>::iterator it=filter[curr_node].begin();it!=filter[curr_node].end();it++)
 		{
-			new_filter=filter[curr_node];
+			curr_vals[*it]=1.0;
 		}
 
-		for(int i=0;i<alp_size;i++)
+		vector<int> curr_child=node_list[curr_node].child_ptr;
+		
+		for(int i=0;i<curr_child.size();i++)
 		{
-			if(new_filter.find(i)==new_filter.end())
-			{
-				continue;
-			}
+			int child_node=curr_child[i];
+			map<int,double> child_map=eval(curr_child[i],filter,approx,frac);
 
-			double children=1.0;
-			for(int j=0;j<node_list[curr_node].child_ptr.size();j++)
-			{
-				children*=dfs(node_list[curr_node].child_ptr[j],i,filter,approx,frac);
-			}
+			Edges *temp_edge;
 
-			children/=node_list[curr_node].prob_list[i];
-
-			if(curr_node<parent_ptr)
+			if(curr_node<child_node)
 			{
-				ans+=temp_edge->prob_matrix[i][par_val]*children;
+				temp_edge=&edge_matrix[curr_node][child_node-curr_node-1];
 			}
 			else
 			{
-				ans+=temp_edge->prob_matrix[par_val][i]*children;
+				temp_edge=&edge_matrix[child_node][curr_node-child_node-1];
 			}
-		}
 
-		ans*=filter_size;
-		ans/=actual_eval;
-
-		return ans;
-
-	} 
-
-
-	double eval(vector<set<int>  > &filter,bool approx,double frac)
-	{
-		double ans=0.0;
-		int curr_node=root;
-		int alp_size=node_list[curr_node].alphabet_size;
-
-		int filter_size=filter[curr_node].size();
-		int actual_eval=filter_size*frac;
-		set<int> new_filter;
-		set<int>::iterator iter=filter[curr_node].begin();
-
-		
-
-		if(approx)
-		{	int count=0;
-			while(true)
+			for(std::map<int,double>::iterator it_par=curr_vals.begin();it_par!=curr_vals.end();it_par++)
 			{
-				int ind=rand()%filter_size;
-				advance(iter,ind);
-				ind= *(iter);
-				iter=filter[curr_node].begin();
-
-				if(new_filter.find(ind)==new_filter.end())
+				double ans=0.0;
+				int par_val=it_par->first;
+				double prob_par=node_list[curr_node].prob_list[par_val];
+				for(std::map<int,double>::iterator it_kid=child_map.begin();it_kid!=child_map.end();it_kid++)
 				{
-					count++;
-					new_filter.insert(ind);
+					int child_val=it_kid->first;
+					if(child_val<par_val)
+					{
+						ans+=(temp_edge->prob_matrix[child_val][par_val]*it_kid->second)/prob_par;
+					}
+					else
+					{
+						ans+=(temp_edge->prob_matrix[par_val][child_val]*it_kid->second)/prob_par;
+					}
+
 				}
 
-				if(count>=actual_eval)
-				{
-					break;
-				}
-			}
-		}
-		else
-		{
-			new_filter=filter[curr_node];
-		}
-
-		
-
-		for(int i=0;i<alp_size;i++)
-		{
-
-			if(new_filter.find(i)==new_filter.end())
-			{
-				continue;
+				curr_vals[par_val]*=ans;
 			}
 
-			double children=1.0;
-			for(int j=0;j<node_list[curr_node].child_ptr.size();j++)
-			{
-				children*=dfs(node_list[curr_node].child_ptr[j],i,filter,approx,frac);
-			}
-
-			children*=node_list[curr_node].prob_list[i];
-
-			ans+=children;
-
-			// if(curr_node<parent_ptr)
-			// {
-			// 	ans+=temp_edge.prob_matrix[i][par_val]*children;
-			// }
-			// else
-			// {
-			// 	ans+=temp_edge.prob_matrix[par_val][i]*children;
-			// }
 		}
 
-		ans*=filter_size;
-		ans/=actual_eval;
-
-		return ans;
+		return curr_vals;
 	}
 
 	void print()
@@ -517,7 +423,16 @@ void train()
 
 double eval(vector<set<int>  > &filter,bool approx,double frac)
 {
-	return pgm.eval(filter,approx,frac);
+	double ans=0.0;
+	map<int,double> root_map=pgm.eval(pgm.root,filter,approx,frac);
+
+	for(std::map<int,double>::iterator it=root_map.begin();it!=root_map.end();it++)
+	{
+		ans+=it->second*pgm.node_list[pgm.root].prob_list[it->first];
+	}
+
+	return ans;
+
 }
 
 
@@ -541,10 +456,10 @@ int main(int argc, char *argv[])
 	} 
 
 	init(data_vec,count_column);
-	// pgm.print();
+	pgm.print();
 
 	train();
-	// pgm.print();
+	pgm.print();
 
 	cout<<eval(vec_set,true,0.4)<<" : is the probablity"<<endl;
 
