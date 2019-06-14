@@ -270,7 +270,8 @@ class BN(CardinalityEstimationAlg):
                 model_sample.append(possible_vals)
             return model_sample
 
-        self.est_dist_pdf = PdfPages("./bn_est_dist.pdf")
+        if self.gen_bn_dist:
+            self.est_dist_pdf = PdfPages("./bn_est_dist.pdf")
         db = self.db
         estimates = []
         for qi, query in enumerate(test_samples):

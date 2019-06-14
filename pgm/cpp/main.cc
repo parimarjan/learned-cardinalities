@@ -7,9 +7,9 @@
 #include <emmintrin.h>
 #include <map>
 #include <unordered_map>
-#include <math.h> 
+#include <math.h>
 #include <set>
-#include <map> 
+#include <map>
 
 
 using namespace std::chrono;
@@ -47,7 +47,7 @@ struct Edges
 		{
 			prob_matrix[data_array1[i]][data_array2[i]]+=count_column[i];
 			total_count+=count_column[i];
-		}	
+		}
 
 		for(int i=0;i<size1;i++)
 		{
@@ -118,7 +118,7 @@ struct Nodes
 {
 	int alphabet_size;
 	int parent_ptr;
-	vector<double> prob_list;	
+	vector<double> prob_list;
 	vector<int> child_ptr;
 
 	void init(vector<int> &data_array,vector<int> &count_column)
@@ -284,7 +284,7 @@ struct Graphical_Model
 		std::sort(mutual_info_vec.begin(),mutual_info_vec.end(),sortFunc);
 
 		int vec_size=mutual_info_vec.size();
-	
+
 		for(int i=0;i<mutual_info_vec.size();i++)
 		{
 			it1=vertices_added.find(mutual_info_vec[i].a);
@@ -329,7 +329,7 @@ struct Graphical_Model
 		}
 
 		vector<int> curr_child=node_list[curr_node].child_ptr;
-		
+
 		for(int i=0;i<curr_child.size();i++)
 		{
 			int child_node=curr_child[i];
@@ -382,7 +382,7 @@ struct Graphical_Model
 	{
 		cout<<"PRINTING GRAPH"<<endl;
 
-		cout<<"graph size is: "<<graph_size<<endl; 
+		cout<<"graph size is: "<<graph_size<<endl;
 
 		for(int i=0;i<node_list.size();i++)
 		{
@@ -405,66 +405,6 @@ struct Graphical_Model
 };
 
 Graphical_Model pgm;
-
-extern "C" void test(int test)
-{
-  cout << "hello! " << endl;
-  cout << test << endl;
-}
-
-extern "C" void py_init(int *data, int dim1, int dim2,int *count_ptr,int dim_col)
-{
-  vector<vector<int> > data_matrix(dim1);
-
-  for(int i=0;i<dim2;i++)
-  {
-  	for(int j=0;j<dim1;i++)
-  	{
-  		data_matrix[j].push_back(*data);
-  		data++;
-  	}
-  }
-
-  vector<int> count_column;
-
-  for(int i=0;i<dim_col;i++)
-  {
-  	count_column.push_back(*count_ptr);
-  	count_ptr++;
-  }
-  init(data_matrix,count_column);
-
-  return ;
-
-}
-
-extern "C" void py_train()
-{
-  train();
-  return;
-}
-
-extern "C" double py_eval(int **data, int *lens,int n_ar,bool approx,double frac)
-{
-  vector<set<int> > filter(n_ar);
-
-  for(int i=0;i<n_ar;i++)
-  {
-  	int *ans=data[i];
-  	for(int j=0;j<lens[i];i++)
-  	{
-  		filter[j].insert(*ans);
-  		ans++;
-  	}
-  }
-
-  double ans=pgm.eval(data_matrix,approx,frac);
-
-  return ans;
-
-}
-
-
 
 void init(vector<vector<int> > &data_matrix,vector<int> &count_column)
 {
@@ -519,7 +459,88 @@ double eval(vector<set<int>  > &filter,bool approx,double frac)
 
 }
 
+extern "C" void test(int test)
+{
+  cout << "hello! " << endl;
+  cout << test << endl;
+}
 
+extern "C" void py_init(int *data, int dim1, int dim2,int *count_ptr,int dim_col)
+{
+  vector<vector<int> > data_matrix(dim1);
+  cout << "dim1: " << endl;
+  cout << dim1 << endl;
+  cout << "dim2: " << endl;
+  cout << dim2 << endl;
+
+  for(int i=0;i<dim2;i++)
+  {
+  	for(int j=0;j<dim1;j++)
+  	{
+      cout << *data << endl;
+  		data_matrix[j].push_back(*data);
+  		data++;
+      //data++;
+  	}
+  }
+  cout << "reading in data done" << endl;
+
+  vector<int> count_column;
+
+  for(int i=0;i<dim_col;i++)
+  {
+    cout << *count_ptr << endl;
+  	count_column.push_back(*count_ptr);
+  	count_ptr++;
+  }
+  cout << "before init " << endl;
+  init(data_matrix,count_column);
+
+  return ;
+
+}
+
+extern "C" void py_train()
+{
+  train();
+  return;
+}
+
+extern "C" double py_eval(int **data, int *lens,int n_ar,bool approx,double frac)
+{
+  vector<set<int> > filter(n_ar);
+
+  for(int i=0;i<n_ar;i++)
+  {
+  	int *ans=data[i];
+  	for(int j=0;j<lens[i];i++)
+  	{
+  		filter[j].insert(*ans);
+  		ans++;
+  	}
+  }
+
+  double ans= eval(filter,approx,frac);
+
+  return ans;
+
+}
+
+
+
+extern "C" double test_inference(int **ar, int *lens, int n_ar)
+{
+	cout << "test inference!" << endl;
+	int ii,jj,kk;
+	for (ii = 0; ii<n_ar;ii++){
+			for (jj=0;jj<lens[ii];jj++){
+					printf("%d\t",ar[ii][jj]);
+			}
+			printf("\n");
+			fflush(stdout);
+	}
+  return 4.0;
+}
 
 int main(int argc, char *argv[])
 {
@@ -537,7 +558,7 @@ int main(int argc, char *argv[])
 		vec_set[0].insert(i%5000);
 		vec_set[1].insert(i%5000);
 		vec_set[2].insert(i%5000);
-	} 
+	}
 
 	init(data_vec,count_column);
 	// pgm.print();
@@ -552,7 +573,7 @@ int main(int argc, char *argv[])
 	cout<<eval(vec_set,true,0.1)<<" : is the probablity"<<endl;
 
 	end_time = high_resolution_clock::now();
-    cout<<duration_cast < duration < float > > (end_time - start_time).count()<<" eval time  "<<endl<<endl; 
+    cout<<duration_cast < duration < float > > (end_time - start_time).count()<<" eval time  "<<endl<<endl;
 
 	return 0;
 }
