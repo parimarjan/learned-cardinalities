@@ -12,6 +12,12 @@ import pandas as pd
 import json
 from multiprocessing import Pool
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+import seaborn as sns
+
 class CardinalityEstimationAlg():
 
     def __init__(self, *args, **kwargs):
@@ -63,6 +69,12 @@ class BN(CardinalityEstimationAlg):
             self.avg_factor = kwargs["avg_factor"]
         else:
             self.avg_factor = 1
+
+        if "gen_bn_dist" in kwargs:
+            self.gen_bn_dist = kwargs["gen_bn_dist"]
+            self.cur_est_sels = []
+        else:
+            self.gen_bn_dist = 0
 
         self.model = None
         # non-persistent cast, just to avoid running same alg again
@@ -258,9 +270,20 @@ class BN(CardinalityEstimationAlg):
                 model_sample.append(possible_vals)
             return model_sample
 
+        self.est_dist_pdf = PdfPages("./bn_est_dist.pdf")
         db = self.db
         estimates = []
         for qi, query in enumerate(test_samples):
+            if len(self.cur_est_sels) > 0:
+                # write it to pdf, and reset
+                x = pd.Series(self.cur_est_sels, name="Point Estimates")
+                ax = sns.distplot(x, kde=False)
+                plt.title("BN : " + str(qi))
+                plt.tight_layout()
+                self.est_dist_pdf.savefig()
+                plt.clf()
+                cur_est_sels = []
+
             hashed_query = deterministic_hash(query.query)
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
@@ -331,6 +354,8 @@ class BN(CardinalityEstimationAlg):
                     for p in all_points:
                         try:
                             est_sel += self.model.probability(p)
+                            if self.gen_bn_dist:
+                                self.cur_est_sels.append(est_sel)
                         except Exception as e:
                             # FIXME: add minimum amount.
                             # unknown key ...
@@ -375,6 +400,9 @@ class BN(CardinalityEstimationAlg):
                         .format(len(all_points), time.time()-start))
             self.test_cache[hashed_query] = est_sel
             estimates.append(est_sel)
+
+        if self.gen_bn_dist:
+            self.est_dist_pdf.close()
         return np.array(estimates)
 
     def get_name(self, suffix_name):
