@@ -12,6 +12,9 @@
 #include <map> 
 
 
+using namespace std::chrono;
+
+using namespace std;
 
 using namespace std;
 
@@ -362,6 +365,11 @@ struct Graphical_Model
 
 				}
 
+				if(approx)
+				{
+					ans/=frac;
+				}
+
 				curr_vals[par_val]*=ans;
 			}
 
@@ -424,11 +432,40 @@ void train()
 double eval(vector<set<int>  > &filter,bool approx,double frac)
 {
 	double ans=0.0;
-	map<int,double> root_map=pgm.eval(pgm.root,filter,approx,frac);
+	map<int,double> root_map;
+	vector<set<int> > new_filter(filter.size());
+
+	if(approx)
+	{
+		for(int i=0;i<filter.size();i++)
+		{
+			int count=frac*filter[i].size();
+			vector<int> v(filter[i].begin(),filter[i].end());
+			std::random_shuffle(v.begin(),v.end());
+
+			for(int j=0;j<count;j++)
+			{
+				new_filter[i].insert(v[j]);
+			}
+
+		}
+
+		root_map=pgm.eval(pgm.root,new_filter,approx,frac);
+	}
+	else
+	{
+		root_map=pgm.eval(pgm.root,filter,approx,frac);
+	}
+
 
 	for(std::map<int,double>::iterator it=root_map.begin();it!=root_map.end();it++)
 	{
 		ans+=it->second*pgm.node_list[pgm.root].prob_list[it->first];
+	}
+
+	if(approx)
+	{
+		ans/=frac;
 	}
 
 	return ans;
@@ -444,24 +481,31 @@ int main(int argc, char *argv[])
 	vector<int> count_column;
 	vector<set<int> > vec_set(3);
 
-	for(int i=0;i<1000;i++)
+	for(int i=0;i<10000;i++)
 	{
 		count_column.push_back(1);
 		data_vec[0].push_back(i);
 		data_vec[1].push_back(i);
 		data_vec[2].push_back(i);
-		vec_set[0].insert(i%500);
-		vec_set[1].insert(i%500);
-		vec_set[2].insert(i%500);
+		vec_set[0].insert(i%5000);
+		vec_set[1].insert(i%5000);
+		vec_set[2].insert(i%5000);
 	} 
 
 	init(data_vec,count_column);
-	pgm.print();
+	// pgm.print();
 
 	train();
-	pgm.print();
+	// pgm.print();
 
-	cout<<eval(vec_set,true,0.4)<<" : is the probablity"<<endl;
+	high_resolution_clock::time_point start_time, end_time;
+
+	start_time = high_resolution_clock::now();
+
+	cout<<eval(vec_set,true,0.1)<<" : is the probablity"<<endl;
+
+	end_time = high_resolution_clock::now();
+    cout<<duration_cast < duration < float > > (end_time - start_time).count()<<" eval time  "<<endl<<endl; 
 
 	return 0;
 }
