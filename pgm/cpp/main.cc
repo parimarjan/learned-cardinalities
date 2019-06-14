@@ -171,7 +171,6 @@ struct Nodes
 		cout<<endl;
 	}
 
-
 };
 
 
@@ -506,21 +505,29 @@ extern "C" void py_train()
   return;
 }
 
-extern "C" double py_eval(int **data, int *lens,int n_ar,bool approx,double frac)
+extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
 {
   vector<set<int> > filter(n_ar);
 
   for(int i=0;i<n_ar;i++)
   {
   	int *ans=data[i];
-  	for(int j=0;j<lens[i];i++)
+  	for(int j=0;j<lens[i];j++)
   	{
-  		filter[j].insert(*ans);
+      cout << j << *ans << endl;
+  		filter[i].insert(*ans);
   		ans++;
   	}
   }
+  bool app=false;
+  if(approx!=0)
+  {
+    app=true;
+  }
+  cout << "app: " << app << endl;
+  cout << "frac: " << frac << endl;
 
-  double ans= eval(filter,approx,frac);
+  double ans= eval(filter,app,frac);
 
   return ans;
 
