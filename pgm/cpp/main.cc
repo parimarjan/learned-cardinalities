@@ -552,20 +552,39 @@ extern "C" double test_inference(int **ar, int *lens, int n_ar)
 int main(int argc, char *argv[])
 {
 
-	vector<vector<int> > data_vec(3);
+	vector<vector<int> > data_vec(2);
 	vector<int> count_column;
-	vector<set<int> > vec_set(3);
+	vector<set<int> > vec_set(2);
 
-	for(int i=0;i<10000;i++)
-	{
-		count_column.push_back(1);
-		data_vec[0].push_back(i);
-		data_vec[1].push_back(i);
-		data_vec[2].push_back(i);
-		vec_set[0].insert(i%5000);
-		vec_set[1].insert(i%5000);
-		vec_set[2].insert(i%5000);
-	}
+	data_vec[0].push_back(0);
+	data_vec[0].push_back(1);
+	data_vec[0].push_back(2);
+	data_vec[1].push_back(0);
+	data_vec[1].push_back(1);
+	data_vec[1].push_back(2);
+
+	count_column.push_back(100);
+	count_column.push_back(20);
+	count_column.push_back(30);
+
+	vec_set[0].insert(0);
+	vec_set[0].insert(1);
+	vec_set[0].insert(2);
+	vec_set[1].insert(1);
+	vec_set[1].insert(2);
+
+	// for(int i=0;i<3;i++)
+	// {
+	// 	count_column.push_back(1);
+	// 	data_vec[0].push_back(i);
+	// 	data_vec[1].push_back(i);
+	// 	// data_vec[2].push_back(i);
+	// 	vec_set[0].insert(i%5000);
+	// 	vec_set[1].insert(i%5000);
+	// 	// vec_set[2].insert(i%5000);
+	// }
+
+
 
 	init(data_vec,count_column);
 	// pgm.print();
@@ -577,7 +596,7 @@ int main(int argc, char *argv[])
 
 	start_time = high_resolution_clock::now();
 
-	cout<<eval(vec_set,true,0.1)<<" : is the probablity"<<endl;
+	cout<<eval(vec_set,false,1.0)<<" : is the probablity"<<endl;
 
 	end_time = high_resolution_clock::now();
     cout<<duration_cast < duration < float > > (end_time - start_time).count()<<" eval time  "<<endl<<endl;
