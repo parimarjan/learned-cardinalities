@@ -75,19 +75,6 @@ def visualize_query_class(queries, pdf):
     nx.draw_networkx_edges(jg, pos)
     nx.draw_networkx_labels(jg, pos)
 
-    # nx.draw(jg, with_labels=True)
-
-    pdf.savefig()
-    plt.close()
-
-    # TODO: add graph on first page
-    firstPage = plt.figure()
-    firstPage.clf()
-    ## TODO: just paste all the args here?
-    txt = ""
-    txt += q0.query
-
-    firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
     pdf.savefig()
     plt.close()
 
@@ -115,14 +102,26 @@ def visualize_query_class(queries, pdf):
                 all_losses.append(tmp)
 
     df = pd.DataFrame(all_losses)
+    non_join_df = df[df["loss_type"] != "join"]
     ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
-            data=df, estimator=np.median, ci=99)
+            data=non_join_df, estimator=np.median, ci=99)
 
     fig = ax.get_figure()
     plt.title(",".join(q0.table_names))
     plt.tight_layout()
     pdf.savefig()
     plt.clf()
+
+    if "join" in set(df["loss_type"]):
+        join_df = df[df["loss_type"] == "join"]
+        ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
+                data=join_df, estimator=np.median, ci=99)
+
+        fig = ax.get_figure()
+        plt.title(",".join(q0.table_names))
+        plt.tight_layout()
+        pdf.savefig()
+        plt.clf()
 
 def parse_query_file(fn):
     '''
@@ -143,8 +142,7 @@ def parse_query_file(fn):
     pdf = PdfPages(pdf_name)
     visualize_query_class(queries, pdf)
     all_subq_list = []
-    # if len(queries[0].subqueries) > 0:
-    if False:
+    if len(queries[0].subqueries) > 0:
         for i in range(len(queries[0].subqueries)):
             # class of subqueries
             sq_sample = queries[0].subqueries[i]

@@ -31,7 +31,8 @@ def get_alg(alg):
         return Random()
     elif alg == "chow":
         return BN(alg="chow-liu", num_bins=args.num_bins,
-                        avg_factor=args.avg_factor)
+                        avg_factor=args.avg_factor,
+                        gen_bn_dist=args.gen_bn_dist)
     elif alg == "bn-exact":
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn1":
@@ -234,6 +235,8 @@ def read_flags():
 
     # synthetic data flags
     parser.add_argument("--gen_synth_data", type=int, required=False,
+            default=0)
+    parser.add_argument("--gen_bn_dist", type=int, required=False,
             default=0)
     parser.add_argument("--only_nonzero_samples", type=int, required=False,
             default=1)
