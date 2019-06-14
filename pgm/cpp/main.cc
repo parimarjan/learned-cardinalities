@@ -412,12 +412,59 @@ extern "C" void test(int test)
   cout << test << endl;
 }
 
-extern "C" void test_init(int *arr, int dim1, int dim2)
+extern "C" void py_init(int *data, int dim1, int dim2,int *count_ptr,int dim_col)
 {
-  cout << "hello! " << endl;
-  cout << dim1 << endl;
-  cout << dim2 << endl;
+  vector<vector<int> > data_matrix(dim1);
+
+  for(int i=0;i<dim2;i++)
+  {
+  	for(int j=0;j<dim1;i++)
+  	{
+  		data_matrix[j].push_back(*data);
+  		data++;
+  	}
+  }
+
+  vector<int> count_column;
+
+  for(int i=0;i<dim_col;i++)
+  {
+  	count_column.push_back(*count_ptr);
+  	count_ptr++;
+  }
+  init(data_matrix,count_column);
+
+  return ;
+
 }
+
+extern "C" void py_train()
+{
+  train();
+  return;
+}
+
+extern "C" double py_eval(int **data, int *lens,int n_ar,bool approx,double frac)
+{
+  vector<set<int> > filter(n_ar);
+
+  for(int i=0;i<n_ar;i++)
+  {
+  	int *ans=data[i];
+  	for(int j=0;j<lens[i];i++)
+  	{
+  		filter[j].insert(*ans);
+  		ans++;
+  	}
+  }
+
+  double ans=pgm.eval(data_matrix,approx,frac);
+
+  return ans;
+
+}
+
+
 
 void init(vector<vector<int> > &data_matrix,vector<int> &count_column)
 {
