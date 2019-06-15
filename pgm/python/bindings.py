@@ -13,7 +13,7 @@ if system == 'Linux':
 else:
     lib_file = "libpgm.dylib"
 
-lib_file = pkg_resources.resource_filename(__name__, lib_file)
+# lib_file = pkg_resources.resource_filename(__name__, lib_file)
 
 pgm = CDLL(lib_file, mode=RTLD_GLOBAL)
 print("loaded library!")
@@ -38,7 +38,8 @@ pgm.test(5)
 # test2 = pgm.test_inference(c_l, c_lengths, len(l))  #here we also pass the sizes of all the arrays
 # print(test2)
 
-a = [[0,1,2], [0,1,2]]
+# a = [[0,1,2], [0,1,2]]
+a = [[0,0], [1,1], [2,2]]
 a = np.array(a, dtype=np.int32)
 counts = [100, 20, 30]
 counts = np.array(counts, dtype=np.int32)

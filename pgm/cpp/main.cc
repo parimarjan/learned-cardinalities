@@ -371,7 +371,6 @@ struct Graphical_Model
 
 				curr_vals[par_val]*=ans;
 			}
-
 		}
 
 		return curr_vals;
@@ -464,36 +463,36 @@ extern "C" void test(int test)
   cout << test << endl;
 }
 
-extern "C" void py_init(int *data, int dim1, int dim2,int *count_ptr,int dim_col)
+extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim_col)
 {
-  vector<vector<int> > data_matrix(dim1);
-  cout << "dim1: " << endl;
-  cout << dim1 << endl;
-  cout << "dim2: " << endl;
-  cout << dim2 << endl;
+  vector<vector<int> > data_matrix(col_sz);
+  //cout << "row: " << endl;
+  //cout << row_sz << endl;
+  //cout << "col: " << endl;
+  //cout << col_sz << endl;
 
-  for(int i=0;i<dim1;i++)
+  for(int i=0;i<row_sz;i++)
   {
-  	for(int j=0;j<dim2;j++)
+  	for(int j=0;j<col_sz;j++)
   	{
-      cout << i << " " << *data << endl;
-  		data_matrix[i].push_back(*data);
+      //cout << i << " " << *data << endl;
+  		data_matrix[j].push_back(*data);
   		data++;
       //data++;
   	}
   }
-  cout << "reading in data done" << endl;
+  //cout << "reading in data done" << endl;
 
   vector<int> count_column;
 
-  cout << "count: " << endl;
+  //cout << "count: " << endl;
   for(int i=0;i<dim_col;i++)
   {
-    cout << i << " " << *count_ptr << endl;
+    //cout << i << " " << *count_ptr << endl;
   	count_column.push_back(*count_ptr);
   	count_ptr++;
   }
-  cout << "before init " << endl;
+  //cout << "before init " << endl;
   init(data_matrix,count_column);
 
   return ;
@@ -515,7 +514,7 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   	int *ans=data[i];
   	for(int j=0;j<lens[i];j++)
   	{
-      cout << i << " " << *ans << endl;
+      //cout << i << " " << *ans << endl;
   		filter[i].insert(*ans);
   		ans++;
   	}
@@ -525,15 +524,14 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   {
     app=true;
   }
-  cout << "app: " << app << endl;
-  cout << "frac: " << frac << endl;
+  //cout << "app: " << app << endl;
+  //cout << "frac: " << frac << endl;
 
   double ans= eval(filter,app,frac);
 
-  cout << "ans: " << ans << endl;
+  //cout << "ans: " << ans << endl;
   return ans;
 }
-
 
 
 extern "C" double test_inference(int **ar, int *lens, int n_ar)

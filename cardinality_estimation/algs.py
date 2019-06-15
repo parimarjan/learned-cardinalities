@@ -11,6 +11,7 @@ from cardinality_estimation.losses import *
 import pandas as pd
 import json
 from multiprocessing import Pool
+from pgm import PGM
 
 import matplotlib
 matplotlib.use('Agg')
@@ -51,6 +52,153 @@ class Independent(CardinalityEstimationAlg):
     def test(self, test_samples):
         return np.array([np.prod(np.array(s.marginal_sels)) \
                 for s in test_samples])
+
+class OurPGM(CardinalityEstimationAlg):
+
+    def __init__(self, *args, **kwargs):
+        self.min_groupby = 0
+        self.model = PGM()
+
+    def _load_synth_model(self, db, training_samples, **kwargs):
+        assert len(db.tables) == 1
+        table = [t for t in db.tables][0]
+        columns = list(db.column_stats.keys())
+        columns_str = ",".join(columns)
+        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE=table)
+        # group_by += " ORDER BY COUNT(*) DESC"
+        # group_by += " HAVING COUNT(*) > {}".format(2)
+        groupby_output = db.execute(group_by)
+        samples = []
+        weights = []
+        for i, sample in enumerate(groupby_output):
+            samples.append([])
+            for j in range(len(sample)-1):
+                samples[i].append(sample[j])
+            weights.append(sample[j+1])
+        samples = np.array(samples)
+        weights = np.array(weights)
+
+        return samples, weights
+        # self.model = BayesianNetwork.from_samples(samples, weights=weights,
+                # state_names=columns, algorithm=self.alg, n_jobs=-1)
+
+    def _load_dmv_model(self, db, training_samples, **kwargs):
+        columns = list(db.column_stats.keys())
+        columns_str = ",".join(columns)
+        # sel_all = "SELECT {COLS} FROM dmv".format(COLS = columns_str)
+        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE="dmv")
+        # group_by += " ORDER BY COUNT(*) DESC"
+        group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
+        # print(group_by)
+        # TODO: use db_utils
+        groupby_output = db.execute(group_by)
+        # print("DMV groupby output len: ", len(groupby_output))
+        start = time.time()
+        samples = []
+        weights = []
+        for i, sample in enumerate(groupby_output):
+            samples.append([])
+            for j in range(len(sample)-1):
+                if sample[j] is None:
+                    # FIXME: what should be the sentinel value?
+                    samples[i].append("-1")
+                else:
+                    samples[i].append(sample[j])
+            weights.append(sample[j+1])
+        samples = np.array(samples)
+        weights = np.array(weights)
+        return samples, weights
+
+    def train(self, db, training_samples, **kwargs):
+        # print("train!")
+        # samples, weights = self._load_synth_model()
+        if "synth" in db.db_name:
+            samples, weights = self._load_synth_model(db, training_samples, **kwargs)
+        elif "osm" in db.db_name:
+            samples, weights = self._load_osm_model(db, training_samples, **kwargs)
+        elif "imdb" in db.db_name:
+            samples, weights = self._load_imdb_model(db, training_samples, **kwargs)
+        elif "dmv" in db.db_name:
+            samples, weights = self._load_dmv_model(db, training_samples, **kwargs)
+
+        columns = list(db.column_stats.keys())
+        self.model.train(samples, weights, state_names=columns)
+        # pdb.set_trace()
+        # print("constructing samples took: ", time.time()-start)
+        # self.model = BayesianNetwork.from_samples(samples, weights=weights,
+                # state_names=columns, algorithm=self.alg, n_jobs=-1)
+
+
+    def test(self, test_samples):
+        def _query_to_sample(sample):
+            '''
+            takes in a Query object, and converts it to the representation to
+            be fed into the pomegranate bayesian net model
+            '''
+            model_sample = []
+            for state_name in self.model.state_names:
+                # find the right column entry in sample
+                val = None
+                possible_vals = []
+                for i, column in enumerate(sample.pred_column_names):
+                    if column == state_name:
+                        cmp_op = sample.cmp_ops[i]
+                        val = sample.vals[i]
+                        if cmp_op == "in":
+                            if hasattr(sample.vals[i], "__len__"):
+                                # dedup
+                                val = set(val)
+                            # possible_vals = [int(v.replace("'","")) for v in val]
+                            ## FIXME:
+                            all_vals = [str(v.replace("'","")) for v in val]
+                            for v in all_vals:
+                                if v != "tv mini series":
+                                    possible_vals.append(v)
+                        elif cmp_op == "lt":
+                            assert len(val) == 2
+                            if self.db.db_name == "imdb":
+                                # FIXME: hardcoded for current query...
+                                val = [int(v) for v in val]
+                                for ival in range(val[0], val[1]):
+                                    possible_vals.append(str(ival))
+                            else:
+                                # discretize first
+                                bins = self.column_discrete_bins[column]
+                                val = [float(v) for v in val]
+                                try:
+                                    disc_vals = np.digitize(val, bins)
+                                    for ival in range(disc_vals[0], disc_vals[1]+1):
+                                        # possible_vals.append(ival)
+                                        possible_vals.append(str(ival))
+                                except:
+                                    print(val)
+                                    pdb.set_trace()
+                        elif cmp_op == "eq":
+                            possible_vals.append(val)
+                        else:
+                            print(sample)
+                            print(column)
+                            print(cmp_op)
+                            pdb.set_trace()
+                # if len(possible_vals) == 0:
+                    # assert "county" != state.name
+                    # for dv in self.model.marginal()[len(model_sample)].parameters:
+                        # for k in dv:
+                            # possible_vals.append(k)
+
+                model_sample.append(possible_vals)
+            return model_sample
+
+        estimates = []
+        for qi, query in enumerate(test_samples):
+            # hashed_query = deterministic_hash(query.query)
+            # if hashed_query in self.test_cache:
+                # estimates.append(self.test_cache[hashed_query])
+                # continue
+            model_sample = _query_to_sample(query)
+            est_sel = self.model.evaluate(model_sample)
+            estimates.append(est_sel)
+        return estimates
 
 class BN(CardinalityEstimationAlg):
     '''
@@ -396,9 +544,10 @@ class BN(CardinalityEstimationAlg):
                     est_sel = N*np.average(self.model.probability(est_samples))
 
             if qi % 100 == 0:
-                print("test query: ", qi)
-                print("evaluating {} points took {} seconds"\
-                        .format(len(all_points), time.time()-start))
+                pass
+                # print("test query: ", qi)
+                # print("evaluating {} points took {} seconds"\
+                        # .format(len(all_points), time.time()-start))
             self.test_cache[hashed_query] = est_sel
             estimates.append(est_sel)
 
@@ -437,7 +586,7 @@ class BN(CardinalityEstimationAlg):
         # FIXME: add parameters of the learning model etc.
         name = self.__class__.__name__ + "-" + self.alg
         # name += "-bins" + str(self.num_bins)
-        name += "avg:" + str(self.avg_factor)
+        # name += "avg:" + str(self.avg_factor)
         return name
 
 def rel_loss_torch(pred, ytrue):
@@ -517,7 +666,6 @@ class NN1(CardinalityEstimationAlg):
                 tfboard_dir="./tf-logs", lr=0.001, adaptive_lr=True,
                 loss_threshold=2.0)
 
-        print("train done!")
         self.net = net
 
     def test(self, test_samples):

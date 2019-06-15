@@ -37,12 +37,10 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn1":
         return NN1(max_iter = args.max_iter)
+    elif alg == "ourpgm":
+        return OurPGM()
     else:
         assert False
-
-def get_table_name():
-    return args.synth_table + str(args.synth_num_columns) + str(args.random_seed)
-    # return args.synth_table + gen_exp_hash()[0:5]
 
 def remove_doubles(samples):
     new_samples = []

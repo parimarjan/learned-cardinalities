@@ -114,11 +114,14 @@ def get_gaussian_data_params(args):
                 covs[j][i] = corr*stds[i]*stds[j]
     return means, covs
 
+def get_table_name(args):
+    return args.synth_table + str(args.synth_num_columns) + str(args.random_seed)
+
 def gen_synth_data(args):
     con = pg.connect(user=args.user, host=args.db_host, port=args.port,
             password=args.pwd, database=args.db_name)
     cur = con.cursor()
-    table_name = get_table_name()
+    table_name = get_table_name(args)
     exists = check_table_exists(cur, table_name)
     # print("exists: ", exists)
     # if exists:
@@ -157,7 +160,7 @@ def gen_synth_data(args):
 def update_synth_templates(args, query_templates):
     # artificially generate the query templates based on synthetic data
     # generation stuff
-    table_name = get_table_name()
+    table_name = get_table_name(args)
     # add a select count(*) for every combination of columns
     meta_tmp = "SELECT COUNT(*) FROM {TABLE} WHERE {CONDS}"
     # TEST.col2 = 'col2'
