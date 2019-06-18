@@ -7,7 +7,7 @@ ifeq (${OS}, Darwin)
 	LIB = libpgm.dylib
 else ifeq (${OS}, Linux)
   # Linux
- 	CLANG ?= clang++
+ 	CLANG ?= g++
 	LIB = libpgm.so
 else
   $(error Unsupported platform: ${OS})
@@ -18,4 +18,4 @@ ${LIB}: main.cc
 	$(CLANG) -shared  -Wl,-soname,${LIB} -o ${LIB} main.o
 
 clean:
-	rm -f *.bc *.o ${LIB}
+	rm -f *.bc *.o *.out ${LIB}

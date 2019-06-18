@@ -475,12 +475,12 @@ extern "C" void py_init(int *data, int dim1, int dim2,int *count_ptr,int dim_col
   cout << "dim2: " << endl;
   cout << dim2 << endl;
 
-  for(int i=0;i<dim2;i++)
+  for(int i=0;i<dim1;i++)
   {
-  	for(int j=0;j<dim1;j++)
+  	for(int j=0;j<dim2;j++)
   	{
-      cout << *data << endl;
-  		data_matrix[j].push_back(*data);
+      cout << i << " " << *data << endl;
+  		data_matrix[i].push_back(*data);
   		data++;
       //data++;
   	}
@@ -489,9 +489,10 @@ extern "C" void py_init(int *data, int dim1, int dim2,int *count_ptr,int dim_col
 
   vector<int> count_column;
 
+  cout << "count: " << endl;
   for(int i=0;i<dim_col;i++)
   {
-    cout << *count_ptr << endl;
+    cout << i << " " << *count_ptr << endl;
   	count_column.push_back(*count_ptr);
   	count_ptr++;
   }
@@ -517,7 +518,7 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   	int *ans=data[i];
   	for(int j=0;j<lens[i];j++)
   	{
-      cout << j << *ans << endl;
+      cout << i << " " << *ans << endl;
   		filter[i].insert(*ans);
   		ans++;
   	}
@@ -532,8 +533,8 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
 
   double ans= eval(filter,app,frac);
 
+  cout << "ans: " << ans << endl;
   return ans;
-
 }
 
 
