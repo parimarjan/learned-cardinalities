@@ -10,6 +10,7 @@
 #include <math.h>
 #include <set>
 #include <map>
+#include <fstream>
 
 
 using namespace std::chrono;
@@ -74,11 +75,12 @@ struct Edges
 	double cal_mutual_info()
 	{
 		double mutal_info=0.0;
+		double epsilon=0.0001/(1.000*col_num*row_num);
 		for(int i=0;i<col_num;i++)
 		{
 			for(int j=0;j<row_num;j++)
 			{
-				if(col_sum[i]!=0.0 && row_sum[j]!=0.0)
+				if(col_sum[i] > epsilon && row_sum[j]>epsilon && prob_matrix[i][j]>epsilon)
 				{
 					mutal_info+=prob_matrix[i][j]*(log(prob_matrix[i][j]/(col_sum[i]*row_sum[j])));
 				}
@@ -277,6 +279,7 @@ struct Graphical_Model
 				temp.b=j;
 				temp.val=edge_matrix[i][j-i-1].cal_mutual_info();
 				mutual_info_vec.push_back(temp);
+				cout<<temp.val<<" : mutual info "<<i<<" "<<j<<endl;
 			}
 		}
 
@@ -552,45 +555,108 @@ extern "C" double test_inference(int **ar, int *lens, int n_ar)
 int main(int argc, char *argv[])
 {
 
-	vector<vector<int> > data_vec(2);
+	fstream file,file1; 
+
+	string a,b,c;
+	double p,q,r;
+
+	vector<vector<int> > data_vec(3);
 	vector<int> count_column;
-	vector<set<int> > vec_set(2);
+	vector<set<int> > vec_set(3);
 
-	data_vec[0].push_back(0);
-	data_vec[0].push_back(1);
-	data_vec[0].push_back(2);
-	data_vec[1].push_back(0);
-	data_vec[1].push_back(1);
-	data_vec[1].push_back(2);
+  
+    // Open an existing file 
+    file.open("data.csv", ios::in); 
 
-	count_column.push_back(100);
-	count_column.push_back(20);
-	count_column.push_back(30);
+    while (getline(file, a, ',')) {
+    p=atof(a.c_str());
+  
+    getline(file, b, ',') ;
+    q=atof(b.c_str());
+    
+    getline(file, c);
+    r=atof(c.c_str());
+    
+    data_vec[0].push_back(p);
+    data_vec[1].push_back(q);
+    data_vec[2].push_back(r);
 
-	vec_set[0].insert(0);
-	vec_set[0].insert(1);
-	vec_set[0].insert(2);
-	vec_set[1].insert(1);
-	vec_set[1].insert(2);
+    // cout<<p<<","<<q<<","<<r<<endl;
 
-	// for(int i=0;i<3;i++)
+	}
+
+	file1.open("counts.csv", ios::in); 
+
+
+	while (getline(file1, a)) {
+    p=atof(a.c_str());   
+    count_column.push_back(p);
+
+	}
+
+
+
+	int myints1[]= {7,6,1,11,10,9,8};
+	std::set<int> MySet1(myints1, myints1 + 7);
+	vec_set[0]=MySet1;
+
+	int myints2[]= {10,4};
+	std::set<int> MySet2(myints1, myints1 + 2);
+	vec_set[1]=MySet2;
+
+	int myints3[]= {4,6,8,9,10,5,7};
+	std::set<int> MySet3(myints1, myints1 + 7);
+	vec_set[2]=MySet3;
+
+	// data_vec[0].push_back(0);
+	// data_vec[0].push_back(1);
+	// data_vec[0].push_back(2);
+	// data_vec[1].push_back(0);
+	// data_vec[1].push_back(1);
+	// data_vec[1].push_back(2);
+
+	// count_column.push_back(100);
+	// count_column.push_back(20);
+	// count_column.push_back(30);
+
+	// vec_set[0].insert(0);
+	// vec_set[0].insert(1);
+	// vec_set[0].insert(2);
+	// vec_set[1].insert(1);
+	// vec_set[1].insert(2);
+
+	// for(int i=0;i<10000;i++)
 	// {
 	// 	count_column.push_back(1);
 	// 	data_vec[0].push_back(i);
 	// 	data_vec[1].push_back(i);
-	// 	// data_vec[2].push_back(i);
+	// 	data_vec[2].push_back(i);
 	// 	vec_set[0].insert(i%5000);
 	// 	vec_set[1].insert(i%5000);
-	// 	// vec_set[2].insert(i%5000);
+	// 	vec_set[2].insert(i%5000);
 	// }
+
+	for(int i=0;i<data_vec.size();i++)
+	{
+		for(int j=0;j<data_vec[i].size();j++)
+		{
+			cout<<data_vec[i][j]<<" ";
+		}
+		cout<<endl;
+	}
+
+	for(int i=0;i<count_column.size();i++)
+	{
+		cout<<count_column[i]<<" ";
+	}
 
 
 
 	init(data_vec,count_column);
-	// pgm.print();
+	pgm.print();
 
 	train();
-	// pgm.print();
+	pgm.print();
 
 	high_resolution_clock::time_point start_time, end_time;
 
