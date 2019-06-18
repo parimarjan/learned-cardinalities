@@ -255,7 +255,7 @@ class DB():
         hashed_key = deterministic_hash("subquery: " + query.query)
         queries = []
         if hashed_key in self.sql_cache.archive:
-            print("loading hashed key")
+            # print("loading hashed key")
             queries = self.sql_cache.archive[hashed_key]
             return queries
         start = time.time()
@@ -309,16 +309,23 @@ class DB():
                                             COL   = column)
             max_query = MAX_TEMPLATE.format(TABLE = table,
                                             COL   = column)
-            count_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
+            unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
                                                       COL = column)
             total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
+            unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
+                                                            COL = column)
 
             if column not in self.column_stats:
+                # TODO: move to using cached_execute
                 self.column_stats[column] = {}
                 self.column_stats[column]["min_value"] = self.execute(min_query)[0][0]
                 self.column_stats[column]["max_value"] = self.execute(max_query)[0][0]
-                self.column_stats[column]["num_values"] = self.execute(count_query)[0][0]
-                self.column_stats[column]["total_vals"] = self.execute(total_count_query)[0][0]
+                self.column_stats[column]["num_values"] = \
+                        self.execute(unique_count_query)[0][0]
+                self.column_stats[column]["total_values"] = \
+                        self.execute(total_count_query)[0][0]
+                self.column_stats[column]["unique_values"] = \
+                        self.execute(unique_vals_query)
 
         print("collected stats on all columns")
         # first, try and see if we have enough queries with the given template

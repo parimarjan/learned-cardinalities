@@ -148,17 +148,15 @@ def compute_join_order_loss(alg, queries, use_subqueries,
                         dtype=np.float32)
         est_cards = np.multiply(yhat, totals)
         update_cards(cardinalities, est_cards, q)
-        # print(cardinalities[i].keys())
     # pdb.set_trace()
     env.initialize_cardinalities(cardinalities)
-    # print("num cards: ", len(cardinalities))
     # Learn optimal agent for estimated cardinalities
     agents = []
     train_q = run_all_eps(env)
     fixed_agent = {}
     for hashedq in train_q:
         info = train_q[hashedq]
-        actions = info["joinOrders"][baseline]
+        actions = info["joinOrders"][baseline]["joinEdgeChoices"]
         fixed_agent[hashedq] = actions
 
     assert len(fixed_agent) == len(cardinalities) == len(queries)
