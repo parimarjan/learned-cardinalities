@@ -52,7 +52,7 @@ def read_flags():
 
     return parser.parse_args()
 
-def visualize_query_class(queries, pdf):
+def visualize_query_class(queries, pdf, barcharts=False):
     q0 = queries[0]
     jc = extract_join_clause(q0.query)
     pred_columns, pred_types, _ = extract_predicates(q0.query)
@@ -68,14 +68,14 @@ def visualize_query_class(queries, pdf):
 
     pos=nx.spring_layout(jg) # positions for all nodes
     nx.draw_networkx_nodes(jg , pos,
-			   nodelist=pred_tables,
-			   node_color='r',
-			   node_size=2500,
-		           alpha=0.3)
+                           nodelist=pred_tables,
+                           node_color='r',
+                           node_size=2500,
+                           alpha=0.3)
     nx.draw_networkx_nodes(jg,pos,
-			   nodelist=other_tables,
-			   node_color='b',
-			   node_size=2500,
+                           nodelist=other_tables,
+                           node_color='b',
+                           node_size=2500,
                            alpha=0.3)
     nx.draw_networkx_edges(jg, pos)
     nx.draw_networkx_labels(jg, pos)
@@ -106,24 +106,77 @@ def visualize_query_class(queries, pdf):
                 all_losses.append(tmp)
 
     df = pd.DataFrame(all_losses)
-    non_join_df = df[df["loss_type"] != "join"]
-    ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
-            data=non_join_df, estimator=np.median, ci=99)
-
-    fig = ax.get_figure()
-    plt.title(",".join(q0.table_names))
-    plt.tight_layout()
-    pdf.savefig()
-    plt.clf()
-
-    if "join" in set(df["loss_type"]):
-        join_df = df[df["loss_type"] == "join"]
+    if barcharts:
+        non_join_df = df[df["loss_type"] != "join"]
         ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
-                data=join_df, estimator=np.median, ci=99)
+                data=non_join_df, estimator=np.median, ci=99)
 
         fig = ax.get_figure()
         plt.title(",".join(q0.table_names))
         plt.tight_layout()
+        pdf.savefig()
+        plt.clf()
+
+        if "join" in set(df["loss_type"]):
+            join_df = df[df["loss_type"] == "join"]
+            ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
+                    data=join_df, estimator=np.median, ci=99)
+
+            fig = ax.get_figure()
+            plt.title(",".join(q0.table_names))
+            plt.tight_layout()
+            pdf.savefig()
+            plt.clf()
+    else:
+        FONT_SIZE = 12
+        COL_WIDTH = 0.25
+        # columns
+        loss_types = [l for l in set(df["loss_type"])]
+        COL_WIDTHS = [COL_WIDTH for l in loss_types]
+        # rows
+        algs = [l for l in set(df["alg_name"])]
+        # generate nd-array of values
+        mean_vals = np.zeros((len(loss_types), len(algs)))
+        for i, alg in enumerate(algs):
+            tmp_df = df[df["alg_name"] == alg]
+            for j, loss in enumerate(loss_types):
+                tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
+                mean_vals[i][j] = round(tmp_df2.mean()[0], 2)
+
+        median_vals = np.zeros((len(loss_types), len(algs)))
+        for i, alg in enumerate(algs):
+            tmp_df = df[df["alg_name"] == alg]
+            for j, loss in enumerate(loss_types):
+                tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
+                median_vals[i][j] = round(tmp_df2.median()[0], 2)
+
+        fig, axs = plt.subplots(2,1)
+        axs[0].axis('tight')
+        axs[1].axis('tight')
+        axs[0].axis("off")
+        axs[1].axis("off")
+
+        # Add a table at the bottom of the axes
+        mean_table = axs[0].table(cellText=mean_vals,
+                              rowLabels=algs,
+                              # rowColours=colors,
+                              colLabels=loss_types,
+                              loc='center',
+                              fontsize=FONT_SIZE,
+                              colWidths=COL_WIDTHS)
+        axs[0].set_title("Mean Losses")
+        mean_table.set_fontsize(FONT_SIZE)
+
+        median_table = axs[1].table(cellText=median_vals,
+                              rowLabels=algs,
+                              # rowColours=colors,
+                              colLabels=loss_types,
+                              loc='center',
+                              fontsize=FONT_SIZE,
+                              colWidths=COL_WIDTHS)
+        axs[1].set_title("Median Losses")
+        median_table.set_fontsize(FONT_SIZE)
+
         pdf.savefig()
         plt.clf()
 
@@ -136,7 +189,9 @@ def parse_query_file(fn):
             - plot tables used as a graph
             - first bucket them by tables used
             - for each class, have separate qerror values
-
+    TODO:
+        - change use of EXHAUSTIVE to baseline everywhere etc.
+        - handle errors better
     '''
     print(fn)
     pdf_name = fn.replace(".pickle", ".pdf")
@@ -147,6 +202,48 @@ def parse_query_file(fn):
     visualize_query_class(queries, pdf)
 
     if hasattr(queries[0], "join_info") and args.per_query:
+        # alg name: true, postgres, random etc.
+        unique_join_orders = {}
+        for q in queries:
+            all_infos = q.join_info
+            # For true values, just add the Exhaustive orders
+            if "true" not in unique_join_orders:
+                unique_join_orders["true"] = []
+            tmp_info = all_infos["Postgres"]
+            unique_join_orders["true"].append(tmp_info["joinOrders"]["EXHAUSTIVE"]["joinStr"])
+
+            # Postgres, Random etc.
+            for alg, info in all_infos.items():
+                if alg not in unique_join_orders:
+                    unique_join_orders[alg] = []
+                unique_join_orders[alg].append(info["joinOrders"]["RL"]["joinStr"])
+
+        order_data = {}
+        order_data["alg"] = []
+        order_data["order"] = []
+        order_data["order_hash"] = []
+
+        for k,v in unique_join_orders.items():
+            for o in v:
+                order_data["alg"].append(k)
+                order_data["order"].append(o)
+                order_data["order_hash"].append(hash(o) % 100)
+
+            # join_order_ids = [hash(o) % 100 for o in v]
+            # x = pd.Series(join_order_ids, name="join_orders")
+            # ax = sns.distplot(x, kde=False)
+            # plt.title(k + ": Join Order Distribution")
+            # plt.tight_layout()
+            # pdf.savefig()
+            # plt.clf()
+
+        order_df = pd.DataFrame(order_data)
+        ax = sns.countplot(x="order_hash", hue="alg",
+                data=order_df)
+        plt.title("Join Order Distribution")
+        pdf.savefig()
+        plt.clf()
+
         # sort queries according to join-loss
         sorted_queries = sorted(queries, key=lambda q: \
                 q.losses["Postgres"]["join"], reverse=True)
@@ -154,12 +251,31 @@ def parse_query_file(fn):
         for q in sorted_queries:
             all_infos = q.join_info
             from park.envs.query_optimizer.qopt_utils import plot_join_order
+            # write out the sql
+            ## parameters
+            firstPage = plt.figure()
+            firstPage.clf()
+            ## TODO: just paste all the args here?
+            # txt = "Average Results \n"
+            # txt += "Num Experiments: " + str(len(set(orig_df["train-time"]))) + "\n"
+            # txt += "DB: " + str(set(orig_df["dbname"])) + "\n"
+            # txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
+            # txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
+
+            txt = all_infos["Postgres"]["sql"]
+            firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
+            pdf.savefig()
+            plt.close()
+
             for alg, info in all_infos.items():
+                if info["queryName"] == "16":
+                    continue
                 alg_cards = q.subq_cards[alg]
                 true_cards = q.subq_cards["true"]
                 plot_join_order(info, pdf, single_plot=False,
                         python_alg_name=alg, est_cards=alg_cards,
                         true_cards=true_cards)
+
 
     if len(queries[0].subqueries) > 0 and args.per_subquery:
         all_subq_list = []

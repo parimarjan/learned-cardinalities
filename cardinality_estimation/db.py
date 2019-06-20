@@ -304,7 +304,6 @@ class DB():
         self.aliases.update(aliases)
         self.tables.update(tables)
         joins = extract_join_clause(query_template)
-        # pdb.set_trace()
 
         for column in pred_columns:
             table = column[0:column.find(".")]
@@ -364,7 +363,7 @@ class DB():
 
         # total count, without any predicates being applied
         count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
-        total_count = self.execute(count_query)[0][0]
+        total_count = self.execute(count_query, timeout=120000)[0][0]
         print("total count: ", total_count)
 
         with Pool(processes=8) as pool:

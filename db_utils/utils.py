@@ -171,6 +171,8 @@ def extract_predicates(query):
         elif pred_type == "lte":
             continue
         elif pred_type == "lt":
+            # FIXME:!!!
+            continue
             # this should technically work for both "lt", "lte", "gt" etc.
             column, val = parse_lt_column(pred, pred_type)
 
