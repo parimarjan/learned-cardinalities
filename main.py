@@ -75,6 +75,7 @@ def eval_alg(alg, losses, queries, use_subqueries):
             losses = loss_func(alg, queries, args.use_subqueries,
                     baseline=args.baseline_join_alg)
             assert len(losses) == len(queries)
+            # only used with queries, since subqueries don't have an associated join-loss
             for i, q in enumerate(queries):
                 q.losses[alg.__str__()][loss_name] = losses[i]
         else:
@@ -151,8 +152,12 @@ def main():
         q.yhats = {}
         q.losses = defaultdict(dict)
 
-    train_queries, test_queries = train_test_split(samples, test_size=args.test_size,
-            random_state=args.random_seed)
+    if args.test:
+        train_queries, test_queries = train_test_split(samples, test_size=args.test_size,
+                random_state=args.random_seed)
+    else:
+        train_queries = samples
+        test_queries = []
 
     if len(train_queries) == 0:
         # debugging
@@ -186,8 +191,9 @@ def main():
 
     file_name = gen_results_name() + "_train" + ".pickle"
     save_or_update(file_name, train_queries)
-    file_name = gen_results_name() + "_test" + ".pickle"
-    save_or_update(file_name, test_queries)
+    if args.test:
+        file_name = gen_results_name() + "_test" + ".pickle"
+        save_or_update(file_name, test_queries)
 
     # save global stuff in results
     df = pd.DataFrame(result)

@@ -45,6 +45,11 @@ def read_flags():
             default=1)
     parser.add_argument("--result_dir", type=str, required=False,
             default="./results/")
+    parser.add_argument("--per_subquery", type=int, required=False,
+            default=0)
+    parser.add_argument("--per_query", type=int, required=False,
+            default=0)
+
     return parser.parse_args()
 
 def visualize_query_class(queries, pdf):
@@ -77,7 +82,6 @@ def visualize_query_class(queries, pdf):
 
     pdf.savefig()
     plt.close()
-
     true_sels = [q.true_sel for q in queries]
     x = pd.Series(true_sels, name="true selectivities")
     ax = sns.distplot(x, kde=False)
@@ -141,8 +145,24 @@ def parse_query_file(fn):
 
     pdf = PdfPages(pdf_name)
     visualize_query_class(queries, pdf)
-    all_subq_list = []
-    if len(queries[0].subqueries) > 0:
+
+    if hasattr(queries[0], "join_info") and args.per_query:
+        # sort queries according to join-loss
+        sorted_queries = sorted(queries, key=lambda q: \
+                q.losses["Postgres"]["join"], reverse=True)
+
+        for q in sorted_queries:
+            all_infos = q.join_info
+            from park.envs.query_optimizer.qopt_utils import plot_join_order
+            for alg, info in all_infos.items():
+                alg_cards = q.subq_cards[alg]
+                true_cards = q.subq_cards["true"]
+                plot_join_order(info, pdf, single_plot=False,
+                        python_alg_name=alg, est_cards=alg_cards,
+                        true_cards=true_cards)
+
+    if len(queries[0].subqueries) > 0 and args.per_subquery:
+        all_subq_list = []
         for i in range(len(queries[0].subqueries)):
             # class of subqueries
             sq_sample = queries[0].subqueries[i]

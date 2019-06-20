@@ -207,7 +207,9 @@ def extract_predicates(query):
             predicate_cols.append(column)
             predicate_vals.append(vals)
         else:
-            assert False, "unsupported predicate type"
+            continue
+            # pdb.set_trace()
+            # assert False, "unsupported predicate type"
 
     return predicate_cols, predicate_types, predicate_vals
 
@@ -235,14 +237,13 @@ def extract_from_clause(query):
 
     parsed_query = parse(query)
     from_clause = parsed_query["from"]
-    if isinstance(from_clause, str):
+    if isinstance(from_clause, list):
+        for i, table in enumerate(from_clause):
+            handle_table(table)
+    else:
         # only one table.
         # return [from_clause]
         handle_table(from_clause)
-    else:
-        assert isinstance(from_clause, list)
-        for i, table in enumerate(from_clause):
-            handle_table(table)
 
     return froms, aliases, tables
 
@@ -406,12 +407,16 @@ def get_join_graph(joins, tables=None):
         join_graph.add_edge(t1, t2)
     return join_graph
 
-def _gen_subqueries(all_tables, wheres):
+def _gen_subqueries(all_tables, wheres, aliases):
     '''
     my old shitty sqlparse code that should be updated...
     @tables: list
     @wheres: sqlparse object
     '''
+    # FIXME: nicer setup
+    if len(aliases) > 0:
+        all_tables = [a for a in aliases]
+
     all_subqueries = []
     combs = []
     for i in range(1, len(all_tables)+1):
@@ -423,8 +428,6 @@ def _gen_subqueries(all_tables, wheres):
             cur_tables.append(all_tables[idx])
 
         matches = find_all_clauses(cur_tables, wheres)
-        # print("matches: ", matches)
-        # pdb.set_trace()
         cond_string = " AND ".join(matches)
         if cond_string != "":
             cond_string = " WHERE " + cond_string
@@ -446,7 +449,13 @@ def _gen_subqueries(all_tables, wheres):
                     break
             if not all_joins:
                 continue
-        from_clause = " , ".join(cur_tables)
+        if len(aliases) > 0:
+            aliased_tables = [ALIAS_FORMAT.format(TABLE=aliases[a], ALIAS=a) for a in cur_tables]
+            from_clause = " , ".join(aliased_tables)
+            # print(from_clause)
+        else:
+            from_clause = " , ".join(cur_tables)
+
         query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause) + cond_string
         # final sanity checks
         joins = extract_join_clause(query)
@@ -460,8 +469,8 @@ def _gen_subqueries(all_tables, wheres):
             t1 = j1[0:j1.find(".")].strip()
             t2 = j2[0:j2.find(".")].strip()
             try:
-                assert t1 in tables
-                assert t2 in tables
+                assert t1 in tables or t1 in aliases
+                assert t2 in tables or t2 in aliases
             except:
                 print(t1, t2)
                 print(tables)
@@ -488,19 +497,15 @@ def gen_all_subqueries(query):
     FIXME: mix-match of moz_sql_parser AND sqlparse...
     '''
     # print("gen all subqueries!")
-    # print(query)
-    _,_,tables = extract_from_clause(query)
+    _,aliases,tables = extract_from_clause(query)
     parsed = sqlparse.parse(query)[0]
-    # print(tables)
     # let us go over all the where clauses
     where_clauses = None
     for token in parsed.tokens:
         if (type(token) == sqlparse.sql.Where):
             where_clauses = token
     assert where_clauses is not None
-    # print(where_clauses)
-    # pdb.set_trace()
-    all_subqueries = _gen_subqueries(tables, where_clauses)
+    all_subqueries = _gen_subqueries(tables, where_clauses, aliases)
     return all_subqueries
 
 def cached_execute_query(sql, user, db_host, port, pwd, db_name,
@@ -578,8 +583,12 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     '''
     if execution_cache_threshold is None:
         execution_cache_threshold = 60
-    # print("sql to query sample")
-    # print(sql)
+
+    if "SELECT COUNT" not in sql:
+        sql = sql[sql.find("FROM"):]
+        sql = "SELECT COUNT(*) " + sql
+        print(sql)
+
     output = cached_execute_query(sql, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
     if output is None:

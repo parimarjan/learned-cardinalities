@@ -291,6 +291,11 @@ class DB():
         ## in a reproducible manner, since we are caching previously generated
         ## samples
         # random.seed(random_seed)
+        if "SELECT COUNT" not in query_template:
+            # special casing for imdb for now...
+            query_template = query_template[query_template.find("FROM"):]
+            query_template = "SELECT COUNT(*) " + query_template
+
         start = time.time()
         pred_columns, pred_types, pred_vals = extract_predicates(query_template)
         for cmp_op in pred_types:
@@ -299,6 +304,7 @@ class DB():
         self.aliases.update(aliases)
         self.tables.update(tables)
         joins = extract_join_clause(query_template)
+        # pdb.set_trace()
 
         for column in pred_columns:
             table = column[0:column.find(".")]
