@@ -24,7 +24,7 @@ class PGM():
         # 0...n-1 (where n is the size of that random variable)
         self.word2index = []
         self.state_names = []
-        self.save_csv = False
+        self.save_csv = True
 
     def train(self, samples, weights, state_names=None):
         assert state_names is not None
@@ -88,7 +88,11 @@ class PGM():
         c_l = (POINTER(c_int) * len(entrylist))(*entrylist)
         c_lengths = (c_int * len(sample))(*lengths)
         pgm.py_eval.restype = c_double
-        est = pgm.py_eval(c_l, c_lengths, len(sample), 0, c_double(1.0))
+        est = pgm.py_eval(c_l, c_lengths, len(sample), 0, c_double(1.0)) 
+        if self.save_csv:
+            with open("results.csv", "a") as f:
+                writer = csv.writer(f)
+                writer.writerow([est])
         return est
 
 # self.model = BayesianNetwork.from_samples(samples, weights=weights,

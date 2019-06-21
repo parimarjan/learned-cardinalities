@@ -5,6 +5,8 @@ import math
 from pomegranate import BayesianNetwork
 from db_utils.utils import *
 from utils.utils import *
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from utils.net import SimpleRegression
 from cardinality_estimation.losses import *
@@ -13,8 +15,6 @@ import json
 from multiprocessing import Pool
 from pgm import PGM
 
-import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
@@ -564,7 +564,7 @@ class BN(CardinalityEstimationAlg):
         return name
 
     def save_model(self, save_dir="./models/", suffix_name=""):
-        self.model.plot()
+        #self.model.plot()
         if not os.path.exists(save_dir):
             make_dir(save_dir)
         unique_name = self.get_name(suffix_name)

@@ -15,7 +15,7 @@ endif
 
 ${LIB}: main.cc
 	$(CLANG) -std=c++11 -fPIC -c main.cc -o main.o
-	$(CLANG) -shared  -Wl,-install_name,${LIB} -o ${LIB} main.o
+	$(CLANG) -shared  -Wl,-soname,${LIB} -o ${LIB} main.o
 
 clean:
 	rm -f *.bc *.o *.out ${LIB}

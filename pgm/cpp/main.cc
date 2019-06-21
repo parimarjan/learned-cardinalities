@@ -356,7 +356,7 @@ struct Graphical_Model
 				for(std::map<int,double>::iterator it_kid=child_map.begin();it_kid!=child_map.end();it_kid++)
 				{
 					int child_val=it_kid->first;
-					if(child_val<par_val)
+					if(child_node<curr_node)
 					{
 						ans+=(temp_edge->prob_matrix[child_val][par_val]*it_kid->second)/prob_par;
 					}
@@ -478,9 +478,11 @@ extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim
   {
   	for(int j=0;j<col_sz;j++)
   	{
+//		cout<<*data<<" ";
   		data_matrix[j].push_back(*data);
   		data++;
   	}
+//	cout<<endl;
   }
   //cout << "reading in data done" << endl;
 
@@ -488,32 +490,38 @@ extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim
 
   for(int i=0;i<dim_col;i++)
   {
+//	cout<<*count_ptr<<endl;
   	count_column.push_back(*count_ptr);
   	count_ptr++;
   }
   init(data_matrix,count_column);
-
+//pgm.print();
+	
   return ;
 }
 
 extern "C" void py_train()
 {
   train();
+//pgm.print();
   return;
 }
 
 extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
 {
   vector<set<int> > filter(n_ar);
-
+//cout<<"n_ar: "<<n_ar<<" "<<approx<<" "<<frac<<endl;
   for(int i=0;i<n_ar;i++)
   {
+//cout<<"I: "<<i<<endl;
   	int *ans=data[i];
   	for(int j=0;j<lens[i];j++)
   	{
+//cout<<*ans<<" ";
   		filter[i].insert(*ans);
   		ans++;
   	}
+//cout<<endl;
   }
   bool app=false;
   if(approx!=0)
@@ -524,7 +532,7 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   //cout << "frac: " << frac << endl;
 
   double ans= eval(filter,app,frac);
-
+//cout<<"ans "<<ans<<endl;
   return ans;
 }
 

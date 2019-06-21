@@ -160,6 +160,7 @@ def gen_synth_data(args):
 def update_synth_templates(args, query_templates):
     # artificially generate the query templates based on synthetic data
     # generation stuff
+    print("update synth templates!!")
     table_name = get_table_name(args)
     # add a select count(*) for every combination of columns
     meta_tmp = "SELECT COUNT(*) FROM {TABLE} WHERE {CONDS}"
