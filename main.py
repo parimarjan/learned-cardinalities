@@ -274,6 +274,8 @@ def read_flags():
             default="./results/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,
             default="EXHAUSTIVE")
+    parser.add_argument("--db_file_name", type=str, required=False,
+            default=None)
 
     return parser.parse_args()
 

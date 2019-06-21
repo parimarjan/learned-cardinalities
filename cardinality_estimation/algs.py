@@ -79,8 +79,6 @@ class OurPGM(CardinalityEstimationAlg):
         weights = np.array(weights)
 
         return samples, weights
-        # self.model = BayesianNetwork.from_samples(samples, weights=weights,
-                # state_names=columns, algorithm=self.alg, n_jobs=-1)
 
     def _load_dmv_model(self, db, training_samples, **kwargs):
         columns = list(db.column_stats.keys())
@@ -125,9 +123,6 @@ class OurPGM(CardinalityEstimationAlg):
         self.model.train(samples, weights, state_names=columns)
         # pdb.set_trace()
         # print("constructing samples took: ", time.time()-start)
-        # self.model = BayesianNetwork.from_samples(samples, weights=weights,
-                # state_names=columns, algorithm=self.alg, n_jobs=-1)
-
 
     def test(self, test_samples):
         def _query_to_sample(sample):

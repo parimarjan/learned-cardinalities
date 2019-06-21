@@ -15,7 +15,8 @@ def load_dmv_data(args):
     exists = check_table_exists(cur, table_name)
     if not exists:
         from sqlalchemy import create_engine
-        df = pd.read_csv("/data/pari/dmv.csv")
+        # df = pd.read_csv("/data/pari/dmv.csv")
+        df = pd.read_csv(args.db_file_name)
         no_space_column_names = []
         for k in df.keys():
             no_space_column_names.append(k.replace(" ", "_").lower())
