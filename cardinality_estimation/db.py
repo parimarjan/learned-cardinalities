@@ -279,11 +279,10 @@ class DB():
         self.sql_cache.dump()
         return queries
 
-    def get_samples(self, query_template, num_samples=100, random_seed=1234):
+    def get_samples(self, query_template, num_samples=100,
+            random_seed=1234):
         '''
-        @query_template: string, with 'X' denoting a predicate value that needs to be filled in.
-        TODO: try to do it more intelligently from the predicates joint prob
-        distribution.
+        @query_template:
 
         @ret: a list of Query objects.
         '''
@@ -305,22 +304,28 @@ class DB():
         self.tables.update(tables)
         joins = extract_join_clause(query_template)
 
-        for column in pred_columns:
-            table = column[0:column.find(".")]
-            if table in self.aliases:
-                table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
-                                    ALIAS = table)
-            min_query = MIN_TEMPLATE.format(TABLE = table,
-                                            COL   = column)
-            max_query = MAX_TEMPLATE.format(TABLE = table,
-                                            COL   = column)
-            unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
-                                                      COL = column)
-            total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
-            unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
-                                                            COL = column)
+        hashed_stats = deterministic_hash(query_template + str(pred_columns))
+        if hashed_stats in self.sql_cache:
+            print("loading column stats from cache")
+            self.column_stats = self.sql_cache[hashed_stats]
+        else:
+            for column in pred_columns:
+                table = column[0:column.find(".")]
+                if table in self.aliases:
+                    table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
+                                        ALIAS = table)
+                min_query = MIN_TEMPLATE.format(TABLE = table,
+                                                COL   = column)
+                max_query = MAX_TEMPLATE.format(TABLE = table,
+                                                COL   = column)
+                unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
+                                                          COL = column)
+                total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
+                unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
+                                                                COL = column)
 
-            if column not in self.column_stats:
+                if column in self.column_stats:
+                    continue
                 # TODO: move to using cached_execute
                 self.column_stats[column] = {}
                 self.column_stats[column]["min_value"] = self.execute(min_query)[0][0]
@@ -331,8 +336,10 @@ class DB():
                         self.execute(total_count_query)[0][0]
                 self.column_stats[column]["unique_values"] = \
                         self.execute(unique_vals_query)
+            self.sql_cache[hashed_stats] = self.column_stats
+            self.sql_cache.dump()
+            print("collected stats on all columns")
 
-        print("collected stats on all columns")
         # first, try and see if we have enough queries with the given template
         # in our cache.
         hashed_template = deterministic_hash(query_template)

@@ -19,9 +19,72 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 
+def get_possible_values(sample, db, column_bins=None):
+    '''
+    @sample: Query object.
+    @db: DB class object.
+    @column_bins: {column_name : bins}. Used if we want to discretize some of
+    the columns.
+
+    @ret: RV = Random Variable / Column
+        [[RV1-1, RV1-2, ...], [RV2-1, RV2-2, ...] ...]
+        Each index refers to a column in the database (or a random variable).
+        The predicates in the sample query are used to get all possible values
+        that the random variable will need to be evaluated on.
+    '''
+    all_possible_vals = []
+    # loop over each column in db
+    states = db.column_stats.keys()
+    for state in states:
+        # find the right column entry in sample
+        # val = None
+        possible_vals = []
+        # Note: Query.vals / Query.pred_column_names aren't sorted, and if
+        # there are no predicates on a column, then it will not have an entry
+        # in Query.vals
+        for i, column in enumerate(sample.pred_column_names):
+            if column != state:
+                continue
+            cmp_op = sample.cmp_ops[i]
+            val = sample.vals[i]
+            # dedup
+            if hasattr(sample.vals[i], "__len__"):
+                val = set(val)
+
+            if cmp_op == "in":
+                # FIXME: something with the osm dataset
+                possible_vals = [str(v.replace("'","")) for v in val]
+            elif cmp_op == "lt":
+                assert len(val) == 2
+                if column_bins is None:
+                    # then select everything in the given range of
+                    # integers.
+                    val = [int(v) for v in val]
+                    for ival in range(val[0], val[1]):
+                        possible_vals.append(str(ival))
+                else:
+                    # discretize first
+                    bins = column_discrete_bins[column]
+                    val = [float(v) for v in val]
+                    disc_vals = np.digitize(val, bins)
+                    for ival in range(disc_vals[0], disc_vals[1]+1):
+                        possible_vals.append(str(ival))
+            elif cmp_op == "eq":
+                possible_vals.append(val)
+            else:
+                assert False
+
+        if len(possible_vals) == 0:
+            # add every value in the current column
+            for val in db.column_stats[state]["unique_values"]:
+                possible_vals.append(val[0])
+        all_possible_vals.append(possible_vals)
+    return all_possible_vals
+
 class CardinalityEstimationAlg():
 
     def __init__(self, *args, **kwargs):
+        # TODO: set each of the kwargs as variables
         pass
     def train(self, db, training_samples, **kwargs):
         pass
@@ -58,6 +121,7 @@ class OurPGM(CardinalityEstimationAlg):
     def __init__(self, *args, **kwargs):
         self.min_groupby = 0
         self.model = PGM()
+        self.test_cache = {}
 
     def _load_synth_model(self, db, training_samples, **kwargs):
         assert len(db.tables) == 1
@@ -65,8 +129,7 @@ class OurPGM(CardinalityEstimationAlg):
         columns = list(db.column_stats.keys())
         columns_str = ",".join(columns)
         group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE=table)
-        # group_by += " ORDER BY COUNT(*) DESC"
-        # group_by += " HAVING COUNT(*) > {}".format(2)
+        group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
         groupby_output = db.execute(group_by)
         samples = []
         weights = []
@@ -83,14 +146,10 @@ class OurPGM(CardinalityEstimationAlg):
     def _load_dmv_model(self, db, training_samples, **kwargs):
         columns = list(db.column_stats.keys())
         columns_str = ",".join(columns)
-        # sel_all = "SELECT {COLS} FROM dmv".format(COLS = columns_str)
         group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE="dmv")
-        # group_by += " ORDER BY COUNT(*) DESC"
         group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
-        # print(group_by)
-        # TODO: use db_utils
+
         groupby_output = db.execute(group_by)
-        # print("DMV groupby output len: ", len(groupby_output))
         start = time.time()
         samples = []
         weights = []
@@ -102,97 +161,43 @@ class OurPGM(CardinalityEstimationAlg):
                     samples[i].append("-1")
                 else:
                     samples[i].append(sample[j])
+            # last value of the output should be the count in the groupby
+            # template
             weights.append(sample[j+1])
         samples = np.array(samples)
         weights = np.array(weights)
         return samples, weights
 
     def train(self, db, training_samples, **kwargs):
-        # print("train!")
-        # samples, weights = self._load_synth_model()
+        self.db = db
         if "synth" in db.db_name:
             samples, weights = self._load_synth_model(db, training_samples, **kwargs)
         elif "osm" in db.db_name:
-            samples, weights = self._load_osm_model(db, training_samples, **kwargs)
+            assert False
+            # samples, weights = self._load_osm_model(db, training_samples, **kwargs)
         elif "imdb" in db.db_name:
-            samples, weights = self._load_imdb_model(db, training_samples, **kwargs)
+            assert False
+            # samples, weights = self._load_imdb_model(db, training_samples, **kwargs)
         elif "dmv" in db.db_name:
             samples, weights = self._load_dmv_model(db, training_samples, **kwargs)
+        else:
+            assert False
 
         columns = list(db.column_stats.keys())
         self.model.train(samples, weights, state_names=columns)
-        # pdb.set_trace()
-        # print("constructing samples took: ", time.time()-start)
 
     def test(self, test_samples):
-        def _query_to_sample(sample):
-            '''
-            takes in a Query object, and converts it to the representation to
-            be fed into the pomegranate bayesian net model
-            '''
-            model_sample = []
-            for state_name in self.model.state_names:
-                # find the right column entry in sample
-                val = None
-                possible_vals = []
-                for i, column in enumerate(sample.pred_column_names):
-                    if column == state_name:
-                        cmp_op = sample.cmp_ops[i]
-                        val = sample.vals[i]
-                        if cmp_op == "in":
-                            if hasattr(sample.vals[i], "__len__"):
-                                # dedup
-                                val = set(val)
-                            # possible_vals = [int(v.replace("'","")) for v in val]
-                            ## FIXME:
-                            all_vals = [str(v.replace("'","")) for v in val]
-                            for v in all_vals:
-                                if v != "tv mini series":
-                                    possible_vals.append(v)
-                        elif cmp_op == "lt":
-                            assert len(val) == 2
-                            if self.db.db_name == "imdb":
-                                # FIXME: hardcoded for current query...
-                                val = [int(v) for v in val]
-                                for ival in range(val[0], val[1]):
-                                    possible_vals.append(str(ival))
-                            else:
-                                # discretize first
-                                bins = self.column_discrete_bins[column]
-                                val = [float(v) for v in val]
-                                try:
-                                    disc_vals = np.digitize(val, bins)
-                                    for ival in range(disc_vals[0], disc_vals[1]+1):
-                                        # possible_vals.append(ival)
-                                        possible_vals.append(str(ival))
-                                except:
-                                    print(val)
-                                    pdb.set_trace()
-                        elif cmp_op == "eq":
-                            possible_vals.append(val)
-                        else:
-                            print(sample)
-                            print(column)
-                            print(cmp_op)
-                            pdb.set_trace()
-                # if len(possible_vals) == 0:
-                    # assert "county" != state.name
-                    # for dv in self.model.marginal()[len(model_sample)].parameters:
-                        # for k in dv:
-                            # possible_vals.append(k)
-
-                model_sample.append(possible_vals)
-            return model_sample
-
         estimates = []
         for qi, query in enumerate(test_samples):
-            # hashed_query = deterministic_hash(query.query)
-            # if hashed_query in self.test_cache:
-                # estimates.append(self.test_cache[hashed_query])
-                # continue
-            model_sample = _query_to_sample(query)
+            # TODO: add the cache for all PGM models etc.
+            hashed_query = deterministic_hash(query.query)
+            if hashed_query in self.test_cache:
+                estimates.append(self.test_cache[hashed_query])
+                continue
+            model_sample = get_possible_values(query, self.db)
             est_sel = self.model.evaluate(model_sample)
             estimates.append(est_sel)
+            self.test_cache[hashed_query] = est_sel
         return estimates
 
 class BN(CardinalityEstimationAlg):
@@ -222,7 +227,7 @@ class BN(CardinalityEstimationAlg):
         self.model = None
         # non-persistent cast, just to avoid running same alg again
         self.test_cache = {}
-        self.min_groupby = 2
+        self.min_groupby = 0
 
     def train(self, db, training_samples, **kwargs):
         # generate the group-by over all the columns we care about.
@@ -293,12 +298,9 @@ class BN(CardinalityEstimationAlg):
         columns_str = ",".join(columns)
         # sel_all = "SELECT {COLS} FROM dmv".format(COLS = columns_str)
         group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE="dmv")
-        # group_by += " ORDER BY COUNT(*) DESC"
         group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
-        print(group_by)
         # TODO: use db_utils
         groupby_output = db.execute(group_by)
-        print("DMV groupby output len: ", len(groupby_output))
 
         start = time.time()
         samples = []
@@ -314,7 +316,6 @@ class BN(CardinalityEstimationAlg):
             weights.append(sample[j+1])
         samples = np.array(samples)
         weights = np.array(weights)
-        print("constructing samples took: ", time.time()-start)
         self.model = BayesianNetwork.from_samples(samples, weights=weights,
                 state_names=columns, algorithm=self.alg, n_jobs=-1)
 
@@ -432,57 +433,12 @@ class BN(CardinalityEstimationAlg):
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
                 continue
+            # model_sample = get_possible_values(query, self.db)
             model_sample = _query_to_sample(query)
-            # pdb.set_trace()
-            # FIXME: generalize
-            all_points = model_sample
-            # FIXME: ugh
-            if len(model_sample) == 11:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
-                    model_sample[3], model_sample[4], model_sample[5],
-                    model_sample[6], model_sample[7], model_sample[8],
-                    model_sample[9], model_sample[10])).T.reshape(-1,11)
-            elif len(model_sample) == 10:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
-                    model_sample[3], model_sample[4], model_sample[5],
-                    model_sample[6], model_sample[7],
-                    model_sample[8], model_sample[9])).T.reshape(-1,10)
-
-            elif len(model_sample) == 9:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
-                    model_sample[3], model_sample[4], model_sample[5],
-                    model_sample[6], model_sample[7], model_sample[8])).T.reshape(-1,9)
-
-            elif len(model_sample) == 9:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
-                    model_sample[3], model_sample[4], model_sample[5],
-                    model_sample[6], model_sample[7], model_sample[8])).T.reshape(-1,9)
-            elif len(model_sample) == 8:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
-                    model_sample[3], model_sample[4], model_sample[5],
-                    model_sample[6], model_sample[7])).T.reshape(-1,8)
-            elif len(model_sample) == 7:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
-                    model_sample[3], model_sample[4], model_sample[5],
-                    model_sample[6])).T.reshape(-1,7)
-            elif len(model_sample) == 6:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
-                    model_sample[3], model_sample[4], model_sample[5])).T.reshape(-1,6)
-            elif len(model_sample) == 5:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
-                    model_sample[3], model_sample[4])).T.reshape(-1,5)
-            elif len(model_sample) == 4:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1], model_sample[2],
-                    model_sample[3])).T.reshape(-1,4)
-            elif len(model_sample) == 3:
-                all_points = np.array(np.meshgrid(model_sample[0], model_sample[1],
-                    model_sample[2])).T.reshape(-1,3)
-            elif len(model_sample) == 2:
-                all_points = np.array(np.meshgrid(model_sample[0],
-                    model_sample[1])).T.reshape(-1,2)
-            else:
-                assert False
-            # we shouldn't assume the order of column names in the trained model
+            all_points = []
+            for element in itertools.product(*model_sample):
+                all_points.append(element)
+            all_points = np.array(all_points)
             start = time.time()
             est_sel = 0.0
             if self.db.db_name == "imdb":
@@ -503,9 +459,11 @@ class BN(CardinalityEstimationAlg):
                         except Exception as e:
                             # FIXME: add minimum amount.
                             # unknown key ...
-                            total = self.db.column_stats["dmv.record_type"]["total_vals"]
+                            # print("unknown key got!")
+                            total = self.db.column_stats["dmv.record_type"]["total_values"]
                             est_sel += float(self.min_groupby) / total
-                            continue
+                            print(e)
+                            pdb.set_trace()
                 else:
                     N = len(all_points)
                     # samples_to_use = max(1000, int(N/self.avg_factor))
@@ -524,7 +482,6 @@ class BN(CardinalityEstimationAlg):
                             est_sel += float(self.min_groupby) / total
                             continue
                     est_sel = N*(est_sel / len(est_samples))
-
             else:
                 if self.avg_factor == 1:
                     # don't do any averaging
@@ -555,11 +512,10 @@ class BN(CardinalityEstimationAlg):
         unique name.
         '''
         name = self.alg + str(self.num_bins) + self.db.db_name + suffix_name
-        name += str(self.min_groupby)
         return name
 
     def save_model(self, save_dir="./models/", suffix_name=""):
-        #self.model.plot()
+        self.model.plot()
         if not os.path.exists(save_dir):
             make_dir(save_dir)
         unique_name = self.get_name(suffix_name)

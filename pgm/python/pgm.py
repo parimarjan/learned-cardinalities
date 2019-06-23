@@ -41,10 +41,10 @@ class PGM():
 
         for i in range(mapped_samples.shape[0]):
             for j in range(mapped_samples.shape[1]):
-                # mapped_samples[i][j] = self.word2index[samples[i][j]]
                 mapped_samples[i][j] = self.word2index[j][samples[i][j]]
 
         if self.save_csv:
+            np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
             np.savetxt("data.csv", mapped_samples, delimiter=",")
             np.savetxt("counts.csv", weights, delimiter=",")
 
@@ -54,7 +54,12 @@ class PGM():
         pgm.py_train()
 
     def evaluate(self, all_points):
-
+        '''
+        TODO: describe this.
+        @all_points: all valid points in the space of all points for ONE
+        sample.
+        '''
+        assert len(all_points) == len(self.state_names)
         # convert to ints
         sample = []
         for col, col_points in enumerate(all_points):
@@ -64,9 +69,14 @@ class PGM():
                 for p in col_points:
                     sample[col].append(mapper[p])
             except:
+                # point hasn't been mapped before ...
+                print("point has not been mapped before!!")
                 print(col)
                 print(p)
                 pdb.set_trace()
+                assert False
+
+        assert len(sample) == len(self.state_names)
 
         if self.save_csv:
             sample_points = []
@@ -77,10 +87,8 @@ class PGM():
                 writer = csv.writer(f)
                 writer.writerow(sample_points)
 
-        # print(sample)
         entrylist = []
         lengths = []
-
         for sub_l in sample:
             entrylist.append((c_int*len(sub_l))(*sub_l))
             lengths.append(c_int(len(sub_l)))

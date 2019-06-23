@@ -14,11 +14,9 @@
 
 
 using namespace std::chrono;
-
 using namespace std;
 
-using namespace std;
-
+bool VERBOSE = false;
 
 struct Edges
 {
@@ -75,7 +73,7 @@ struct Edges
 	double cal_mutual_info()
 	{
 		double mutal_info=0.0;
-		double epsilon=0.0001/(1.000*col_num*row_num);
+		double epsilon=0.000001/(1.000*col_num*row_num);
 		for(int i=0;i<col_num;i++)
 		{
 			for(int j=0;j<row_num;j++)
@@ -111,9 +109,6 @@ struct Edges
 			cout<<endl;
 		}
 	}
-
-
-
 };
 
 struct Nodes
@@ -153,18 +148,18 @@ struct Nodes
 
 	void print()
 	{
-		cout<<"alphabet_size is: "<<alphabet_size<<endl;
-		cout<<"parent_ptr is: "<<parent_ptr<<endl;
-
-		cout<<"children are:";
+    if (!VERBOSE) return;
+    cout<<"alphabet_size is: "<<alphabet_size<<endl;
+    cout<<"parent_ptr is: "<<parent_ptr<<endl;
+    cout<<"children are:";
 
 		for(int i=0;i<child_ptr.size();i++)
 		{
 			cout<<child_ptr[i]<<" ";
 		}
-		cout<<endl;
 
-		cout<<"probablity list: ";
+    cout<<endl;
+    cout<<"probablity list: ";
 
 		for(int i=0;i<alphabet_size;i++)
 		{
@@ -172,13 +167,12 @@ struct Nodes
 		}
 		cout<<endl;
 	}
-
 };
 
 
 struct mst_sort{
-int a,b;
-double val;
+  int a,b;
+  double val;
 };
 
 bool sortFunc(mst_sort &a,mst_sort &b)
@@ -279,7 +273,9 @@ struct Graphical_Model
 				temp.b=j;
 				temp.val=edge_matrix[i][j-i-1].cal_mutual_info();
 				mutual_info_vec.push_back(temp);
-				cout<<temp.val<<" : mutual info "<<i<<" "<<j<<endl;
+        if (VERBOSE) {
+          cout<< temp.val <<" : mutual info "<<i<<" "<<j<<endl;
+        }
 			}
 		}
 
@@ -381,6 +377,7 @@ struct Graphical_Model
 
 	void print()
 	{
+    if (!VERBOSE) return;
 		cout<<"PRINTING GRAPH"<<endl;
 
 		cout<<"graph size is: "<<graph_size<<endl;
@@ -394,8 +391,8 @@ struct Graphical_Model
 		{
 			for(int j=0;j<edge_matrix[i].size();j++)
 			{
-				cout<<"edge btw: "<<i<<" "<<i+1+j<<endl;
-				edge_matrix[i][j].print();
+        cout<<"edge btw: "<<i<<" "<<i+1+j<<endl;
+        //edge_matrix[i][j].print();
 			}
 
 		}
@@ -457,104 +454,65 @@ double eval(vector<set<int>  > &filter,bool approx,double frac)
 	}
 
 	return ans;
-
-}
-
-extern "C" void test(int test)
-{
-  cout << "hello! " << endl;
-  cout << test << endl;
 }
 
 extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim_col)
 {
   vector<vector<int> > data_matrix(col_sz);
-  //cout << "row: " << endl;
-  //cout << row_sz << endl;
-  //cout << "col: " << endl;
-  //cout << col_sz << endl;
 
   for(int i=0;i<row_sz;i++)
   {
   	for(int j=0;j<col_sz;j++)
   	{
-//		cout<<*data<<" ";
   		data_matrix[j].push_back(*data);
   		data++;
   	}
-//	cout<<endl;
   }
-  //cout << "reading in data done" << endl;
 
   vector<int> count_column;
 
   for(int i=0;i<dim_col;i++)
   {
-//	cout<<*count_ptr<<endl;
   	count_column.push_back(*count_ptr);
   	count_ptr++;
   }
   init(data_matrix,count_column);
-//pgm.print();
-	
   return ;
 }
 
 extern "C" void py_train()
 {
   train();
-//pgm.print();
+  pgm.print();
   return;
 }
 
 extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
 {
   vector<set<int> > filter(n_ar);
-//cout<<"n_ar: "<<n_ar<<" "<<approx<<" "<<frac<<endl;
   for(int i=0;i<n_ar;i++)
   {
-//cout<<"I: "<<i<<endl;
   	int *ans=data[i];
   	for(int j=0;j<lens[i];j++)
   	{
-//cout<<*ans<<" ";
   		filter[i].insert(*ans);
   		ans++;
   	}
-//cout<<endl;
   }
   bool app=false;
   if(approx!=0)
   {
     app=true;
   }
-  //cout << "app: " << app << endl;
-  //cout << "frac: " << frac << endl;
 
-  double ans= eval(filter,app,frac);
-//cout<<"ans "<<ans<<endl;
+  double ans = eval(filter,app,frac);
   return ans;
-}
-
-
-extern "C" double test_inference(int **ar, int *lens, int n_ar)
-{
-	cout << "test inference!" << endl;
-	int ii,jj,kk;
-	for (ii = 0; ii<n_ar;ii++){
-			for (jj=0;jj<lens[ii];jj++){
-					printf("%d\t",ar[ii][jj]);
-			}
-			printf("\n");
-			fflush(stdout);
-	}
-  return 4.0;
 }
 
 int main(int argc, char *argv[])
 {
 
-	fstream file,file1; 
+	fstream file,file1;
 
 	string a,b,c;
 	double p,q,r;
@@ -563,19 +521,19 @@ int main(int argc, char *argv[])
 	vector<int> count_column;
 	vector<set<int> > vec_set(3);
 
-  
-    // Open an existing file 
-    file.open("data.csv", ios::in); 
+
+    // Open an existing file
+    file.open("data.csv", ios::in);
 
     while (getline(file, a, ',')) {
     p=atof(a.c_str());
-  
+
     getline(file, b, ',') ;
     q=atof(b.c_str());
-    
+
     getline(file, c);
     r=atof(c.c_str());
-    
+
     data_vec[0].push_back(p);
     data_vec[1].push_back(q);
     data_vec[2].push_back(r);
@@ -584,11 +542,11 @@ int main(int argc, char *argv[])
 
 	}
 
-	file1.open("counts.csv", ios::in); 
+	file1.open("counts.csv", ios::in);
 
 
 	while (getline(file1, a)) {
-    p=atof(a.c_str());   
+    p=atof(a.c_str());
     count_column.push_back(p);
 
 	}

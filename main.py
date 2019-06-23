@@ -57,6 +57,7 @@ def eval_alg(alg, losses, queries, use_subqueries):
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
     '''
+    start = time.time()
     np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
     if use_subqueries:
         all_queries = get_all_subqueries(queries)
@@ -97,6 +98,8 @@ def eval_alg(alg, losses, queries, use_subqueries):
                     np.round(np.median(losses),3),
                     np.round(np.percentile(losses,95),3),
                     np.round(np.percentile(losses,99),3)))
+
+    print("evaluating alg took: {} seconds".format(time.time()-start))
 
 def main():
     file_name = gen_results_name()
