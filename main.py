@@ -275,9 +275,11 @@ def main():
             # query objects based on those sql strings
 
             # FIXME: temporary to test the new caching mech
-            q.subqueries = db.gen_subqueries(q)
-            if i % 1 == 0:
-                print("{} subqueries generated for query {}".format(len(q.subqueries), i))
+            if UPDATE_NEW_CACHE:
+                pass
+                # q.subqueries = db.gen_subqueries(q)
+                # if i % 1 == 0:
+                    # print("{} subqueries generated for query {}".format(len(q.subqueries), i))
 
             hashed_key = deterministic_hash(q.query)
             if hashed_key in sql_str_cache.archive:
@@ -287,7 +289,6 @@ def main():
                 # FIXME: tmp.
                 assert False
                 sql_subqueries = gen_all_subqueries(q.query)
-            assert len(sql_subqueries) == len(q.subqueries)
 
             if UPDATE_NEW_CACHE:
                 sql_queries = []
@@ -313,11 +314,6 @@ def main():
                     # loaded_queries.append(loadedq)
 
             loaded_queries = gen_query_objs(args, sql_subqueries, "/subq_query_obj")
-            assert len(q.subqueries) == len(loaded_queries)
-            for i, subq in enumerate(q.subqueries):
-                assert loaded_queries[i].query == subq.query
-
-
             q.subqueries = loaded_queries
 
     query_obj_cache.clear()
