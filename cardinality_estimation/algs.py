@@ -356,63 +356,63 @@ class BN(CardinalityEstimationAlg):
                     state_names=pred_columns, algorithm=self.alg, n_jobs=-1)
 
     def test(self, test_samples):
-        def _query_to_sample(sample):
-            '''
-            takes in a Query object, and converts it to the representation to
-            be fed into the pomegranate bayesian net model
-            '''
-            model_sample = []
-            for state in self.model.states:
-                # find the right column entry in sample
-                val = None
-                possible_vals = []
-                for i, column in enumerate(sample.pred_column_names):
-                    if column == state.name:
-                        cmp_op = sample.cmp_ops[i]
-                        val = sample.vals[i]
-                        if cmp_op == "in":
-                            if hasattr(sample.vals[i], "__len__"):
-                                # dedup
-                                val = set(val)
-                            # possible_vals = [int(v.replace("'","")) for v in val]
-                            ## FIXME:
-                            all_vals = [str(v.replace("'","")) for v in val]
-                            for v in all_vals:
-                                if v != "tv mini series":
-                                    possible_vals.append(v)
-                        elif cmp_op == "lt":
-                            assert len(val) == 2
-                            if self.db.db_name == "imdb":
-                                # FIXME: hardcoded for current query...
-                                val = [int(v) for v in val]
-                                for ival in range(val[0], val[1]):
-                                    possible_vals.append(str(ival))
-                            else:
-                                # discretize first
-                                bins = self.column_discrete_bins[column]
-                                val = [float(v) for v in val]
-                                try:
-                                    disc_vals = np.digitize(val, bins)
-                                    for ival in range(disc_vals[0], disc_vals[1]+1):
-                                        # possible_vals.append(ival)
-                                        possible_vals.append(str(ival))
-                                except:
-                                    print(val)
-                                    pdb.set_trace()
-                        elif cmp_op == "eq":
-                            possible_vals.append(val)
-                        else:
-                            print(sample)
-                            print(column)
-                            print(cmp_op)
-                            pdb.set_trace()
-                if len(possible_vals) == 0:
-                    assert "county" != state.name
-                    for dv in self.model.marginal()[len(model_sample)].parameters:
-                        for k in dv:
-                            possible_vals.append(k)
-                model_sample.append(possible_vals)
-            return model_sample
+        # def _query_to_sample(sample):
+            # '''
+            # takes in a Query object, and converts it to the representation to
+            # be fed into the pomegranate bayesian net model
+            # '''
+            # model_sample = []
+            # for state in self.model.states:
+                # # find the right column entry in sample
+                # val = None
+                # possible_vals = []
+                # for i, column in enumerate(sample.pred_column_names):
+                    # if column == state.name:
+                        # cmp_op = sample.cmp_ops[i]
+                        # val = sample.vals[i]
+                        # if cmp_op == "in":
+                            # if hasattr(sample.vals[i], "__len__"):
+                                # # dedup
+                                # val = set(val)
+                            # # possible_vals = [int(v.replace("'","")) for v in val]
+                            # ## FIXME:
+                            # all_vals = [str(v.replace("'","")) for v in val]
+                            # for v in all_vals:
+                                # if v != "tv mini series":
+                                    # possible_vals.append(v)
+                        # elif cmp_op == "lt":
+                            # assert len(val) == 2
+                            # if self.db.db_name == "imdb":
+                                # # FIXME: hardcoded for current query...
+                                # val = [int(v) for v in val]
+                                # for ival in range(val[0], val[1]):
+                                    # possible_vals.append(str(ival))
+                            # else:
+                                # # discretize first
+                                # bins = self.column_discrete_bins[column]
+                                # val = [float(v) for v in val]
+                                # try:
+                                    # disc_vals = np.digitize(val, bins)
+                                    # for ival in range(disc_vals[0], disc_vals[1]+1):
+                                        # # possible_vals.append(ival)
+                                        # possible_vals.append(str(ival))
+                                # except:
+                                    # print(val)
+                                    # pdb.set_trace()
+                        # elif cmp_op == "eq":
+                            # possible_vals.append(val)
+                        # else:
+                            # print(sample)
+                            # print(column)
+                            # print(cmp_op)
+                            # pdb.set_trace()
+                # if len(possible_vals) == 0:
+                    # assert "county" != state.name
+                    # for dv in self.model.marginal()[len(model_sample)].parameters:
+                        # for k in dv:
+                            # possible_vals.append(k)
+                # model_sample.append(possible_vals)
+            # return model_sample
 
         if self.gen_bn_dist:
             self.est_dist_pdf = PdfPages("./bn_est_dist.pdf")
@@ -433,8 +433,8 @@ class BN(CardinalityEstimationAlg):
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
                 continue
-            # model_sample = get_possible_values(query, self.db)
-            model_sample = _query_to_sample(query)
+            model_sample = get_possible_values(query, self.db)
+            # model_sample = _query_to_sample(query)
             all_points = []
             for element in itertools.product(*model_sample):
                 all_points.append(element)

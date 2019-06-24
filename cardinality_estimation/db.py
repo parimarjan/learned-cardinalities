@@ -304,6 +304,8 @@ class DB():
         self.tables.update(tables)
         joins = extract_join_clause(query_template)
 
+        # NOTE: query template is currently being hashed to get all queries, so
+        # can't just use that.
         hashed_stats = deterministic_hash(query_template + str(pred_columns))
         if hashed_stats in self.sql_cache:
             print("loading column stats from cache")
@@ -346,6 +348,10 @@ class DB():
         queries = []
         if hashed_template in self.sql_cache.archive:
             queries = self.sql_cache.archive[hashed_template]
+        if not isinstance(queries, list) or len(queries) == 0:
+            print("going to return empty queries!")
+            pdb.set_trace()
+            return []
 
         if len(queries) == num_samples:
             return queries

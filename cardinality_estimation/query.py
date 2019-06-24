@@ -7,8 +7,8 @@ class Query():
     '''
     def __init__(self, query, pred_column_names, vals, cmp_ops, count,
             total_count, pg_count, pg_marginal_sels=None, marginal_sels=None):
-        self.query = query
 
+        self.query = query
         # TODO: all this could be extracted just from the query str maybe?
         self.pred_column_names = pred_column_names
         self.vals = vals

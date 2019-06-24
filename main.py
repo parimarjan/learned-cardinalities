@@ -21,6 +21,7 @@ import itertools
 import klepto
 from multiprocessing import Pool
 import numpy as np
+from db_utils.query_generator import QueryGenerator
 
 def get_alg(alg):
     if alg == "independent":
@@ -101,6 +102,84 @@ def eval_alg(alg, losses, queries, use_subqueries):
 
     print("evaluating alg took: {} seconds".format(time.time()-start))
 
+def gen_queries(args, query_template, num_samples):
+    '''
+    @ret: [Query, Query, ...]
+    '''
+    # first, generate the query strings / or find it in the cache
+    sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str",
+            cached=True, serialized=True)
+    query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
+            cached=True, serialized=True)
+    # query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
+            # cached=True, serialized=True)
+
+    ret_queries = []
+    unknown_query_strs = []
+    query_strs = []
+
+    # TODO: change key to be based on file name?
+    hashed_tmp = deterministic_hash(query_template)
+    if hashed_tmp in sql_str_cache.archive:
+        query_strs = sql_str_cache.archive[hashed_tmp]
+        print("loaded {} query strings".format(len(query_strs)))
+
+    if len(query_strs) > num_samples:
+        query_strs = query_strs[0:num_samples]
+    elif len(query_strs) < num_samples:
+        # generate additional queries
+        req_samples = num_samples - len(query_strs)
+        qg = QueryGenerator(query_template, args.user, args.db_host, args.port,
+                args.pwd, args.db_name)
+        gen_sqls = qg.gen_queries(req_samples)
+        query_strs += gen_sqls
+        sql_str_cache.archive[hashed_tmp] = query_strs
+
+    for sql in query_strs:
+        hsql = deterministic_hash(sql)
+        if hsql in query_obj_cache.archive:
+            ret_queries.append(query_obj_cache.archive[hsql])
+        else:
+            unknown_query_strs.append(sql)
+
+    print("loaded {} query objects".format(len(ret_queries)))
+    print("need to generate {} query objects".format(len(unknown_query_strs)))
+    pdb.set_trace()
+    return []
+
+    if len(unknown_query_strs) == 0:
+        return ret_queries
+
+    from_clauses, aliases, tables = extract_from_clause(query_template)
+    joins = extract_join_clause(query_template)
+    # get total count
+    from_clause = ','.join(from_clauses)
+    join_clause = ' AND '.join(joins)
+    if len(join_clause) > 0:
+        from_clause += " WHERE " + join_clause
+
+    # total count, without any predicates being applied
+    count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
+    # def cached_execute_query(sql, user, db_host, port, pwd, db_name,
+            # execution_cache_threshold, sql_cache=None, timeout=120000):
+    total_count = cached_execute_query(count_query, timeout=120000)[0][0]
+    print("total count: ", total_count)
+
+    sql_result_cache = args.cache_dir + "/sql_result"
+    with Pool(processes=8) as pool:
+        args = [(cur_query, args.user, args.db_host, args.port,
+            args.pwd, args.db_name, total_count,
+            args.execution_cache_threshold, sql_result_cache) for
+            cur_query in unknown_query_strs]
+        all_query_objs = pool.starmap(sql_to_query_object, args)
+
+    for q in all_query_objs:
+        ret_queries.append(q)
+
+    print("generated {} samples in {} secs".format(len(queries),
+        time.time()-start))
+    return ret_queries
+
 def main():
     file_name = gen_results_name()
     print(file_name)
@@ -115,7 +194,6 @@ def main():
             args.db_name)
     print("started using db: ", args.db_name)
     query_templates = []
-    samples = []
     if args.template_dir is None:
         update_synth_templates(args, query_templates)
     else:
@@ -126,11 +204,66 @@ def main():
 
     # FIXME: all this should happen together, and be cached together.
     # Steps: gen templates, filter out zeros and dups, gen subqueries.
+
+    UPDATE_NEW_CACHE = True
+    sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str", cached=True,
+            serialized=True)
+    samples = []
     for template in query_templates:
+        # TODO: rename etc.
+        # db.get_samples(template,
+                # num_samples=args.num_samples_per_template)
+
+        ## Test:
+        # generate queries
+        # samples += gen_queries(args, template, args.num_samples_per_template)
+
+        # FIXME: tmp, testing
+        # gen_queries(args, template, args.num_samples_per_template)
+
+        # update db stats
         samples += db.get_samples(template,
                 num_samples=args.num_samples_per_template)
 
+        if UPDATE_NEW_CACHE:
+            sql_queries = []
+            for q in samples:
+                q.template = template
+                sql_queries.append(q.query)
+            hashed_tmp = deterministic_hash(template)
+            sql_str_cache[hashed_tmp] = sql_queries
+
+        sql_str_cache.dump()
+
     print("len all samples: " , len(samples))
+
+    query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
+            cached=True, serialized=True)
+
+    if UPDATE_NEW_CACHE:
+        # going to save all these in a new cache
+        for q in samples:
+            hashedq = deterministic_hash(q.query)
+            query_obj_cache[hashedq] = q
+        query_obj_cache.dump()
+
+    start = time.time()
+    loaded_queries = []
+    for i, q in enumerate(samples):
+        if (i % 1000) == 0:
+            print(i)
+        hashedq = deterministic_hash(q.query)
+        if hashedq in query_obj_cache.archive:
+            loadedq = query_obj_cache.archive[hashedq]
+            loaded_queries.append(loadedq)
+
+    print("took " , time.time() - start)
+    print("len loaded queries: ", len(loaded_queries))
+    query_obj_cache.clear()
+    print(loaded_queries[0])
+    pdb.set_trace()
+    exit(-1)
+
     if args.only_nonzero_samples:
         nonzero_samples = []
         for s in samples:
@@ -279,6 +412,8 @@ def read_flags():
             default="EXHAUSTIVE")
     parser.add_argument("--db_file_name", type=str, required=False,
             default=None)
+    parser.add_argument("--cache_dir", type=str, required=False,
+            default="./caches/")
 
     return parser.parse_args()
 
