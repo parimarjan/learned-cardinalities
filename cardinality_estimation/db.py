@@ -279,9 +279,67 @@ class DB():
         self.sql_cache.dump()
         return queries
 
+    def update_db_stats(self, query_template):
+        ## not setting the seed because we do not want samples to be generated
+        ## in a reproducible manner, since we are caching previously generated
+        ## samples
+        # random.seed(random_seed)
+        if "SELECT COUNT" not in query_template:
+            # special casing for imdb for now...
+            query_template = query_template[query_template.find("FROM"):]
+            query_template = "SELECT COUNT(*) " + query_template
+
+        start = time.time()
+        pred_columns, pred_types, pred_vals = extract_predicates(query_template)
+        for cmp_op in pred_types:
+            self.cmp_ops.add(cmp_op)
+        from_clauses, aliases, tables = extract_from_clause(query_template)
+        self.aliases.update(aliases)
+        self.tables.update(tables)
+        joins = extract_join_clause(query_template)
+
+        # NOTE: query template is currently being hashed to get all queries, so
+        # can't just use that.
+        hashed_stats = deterministic_hash(query_template + str(pred_columns))
+        if hashed_stats in self.sql_cache:
+            print("loading column stats from cache")
+            self.column_stats = self.sql_cache[hashed_stats]
+        else:
+            for column in pred_columns:
+                table = column[0:column.find(".")]
+                if table in self.aliases:
+                    table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
+                                        ALIAS = table)
+                min_query = MIN_TEMPLATE.format(TABLE = table,
+                                                COL   = column)
+                max_query = MAX_TEMPLATE.format(TABLE = table,
+                                                COL   = column)
+                unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
+                                                          COL = column)
+                total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
+                unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
+                                                                COL = column)
+
+                if column in self.column_stats:
+                    continue
+                # TODO: move to using cached_execute
+                self.column_stats[column] = {}
+                self.column_stats[column]["min_value"] = self.execute(min_query)[0][0]
+                self.column_stats[column]["max_value"] = self.execute(max_query)[0][0]
+                self.column_stats[column]["num_values"] = \
+                        self.execute(unique_count_query)[0][0]
+                self.column_stats[column]["total_values"] = \
+                        self.execute(total_count_query)[0][0]
+                self.column_stats[column]["unique_values"] = \
+                        self.execute(unique_vals_query)
+            self.sql_cache[hashed_stats] = self.column_stats
+            self.sql_cache.dump()
+            print("collected stats on all columns")
+
     def get_samples(self, query_template, num_samples=100,
             random_seed=1234):
         '''
+        FIXME: delete this function
         @query_template:
 
         @ret: a list of Query objects.
