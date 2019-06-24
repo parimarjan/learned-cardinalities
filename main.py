@@ -111,8 +111,6 @@ def gen_queries(args, query_template, num_samples):
             cached=True, serialized=True)
     query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
             cached=True, serialized=True)
-    # query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
-            # cached=True, serialized=True)
 
     ret_queries = []
     unknown_query_strs = []
@@ -123,6 +121,10 @@ def gen_queries(args, query_template, num_samples):
     if hashed_tmp in sql_str_cache.archive:
         query_strs = sql_str_cache.archive[hashed_tmp]
         print("loaded {} query strings".format(len(query_strs)))
+
+    # FIXME: temporary
+    if len(query_strs) == 0:
+        return []
 
     if len(query_strs) > num_samples:
         query_strs = query_strs[0:num_samples]
@@ -144,11 +146,11 @@ def gen_queries(args, query_template, num_samples):
 
     print("loaded {} query objects".format(len(ret_queries)))
     print("need to generate {} query objects".format(len(unknown_query_strs)))
-    pdb.set_trace()
-    return []
 
     if len(unknown_query_strs) == 0:
         return ret_queries
+
+    pdb.set_trace()
 
     from_clauses, aliases, tables = extract_from_clause(query_template)
     joins = extract_join_clause(query_template)
@@ -205,7 +207,7 @@ def main():
     # FIXME: all this should happen together, and be cached together.
     # Steps: gen templates, filter out zeros and dups, gen subqueries.
 
-    UPDATE_NEW_CACHE = True
+    UPDATE_NEW_CACHE = False
     sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str", cached=True,
             serialized=True)
     samples = []
@@ -216,18 +218,19 @@ def main():
 
         ## Test:
         # generate queries
-        # samples += gen_queries(args, template, args.num_samples_per_template)
+        samples += gen_queries(args, template, args.num_samples_per_template)
 
         # FIXME: tmp, testing
-        # gen_queries(args, template, args.num_samples_per_template)
+        #samples += gen_queries(args, template, args.num_samples_per_template)
 
         # update db stats
-        samples += db.get_samples(template,
-                num_samples=args.num_samples_per_template)
+        # cur_samples = db.get_samples(template,
+                # num_samples=args.num_samples_per_template)
+        # samples += cur_samples
 
         if UPDATE_NEW_CACHE:
             sql_queries = []
-            for q in samples:
+            for q in cur_samples:
                 q.template = template
                 sql_queries.append(q.query)
             hashed_tmp = deterministic_hash(template)
