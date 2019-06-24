@@ -582,6 +582,8 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     @sql: string sql.
     @ret: Query object with all fields appropriately initialized.
           If it fails anywhere, then return None.
+    @execution_cache_threshold: In seconds, if query takes beyond this, then
+    cache it.
     '''
     if execution_cache_threshold is None:
         execution_cache_threshold = 60

@@ -102,18 +102,14 @@ def eval_alg(alg, losses, queries, use_subqueries):
 
     print("evaluating alg took: {} seconds".format(time.time()-start))
 
-def gen_queries(args, query_template, num_samples):
+def gen_query_strs(args, query_template, num_samples):
     '''
     @ret: [Query, Query, ...]
     '''
     # first, generate the query strings / or find it in the cache
     sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str",
             cached=True, serialized=True)
-    query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
-            cached=True, serialized=True)
 
-    ret_queries = []
-    unknown_query_strs = []
     query_strs = []
 
     # TODO: change key to be based on file name?
@@ -126,10 +122,13 @@ def gen_queries(args, query_template, num_samples):
     if len(query_strs) == 0:
         return []
 
-    if len(query_strs) > num_samples:
+    if num_samples == -1:
+        # select whatever we loaded
+        query_strs = query_strs
+    elif len(query_strs) > num_samples:
         query_strs = query_strs[0:num_samples]
     elif len(query_strs) < num_samples:
-        # generate additional queries
+        # need to generate additional queries
         req_samples = num_samples - len(query_strs)
         qg = QueryGenerator(query_template, args.user, args.db_host, args.port,
                 args.pwd, args.db_name)
@@ -137,6 +136,16 @@ def gen_queries(args, query_template, num_samples):
         query_strs += gen_sqls
         sql_str_cache.archive[hashed_tmp] = query_strs
 
+    return query_strs
+
+def gen_query_objs(args, query_strs, cache_name):
+
+    query_obj_cache = klepto.archives.dir_archive(args.cache_dir + cache_name,
+            cached=True, serialized=True)
+    ret_queries = []
+    unknown_query_strs = []
+
+    # everything below this part is for query objects exclusively
     for sql in query_strs:
         hsql = deterministic_hash(sql)
         if hsql in query_obj_cache.archive:
@@ -152,25 +161,11 @@ def gen_queries(args, query_template, num_samples):
 
     pdb.set_trace()
 
-    from_clauses, aliases, tables = extract_from_clause(query_template)
-    joins = extract_join_clause(query_template)
-    # get total count
-    from_clause = ','.join(from_clauses)
-    join_clause = ' AND '.join(joins)
-    if len(join_clause) > 0:
-        from_clause += " WHERE " + join_clause
-
-    # total count, without any predicates being applied
-    count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
-    # def cached_execute_query(sql, user, db_host, port, pwd, db_name,
-            # execution_cache_threshold, sql_cache=None, timeout=120000):
-    total_count = cached_execute_query(count_query, timeout=120000)[0][0]
-    print("total count: ", total_count)
-
     sql_result_cache = args.cache_dir + "/sql_result"
+    all_query_objs = []
     with Pool(processes=8) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
-            args.pwd, args.db_name, total_count,
+            args.pwd, args.db_name, None,
             args.execution_cache_threshold, sql_result_cache) for
             cur_query in unknown_query_strs]
         all_query_objs = pool.starmap(sql_to_query_object, args)
@@ -218,17 +213,13 @@ def main():
 
         ## Test:
         # generate queries
-        samples += gen_queries(args, template, args.num_samples_per_template)
-
-        # FIXME: tmp, testing
-        #samples += gen_queries(args, template, args.num_samples_per_template)
-
-        # update db stats
-        # cur_samples = db.get_samples(template,
-                # num_samples=args.num_samples_per_template)
-        # samples += cur_samples
-
-        if UPDATE_NEW_CACHE:
+        if not UPDATE_NEW_CACHE:
+            query_strs = gen_query_strs(args, template, args.num_samples_per_template)
+            samples += gen_query_objs(args, query_strs, "/query_obj")
+        else:
+            cur_samples = db.get_samples(template,
+                    num_samples=args.num_samples_per_template)
+            samples += cur_samples
             sql_queries = []
             for q in cur_samples:
                 q.template = template
@@ -263,9 +254,6 @@ def main():
     print("took " , time.time() - start)
     print("len loaded queries: ", len(loaded_queries))
     query_obj_cache.clear()
-    print(loaded_queries[0])
-    pdb.set_trace()
-    exit(-1)
 
     if args.only_nonzero_samples:
         nonzero_samples = []
@@ -276,11 +264,61 @@ def main():
         samples = nonzero_samples
 
     if args.use_subqueries:
+        sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_sql_str",
+                cached=True, serialized=True)
+        query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
+                cached=True, serialized=True)
+
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
+            # TODO: first, generate all subquery strings, and then generate
+            # query objects based on those sql strings
+
+            # FIXME: temporary to test the new caching mech
             q.subqueries = db.gen_subqueries(q)
-            if i % 10 == 0:
+            if i % 1 == 0:
                 print("{} subqueries generated for query {}".format(len(q.subqueries), i))
+
+            hashed_key = deterministic_hash(q.query)
+            if hashed_key in sql_str_cache.archive:
+                print("loading hashed key")
+                sql_subqueries = sql_str_cache.archive[hashed_key]
+            else:
+                # FIXME: tmp.
+                assert False
+                sql_subqueries = gen_all_subqueries(q.query)
+            assert len(sql_subqueries) == len(q.subqueries)
+
+            if UPDATE_NEW_CACHE:
+                sql_queries = []
+                for subq in q.subqueries:
+                    subq.template = ""
+                    sql_queries.append(subq.query)
+                hashed_tmp = deterministic_hash(q.query)
+                sql_str_cache[hashed_tmp] = sql_queries
+                # for each actual subquery, cache the query objects as well
+                sql_str_cache.dump()
+                # going to save all these in a new cache
+                for subq in q.subqueries:
+                    hashedq = deterministic_hash(subq.query)
+                    query_obj_cache[hashedq] = subq
+                query_obj_cache.dump()
+
+            start = time.time()
+            loaded_queries = []
+            for i, subq in enumerate(q.subqueries):
+                hashedq = deterministic_hash(subq.query)
+                if hashedq in query_obj_cache.archive:
+                    loadedq = query_obj_cache.archive[hashedq]
+                    loaded_queries.append(loadedq)
+
+            assert len(q.subqueries) == len(loaded_queries)
+            for i, subq in enumerate(q.subqueries):
+                assert loaded_queries[i].query == subq.query
+
+            q.subqueries = loaded_queries
+
+    query_obj_cache.clear()
 
     samples = remove_doubles(samples)
 
@@ -417,6 +455,8 @@ def read_flags():
             default=None)
     parser.add_argument("--cache_dir", type=str, required=False,
             default="./caches/")
+    parser.add_argument("--execution_cache_threshold", type=int, required=False,
+            default=20)
 
     return parser.parse_args()
 
