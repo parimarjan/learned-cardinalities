@@ -305,16 +305,18 @@ def main():
                 query_obj_cache.dump()
 
             start = time.time()
-            loaded_queries = []
-            for i, subq in enumerate(q.subqueries):
-                hashedq = deterministic_hash(subq.query)
-                if hashedq in query_obj_cache.archive:
-                    loadedq = query_obj_cache.archive[hashedq]
-                    loaded_queries.append(loadedq)
+            # loaded_queries = []
+            # for i, subq in enumerate(q.subqueries):
+                # hashedq = deterministic_hash(subq.query)
+                # if hashedq in query_obj_cache.archive:
+                    # loadedq = query_obj_cache.archive[hashedq]
+                    # loaded_queries.append(loadedq)
 
+            loaded_queries = gen_query_objs(args, sql_subqueries, "/subq_query_obj")
             assert len(q.subqueries) == len(loaded_queries)
             for i, subq in enumerate(q.subqueries):
                 assert loaded_queries[i].query == subq.query
+
 
             q.subqueries = loaded_queries
 
