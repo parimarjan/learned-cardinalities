@@ -557,7 +557,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
     end = time.time()
     if (end - start > execution_cache_threshold) \
             and sql_cache is not None:
-        sql_cache.archives[hashed_sql] = exp_output
+        sql_cache.archive[hashed_sql] = exp_output
     return exp_output
 
 def _get_total_count_query(sql):

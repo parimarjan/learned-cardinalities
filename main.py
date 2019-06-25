@@ -164,6 +164,7 @@ def gen_query_objs(args, query_strs, cache_name):
 
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
+    start = time.time()
     with Pool(processes=8) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
             args.pwd, args.db_name, None,
@@ -171,10 +172,13 @@ def gen_query_objs(args, query_strs, cache_name):
             cur_query in unknown_query_strs]
         all_query_objs = pool.starmap(sql_to_query_object, args)
 
-    for q in all_query_objs:
+    for i, q in enumerate(all_query_objs):
         ret_queries.append(q)
+        hsql = deterministic_hash(unknown_query_strs[i])
+        query_obj_cache.archive[hsql] = q
 
-    print("generated {} samples in {} secs".format(len(queries),
+    query_obj_cache.dump()
+    print("generated {} samples in {} secs".format(len(ret_queries),
         time.time()-start))
     return ret_queries
 
