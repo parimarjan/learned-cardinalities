@@ -300,10 +300,10 @@ class DB():
 
         # NOTE: query template is currently being hashed to get all queries, so
         # can't just use that.
-        hashed_stats = deterministic_hash(query_template + str(pred_columns))
-        if hashed_stats in self.sql_cache:
+        hashed_stats = deterministic_hash(query_template)
+        if hashed_stats in self.sql_cache.archive:
             print("loading column stats from cache")
-            self.column_stats = self.sql_cache[hashed_stats]
+            self.column_stats = self.sql_cache.archive[hashed_stats]
         else:
             for column in pred_columns:
                 table = column[0:column.find(".")]

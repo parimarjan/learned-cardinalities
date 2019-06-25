@@ -96,7 +96,7 @@ class PGM():
         c_l = (POINTER(c_int) * len(entrylist))(*entrylist)
         c_lengths = (c_int * len(sample))(*lengths)
         pgm.py_eval.restype = c_double
-        est = pgm.py_eval(c_l, c_lengths, len(sample), 0, c_double(1.0)) 
+        est = pgm.py_eval(c_l, c_lengths, len(sample), 0, c_double(1.00))
         if self.save_csv:
             with open("results.csv", "a") as f:
                 writer = csv.writer(f)

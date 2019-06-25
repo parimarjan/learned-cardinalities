@@ -10,6 +10,7 @@ import itertools
 import psycopg2 as pg
 from utils.utils import *
 import networkx as nx
+import klepto
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
@@ -511,23 +512,26 @@ def gen_all_subqueries(query):
     return all_subqueries
 
 def cached_execute_query(sql, user, db_host, port, pwd, db_name,
-        execution_cache_threshold, sql_cache=None, timeout=120000):
+        execution_cache_threshold, sql_cache_dir=None, timeout=120000):
     '''
     @timeout:
     executes the given sql on the DB, and caches the results in a
     persistent store if it took longer than self.execution_cache_threshold.
     '''
+    sql_cache = None
+    if sql_cache_dir is not None:
+        assert isinstance(sql_cache_dir, str)
+        sql_cache = klepto.archives.dir_archive(sql_cache_dir,
+                cached=True, serialized=True)
+
     hashed_sql = deterministic_hash(sql)
-    if sql_cache is not None and hashed_sql in sql_cache:
-        print("loaded {} from in memory cache".format(hashed_sql))
-        return sql_cache[hashed_sql]
 
     # archive only considers the stuff stored in disk
     if sql_cache is not None and hashed_sql in sql_cache.archive:
         # load it and return
-        print("loaded {} from cache".format(hashed_sql))
-        # pdb.set_trace()
+        # print("loaded {} from cache".format(hashed_sql))
         return sql_cache.archive[hashed_sql]
+
     start = time.time()
 
     con = pg.connect(user=user, host=db_host, port=port,
@@ -553,7 +557,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
     end = time.time()
     if (end - start > execution_cache_threshold) \
             and sql_cache is not None:
-        sql_cache[hashed_sql] = exp_output
+        sql_cache.archives[hashed_sql] = exp_output
     return exp_output
 
 def _get_total_count_query(sql):

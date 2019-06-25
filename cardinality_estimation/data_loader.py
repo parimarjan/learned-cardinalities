@@ -21,7 +21,9 @@ def load_dmv_data(args):
         for k in df.keys():
             no_space_column_names.append(k.replace(" ", "_").lower())
         df.columns = no_space_column_names
-        engine = create_engine('postgresql://pari@localhost:5432/dmv')
+        cmd = 'postgresql://{}:{}@localhost:5432/dmv'.format(args.user, args.pwd)
+        engine = create_engine(cmd)
+        print("going to load in db!")
         df.to_sql(table_name, engine)
 
 def load_osm_data(args):

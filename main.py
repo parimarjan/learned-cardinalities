@@ -119,8 +119,8 @@ def gen_query_strs(args, query_template, num_samples):
         print("loaded {} query strings".format(len(query_strs)))
 
     # FIXME: temporary
-    if len(query_strs) == 0:
-        return []
+    # if len(query_strs) == 0:
+        # return []
 
     if num_samples == -1:
         # select whatever we loaded
@@ -160,8 +160,7 @@ def gen_query_objs(args, query_strs, cache_name):
     if len(unknown_query_strs) == 0:
         return ret_queries
 
-    print("going to ha ve to generate new query objects")
-    pdb.set_trace()
+    print("going to have to generate new query objects")
 
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []

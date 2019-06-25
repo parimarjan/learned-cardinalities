@@ -499,6 +499,8 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   		ans++;
   	}
   }
+  //cout << "app: " << approx << endl;
+  //cout << "frac: " << frac << endl;
   bool app=false;
   if(approx!=0)
   {
