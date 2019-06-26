@@ -19,6 +19,9 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 
+# FIXME: temporary hack
+NULL_VALUE = "-1"
+
 def get_possible_values(sample, db, column_bins=None):
     '''
     @sample: Query object.
@@ -77,7 +80,10 @@ def get_possible_values(sample, db, column_bins=None):
         if len(possible_vals) == 0:
             # add every value in the current column
             for val in db.column_stats[state]["unique_values"]:
-                possible_vals.append(val[0])
+                if val[0] is None:
+                    possible_vals.append(NULL_VALUE)
+                else:
+                    possible_vals.append(val[0])
         all_possible_vals.append(possible_vals)
     return all_possible_vals
 
@@ -122,31 +128,48 @@ class OurPGM(CardinalityEstimationAlg):
         self.min_groupby = 0
         self.model = PGM()
         self.test_cache = {}
+        self.column_discrete_bins = None
 
-    def _load_synth_model(self, db, training_samples, **kwargs):
+    def _load_osm_data(self, db, **kwargs):
+        # load directly to numpy since should be much faster
+        data = np.fromfile('/data/pari/osm.bin',
+                dtype=np.int64).reshape(-1, 6)
+        columns = list(db.column_stats.keys())
+        # drop the index column
+        # FIXME: temporarily, drop a bunch of data
+        data = data[1000:100000,1:6]
+        # data = data[:,1:6]
+
+        self.column_discrete_bins = {}
+        for i in range(data.shape[1]):
+            # these columns don't need to be discretized.
+            # FIXME: use more general check here.
+            if db.column_stats[columns[i]]["num_values"] < 1000:
+                continue
+            d0 = data[:, i]
+            _, bins = pd.qcut(d0, self.num_bins, retbins=True, duplicates="drop")
+            self.column_discrete_bins[columns[i]] = bins
+            data[:, i] = np.digitize(d0, bins)
+
+        pdb.set_trace()
+
+        # self.model = self.load_model()
+        # if self.model is None:
+            # # now, data has become discretized, we can feed it directly into BN.
+            # self.model = BayesianNetwork.from_samples(data,
+                    # state_names=columns, algorithm=self.alg, n_jobs=-1)
+
+
+    def _load_training_data(self, db, **kwargs):
+        '''
+        FIXME: we should be able to essentially use this for ANY table which
+        does not have discretization.
+        '''
         assert len(db.tables) == 1
         table = [t for t in db.tables][0]
         columns = list(db.column_stats.keys())
         columns_str = ",".join(columns)
         group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE=table)
-        group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
-        groupby_output = db.execute(group_by)
-        samples = []
-        weights = []
-        for i, sample in enumerate(groupby_output):
-            samples.append([])
-            for j in range(len(sample)-1):
-                samples[i].append(sample[j])
-            weights.append(sample[j+1])
-        samples = np.array(samples)
-        weights = np.array(weights)
-
-        return samples, weights
-
-    def _load_dmv_model(self, db, training_samples, **kwargs):
-        columns = list(db.column_stats.keys())
-        columns_str = ",".join(columns)
-        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE="dmv")
         group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
 
         groupby_output = db.execute(group_by)
@@ -156,9 +179,10 @@ class OurPGM(CardinalityEstimationAlg):
         for i, sample in enumerate(groupby_output):
             samples.append([])
             for j in range(len(sample)-1):
+                # FIXME: need to make this consistent throughout
                 if sample[j] is None:
                     # FIXME: what should be the sentinel value?
-                    samples[i].append("-1")
+                    samples[i].append(NULL_VALUE)
                 else:
                     samples[i].append(sample[j])
             # last value of the output should be the count in the groupby
@@ -171,15 +195,14 @@ class OurPGM(CardinalityEstimationAlg):
     def train(self, db, training_samples, **kwargs):
         self.db = db
         if "synth" in db.db_name:
-            samples, weights = self._load_synth_model(db, training_samples, **kwargs)
+            samples, weights = self._load_training_data(db, **kwargs)
         elif "osm" in db.db_name:
-            assert False
-            # samples, weights = self._load_osm_model(db, training_samples, **kwargs)
+            samples, weights = self._load_osm_data(db, **kwargs)
         elif "imdb" in db.db_name:
             assert False
             # samples, weights = self._load_imdb_model(db, training_samples, **kwargs)
         elif "dmv" in db.db_name:
-            samples, weights = self._load_dmv_model(db, training_samples, **kwargs)
+            samples, weights = self._load_training_data(db, **kwargs)
         else:
             assert False
 
@@ -260,6 +283,8 @@ class BN(CardinalityEstimationAlg):
         data = data[:,1:6]
         self.column_discrete_bins = {}
         for i in range(data.shape[1]):
+            # these columns don't need to be discretized.
+            # FIXME: use more general check here.
             if db.column_stats[columns[i]]["num_values"] < 1000:
                 continue
             d0 = data[:, i]
@@ -615,7 +640,7 @@ class NN1(CardinalityEstimationAlg):
         # loss_func = rel_loss_torch
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir="./tf-logs", lr=0.001, adaptive_lr=True,
-                loss_threshold=2.0)
+                loss_threshold=1.001)
 
         self.net = net
 
