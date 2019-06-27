@@ -105,7 +105,7 @@ class DB():
             # print(sql)
             # print(exp_output)
             # pdb.set_trace()
-            self.sql_cache[hashed_sql] = exp_output
+            self.sql_cache.archive[hashed_sql] = exp_output
         return exp_output
 
     def save_cache(self):
@@ -301,7 +301,8 @@ class DB():
         # NOTE: query template is currently being hashed to get all queries, so
         # can't just use that.
         hashed_stats = deterministic_hash(query_template)
-        if hashed_stats in self.sql_cache.archive:
+        DEBUG = True
+        if hashed_stats in self.sql_cache.archive and DEBUG:
             print("loading column stats from cache")
             self.column_stats = self.sql_cache.archive[hashed_stats]
         else:
@@ -332,9 +333,10 @@ class DB():
                         self.execute(total_count_query)[0][0]
                 self.column_stats[column]["unique_values"] = \
                         self.execute(unique_vals_query)
+                print("collected stats for ", column)
+
             self.sql_cache[hashed_stats] = self.column_stats
             self.sql_cache.dump()
-            print("collected stats on all columns")
 
     def get_samples(self, query_template, num_samples=100,
             random_seed=1234):

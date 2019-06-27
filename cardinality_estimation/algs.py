@@ -57,9 +57,10 @@ def get_possible_values(sample, db, column_bins=None):
             if cmp_op == "in":
                 # FIXME: something with the osm dataset
                 possible_vals = [str(v.replace("'","")) for v in val]
+                # possible_vals = [v for v in val]
             elif cmp_op == "lt":
                 assert len(val) == 2
-                if column_bins is None:
+                if column not in column_bins:
                     # then select everything in the given range of
                     # integers.
                     val = [int(v) for v in val]
@@ -67,11 +68,19 @@ def get_possible_values(sample, db, column_bins=None):
                         possible_vals.append(str(ival))
                 else:
                     # discretize first
-                    bins = column_discrete_bins[column]
-                    val = [float(v) for v in val]
-                    disc_vals = np.digitize(val, bins)
-                    for ival in range(disc_vals[0], disc_vals[1]+1):
-                        possible_vals.append(str(ival))
+                    bins = column_bins[column]
+                    vals = [float(v) for v in val]
+                    for bi, bval in enumerate(bins):
+                        if bval >= vals[0]:
+                            # ntile's start from 1
+                            possible_vals.append(bi+1)
+                        elif bval < vals[0]:
+                            continue
+                        if bval > vals[1]:
+                            break
+                    # print(vals)
+                    # print(possible_vals)
+                    # pdb.set_trace()
             elif cmp_op == "eq":
                 possible_vals.append(val)
             else:
@@ -79,11 +88,17 @@ def get_possible_values(sample, db, column_bins=None):
 
         if len(possible_vals) == 0:
             # add every value in the current column
-            for val in db.column_stats[state]["unique_values"]:
-                if val[0] is None:
-                    possible_vals.append(NULL_VALUE)
-                else:
-                    possible_vals.append(val[0])
+            if state in column_bins:
+                # add every element of the bin
+                # possible_vals = list(range(len(column_bins[state])))
+                for vi, _ in enumerate(column_bins[state]):
+                    possible_vals.append(vi+1)
+            else:
+                for val in db.column_stats[state]["unique_values"]:
+                    if val[0] is None:
+                        possible_vals.append(NULL_VALUE)
+                    else:
+                        possible_vals.append(val[0])
         all_possible_vals.append(possible_vals)
     return all_possible_vals
 
@@ -128,54 +143,67 @@ class OurPGM(CardinalityEstimationAlg):
         self.min_groupby = 0
         self.model = PGM()
         self.test_cache = {}
-        self.column_discrete_bins = None
 
-    def _load_osm_data(self, db, **kwargs):
-        # load directly to numpy since should be much faster
-        data = np.fromfile('/data/pari/osm.bin',
-                dtype=np.int64).reshape(-1, 6)
-        columns = list(db.column_stats.keys())
-        # drop the index column
-        # FIXME: temporarily, drop a bunch of data
-        data = data[1000:100000,1:6]
-        # data = data[:,1:6]
+        self.num_bins = 100
+        self.column_bins = {}
 
-        self.column_discrete_bins = {}
-        for i in range(data.shape[1]):
-            # these columns don't need to be discretized.
-            # FIXME: use more general check here.
-            if db.column_stats[columns[i]]["num_values"] < 1000:
-                continue
-            d0 = data[:, i]
-            _, bins = pd.qcut(d0, self.num_bins, retbins=True, duplicates="drop")
-            self.column_discrete_bins[columns[i]] = bins
-            data[:, i] = np.digitize(d0, bins)
-
-        pdb.set_trace()
-
-        # self.model = self.load_model()
-        # if self.model is None:
-            # # now, data has become discretized, we can feed it directly into BN.
-            # self.model = BayesianNetwork.from_samples(data,
-                    # state_names=columns, algorithm=self.alg, n_jobs=-1)
-
-
-    def _load_training_data(self, db, **kwargs):
+    def _load_training_data(self, db, continuous_cols):
         '''
         FIXME: we should be able to essentially use this for ANY table which
         does not have discretization.
         '''
+        start = time.time()
         assert len(db.tables) == 1
         table = [t for t in db.tables][0]
         columns = list(db.column_stats.keys())
-        columns_str = ",".join(columns)
-        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE=table)
+
+        if not continuous_cols:
+            FROM = table
+            columns_str = ",".join(columns)
+        else:
+            # If some of the columns have continuous data, then we will divide them
+            # into quantiles
+            inner_from = []
+            outer_columns = []
+            for full_col_name,stats in db.column_stats.items():
+                col  = full_col_name[full_col_name.find(".")+1:]
+                outer_columns.append(col)
+                if is_float(stats["max_value"]) and \
+                        stats["num_values"] > 5000:
+                    ntile = NTILE_CLAUSE.format(COLUMN = col,
+                                                ALIAS  = col[col.find(".")+1:],
+                                                BINS   = self.num_bins)
+                    inner_from.append(ntile)
+		    # SELECT MIN(model_year) FROM (SELECT model_year, ntile(5)
+		    #OVER (order by model_year) AS ntile from dmv) AS tmp group by ntile order by
+		    #ntile;
+                    ntile = NTILE_CLAUSE.format(COLUMN = col,
+                                                ALIAS  = "ntile",
+                                                BINS   = self.num_bins)
+                    bin_cmd = '''SELECT MIN({COL}) FROM (SELECT {COL}, {NTILE}
+                    FROM {TABLE}) AS tmp group by ntile order
+                    by ntile'''.format(COL = col,
+                                       NTILE = ntile,
+                                       TABLE = table)
+                    result = db.execute(bin_cmd)
+                    self.column_bins[full_col_name] = [r[0] for r in result]
+                else:
+                    inner_from.append(col)
+
+            FROM = "(SELECT {COLS} FROM {TABLE}) AS tmp".format(\
+                            COLS = ",".join(inner_from),
+                            TABLE = table)
+            columns_str = ",".join(outer_columns)
+
+        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str,
+                FROM_CLAUSE=FROM)
         group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
 
         groupby_output = db.execute(group_by)
-        start = time.time()
+
         samples = []
         weights = []
+        # FIXME: we could potentially avoid the loop here?
         for i, sample in enumerate(groupby_output):
             samples.append([])
             for j in range(len(sample)-1):
@@ -190,19 +218,20 @@ class OurPGM(CardinalityEstimationAlg):
             weights.append(sample[j+1])
         samples = np.array(samples)
         weights = np.array(weights)
+        print("training joint distribution  generation took {} seconds".format(time.time()-start))
         return samples, weights
 
     def train(self, db, training_samples, **kwargs):
         self.db = db
         if "synth" in db.db_name:
-            samples, weights = self._load_training_data(db, **kwargs)
+            samples, weights = self._load_training_data(db, False)
         elif "osm" in db.db_name:
-            samples, weights = self._load_osm_data(db, **kwargs)
+            samples, weights = self._load_training_data(db, True)
         elif "imdb" in db.db_name:
             assert False
             # samples, weights = self._load_imdb_model(db, training_samples, **kwargs)
         elif "dmv" in db.db_name:
-            samples, weights = self._load_training_data(db, **kwargs)
+            samples, weights = self._load_training_data(db, False)
         else:
             assert False
 
@@ -217,7 +246,8 @@ class OurPGM(CardinalityEstimationAlg):
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
                 continue
-            model_sample = get_possible_values(query, self.db)
+            model_sample = get_possible_values(query, self.db,
+                    self.column_bins)
             est_sel = self.model.evaluate(model_sample)
             estimates.append(est_sel)
             self.test_cache[hashed_query] = est_sel
@@ -281,7 +311,7 @@ class BN(CardinalityEstimationAlg):
         # FIXME: temporarily, drop a bunch of data
         # data = data[1000:100000,1:6]
         data = data[:,1:6]
-        self.column_discrete_bins = {}
+        self.column_bins = {}
         for i in range(data.shape[1]):
             # these columns don't need to be discretized.
             # FIXME: use more general check here.
@@ -289,7 +319,7 @@ class BN(CardinalityEstimationAlg):
                 continue
             d0 = data[:, i]
             _, bins = pd.qcut(d0, self.num_bins, retbins=True, duplicates="drop")
-            self.column_discrete_bins[columns[i]] = bins
+            self.column_bins[columns[i]] = bins
             data[:, i] = np.digitize(d0, bins)
 
         self.model = self.load_model()
@@ -414,7 +444,7 @@ class BN(CardinalityEstimationAlg):
                                     # possible_vals.append(str(ival))
                             # else:
                                 # # discretize first
-                                # bins = self.column_discrete_bins[column]
+                                # bins = self.column_bins[column]
                                 # val = [float(v) for v in val]
                                 # try:
                                     # disc_vals = np.digitize(val, bins)

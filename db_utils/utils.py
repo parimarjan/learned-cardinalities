@@ -14,6 +14,8 @@ import klepto
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
+
+NTILE_CLAUSE = "ntile({BINS}) OVER (ORDER BY {COLUMN}) AS {ALIAS}"
 GROUPBY_TEMPLATE = "SELECT {COLS}, COUNT(*) FROM {FROM_CLAUSE} GROUP BY {COLS}"
 COUNT_SIZE_TEMPLATE = "SELECT COUNT(*) FROM {FROM_CLAUSE}"
 
@@ -172,8 +174,9 @@ def extract_predicates(query):
         elif pred_type == "lte":
             continue
         elif pred_type == "lt":
-            # FIXME:!!!
-            continue
+            # FIXME: Need to deal with cases in which ONLY one side of the
+            # range query is provided
+
             # this should technically work for both "lt", "lte", "gt" etc.
             column, val = parse_lt_column(pred, pred_type)
 

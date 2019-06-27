@@ -65,16 +65,25 @@ class PGM():
         for col, col_points in enumerate(all_points):
             mapper = self.word2index[col]
             sample.append([])
-            try:
-                for p in col_points:
-                    sample[col].append(mapper[p])
-            except:
-                # point hasn't been mapped before ...
-                print("point has not been mapped before!!")
-                print(col)
-                print(p)
-                pdb.set_trace()
-                assert False
+            for p in col_points:
+                # FIXME: dumb shiz
+                try:
+                    if p in mapper:
+                        sample[col].append(mapper[p])
+                    elif int(p) in mapper:
+                        sample[col].append(mapper[int(p)])
+                    elif str(p) in mapper:
+                        sample[col].append(mapper[str(p)])
+                    else:
+                        # point hasn't been mapped before ...
+                        print("point has not been mapped before!!")
+                        print("col idx: ", col)
+                        print("point: ", p)
+                        pdb.set_trace()
+                        assert False
+                except Exception as e:
+                    print(e)
+                    pdb.set_trace()
 
         assert len(sample) == len(self.state_names)
 
