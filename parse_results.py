@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 import matplotlib.image as mpimg
+from collections import defaultdict
 
 # TODO: maybe will use this?
 def init_result_row(result):
@@ -48,6 +49,8 @@ def read_flags():
     parser.add_argument("--per_subquery", type=int, required=False,
             default=0)
     parser.add_argument("--per_query", type=int, required=False,
+            default=0)
+    parser.add_argument("--join_parse", type=int, required=False,
             default=0)
 
     return parser.parse_args()
@@ -180,7 +183,133 @@ def visualize_query_class(queries, pdf, barcharts=False):
         pdf.savefig()
         plt.clf()
 
-def parse_query_file(fn):
+def gen_table_data(df, algs, loss_types, summary_type):
+    # generate nd-array of values
+    vals = np.zeros((len(algs), len(loss_types)))
+    for i, alg in enumerate(algs):
+        tmp_df = df[df["alg_name"] == alg]
+        for j, loss in enumerate(loss_types):
+            tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
+            if summary_type == "mean":
+                vals[i][j] = round(tmp_df2.mean()[0], 2)
+            elif summary_type == "median":
+                vals[i][j] = round(tmp_df2.median()[0], 2)
+            elif summary_type == "95":
+                vals[i][j] = round(tmp_df2.quantile(0.95)[0], 2)
+            elif summary_type == "99":
+                vals[i][j] = round(tmp_df2.quantile(0.99)[0], 2)
+
+    return vals
+
+def parse_query_file_card(fn):
+    print(fn)
+    pdf_name = fn.replace(".pickle", ".pdf")
+    pdf = PdfPages(pdf_name)
+    queries = load_object(fn)
+
+    # TODO: add average results page
+    data = defaultdict(list)
+    for q in queries:
+        for alg, loss_types in q.losses.items():
+            for lt, loss in loss_types.items():
+                data["alg_name"].append(alg)
+                data["loss_type"].append(lt)
+                data["loss"].append(loss)
+
+
+    df = pd.DataFrame(data)
+
+    firstPage = plt.figure()
+    firstPage.clf()
+    ## TODO: just paste all the args here?
+    # txt += "DB: " + str(set(df["dbname"])) + "\n"
+    txt = "Experiment Details: \n"
+    txt += "Algs: " + str(set(df["alg_name"])) + "\n"
+    txt += "Num Test Samples: " + str(len(queries)) + "\n"
+
+    firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
+    pdf.savefig()
+    plt.close()
+
+    # pdb.set_trace()
+
+    train_data = defaultdict(list)
+    eval_data = defaultdict(list)
+    train_time = queries[0].train_time
+    eval_time = queries[0].eval_time
+
+    for alg, t in train_time.items():
+        if alg == "Postgres":
+            continue
+        train_data["alg_name"].append(alg)
+        train_data["time"].append(t)
+
+    for alg, t in eval_time.items():
+        if alg == "Postgres":
+            continue
+        eval_data["alg_name"].append(alg)
+        eval_data["time"].append(t)
+
+    tdf = pd.DataFrame(train_data)
+    edf = pd.DataFrame(eval_data)
+    ax = sns.barplot(x="alg_name", y="time", hue="alg_name",
+            data=tdf, estimator=np.mean, ci=75)
+    fig = ax.get_figure()
+    plt.title("Train Time")
+    plt.tight_layout()
+    pdf.savefig()
+    plt.clf()
+
+    ax = sns.barplot(x="alg_name", y="time", hue="alg_name",
+            data=edf, estimator=np.mean, ci=75)
+    fig = ax.get_figure()
+    plt.title("Evaluation Time")
+    plt.tight_layout()
+    pdf.savefig()
+    plt.clf()
+
+    FONT_SIZE = 12
+    COL_WIDTH = 0.25
+    # columns
+    loss_types = [l for l in set(df["loss_type"])]
+    COL_WIDTHS = [COL_WIDTH for l in loss_types]
+    # rows
+    algs = [l for l in set(df["alg_name"])]
+    mean_vals = gen_table_data(df, algs, loss_types, "mean")
+    median_vals = gen_table_data(df, algs, loss_types, "median")
+    tail1 = gen_table_data(df, algs, loss_types, "95")
+    tail2 = gen_table_data(df, algs, loss_types, "99")
+
+    fig, axs = plt.subplots(2,2)
+    for i in range(2):
+        for j in range(2):
+            axs[i][j].axis("tight")
+            axs[i][j].axis("off")
+
+    def plot_table(vals, i, j, title):
+        table = axs[i][j].table(cellText=vals,
+                              rowLabels=algs,
+                              # rowColours=colors,
+                              colLabels=loss_types,
+                              loc='center',
+                              fontsize=FONT_SIZE,
+                              colWidths=COL_WIDTHS)
+        axs[i][j].set_title(title)
+        table.set_fontsize(FONT_SIZE)
+
+
+    # plot_table(mean_vals, 0,0,rowLabels, colLabels, FONT_SIZE, COL_WIDTHS)
+    plot_table(mean_vals, 0,0, "Mean Losses")
+    plot_table(median_vals, 0,1, "Median Losses")
+    plot_table(tail1, 1,0, "95th Percentile")
+    plot_table(tail2, 1,1, "99th Percentile")
+
+    pdf.savefig()
+    plt.clf()
+
+    pdf.close()
+
+def parse_query_file_join(fn):
     '''
     Plot List:
         - plot query structure graph at first
@@ -298,7 +427,10 @@ def parse_query_file(fn):
 def parse_data():
     fns = glob.glob(args.result_dir + "/*train*.pickle")
     for fn in fns:
-        parse_query_file(fn)
+        if args.join_parse:
+            parse_query_file_join(fn)
+        else:
+            parse_query_file_card(fn)
 
 def main():
     parse_data()
