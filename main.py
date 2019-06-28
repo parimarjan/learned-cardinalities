@@ -214,6 +214,8 @@ def main():
         # generate queries
         query_strs = gen_query_strs(args, template, args.num_samples_per_template)
         samples += gen_query_objs(args, query_strs, "/query_obj")
+        for q in samples:
+            q.template = template
 
     print("len all samples: " , len(samples))
 
@@ -242,7 +244,7 @@ def main():
                 sql_subqueries = sql_str_cache.archive[hashed_key]
             else:
                 # FIXME: tmp.
-                assert False
+                # assert False
                 sql_subqueries = gen_all_subqueries(q.query)
 
             loaded_queries = gen_query_objs(args, sql_subqueries, "/subq_query_obj")

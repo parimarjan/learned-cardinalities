@@ -159,6 +159,9 @@ def compute_join_order_loss(alg, queries, use_subqueries,
 
     # each queries index is set to its name
     for i, q in enumerate(queries):
+        # if i == 16:
+            # print(q.template)
+            # pdb.set_trace()
         query_dict[str(i)] = q.query
 
     env.initialize_queries(query_dict)

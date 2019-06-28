@@ -133,87 +133,115 @@ def extract_predicates(query):
     FIXME: temporary hack. For range queries, always returning key
     "lt", and vals for both the lower and upper bound
     '''
-    def parse_lt_column(pred, cur_pred_type):
-        # TODO: generalize more.
-        for obj in pred[cur_pred_type]:
+    def parse_column(pred, cur_pred_type):
+        '''
+        gets the name of the column, and whether column location is on the left
+        (0) or right (1)
+        '''
+        for i, obj in enumerate(pred[cur_pred_type]):
+            assert i <= 1
             if isinstance(obj, str):
                 assert "." in obj
                 column = obj
             elif isinstance(obj, dict):
                 assert "literal" in obj
                 val = obj["literal"]
+                val_loc = i
             else:
-                assert False
+                val = obj
+                val_loc = i
+                # print(pred)
+                # print(obj)
+                # pdb.set_trace()
+                # assert False
+
         assert column is not None
         assert val is not None
-        return column, val
+        return column, val_loc, val
 
+    def _parse_predicate(pred, pred_type):
+        if pred_type == "eq":
+            columns = pred[pred_type]
+            # FIXME: more robust handling?
+            if "." in columns[1]:
+                # should be a join, skip this.
+                return None
+
+            # if columns[0] in predicate_cols:
+                # skip repeating columns
+                # return None
+            predicate_types.append(pred_type)
+            predicate_cols.append(columns[0])
+            predicate_vals.append(columns[1])
+        elif pred_type in RANGE_PREDS:
+            vals = [None, None]
+            col_name, val_loc, val = parse_column(pred, pred_type)
+            vals[val_loc] = val
+
+            # this loop may find no matching predicate for the other side, in
+            # which case, we just leave the val as None
+            for pred2 in pred_vals:
+                pred2_type = list(pred2.keys())[0]
+                if pred2_type in RANGE_PREDS:
+                    col_name2, val_loc2, val2 = parse_column(pred2, pred2_type)
+                    if col_name2 == col_name:
+                        # assert val_loc2 != val_loc
+                        if val_loc2 == val_loc:
+                            # same predicate as pred
+                            continue
+                        vals[val_loc2] = val2
+                        break
+
+            predicate_types.append("lt")
+            predicate_cols.append(col_name)
+            if "g" in pred_type:
+                # reverse vals, since left hand side now means upper bound
+                vals.reverse()
+            predicate_vals.append(vals)
+
+        elif pred_type == "between":
+            col = pred[pred_type][0]
+            val1 = pred[pred_type][1]
+            val2 = pred[pred_type][2]
+            vals = [val1, val2]
+            predicate_types.append("lt")
+            predicate_cols.append(col)
+            predicate_vals.append(vals)
+        elif pred_type == "in" \
+                or "like" in pred_type:
+            # includes preds like, ilike, nlike etc.
+            column = pred[pred_type][0]
+            # what if column has been seen before? Will just be added again to
+            # the list of predicates, which is the correct behaviour
+            vals = pred[pred_type][1]
+            if isinstance(vals, dict):
+                vals = vals["literal"]
+            if not isinstance(vals, list):
+                vals = [vals]
+            predicate_types.append(pred_type)
+            predicate_cols.append(column)
+            predicate_vals.append(vals)
+        else:
+            # continue
+            # print(pred)
+            # pdb.set_trace()
+            return None
+            # assert False, "unsupported predicate type"
+
+    RANGE_PREDS = ["gt", "gte", "lt", "lte"]
     predicate_cols = []
     predicate_types = []
     predicate_vals = []
     parsed_query = parse(query)
     pred_vals = get_all_wheres(parsed_query)
 
+    # print("starting extract predicate cols!")
     for i, pred in enumerate(pred_vals):
         assert len(pred.keys()) == 1
         pred_type = list(pred.keys())[0]
-        if pred_type == "eq":
-            columns = pred[pred_type]
-            if "." in columns[1]:
-                # should be a join, skip this.
-                continue
+        _parse_predicate(pred, pred_type)
 
-            if columns[0] in predicate_cols:
-                # skip repeating columns
-                continue
-            predicate_types.append(pred_type)
-            predicate_cols.append(columns[0])
-            predicate_vals.append(columns[1])
-        elif pred_type == "lte":
-            continue
-        elif pred_type == "lt":
-            # FIXME:!!!
-            continue
-            # this should technically work for both "lt", "lte", "gt" etc.
-            column, val = parse_lt_column(pred, pred_type)
-
-            # find the matching lte
-            pred_lte = None
-            # fml, shitty hacks.
-            for pred2 in pred_vals:
-                pred2_type = list(pred2.keys())[0]
-                if pred2_type == "lte":
-                    column2, val2 = parse_lt_column(pred2, pred2_type)
-                    if column2 == column:
-                        pred_lte = pred2
-                        break
-            assert pred_lte is not None
-            # if pred_lte is None:
-                # print(pred_vals)
-                # pdb.set_trace()
-
-            predicate_types.append(pred_type)
-            predicate_cols.append(column)
-            predicate_vals.append((val, val2))
-
-        elif pred_type == "in":
-            column = pred[pred_type][0]
-            vals = pred[pred_type][1]
-            # print(vals)
-            # pdb.set_trace()
-            if isinstance(vals, dict):
-                vals = vals["literal"]
-            if not isinstance(vals, list):
-                vals = [vals]
-
-            predicate_types.append(pred_type)
-            predicate_cols.append(column)
-            predicate_vals.append(vals)
-        else:
-            continue
-            # pdb.set_trace()
-            # assert False, "unsupported predicate type"
-
+    # print("extract predicate cols done!")
     return predicate_cols, predicate_types, predicate_vals
 
 def extract_from_clause(query):
@@ -549,6 +577,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         cursor.close()
         con.close()
         print("returning arbitrary large value for now")
+        pdb.set_trace()
         return [[10000000]]
         # return None
     exp_output = cursor.fetchall()
