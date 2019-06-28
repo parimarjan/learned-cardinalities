@@ -16,7 +16,7 @@ SUBQUERY_TIMEOUT = 3*60000
 class DB():
 
     def __init__(self, user, pwd, db_host, port, db_name,
-            cache_dir="./sql_cache"):
+            cache_dir="/data/pari/sql_cache"):
         '''
         Creates a conn to the db, and then will continue to reuse that.
         Provides the following:
@@ -301,7 +301,7 @@ class DB():
         # NOTE: query template is currently being hashed to get all queries, so
         # can't just use that.
         hashed_stats = deterministic_hash(query_template)
-        DEBUG = True
+        DEBUG = False
         if hashed_stats in self.sql_cache.archive and not DEBUG:
             print("loading column stats from cache")
             self.column_stats = self.sql_cache.archive[hashed_stats]

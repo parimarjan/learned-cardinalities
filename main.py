@@ -165,7 +165,8 @@ def gen_query_objs(args, query_strs, cache_name):
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
     start = time.time()
-    with Pool(processes=8) as pool:
+    num_processes = min(len(unknown_query_strs), 8)
+    with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
             args.pwd, args.db_name, None,
             args.execution_cache_threshold, sql_result_cache) for
@@ -240,12 +241,14 @@ def main():
 
             hashed_key = deterministic_hash(q.query)
             if hashed_key in sql_str_cache.archive:
-                print("loading hashed key")
+                print("loading subqueries from hash")
                 sql_subqueries = sql_str_cache.archive[hashed_key]
             else:
                 # FIXME: tmp.
                 # assert False
                 sql_subqueries = gen_all_subqueries(q.query)
+                # save it for the future!
+                sql_str_cache.archive[hashed_key] = sql_subqueries
 
             loaded_queries = gen_query_objs(args, sql_subqueries, "/subq_query_obj")
             q.subqueries = loaded_queries
@@ -388,7 +391,7 @@ def read_flags():
     parser.add_argument("--db_file_name", type=str, required=False,
             default=None)
     parser.add_argument("--cache_dir", type=str, required=False,
-            default="./caches/")
+            default="/data/pari/caches/")
     parser.add_argument("--execution_cache_threshold", type=int, required=False,
             default=20)
 

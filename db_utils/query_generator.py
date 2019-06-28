@@ -36,12 +36,12 @@ class QueryGenerator():
             # now, replace each predicate value 1 by 1
             for i, col in enumerate(pred_columns):
                 pred_str = pred_strs[i]
-                if not "SELECT" in pred_str[0]:
-                    # leave this as is.
-                    continue
                 if pred_types[i] == "eq":
                     pass
                 elif pred_types[i] == "in":
+                    if not "SELECT" in pred_str[0]:
+                        # leave this as is.
+                        continue
                     pred_sql = pred_str[0]
                     if col not in self.valid_pred_vals:
                         # pred_sql should be a sql that we can execute
@@ -68,6 +68,9 @@ class QueryGenerator():
                     gen_query = gen_query.replace("'" + pred_sql + "'", new_pred_str)
 
                 elif pred_types[i] == "lte" or pred_types[i] == "lt":
+                    if not "SELECT" in str(pred_str[0]):
+                        # leave this as is.
+                        continue
                     assert len(pred_str) == 2
                     if col not in self.valid_pred_vals:
                         table = col[0:col.find(".")]

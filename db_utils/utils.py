@@ -162,8 +162,10 @@ def extract_predicates(query):
     def _parse_predicate(pred, pred_type):
         if pred_type == "eq":
             columns = pred[pred_type]
+            if len(columns) <= 1:
+                continue
             # FIXME: more robust handling?
-            if "." in columns[1]:
+            if "." in str(columns[1]):
                 # should be a join, skip this.
                 return None
 
@@ -173,6 +175,9 @@ def extract_predicates(query):
             predicate_types.append(pred_type)
             predicate_cols.append(columns[0])
             predicate_vals.append(columns[1])
+            # except:
+                # print(columns)
+                # pdb.set_trace()
         elif pred_type in RANGE_PREDS:
             vals = [None, None]
             col_name, val_loc, val = parse_column(pred, pred_type)
@@ -571,14 +576,19 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         cursor.execute(sql)
     except Exception as e:
         print("query failed to execute: ", sql)
-        print(e)
+        # FIXME: better way to do this.
         cursor.execute("ROLLBACK")
         con.commit()
         cursor.close()
         con.close()
-        print("returning arbitrary large value for now")
-        pdb.set_trace()
-        return [[10000000]]
+
+        if not "timeout" in str(e):
+            pdb.set_trace()
+
+        return None
+        # print("returning arbitrary large value for now")
+        # pdb.set_trace()
+        # return [[10000000]]
         # return None
     exp_output = cursor.fetchall()
     cursor.close()
@@ -620,34 +630,50 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     '''
     if execution_cache_threshold is None:
         execution_cache_threshold = 60
+    print(sql)
+    print("timeout: ", timeout)
 
     if "SELECT COUNT" not in sql:
-        sql = sql[sql.find("FROM"):]
-        sql = "SELECT COUNT(*) " + sql
-        print(sql)
+        print("no SELECT COUNT in sql!")
+        exit(-1)
 
     output = cached_execute_query(sql, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
+
+    # TODO: better error handling
     if output is None:
         return None
     # from query string, to Query object
     true_val = output[0][0]
-    # print("true_val: ", true_val)
+    print("true_val: ", true_val)
     exp_query = "EXPLAIN " + sql
     exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
     if exp_output is None:
         return None
     pg_est = pg_est_from_explain(exp_output)
-    # print("pg_est: ", pg_est)
+    print("pg_est: ", pg_est)
 
     if total_count is None:
         total_count_query = _get_total_count_query(sql)
+        print(total_count_query)
+        total_timeout = 180000
         exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
-                execution_cache_threshold, sql_cache, timeout)
+                execution_cache_threshold, sql_cache, total_timeout)
         if exp_output is None:
-            return None
-        total_count = exp_output[0][0]
+            # execute it with explain
+            exp_query = "EXPLAIN " + total_count_query
+            exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
+                    execution_cache_threshold, sql_cache, total_timeout)
+            if exp_output is None:
+                print("pg est was None for ")
+                print(exp_query)
+                pdb.set_trace()
+            total_count = pg_est_from_explain(exp_output)
+            print("pg total count est: ", total_count)
+        else:
+            total_count = exp_output[0][0]
+            print("total count: ", total_count)
 
     # need to extract predicate columns, predicate operators, and predicate
     # values now.
