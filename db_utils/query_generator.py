@@ -23,7 +23,6 @@ class QueryGenerator():
         '''
         @ret: [sql queries]
         '''
-        print("gen queries!")
         start = time.time()
         # TODO: make these instance variables initialized in __init__
         pred_columns, pred_types, pred_strs = extract_predicates(self.query_template)

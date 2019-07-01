@@ -12,7 +12,6 @@ WHERE ci.note IN ('(voice)',
                   '(voice) (uncredited)',
                   '(voice: English version)')
   AND cn.country_code ='[us]'
-  AND mc.note IS NOT NULL
   AND (mc.note LIKE '%(USA)%'
        OR mc.note LIKE '%(worldwide)%')
   AND n.gender ='f'

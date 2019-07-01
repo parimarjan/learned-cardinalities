@@ -8,7 +8,6 @@ FROM company_name AS cn,
      movie_info_idx AS mi_idx,
      title AS t
 WHERE cn.country_code ='[us]'
-  AND ct.kind IS NOT NULL
   AND (ct.kind ='production companies'
        OR ct.kind = 'distributors')
   AND it1.info ='budget'

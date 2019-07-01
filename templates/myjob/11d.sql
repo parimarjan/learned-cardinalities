@@ -9,11 +9,9 @@ FROM company_name AS cn,
      title AS t
 WHERE cn.country_code !='[pl]'
   AND ct.kind != 'production companies'
-  AND ct.kind IS NOT NULL
   AND k.keyword IN ('sequel',
                     'revenge',
                     'based-on-novel')
-  AND mc.note IS NOT NULL
   AND t.production_year > 1950
   AND lt.id = ml.link_type_id
   AND ml.movie_id = t.id
@@ -25,4 +23,3 @@ WHERE cn.country_code !='[pl]'
   AND ml.movie_id = mk.movie_id
   AND ml.movie_id = mc.movie_id
   AND mk.movie_id = mc.movie_id;
-

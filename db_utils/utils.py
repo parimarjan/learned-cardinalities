@@ -24,54 +24,6 @@ MAX_TEMPLATE = "SELECT {COL} FROM {TABLE} WHERE {COL} IS NOT NULL ORDER BY {COL}
 UNIQUE_VALS_TEMPLATE = "SELECT DISTINCT {COL} FROM {FROM_CLAUSE}"
 UNIQUE_COUNT_TEMPLATE = "SELECT COUNT(*) FROM (SELECT DISTINCT {COL} from {FROM_CLAUSE}) AS t"
 
-def prepare_text(dat):
-    cpy = BytesIO()
-    for row in dat:
-        cpy.write('\t'.join([repr(x) for x in row]) + '\n')
-    return(cpy)
-
-def prepare_binary(dat):
-    pgcopy_dtype = [('num_fields','>i2')]
-    for field, dtype in dat.dtype.descr:
-        pgcopy_dtype += [(field + '_length', '>i4'),
-                         (field, dtype.replace('<', '>'))]
-    pgcopy = np.empty(dat.shape, pgcopy_dtype)
-    pgcopy['num_fields'] = len(dat.dtype)
-    for i in range(len(dat.dtype)):
-        field = dat.dtype.names[i]
-        pgcopy[field + '_length'] = dat.dtype[i].alignment
-        pgcopy[field] = dat[field]
-    cpy = BytesIO()
-    cpy.write(pack('!11sii', b'PGCOPY\n\377\r\n\0', 0, 0))
-    cpy.write(pgcopy.tostring())  # all rows
-    cpy.write(pack('!h', -1))  # file trailer
-    return(cpy)
-'''
-https://stackoverflow.com/questions/8144002/use-binary-copy-table-from-with-psycopg2/8150329#8150329
-
-Need to actually figure out how to use it etc.
-'''
-def time_pgcopy(dat, table, binary):
-    print('Processing copy object for ' + table)
-    tstart = datetime.now()
-    if binary:
-        cpy = prepare_binary(dat)
-    else:  # text
-        cpy = prepare_text(dat)
-    tendw = datetime.now()
-    print('Copy object prepared in ' + str(tendw - tstart) + '; ' +
-          str(cpy.tell()) + ' bytes; transfering to database')
-    cpy.seek(0)
-    if binary:
-        curs.copy_expert('COPY ' + table + ' FROM STDIN WITH BINARY', cpy)
-    else:  # text
-        curs.copy_from(cpy, table)
-    conn.commit()
-    tend = datetime.now()
-    print('Database copy time: ' + str(tend - tendw))
-    print('        Total time: ' + str(tend - tstart))
-    return
-
 def pg_est_from_explain(output):
     '''
     '''
@@ -102,7 +54,7 @@ def extract_join_clause(query):
         if pred_type != "eq":
             continue
 
-        if not "." in columns[1]:
+        if not "." in str(columns[1]):
             continue
 
         join_clauses.append(columns[0] + " = " + columns[1])
@@ -114,9 +66,6 @@ def get_all_wheres(parsed_query):
     if "where" not in parsed_query:
         pass
     elif "and" not in parsed_query["where"]:
-        # print(parsed_query)
-        # print("and not in where!!!")
-        # pdb.set_trace()
         pred_vals = [parsed_query["where"]]
     else:
         pred_vals = parsed_query["where"]["and"]
@@ -150,10 +99,6 @@ def extract_predicates(query):
             else:
                 val = obj
                 val_loc = i
-                # print(pred)
-                # print(obj)
-                # pdb.set_trace()
-                # assert False
 
         assert column is not None
         assert val is not None
@@ -163,7 +108,7 @@ def extract_predicates(query):
         if pred_type == "eq":
             columns = pred[pred_type]
             if len(columns) <= 1:
-                continue
+                return None
             # FIXME: more robust handling?
             if "." in str(columns[1]):
                 # should be a join, skip this.
@@ -599,7 +544,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         sql_cache.archive[hashed_sql] = exp_output
     return exp_output
 
-def _get_total_count_query(sql):
+def get_total_count_query(sql):
     '''
     @ret: sql query.
     '''
@@ -608,6 +553,14 @@ def _get_total_count_query(sql):
     # re-executing it always
     from_clause = " , ".join(froms)
     joins = extract_join_clause(sql)
+    if len(joins) < len(froms)-1:
+        print("joins < len(froms)-1")
+        print(sql)
+        print(joins)
+        print(len(joins))
+        print(froms)
+        print(len(froms))
+        # pdb.set_trace()
     join_clause = ' AND '.join(joins)
     if len(join_clause) > 0:
         from_clause += " WHERE " + join_clause
@@ -630,8 +583,8 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     '''
     if execution_cache_threshold is None:
         execution_cache_threshold = 60
-    print(sql)
-    print("timeout: ", timeout)
+    # print(sql)
+    # print("timeout: ", timeout)
 
     if "SELECT COUNT" not in sql:
         print("no SELECT COUNT in sql!")
@@ -655,12 +608,13 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     print("pg_est: ", pg_est)
 
     if total_count is None:
-        total_count_query = _get_total_count_query(sql)
-        print(total_count_query)
+        total_count_query = get_total_count_query(sql)
         total_timeout = 180000
         exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
                 execution_cache_threshold, sql_cache, total_timeout)
         if exp_output is None:
+            print("total count query timed out for: ")
+            print(total_count_query)
             # execute it with explain
             exp_query = "EXPLAIN " + total_count_query
             exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,

@@ -114,6 +114,7 @@ def gen_query_strs(args, query_template, num_samples):
 
     # TODO: change key to be based on file name?
     hashed_tmp = deterministic_hash(query_template)
+
     if hashed_tmp in sql_str_cache.archive:
         query_strs = sql_str_cache.archive[hashed_tmp]
         print("loaded {} query strings".format(len(query_strs)))
@@ -240,7 +241,9 @@ def main():
             # query objects based on those sql strings
 
             hashed_key = deterministic_hash(q.query)
-            if hashed_key in sql_str_cache.archive:
+            # FIXME: tmp, regenerate all subqueries
+            # if hashed_key in sql_str_cache.archive:
+            if False:
                 print("loading subqueries from hash")
                 sql_subqueries = sql_str_cache.archive[hashed_key]
             else:
@@ -391,7 +394,7 @@ def read_flags():
     parser.add_argument("--db_file_name", type=str, required=False,
             default=None)
     parser.add_argument("--cache_dir", type=str, required=False,
-            default="/data/pari/caches/")
+            default="./caches/")
     parser.add_argument("--execution_cache_threshold", type=int, required=False,
             default=20)
 
