@@ -11,23 +11,23 @@ class SimpleRegression(torch.nn.Module):
             nn.LeakyReLU()
         )
 
-        self.layer2 = nn.Sequential(
-            nn.Linear(n_hidden, n_output, bias=True),
-            nn.Sigmoid()
-        )
-
         # self.layer2 = nn.Sequential(
-            # nn.Linear(n_hidden, n_hidden, bias=True),
-            # nn.LeakyReLU()
-        # )
-
-        # self.layer3 = nn.Sequential(
             # nn.Linear(n_hidden, n_output, bias=True),
             # nn.Sigmoid()
         # )
 
+        self.layer2 = nn.Sequential(
+            nn.Linear(n_hidden, n_hidden, bias=True),
+            nn.LeakyReLU()
+        )
+
+        self.layer3 = nn.Sequential(
+            nn.Linear(n_hidden, n_output, bias=True),
+            nn.Sigmoid()
+        )
+
     def forward(self, x):
         output = self.layer1(x)
         output = self.layer2(output)
-        # output = self.layer3(output)
+        output = self.layer3(output)
         return output

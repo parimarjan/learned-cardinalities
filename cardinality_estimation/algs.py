@@ -615,7 +615,7 @@ class NN1(CardinalityEstimationAlg):
         # loss_func = rel_loss_torch
         print("feature len: ", len(X[0]))
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
-                tfboard_dir=None, lr=0.001, adaptive_lr=True,
+                tfboard_dir=None, lr=0.0001, adaptive_lr=True,
                 loss_threshold=2.0)
 
         self.net = net
