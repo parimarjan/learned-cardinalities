@@ -103,14 +103,14 @@ def eval_alg(alg, losses, queries, use_subqueries):
 
     print("evaluating alg took: {} seconds".format(time.time()-start))
 
-def gen_query_strs(args, query_template, num_samples):
+def gen_query_strs(args, query_template, num_samples, sql_str_cache):
     '''
     @ret: [Query, Query, ...]
     '''
     # first, generate the query strings / or find it in the cache
-    sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str",
-            cached=True, serialized=True)
-    sql_str_cache.load()
+    # sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str",
+            # cached=True, serialized=True)
+    # sql_str_cache.load()
 
     query_strs = []
 
@@ -119,7 +119,8 @@ def gen_query_strs(args, query_template, num_samples):
 
     # if hashed_tmp in sql_str_cache.archive:
     if hashed_tmp in sql_str_cache:
-        query_strs = sql_str_cache.archive[hashed_tmp]
+        # query_strs = sql_str_cache.archive[hashed_tmp]
+        query_strs = sql_str_cache[hashed_tmp]
         print("loaded {} query strings".format(len(query_strs)))
 
     # FIXME: temporary
@@ -138,15 +139,17 @@ def gen_query_strs(args, query_template, num_samples):
                 args.pwd, args.db_name)
         gen_sqls = qg.gen_queries(req_samples)
         query_strs += gen_sqls
-        sql_str_cache.archive[hashed_tmp] = query_strs
-        # sql_str_cache.dump()
+        # sql_str_cache.archive[hashed_tmp] = query_strs
+        sql_str_cache[hashed_tmp] = query_strs
     return query_strs
 
-def gen_query_objs(args, query_strs, cache_name):
+# def gen_query_objs(args, query_strs, cache_name):
+def gen_query_objs(args, query_strs, query_obj_cache):
 
-    query_obj_cache = klepto.archives.dir_archive(args.cache_dir + cache_name,
-            cached=True, serialized=True)
-    query_obj_cache.load()
+    # query_obj_cache = klepto.archives.dir_archive(args.cache_dir + cache_name,
+            # cached=True, serialized=True)
+    # query_obj_cache.load()
+
     ret_queries = []
     unknown_query_strs = []
 
@@ -211,19 +214,32 @@ def main():
 
     # Steps: gen templates, filter out zeros and dups, gen subqueries.
     samples = []
-    for template in query_templates:
-        # TODO: rename etc.
-        db.update_db_stats(template)
 
-        ## Test:
+    # TODO: not sure if loading it into memory is a good idea or not.
+    query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
+            cached=True, serialized=True)
+    query_obj_cache.load()
+    sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str",
+            cached=True, serialized=True)
+    sql_str_cache.load()
+
+    for template in query_templates:
+        db.update_db_stats(template)
         # generate queries
-        query_strs = gen_query_strs(args, template, args.num_samples_per_template)
-        samples += gen_query_objs(args, query_strs, "/query_obj")
+        query_strs = gen_query_strs(args, template,
+                args.num_samples_per_template, sql_str_cache)
+        # samples += gen_query_objs(args, query_strs, "/query_obj")
+        samples += gen_query_objs(args, query_strs, query_obj_cache)
         for q in samples:
             q.template = template
 
     # TODO: clear / dump the query_obj cache
     print("len all samples: " , len(samples))
+
+    query_obj_cache.dump()
+    query_obj_cache.clear()
+    sql_str_cache.dump()
+    sql_str_cache.clear()
 
     if args.only_nonzero_samples:
         nonzero_samples = []
@@ -234,12 +250,15 @@ def main():
         samples = nonzero_samples
 
     if args.use_subqueries:
+        # query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
+                # cached=True, serialized=True)
+        # query_obj_cache.load()
         sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_sql_str",
                 cached=True, serialized=True)
         sql_str_cache.load()
-        # query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
-                # cached=True, serialized=True)
-        # query_obj_cache.load()
+        query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
+                cached=True, serialized=True)
+        query_obj_cache.load()
 
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
@@ -255,11 +274,13 @@ def main():
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries
 
-            loaded_queries = gen_query_objs(args, sql_subqueries, "/subq_query_obj")
+            # loaded_queries = gen_query_objs(args, sql_subqueries, "/subq_query_obj")
+            loaded_queries = gen_query_objs(args, sql_subqueries, query_obj_cache)
             q.subqueries = loaded_queries
+        query_obj_cache.dump()
+        query_obj_cache.clear()
 
     samples = remove_doubles(samples)
-
     all_queries = samples
 
     # FIXME: temporary, and slightly ugly hack -- need to initialize few fields

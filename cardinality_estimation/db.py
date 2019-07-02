@@ -258,7 +258,6 @@ class DB():
                 # OR if the predicate is on string data, e.g., BETWEEN 'A' and 'F'
 
                 if not continuous:
-                    print("range query over non-continuous data!")
                     # FIXME: temporarily, just treat it as discrete data
                     num_buckets = min(self.max_discrete_feauturizing_buckets,
                             col_info["num_values"])
@@ -266,7 +265,6 @@ class DB():
                         pred_idx = deterministic_hash(str(v)) % num_buckets
                         feature_vector[pred_idx_start+pred_idx] = 1.00
                 else:
-                    print("range query over continuous data!")
                     # do min-max stuff
                     assert len(val) == 2
 
