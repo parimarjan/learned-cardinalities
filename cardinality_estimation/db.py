@@ -327,6 +327,9 @@ class DB():
         ## samples
         # random.seed(random_seed)
         if "SELECT COUNT" not in query_template:
+            # print(query_template)
+            # pdb.set_trace()
+            # assert False
             # special casing for imdb for now...
             query_template = query_template[query_template.find("FROM"):]
             query_template = "SELECT COUNT(*) " + query_template
@@ -346,7 +349,7 @@ class DB():
         DEBUG = False
         if hashed_stats in self.sql_cache.archive and not DEBUG:
             column_stats = self.sql_cache.archive[hashed_stats]
-            print("loading column stats from cache: ", column_stats.keys())
+            # print("loading column stats from cache: ", column_stats.keys())
             self.column_stats.update(column_stats)
         else:
             column_stats = {}
@@ -391,122 +394,3 @@ class DB():
             print("generated column stats: ", column_stats.keys())
             self.column_stats.update(column_stats)
             self.sql_cache.dump()
-            print("collected stats on ", self.column_stats.keys())
-
-    def get_samples(self, query_template, num_samples=100,
-            random_seed=1234):
-        '''
-        FIXME: delete this function
-        @query_template:
-
-        @ret: a list of Query objects.
-        '''
-        ## not setting the seed because we do not want samples to be generated
-        ## in a reproducible manner, since we are caching previously generated
-        ## samples
-        # random.seed(random_seed)
-        if "SELECT COUNT" not in query_template:
-            assert False
-            # special casing for imdb for now...
-            # query_template = query_template[query_template.find("FROM"):]
-            # query_template = "SELECT COUNT(*) " + query_template
-
-        start = time.time()
-        pred_columns, pred_types, pred_vals = extract_predicates(query_template)
-        for cmp_op in pred_types:
-            self.cmp_ops.add(cmp_op)
-        from_clauses, aliases, tables = extract_from_clause(query_template)
-        self.aliases.update(aliases)
-        self.tables.update(tables)
-        joins = extract_join_clause(query_template)
-
-        # NOTE: query template is currently being hashed to get all queries, so
-        # can't just use that.
-        hashed_stats = deterministic_hash(query_template + str(pred_columns))
-        if hashed_stats in self.sql_cache:
-            print("loading column stats from cache")
-            self.column_stats = self.sql_cache[hashed_stats]
-        else:
-            for column in pred_columns:
-                table = column[0:column.find(".")]
-                if table in self.aliases:
-                    table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
-                                        ALIAS = table)
-                min_query = MIN_TEMPLATE.format(TABLE = table,
-                                                COL   = column)
-                max_query = MAX_TEMPLATE.format(TABLE = table,
-                                                COL   = column)
-                unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
-                                                          COL = column)
-                total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
-                unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
-                                                                COL = column)
-
-                if column in self.column_stats:
-                    continue
-                # TODO: move to using cached_execute
-                self.column_stats[column] = {}
-                self.column_stats[column]["min_value"] = self.execute(min_query)[0][0]
-                self.column_stats[column]["max_value"] = self.execute(max_query)[0][0]
-                self.column_stats[column]["num_values"] = \
-                        self.execute(unique_count_query)[0][0]
-                self.column_stats[column]["total_values"] = \
-                        self.execute(total_count_query)[0][0]
-                self.column_stats[column]["unique_values"] = \
-                        self.execute(unique_vals_query)
-            self.sql_cache[hashed_stats] = self.column_stats
-            self.sql_cache.dump()
-            print("collected stats on all columns")
-
-        # first, try and see if we have enough queries with the given template
-        # in our cache.
-        hashed_template = deterministic_hash(query_template)
-        queries = []
-        if hashed_template in self.sql_cache.archive:
-            queries = self.sql_cache.archive[hashed_template]
-        if not isinstance(queries, list) or len(queries) == 0:
-            print("going to return empty queries!")
-            pdb.set_trace()
-            return []
-
-        if len(queries) == num_samples:
-            return queries
-        elif len(queries) > num_samples:
-            return queries[0:num_samples]
-        else:
-            # generate just the remaining queries
-            num_samples -= len(queries)
-
-        qg = QueryGenerator(query_template, self.user, self.db_host, self.port,
-                self.pwd, self.db_name)
-        all_query_strs = qg.gen_queries(num_samples)
-
-        print("num queries: ", len(all_query_strs))
-        print(all_query_strs[0])
-
-        # get total count
-        from_clause = ','.join(from_clauses)
-        join_clause = ' AND '.join(joins)
-        if len(join_clause) > 0:
-            from_clause += " WHERE " + join_clause
-
-        # total count, without any predicates being applied
-        count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
-        total_count = self.execute(count_query, timeout=120000)[0][0]
-        print("total count: ", total_count)
-
-        with Pool(processes=8) as pool:
-            args = [(cur_query, self.user, self.db_host, self.port,
-                self.pwd, self.db_name, total_count,
-                self.execution_cache_threshold, self.sql_cache) for
-                cur_query in all_query_strs]
-            all_query_objs = pool.starmap(sql_to_query_object, args)
-        for q in all_query_objs:
-            queries.append(q)
-
-        print("generated {} samples in {} secs".format(len(queries),
-            time.time()-start))
-
-        self.sql_cache[hashed_template] = queries
-        self.sql_cache.dump()
-        return queries

@@ -121,7 +121,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
     if hashed_tmp in sql_str_cache:
         # query_strs = sql_str_cache.archive[hashed_tmp]
         query_strs = sql_str_cache[hashed_tmp]
-        print("loaded {} query strings".format(len(query_strs)))
+        # print("loaded {} query strings".format(len(query_strs)))
 
     # FIXME: temporary
     # if len(query_strs) == 0:
@@ -163,7 +163,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         else:
             unknown_query_strs.append(sql)
 
-    print("loaded {} query objects".format(len(ret_queries)))
+    # print("loaded {} query objects".format(len(ret_queries)))
     # query_obj_cache.clear()
 
     if len(unknown_query_strs) == 0:
@@ -262,11 +262,11 @@ def main():
 
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
-            print("going to generate subqueries for query num ", i)
+            # print("going to generate subqueries for query num ", i)
 
             hashed_key = deterministic_hash(q.query)
             if hashed_key in sql_str_cache.archive:
-                print("loading subqueries from cache")
+                # print("loading subqueries from cache")
                 # sql_subqueries = sql_str_cache.archive[hashed_key]
                 sql_subqueries = sql_str_cache[hashed_key]
             else:

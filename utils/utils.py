@@ -170,6 +170,7 @@ def train_nn(net, X, Y, lr=0.00001, max_iter=10000, mb_size=32,
     very simple implementation of training loop for NN.
     '''
     if loss_func is None:
+        assert False
         loss_func = torch.nn.MSELoss()
 
     if tfboard_dir:

@@ -562,6 +562,13 @@ def qloss_torch(yhat, ytrue):
     # TODO: check this
     errors = torch.max( (ytrue / yhat), (yhat / ytrue))
     error = errors.sum() / len(yhat)
+
+    # tmp testing.
+    # if random.random() < 0.5:
+        # error * 3.0
+    # else:
+        # error * 0.1
+
     return error
 
 class NN1(CardinalityEstimationAlg):
@@ -572,7 +579,7 @@ class NN1(CardinalityEstimationAlg):
 
         # TODO: make these all configurable
         self.feature_len = None
-        self.hidden_layer_multiple = 2
+        self.hidden_layer_multiple = 2.0
         self.feat_type = "dict_encoding"
         self.max_num_buckets = 10000
 
@@ -610,7 +617,7 @@ class NN1(CardinalityEstimationAlg):
 
         # do training
         net = SimpleRegression(len(X[0]),
-                len(X[0])*self.hidden_layer_multiple, 1)
+                int(len(X[0])*self.hidden_layer_multiple), 1)
         loss_func = qloss_torch
         # loss_func = rel_loss_torch
         print("feature len: ", len(X[0]))
