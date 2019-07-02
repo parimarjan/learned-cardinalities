@@ -24,6 +24,8 @@ MAX_TEMPLATE = "SELECT {COL} FROM {TABLE} WHERE {COL} IS NOT NULL ORDER BY {COL}
 UNIQUE_VALS_TEMPLATE = "SELECT DISTINCT {COL} FROM {FROM_CLAUSE}"
 UNIQUE_COUNT_TEMPLATE = "SELECT COUNT(*) FROM (SELECT DISTINCT {COL} from {FROM_CLAUSE}) AS t"
 
+RANGE_PREDS = ["gt", "gte", "lt", "lte"]
+
 def pg_est_from_explain(output):
     '''
     '''
@@ -112,17 +114,12 @@ def extract_predicates(query):
             # FIXME: more robust handling?
             if "." in str(columns[1]):
                 # should be a join, skip this.
+                # Note: joins only happen in "eq" predicates
                 return None
-
-            # if columns[0] in predicate_cols:
-                # skip repeating columns
-                # return None
             predicate_types.append(pred_type)
             predicate_cols.append(columns[0])
             predicate_vals.append(columns[1])
-            # except:
-                # print(columns)
-                # pdb.set_trace()
+
         elif pred_type in RANGE_PREDS:
             vals = [None, None]
             col_name, val_loc, val = parse_column(pred, pred_type)
@@ -150,6 +147,7 @@ def extract_predicates(query):
             predicate_vals.append(vals)
 
         elif pred_type == "between":
+            # we just treat it as a range query
             col = pred[pred_type][0]
             val1 = pred[pred_type][1]
             val2 = pred[pred_type][2]
@@ -172,13 +170,10 @@ def extract_predicates(query):
             predicate_cols.append(column)
             predicate_vals.append(vals)
         else:
-            # continue
-            # print(pred)
-            # pdb.set_trace()
+            # TODO: need to support "OR" statements
             return None
             # assert False, "unsupported predicate type"
 
-    RANGE_PREDS = ["gt", "gte", "lt", "lte"]
     predicate_cols = []
     predicate_types = []
     predicate_vals = []

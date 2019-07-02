@@ -110,13 +110,15 @@ def gen_query_strs(args, query_template, num_samples):
     # first, generate the query strings / or find it in the cache
     sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str",
             cached=True, serialized=True)
+    sql_str_cache.load()
 
     query_strs = []
 
     # TODO: change key to be based on file name?
     hashed_tmp = deterministic_hash(query_template)
 
-    if hashed_tmp in sql_str_cache.archive:
+    # if hashed_tmp in sql_str_cache.archive:
+    if hashed_tmp in sql_str_cache:
         query_strs = sql_str_cache.archive[hashed_tmp]
         print("loaded {} query strings".format(len(query_strs)))
 
@@ -137,31 +139,32 @@ def gen_query_strs(args, query_template, num_samples):
         gen_sqls = qg.gen_queries(req_samples)
         query_strs += gen_sqls
         sql_str_cache.archive[hashed_tmp] = query_strs
-        sql_str_cache.dump()
+        # sql_str_cache.dump()
     return query_strs
 
 def gen_query_objs(args, query_strs, cache_name):
 
     query_obj_cache = klepto.archives.dir_archive(args.cache_dir + cache_name,
             cached=True, serialized=True)
+    query_obj_cache.load()
     ret_queries = []
     unknown_query_strs = []
 
     # everything below this part is for query objects exclusively
     for sql in query_strs:
         hsql = deterministic_hash(sql)
-        if hsql in query_obj_cache.archive:
-            ret_queries.append(query_obj_cache.archive[hsql])
+        # if hsql in query_obj_cache.archive:
+        if hsql in query_obj_cache:
+            # ret_queries.append(query_obj_cache.archive[hsql])
+            ret_queries.append(query_obj_cache[hsql])
         else:
             unknown_query_strs.append(sql)
 
     print("loaded {} query objects".format(len(ret_queries)))
-    query_obj_cache.clear()
+    # query_obj_cache.clear()
 
     if len(unknown_query_strs) == 0:
         return ret_queries
-
-    print("going to have to generate new query objects")
 
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
@@ -179,7 +182,7 @@ def gen_query_objs(args, query_strs, cache_name):
         hsql = deterministic_hash(unknown_query_strs[i])
         query_obj_cache.archive[hsql] = q
 
-    query_obj_cache.dump()
+    # query_obj_cache.dump()
     print("generated {} samples in {} secs".format(len(ret_queries),
         time.time()-start))
     return ret_queries
@@ -219,6 +222,7 @@ def main():
         for q in samples:
             q.template = template
 
+    # TODO: clear / dump the query_obj cache
     print("len all samples: " , len(samples))
 
     if args.only_nonzero_samples:
@@ -232,8 +236,10 @@ def main():
     if args.use_subqueries:
         sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_sql_str",
                 cached=True, serialized=True)
-        query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
-                cached=True, serialized=True)
+        sql_str_cache.load()
+        # query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
+                # cached=True, serialized=True)
+        # query_obj_cache.load()
 
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
@@ -241,10 +247,9 @@ def main():
 
             hashed_key = deterministic_hash(q.query)
             if hashed_key in sql_str_cache.archive:
-            # FIXME: tmp, regenerate all subqueries
-            # if False:
-                print("loading subqueries from hash")
-                sql_subqueries = sql_str_cache.archive[hashed_key]
+                print("loading subqueries from cache")
+                # sql_subqueries = sql_str_cache.archive[hashed_key]
+                sql_subqueries = sql_str_cache[hashed_key]
             else:
                 sql_subqueries = gen_all_subqueries(q.query)
                 # save it for the future!

@@ -48,7 +48,11 @@ class DB():
         #         stats["title"]["id"]["type"] = int
         #         stats["title"]["id"]["num_values"] = x
         self.column_stats = OrderedDict()
-        self.max_discrete_feauturizing_buckets = 1000
+        self.max_discrete_feauturizing_buckets = 100
+        # generally, these would be range queries, but they can be "=", or "in"
+        # queries as well, and we will support upto 10 such values
+        self.continuous_feature_size = 10
+
         self.featurizer = None
         self.cmp_ops = set()
         self.tables = set()
@@ -121,7 +125,10 @@ class DB():
         Generates a featurizer dict:
             {table_name: (idx, num_vals)}
             {join_key: (idx, num_vals)}
-            {pred: (idx, num_vals)}
+            {pred_column: (idx, num_vals)}
+        where the idx refers to the elements position in the feature vector,
+        and num_vals refers to the number of values it will occupy.
+        E.g. TODO.
         '''
         # let's figure out the feature len based on db.stats
         self.featurizer = {}
@@ -129,7 +136,7 @@ class DB():
         self.num_cols = len(self.column_stats)
         self.feature_len = 0
         for table in self.tables:
-            self.featurizer[table] = (self.feature_len, 1)
+            self.featurizer[table] = (self.feature_len, 1, False)
             self.feature_len += 1
 
         for i, cmp_op in enumerate(self.cmp_ops):
@@ -149,13 +156,15 @@ class DB():
                     and info["num_values"] >= self.max_discrete_feauturizing_buckets:
                 # then use min-max normalization, no matter what
                 # only support range-queries, so lower / and upper predicate
-                pred_len += 2
+                pred_len += self.continuous_feature_size
+                continuous = True
             else:
                 # use 1-hot encoding
                 num_buckets = min(self.max_discrete_feauturizing_buckets, info["num_values"])
                 pred_len += num_buckets
+                continuous = False
 
-            self.featurizer[col] = (self.feature_len, pred_len)
+            self.featurizer[col] = (self.feature_len, pred_len, continuous)
             self.feature_len += pred_len
 
     def get_features(self, query):
@@ -167,12 +176,19 @@ class DB():
             self.init_featurizer()
         feature_vector = np.zeros(self.feature_len)
         for table in query.table_names:
-            idx, _ = self.featurizer[table]
+            idx, _, _ = self.featurizer[table]
             feature_vector[idx] = 1.00
 
         for i, col in enumerate(query.pred_column_names):
             cmp_op = query.cmp_ops[i]
-            cmp_op_idx, num_vals = self.featurizer[col]
+            # turn the element corresponding to the comparison operator as 1
+            try:
+                cmp_op_idx, num_vals, continuous = self.featurizer[col]
+            except:
+                print(self.column_stats.keys())
+                print(self.featurizer.keys())
+                print(col)
+                pdb.set_trace()
             cmp_idx = self.cmp_ops_onehot[cmp_op]
             feature_vector[cmp_op_idx+cmp_idx] = 1.00
 
@@ -187,61 +203,88 @@ class DB():
             # predicate featurization will depend on the type of cmp_op
             val = query.vals[i]
 
-            if cmp_op == "in":
-                # bandaid...
-                if isinstance(val[0], dict):
-                    val = val[0]["literal"]
-                val = set(val)
-                # if len(val) <= num_pred_vals:
-                    # print(query)
-                    # print(len(val), num_pred_vals)
-                    # pdb.set_trace()
-                # assert len(val) <= num_pred_vals
+            # TODO: we can't assume if it is continuous data OR discrete
+            # data just based on the predicate
 
-                num_buckets = min(self.max_discrete_feauturizing_buckets,
-                        col_info["num_values"])
-                # if num_pred_vals != num_buckets:
-                    # print(query)
-                    # print(num_pred_vals, num_buckets)
-                    # pdb.set_trace()
-                ## FIXME! this assert fails sometimes
-                # assert num_pred_vals == num_buckets
-                # turn to 1 all the qualifying indexes in the 1-hot vector
+            if cmp_op == "in" or \
+                    "like" in cmp_op or \
+                    cmp_op == "eq":
+
+                # bandaid...
                 try:
+                    if isinstance(val, dict):
+                        val = [val["literal"]]
+                    elif not hasattr(val, "__len__"):
+                        val = [val]
+                    elif isinstance(val[0], dict):
+                        val = val[0]["literal"]
+                    val = set(val)
+                except Exception as e:
+                    print(e)
+                    print(val)
+                    pdb.set_trace()
+
+                if continuous:
+                    assert len(val) <= self.continuous_feature_size
+                    min_val = float(col_info["min_value"])
+                    max_val = float(col_info["max_value"])
+                    for vi, v in enumerate(val):
+                        v = float(v)
+                        normalized_val = (v - min_val) / (max_val - min_val)
+                        feature_vector[pred_idx_start+vi] = 1.00
+                else:
+                    num_buckets = min(self.max_discrete_feauturizing_buckets,
+                            col_info["num_values"])
+                    assert num_pred_vals == num_buckets
+                    # if num_pred_vals != num_buckets:
+                        # print("num_pred_vals != num_buckets!")
+                        # # print(query)
+                        # print(num_pred_vals, num_buckets)
+                        # pdb.set_trace()
+                    ## FIXME! this assert fails sometimes
+                    # assert num_pred_vals == num_buckets
+                    # turn to 1 all the qualifying indexes in the 1-hot vector
+                    # try:
                     for v in val:
                         pred_idx = deterministic_hash(v) % num_buckets
                         feature_vector[pred_idx_start+pred_idx] = 1.00
-                except Exception as e:
-                    print(e)
-                    pdb.set_trace()
-            elif cmp_op == "lte" or cmp_op == "lt":
-                # do min-max stuff
-                assert len(val) == 2
-                ## don't do assert here.
-                # try:
-                    # assert num_pred_vals == 2
-                # except:
-                    # print(num_pred_vals)
-                    # pdb.set_trace()
-                lb = float(val[0])
-                ub = float(val[1])
-                assert lb <= ub
-                min_val = float(col_info["min_value"])
-                max_val = float(col_info["max_value"])
+                    # except Exception as e:
+                        # print(e)
+                        # pdb.set_trace()
+            elif cmp_op in RANGE_PREDS:
+                assert cmp_op == "lt"
 
-                lb_val = (lb - min_val) / (max_val - min_val)
-                lb_val = max(lb_val, 0.00)
-                lb_val = min(lb_val, 1.00)
+                # does not have to be MIN / MAX, if there are very few values
+                # OR if the predicate is on string data, e.g., BETWEEN 'A' and 'F'
 
-                ub_val = (ub - min_val) / (max_val - min_val)
-                ub_val = max(ub_val, 0.00)
-                ub_val = min(ub_val, 1.00)
-                assert lb_val <= ub_val
-                feature_vector[pred_idx_start] = lb_val
-                feature_vector[pred_idx_start+1] = ub_val
-            elif cmp_op == "eq":
-                # FIXME: !!
-                continue
+                if not continuous:
+                    print("range query over non-continuous data!")
+                    # FIXME: temporarily, just treat it as discrete data
+                    num_buckets = min(self.max_discrete_feauturizing_buckets,
+                            col_info["num_values"])
+                    for v in val:
+                        pred_idx = deterministic_hash(str(v)) % num_buckets
+                        feature_vector[pred_idx_start+pred_idx] = 1.00
+                else:
+                    print("range query over continuous data!")
+                    # do min-max stuff
+                    assert len(val) == 2
+
+                    min_val = float(col_info["min_value"])
+                    max_val = float(col_info["max_value"])
+                    min_max = [min_val, max_val]
+                    for vi, v in enumerate(val):
+                        if v is None and vi == 0:
+                            v = min_val
+                        elif v is None and vi == 1:
+                            v = max_val
+
+                        cur_val = float(v)
+                        norm_val = (cur_val - min_val) / (max_val - min_val)
+                        norm_val = max(norm_val, 0.00)
+                        norm_val = min(norm_val, 1.00)
+                        feature_vector[pred_idx_start+vi] = norm_val
+
             else:
                 assert False
 
@@ -304,7 +347,7 @@ class DB():
         hashed_stats = deterministic_hash(query_template)
         DEBUG = False
         if hashed_stats in self.sql_cache.archive and not DEBUG:
-            print("loading column stats from cache")
+            # print("loading column stats from cache")
             self.column_stats = self.sql_cache.archive[hashed_stats]
         else:
             for column in pred_columns:
@@ -342,11 +385,11 @@ class DB():
                 else:
                     self.column_stats[column]["unique_values"] = None
 
-            if not DEBUG:
-                self.sql_cache[hashed_stats] = self.column_stats
-                self.sql_cache.dump()
+            # if not DEBUG:
+            self.sql_cache[hashed_stats] = self.column_stats
+            self.sql_cache.dump()
 
-        print("collected stats on ", self.column_stats.keys())
+            print("collected stats on ", self.column_stats.keys())
 
     def get_samples(self, query_template, num_samples=100,
             random_seed=1234):
@@ -361,9 +404,10 @@ class DB():
         ## samples
         # random.seed(random_seed)
         if "SELECT COUNT" not in query_template:
+            assert False
             # special casing for imdb for now...
-            query_template = query_template[query_template.find("FROM"):]
-            query_template = "SELECT COUNT(*) " + query_template
+            # query_template = query_template[query_template.find("FROM"):]
+            # query_template = "SELECT COUNT(*) " + query_template
 
         start = time.time()
         pred_columns, pred_types, pred_vals = extract_predicates(query_template)
