@@ -20,6 +20,7 @@ import random
 import itertools
 import klepto
 from multiprocessing import Pool
+import multiprocessing
 import numpy as np
 from db_utils.query_generator import QueryGenerator
 
@@ -155,7 +156,6 @@ def gen_query_objs(args, query_strs, cache_name):
             unknown_query_strs.append(sql)
 
     print("loaded {} query objects".format(len(ret_queries)))
-    print("need to generate {} query objects".format(len(unknown_query_strs)))
     query_obj_cache.clear()
 
     if len(unknown_query_strs) == 0:
@@ -166,7 +166,7 @@ def gen_query_objs(args, query_strs, cache_name):
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
     start = time.time()
-    num_processes = min(len(unknown_query_strs), 8)
+    num_processes = min(len(unknown_query_strs), multiprocessing.cpu_count())
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
             args.pwd, args.db_name, None,
@@ -237,18 +237,15 @@ def main():
 
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
-            # TODO: first, generate all subquery strings, and then generate
-            # query objects based on those sql strings
+            print("going to generate subqueries for query num ", i)
 
             hashed_key = deterministic_hash(q.query)
+            if hashed_key in sql_str_cache.archive:
             # FIXME: tmp, regenerate all subqueries
-            # if hashed_key in sql_str_cache.archive:
-            if False:
+            # if False:
                 print("loading subqueries from hash")
                 sql_subqueries = sql_str_cache.archive[hashed_key]
             else:
-                # FIXME: tmp.
-                # assert False
                 sql_subqueries = gen_all_subqueries(q.query)
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries

@@ -314,14 +314,15 @@ def find_next_match(tables, wheres, index):
         match += " " + token.value
 
         if (token.value == "BETWEEN"):
-            # ugh..
+            # ugh ugliness
             index, a = token_list.token_next(index)
             index, AND = token_list.token_next(index)
             index, b = token_list.token_next(index)
             match += " " + a.value
             match += " " + AND.value
             match += " " + b.value
-            break
+            # Note: important not to break here! Will break when we hit the
+            # "AND" in the next iteration.
 
     # print("tables: ", tables)
     # print("match: ", match)
@@ -468,8 +469,54 @@ def _gen_subqueries(all_tables, wheres, aliases):
         all_subqueries.append(query)
         # print("num subqueries: ", len(all_subqueries))
 
-    print("num generated sql subqueries: ", len(all_subqueries))
     return all_subqueries
+
+def _gen_subqueries_nx(query):
+    froms,aliases,tables = extract_from_clause(query)
+    joins = extract_join_clause(query)
+    pred_columns, pred_types, pred_vals = extract_predicates(query)
+    join_graph = nx.Graph()
+    for j in joins:
+        j1 = j.split("=")[0]
+        j2 = j.split("=")[1]
+        t1 = j1[0:j1.find(".")].strip()
+        t2 = j2[0:j2.find(".")].strip()
+        try:
+            assert t1 in tables or t1 in aliases
+            assert t2 in tables or t2 in aliases
+        except:
+            print(t1, t2)
+            print(tables)
+            print(joins)
+            print("table not in tables!")
+            pdb.set_trace()
+
+        join_graph.add_edge(t1, t2)
+        join_graph[t1][t2]["join_condition"] = j
+        if t1 in aliases:
+            table1 = aliases[t1]
+            table2 = aliases[t2]
+
+            join_graph.nodes()[t1]["real_name"] = table1
+            join_graph.nodes()[t2]["real_name"] = table2
+
+    parsed = sqlparse.parse(query)[0]
+    # let us go over all the where clauses
+    where_clauses = None
+    for token in parsed.tokens:
+        if (type(token) == sqlparse.sql.Where):
+            where_clauses = token
+    assert where_clauses is not None
+
+    for t1 in join_graph.nodes():
+        tables = [t1]
+        matches = find_all_clauses(tables, where_clauses)
+        join_graph.nodes()[t1]["predicates"] = matches
+
+    # TODO: Next, need an efficient way to generate all connected subgraphs, and
+    # then convert each of them to a sql queries
+
+    pdb.set_trace()
 
 def gen_all_subqueries(query):
     '''
@@ -477,6 +524,11 @@ def gen_all_subqueries(query):
     @ret: [sql strings], that represent all subqueries excluding cross-joins.
     FIXME: mix-match of moz_sql_parser AND sqlparse...
     '''
+    start = time.time()
+    if False:
+        print("experimental subquery generation")
+        _gen_subqueries_nx(query)
+
     # print("gen all subqueries!")
     _,aliases,tables = extract_from_clause(query)
     parsed = sqlparse.parse(query)[0]
@@ -487,12 +539,15 @@ def gen_all_subqueries(query):
             where_clauses = token
     assert where_clauses is not None
     all_subqueries = _gen_subqueries(tables, where_clauses, aliases)
+    print("generated {} sql subqueries in {}: ".format(len(all_subqueries),
+        time.time()-start))
     return all_subqueries
 
 def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         execution_cache_threshold, sql_cache_dir=None, timeout=120000):
     '''
     @timeout:
+    @db_host: going to ignore it so default localhost is used.
     executes the given sql on the DB, and caches the results in a
     persistent store if it took longer than self.execution_cache_threshold.
     '''
@@ -512,8 +567,11 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
 
     start = time.time()
 
-    con = pg.connect(user=user, host=db_host, port=port,
+    # con = pg.connect(user=user, host=db_host, port=port,
+            # password=pwd, database=db_name)
+    con = pg.connect(user=user, port=port,
             password=pwd, database=db_name)
+
     cursor = con.cursor()
     if timeout is not None:
         cursor.execute("SET statement_timeout = {}".format(timeout))

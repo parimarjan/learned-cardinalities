@@ -79,8 +79,10 @@ class DB():
             return self.sql_cache.archive[hashed_sql]
         start = time.time()
 
-        con = pg.connect(user=self.user, host=self.db_host, port=self.port,
+        con = pg.connect(user=self.user, port=self.port,
                 password=self.pwd, database=self.db_name)
+        # con = pg.connect(user=self.user, host=self.db_host, port=self.port,
+                # password=self.pwd, database=self.db_name)
         cursor = con.cursor()
         if timeout is not None:
             cursor.execute("SET statement_timeout = {}".format(timeout))
@@ -130,7 +132,6 @@ class DB():
             self.featurizer[table] = (self.feature_len, 1)
             self.feature_len += 1
 
-        # FIXME: the one-hot order of cmp_ops
         for i, cmp_op in enumerate(self.cmp_ops):
             self.cmp_ops_onehot[cmp_op] = i
 
@@ -301,7 +302,7 @@ class DB():
         # NOTE: query template is currently being hashed to get all queries, so
         # can't just use that.
         hashed_stats = deterministic_hash(query_template)
-        DEBUG = True
+        DEBUG = False
         if hashed_stats in self.sql_cache.archive and not DEBUG:
             print("loading column stats from cache")
             self.column_stats = self.sql_cache.archive[hashed_stats]
@@ -331,13 +332,21 @@ class DB():
                         self.execute(unique_count_query)[0][0]
                 self.column_stats[column]["total_values"] = \
                         self.execute(total_count_query)[0][0]
-                self.column_stats[column]["unique_values"] = \
-                        self.execute(unique_vals_query)
+
+                # only store all the values for tables with small alphabet
+                # sizes (so we can use them for things like the PGM).
+                # Otherwise, it bloats up the cache.
+                if self.column_stats[column]["num_values"] <= 5000:
+                    self.column_stats[column]["unique_values"] = \
+                            self.execute(unique_vals_query)
+                else:
+                    self.column_stats[column]["unique_values"] = None
 
             if not DEBUG:
                 self.sql_cache[hashed_stats] = self.column_stats
                 self.sql_cache.dump()
-            print("collected stats on all columns")
+
+        print("collected stats on ", self.column_stats.keys())
 
     def get_samples(self, query_template, num_samples=100,
             random_seed=1234):
