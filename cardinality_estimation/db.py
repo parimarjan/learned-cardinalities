@@ -345,9 +345,11 @@ class DB():
         hashed_stats = deterministic_hash(query_template)
         DEBUG = False
         if hashed_stats in self.sql_cache.archive and not DEBUG:
-            # print("loading column stats from cache")
-            self.column_stats = self.sql_cache.archive[hashed_stats]
+            column_stats = self.sql_cache.archive[hashed_stats]
+            print("loading column stats from cache: ", column_stats.keys())
+            self.column_stats.update(column_stats)
         else:
+            column_stats = {}
             for column in pred_columns:
                 table = column[0:column.find(".")]
                 if table in self.aliases:
@@ -365,28 +367,30 @@ class DB():
 
                 if column in self.column_stats:
                     continue
+
                 # TODO: move to using cached_execute
-                self.column_stats[column] = {}
-                self.column_stats[column]["min_value"] = self.execute(min_query)[0][0]
-                self.column_stats[column]["max_value"] = self.execute(max_query)[0][0]
-                self.column_stats[column]["num_values"] = \
+                column_stats[column] = {}
+                column_stats[column]["min_value"] = self.execute(min_query)[0][0]
+                column_stats[column]["max_value"] = self.execute(max_query)[0][0]
+                column_stats[column]["num_values"] = \
                         self.execute(unique_count_query)[0][0]
-                self.column_stats[column]["total_values"] = \
+                column_stats[column]["total_values"] = \
                         self.execute(total_count_query)[0][0]
 
                 # only store all the values for tables with small alphabet
                 # sizes (so we can use them for things like the PGM).
                 # Otherwise, it bloats up the cache.
-                if self.column_stats[column]["num_values"] <= 5000:
-                    self.column_stats[column]["unique_values"] = \
+                if column_stats[column]["num_values"] <= 5000:
+                    column_stats[column]["unique_values"] = \
                             self.execute(unique_vals_query)
                 else:
-                    self.column_stats[column]["unique_values"] = None
+                    column_stats[column]["unique_values"] = None
 
-            # if not DEBUG:
-            self.sql_cache[hashed_stats] = self.column_stats
+                self.sql_cache[hashed_stats] = column_stats
+
+            print("generated column stats: ", column_stats.keys())
+            self.column_stats.update(column_stats)
             self.sql_cache.dump()
-
             print("collected stats on ", self.column_stats.keys())
 
     def get_samples(self, query_template, num_samples=100,
