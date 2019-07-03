@@ -322,38 +322,35 @@ class DB():
         return queries
 
     def update_db_stats(self, query_template):
-        ## not setting the seed because we do not want samples to be generated
-        ## in a reproducible manner, since we are caching previously generated
-        ## samples
-        # random.seed(random_seed)
+        '''
+        '''
         if "SELECT COUNT" not in query_template:
             print(query_template)
             assert False
-            # special casing for imdb for now...
-            # query_template = query_template[query_template.find("FROM"):]
-            # query_template = "SELECT COUNT(*) " + query_template
-            # print(query_template)
 
-        start = time.time()
         pred_columns, pred_types, pred_vals = extract_predicates(query_template)
         for cmp_op in pred_types:
             self.cmp_ops.add(cmp_op)
         from_clauses, aliases, tables = extract_from_clause(query_template)
         self.aliases.update(aliases)
         self.tables.update(tables)
-        joins = extract_join_clause(query_template)
 
-        # NOTE: query template is currently being hashed to get all queries, so
-        # can't just use that.
-        hashed_stats = deterministic_hash(query_template)
+        # TODO: load sql cache in memory?
         DEBUG = False
-        if hashed_stats in self.sql_cache.archive and not DEBUG:
-            column_stats = self.sql_cache.archive[hashed_stats]
-            print("loading column stats from cache: ", column_stats.keys())
-            self.column_stats.update(column_stats)
-        else:
-            column_stats = {}
-            for column in pred_columns:
+        for column in pred_columns:
+            if column in self.column_stats:
+                continue
+            # need to load it. first check if it is in the cache, else
+            # regenerate it.
+            hashed_stats = deterministic_hash(query_template)
+
+            if hashed_stats in self.sql_cache.archive and not DEBUG:
+                column_stats = self.sql_cache.archive[hashed_stats]
+                print("loading column stats from cache: ", column_stats.keys())
+                self.column_stats.update(column_stats)
+            else:
+                print("need to generate stuff for column: ", column)
+                column_stats = {}
                 table = column[0:column.find(".")]
                 if table in self.aliases:
                     table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
@@ -367,10 +364,6 @@ class DB():
                 total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
                 unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
                                                                 COL = column)
-
-                if column in self.column_stats:
-                    column_stats[column] = self.column_stats[column]
-                    continue
 
                 # TODO: move to using cached_execute
                 column_stats[column] = {}
@@ -390,8 +383,5 @@ class DB():
                 else:
                     column_stats[column]["unique_values"] = None
 
-            self.sql_cache[hashed_stats] = column_stats
-
-            print("generated column stats: ", column_stats.keys())
-            self.column_stats.update(column_stats)
-            self.sql_cache.dump()
+                self.sql_cache.archive[hashed_stats] = column_stats
+                self.column_stats.update(column_stats)

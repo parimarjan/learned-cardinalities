@@ -145,12 +145,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
         sql_str_cache[hashed_tmp] = query_strs
     return query_strs
 
-# def gen_query_objs(args, query_strs, cache_name):
 def gen_query_objs(args, query_strs, query_obj_cache):
-
-    # query_obj_cache = klepto.archives.dir_archive(args.cache_dir + cache_name,
-            # cached=True, serialized=True)
-    # query_obj_cache.load()
 
     ret_queries = []
     unknown_query_strs = []
@@ -158,9 +153,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     # everything below this part is for query objects exclusively
     for sql in query_strs:
         hsql = deterministic_hash(sql)
-        # if hsql in query_obj_cache.archive:
         if hsql in query_obj_cache:
-            # ret_queries.append(query_obj_cache.archive[hsql])
             ret_queries.append(query_obj_cache[hsql])
         else:
             unknown_query_strs.append(sql)
@@ -170,6 +163,9 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 
     if len(unknown_query_strs) == 0:
         return ret_queries
+    else:
+        print("need to generate {} query objects".\
+                format(len(unknown_query_strs)))
 
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
@@ -208,24 +204,20 @@ def main():
 
     # Steps: collect statistics, gen templates, filter out zeros and dups, gen
     # subqueries.
-
     start = time.time()
     query_templates = []
-    if args.template_dir is None:
-        update_synth_templates(args, query_templates)
-    else:
-        for fn in glob.glob(args.template_dir+"/*"):
-            with open(fn, "r") as f:
-                template = f.read()
-                query_templates.append(template)
-                # print(fn)
-                # db.update_db_stats(template)
+    assert args.template_dir is not None
 
+    for fn in glob.glob(args.template_dir+"/*"):
+        with open(fn, "r") as f:
+            template = f.read()
+            query_templates.append(template)
+            ## FIXME:
+            print(fn)
+            db.update_db_stats(template)
+    # db.sql_cache.dump()
     print("generating all db stats took {} seconds".format(\
             time.time() - start))
-
-    # pdb.set_trace()
-    # exit(-1)
 
     # TODO: not sure if loading it into memory is a good idea or not.
     samples = []
@@ -276,11 +268,13 @@ def main():
             # print("going to generate subqueries for query num ", i)
 
             hashed_key = deterministic_hash(q.query)
-            if hashed_key in sql_str_cache.archive:
-                # print("loading subqueries from cache")
+            # if hashed_key in sql_str_cache.archive:
+            if hashed_key in sql_str_cache:
+                print("loading subqueries from cache")
                 # sql_subqueries = sql_str_cache.archive[hashed_key]
                 sql_subqueries = sql_str_cache[hashed_key]
             else:
+                print("generating sql subqueries!")
                 sql_subqueries = gen_all_subqueries(q.query)
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries
@@ -288,8 +282,10 @@ def main():
             # loaded_queries = gen_query_objs(args, sql_subqueries, "/subq_query_obj")
             loaded_queries = gen_query_objs(args, sql_subqueries, query_obj_cache)
             q.subqueries = loaded_queries
+
         query_obj_cache.dump()
         query_obj_cache.clear()
+
 
     samples = remove_doubles(samples)
     all_queries = samples
