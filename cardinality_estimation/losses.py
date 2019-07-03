@@ -139,6 +139,105 @@ def update_cards(est_cards, q):
         cards[table_key] = int(est_cards[j])
     return cards
 
+def join_loss_nn(pred, queries, alg, baseline="EXHAUSTIVE"):
+    '''
+    TODO: also updates each query object with the relevant stats that we want
+    to plot.
+    '''
+    assert len(queries[0].subqueries) > 0
+    # create a new park env, and close at the end.
+    env = park.make('query_optimizer')
+    # Set queries
+    query_dict = {}
+
+    # TMP: debugging, hardcoded-queries
+    # queries = queries[0:1]
+    # fname = "/home/pari/query-optimizer/simple-queries/0.sql"
+    # with open(fname, "r") as f:
+        # queries[0].query = f.read()
+
+    # each queries index is set to its name
+    for i, q in enumerate(queries):
+        query_dict[str(i)] = q.query
+
+    env.initialize_queries(query_dict)
+    cardinalities = {}
+    # Set estimated cardinalities
+    pred_start = 1
+    for i, q in enumerate(queries):
+        # yhat = alg.test(q.subqueries)
+        yhat = []
+        for j in range(pred_start, pred_start+len(q.subqueries), 1):
+            yhat.append(pred[j])
+        yhat = np.array(yhat, dtype=np.float32)
+        totals = np.array([q.total_count for q in q.subqueries],
+                        dtype=np.float32)
+        est_cards = np.multiply(yhat, totals)
+        cardinalities[str(i)] = update_cards(est_cards, q)
+
+        if not hasattr(q, "subq_cards"):
+            q.subq_cards = {}
+        q.subq_cards[alg.__str__()] = cardinalities[str(i)]
+
+    env.initialize_cardinalities(cardinalities)
+    # let us now initialize the cost model costs, based on all the subqueries that we
+    # have.
+    # cost_model = {}
+    # for i, q in enumerate(queries):
+        # cost_model[i] = update_cost_model(q)
+
+    # Learn optimal agent for estimated cardinalities
+    agents = []
+    train_q = run_all_eps(env)
+    fixed_agent = {}
+
+    for i, q in enumerate(queries):
+        info = train_q[str(i)]
+        actions = info["joinOrders"][baseline]["joinEdgeChoices"]
+        fixed_agent[str(i)] = actions
+
+    assert len(fixed_agent) == len(cardinalities) == len(queries)
+    agents.append(fixed_agent)
+
+    cardinalities = {}
+    # Set true cardinalities
+    for i, q in enumerate(queries):
+        est_cards = np.array([q.true_count for q in q.subqueries])
+        cardinalities[str(i)] = update_cards(est_cards, q)
+        # for later plotting
+        q.subq_cards["true"] = cardinalities[str(i)]
+
+    env.initialize_cardinalities(cardinalities)
+
+    # Test agent on true cardinalities
+    assert len(agents) == 1
+    # TODO: save the data / compare across queries etc.
+    # for rep, fixed_agent in enumerate(agents):
+    fixed_agent = agents[0]
+
+    test_q = run_all_eps(env, fixed_agent=fixed_agent)
+    total_error = 0.00
+    baseline_costs = []
+    est_card_costs = []
+
+    for i, q in enumerate(queries):
+        if not hasattr(q, "join_info"):
+            q.join_info = {}
+        info = test_q[str(i)]
+        q.join_info[alg.__str__()] = info
+        bcost = info["costs"][baseline]
+        card_cost = info["costs"]["RL"]
+        cur_error = card_cost - bcost
+        total_error += card_cost - bcost
+        baseline_costs.append(float(bcost))
+        est_card_costs.append(float(card_cost))
+    print(q.join_info.keys())
+    total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
+    print("total avg error: {}: {}".format(baseline, total_avg_err))
+    rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
+
+    return rel_errors
+
 def compute_join_order_loss(alg, queries, use_subqueries,
         baseline="EXHAUSTIVE"):
     '''
@@ -159,9 +258,6 @@ def compute_join_order_loss(alg, queries, use_subqueries,
 
     # each queries index is set to its name
     for i, q in enumerate(queries):
-        # if i == 16:
-            # print(q.template)
-            # pdb.set_trace()
         query_dict[str(i)] = q.query
 
     env.initialize_queries(query_dict)

@@ -349,7 +349,7 @@ class DB():
         DEBUG = False
         if hashed_stats in self.sql_cache.archive and not DEBUG:
             column_stats = self.sql_cache.archive[hashed_stats]
-            # print("loading column stats from cache: ", column_stats.keys())
+            print("loading column stats from cache: ", column_stats.keys())
             self.column_stats.update(column_stats)
         else:
             column_stats = {}
@@ -369,6 +369,7 @@ class DB():
                                                                 COL = column)
 
                 if column in self.column_stats:
+                    column_stats[column] = self.column_stats[column]
                     continue
 
                 # TODO: move to using cached_execute
@@ -389,7 +390,7 @@ class DB():
                 else:
                     column_stats[column]["unique_values"] = None
 
-                self.sql_cache[hashed_stats] = column_stats
+            self.sql_cache[hashed_stats] = column_stats
 
             print("generated column stats: ", column_stats.keys())
             self.column_stats.update(column_stats)
