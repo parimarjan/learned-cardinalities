@@ -185,7 +185,7 @@ def train_nn(net, X, Y, lr=0.00001, max_iter=10000, mb_size=32,
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     # update learning rate
     if adaptive_lr:
-        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=20,
+        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3,
                         verbose=True, factor=0.1, eps=min_lr)
         plateau_min_lr = 0
 
@@ -194,7 +194,7 @@ def train_nn(net, X, Y, lr=0.00001, max_iter=10000, mb_size=32,
     Y = np.array(Y)
 
     while True:
-        if (num_iter % 100 == 0):
+        if (num_iter % 1000 == 0):
             # test on the full train set
             xbatch = X
             xbatch = to_variable(xbatch).float()

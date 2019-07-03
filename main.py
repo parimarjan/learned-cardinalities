@@ -39,6 +39,8 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn1":
         return NN1(max_iter = args.max_iter)
+    elif alg == "nn2":
+        return NN2(max_iter = args.max_iter)
     elif alg == "ourpgm":
         return OurPGM()
     else:
