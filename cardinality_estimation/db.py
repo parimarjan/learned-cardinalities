@@ -333,6 +333,7 @@ class DB():
             # special casing for imdb for now...
             query_template = query_template[query_template.find("FROM"):]
             query_template = "SELECT COUNT(*) " + query_template
+            print(query_template)
 
         start = time.time()
         pred_columns, pred_types, pred_vals = extract_predicates(query_template)

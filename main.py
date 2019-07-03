@@ -163,7 +163,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         else:
             unknown_query_strs.append(sql)
 
-    # print("loaded {} query objects".format(len(ret_queries)))
+    print("loaded {} query objects".format(len(ret_queries)))
     # query_obj_cache.clear()
 
     if len(unknown_query_strs) == 0:
@@ -209,6 +209,7 @@ def main():
     else:
         for fn in glob.glob(args.template_dir+"/*"):
             with open(fn, "r") as f:
+                print(fn)
                 template = f.read()
                 query_templates.append(template)
 
