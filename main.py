@@ -205,20 +205,30 @@ def main():
     db = DB(args.user, args.pwd, args.db_host, args.port,
             args.db_name)
     print("started using db: ", args.db_name)
+
+    # Steps: collect statistics, gen templates, filter out zeros and dups, gen
+    # subqueries.
+
+    start = time.time()
     query_templates = []
     if args.template_dir is None:
         update_synth_templates(args, query_templates)
     else:
         for fn in glob.glob(args.template_dir+"/*"):
             with open(fn, "r") as f:
-                print(fn)
                 template = f.read()
                 query_templates.append(template)
+                # print(fn)
+                # db.update_db_stats(template)
 
-    # Steps: gen templates, filter out zeros and dups, gen subqueries.
-    samples = []
+    print("generating all db stats took {} seconds".format(\
+            time.time() - start))
+
+    # pdb.set_trace()
+    # exit(-1)
 
     # TODO: not sure if loading it into memory is a good idea or not.
+    samples = []
     query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
             cached=True, serialized=True)
     query_obj_cache.load()
@@ -227,11 +237,9 @@ def main():
     sql_str_cache.load()
 
     for template in query_templates:
-        db.update_db_stats(template)
         # generate queries
         query_strs = gen_query_strs(args, template,
                 args.num_samples_per_template, sql_str_cache)
-        # samples += gen_query_objs(args, query_strs, "/query_obj")
         samples += gen_query_objs(args, query_strs, query_obj_cache)
         for q in samples:
             q.template = template

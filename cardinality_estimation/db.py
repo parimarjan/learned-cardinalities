@@ -327,13 +327,12 @@ class DB():
         ## samples
         # random.seed(random_seed)
         if "SELECT COUNT" not in query_template:
-            # print(query_template)
-            # pdb.set_trace()
-            # assert False
-            # special casing for imdb for now...
-            query_template = query_template[query_template.find("FROM"):]
-            query_template = "SELECT COUNT(*) " + query_template
             print(query_template)
+            assert False
+            # special casing for imdb for now...
+            # query_template = query_template[query_template.find("FROM"):]
+            # query_template = "SELECT COUNT(*) " + query_template
+            # print(query_template)
 
         start = time.time()
         pred_columns, pred_types, pred_vals = extract_predicates(query_template)
