@@ -15,6 +15,8 @@ from utils.tf_summaries import TensorboardSummaries
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import time
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 def is_float(val):
     try:
         float(val)
@@ -91,12 +93,15 @@ def to_variable(arr, use_cuda=True):
     if isinstance(arr, list) or isinstance(arr, tuple):
         arr = np.array(arr)
     if isinstance(arr, np.ndarray):
-        arr = Variable(torch.from_numpy(arr), requires_grad=True)
+        arr = Variable(torch.from_numpy(arr), requires_grad=True).to(device)
     else:
-        arr = Variable(arr, requires_grad=True)
+        arr = Variable(arr, requires_grad=True).to(device)
 
-    if torch.cuda.is_available() and use_cuda:
-        arr = arr.cuda()
+    # if torch.cuda.is_available() and use_cuda:
+        # print("returning cuda array!")
+        # arr = arr.cuda()
+    # else:
+        # pdb.set_trace()
     return arr
 
 
@@ -185,7 +190,7 @@ def train_nn(net, X, Y, lr=0.00001, max_iter=10000, mb_size=32,
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     # update learning rate
     if adaptive_lr:
-        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=3,
+        scheduler = ReduceLROnPlateau(optimizer, 'min', patience=20,
                         verbose=True, factor=0.1, eps=min_lr)
         plateau_min_lr = 0
 
@@ -194,7 +199,7 @@ def train_nn(net, X, Y, lr=0.00001, max_iter=10000, mb_size=32,
     Y = np.array(Y)
 
     while True:
-        if (num_iter % 1000 == 0):
+        if (num_iter % 100 == 0):
             # test on the full train set
             xbatch = X
             xbatch = to_variable(xbatch).float()

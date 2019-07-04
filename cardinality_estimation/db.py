@@ -336,13 +336,13 @@ class DB():
         self.tables.update(tables)
 
         # TODO: load sql cache in memory?
-        DEBUG = False
+        DEBUG = True
         for column in pred_columns:
             if column in self.column_stats:
                 continue
             # need to load it. first check if it is in the cache, else
             # regenerate it.
-            hashed_stats = deterministic_hash(query_template)
+            hashed_stats = deterministic_hash(column)
 
             if hashed_stats in self.sql_cache.archive and not DEBUG:
                 column_stats = self.sql_cache.archive[hashed_stats]

@@ -14,6 +14,7 @@ import pandas as pd
 import json
 from multiprocessing import Pool
 from pgm import PGM
+import park
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -588,7 +589,8 @@ class NN1(CardinalityEstimationAlg):
         # TODO: configure other variables
         self.max_iter = kwargs["max_iter"]
 
-    def train(self, db, training_samples, use_subqueries=False):
+    def train(self, db, training_samples, save_model=True,
+            use_subqueries=False):
         self.db = db
         if use_subqueries:
             training_samples = get_all_subqueries(training_samples)
@@ -622,11 +624,12 @@ class NN1(CardinalityEstimationAlg):
         net = SimpleRegression(len(X[0]),
                 int(len(X[0])*self.hidden_layer_multiple), 1)
 
-        make_dir("./models")
-        model_path = "./models/" + "nn1" + str(deterministic_hash(query_str))[0:5]
-        if os.path.exists(model_path):
-            net.load_state_dict(torch.load(model_path))
-            print("loaded trained model!")
+        if save_model:
+            make_dir("./models")
+            model_path = "./models/" + "nn1" + str(deterministic_hash(query_str))[0:5]
+            if os.path.exists(model_path):
+                net.load_state_dict(torch.load(model_path))
+                print("loaded trained model!")
 
         loss_func = qloss_torch
         # loss_func = rel_loss_torch
@@ -637,8 +640,9 @@ class NN1(CardinalityEstimationAlg):
 
         self.net = net
 
-        print("saved model path")
-        torch.save(net.state_dict(), model_path)
+        if save_model:
+            print("saved model path")
+            torch.save(net.state_dict(), model_path)
 
     def test(self, test_samples):
         X = []
@@ -658,7 +662,7 @@ class NN1(CardinalityEstimationAlg):
         else:
             pred = self.net(X)
             pred = pred.squeeze(1)
-        return pred.detach().numpy()
+        return pred.cpu().detach().numpy()
 
     def size(self):
         pass
@@ -702,20 +706,18 @@ class NN2(CardinalityEstimationAlg):
         # loss_func = rel_loss_torch
         print("feature len: ", len(features))
 
-        self._train_nn_join_loss(net, training_samples, loss_func=loss_func, max_iter=self.max_iter,
+        self.net = net
+        self._train_nn_join_loss(self.net, training_samples, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
                 loss_threshold=2.0)
 
-        self.net = net
-
     def _train_nn_join_loss(self, net, training_samples,
-            lr=0.00001, max_iter=10000, mb_size=4,
-            loss_func=None, tfboard_dir=None, adaptive_lr=False,
-            min_lr=1e-17, loss_threshold=1.0):
+            lr=0.0001, max_iter=10000, mb_size=4,
+            loss_func=None, tfboard_dir=None, adaptive_lr=True,
+            min_lr=1e-17, loss_threshold=1.0, use_jl=False):
         '''
         TODO: explain
         '''
-        print("NN2 training!")
         if loss_func is None:
             assert False
             loss_func = torch.nn.MSELoss()
@@ -731,21 +733,63 @@ class NN2(CardinalityEstimationAlg):
 
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
         # update learning rate
-        # if adaptive_lr:
-            # scheduler = ReduceLROnPlateau(optimizer, 'min', patience=20,
-                            # verbose=True, factor=0.1, eps=min_lr)
-            # plateau_min_lr = 0
+        if adaptive_lr:
+            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=5,
+                            verbose=True, factor=0.1, eps=min_lr)
+            plateau_min_lr = 0
 
         num_iter = 0
+        # create a new park env, and close at the end.
+        env = park.make('query_optimizer')
+
+        X_all = []
+        Y_all = []
+        for si, sample in enumerate(training_samples):
+            X_all.append(sample.features)
+            Y_all.append(sample.true_sel)
+            for sq in sample.subqueries:
+                X_all.append(sq.features)
+                Y_all.append(sq.true_sel)
+        X = to_variable(X_all).float()
+        Y = to_variable(Y_all).float()
+
+        min_jl = 1.00
+        max_jl = None
+        min_qerr = 0.00
+        max_qerr = None
 
         while True:
+
+            if (num_iter % 100 == 0):
+                pred = net(X)
+                pred = pred.squeeze(1)
+                train_loss = loss_func(pred, Y)
+                if adaptive_lr:
+                    # FIXME: should we do this for minibatch / or for train loss?
+                    scheduler.step(train_loss)
+
+                jl = join_loss_nn(pred, training_samples, self, env)
+                # jl = join_loss_nn(pred, training_samples, self, None)
+                jl = np.mean(np.array(jl))
+
+                jl2 = compute_join_order_loss(self, training_samples,
+                        True)
+                jl2 = np.mean(jl2)
+                print("jl: ", jl)
+                print("jl2: ", np.mean(jl2))
+
+                pdb.set_trace()
+
+                print("num iter: {}, num samples: {}, loss: {}, join-loss {}".format(
+                    num_iter, len(X), train_loss.item(), jl2))
+
             idxs = np.random.choice(list(range(len(training_samples))), mb_size)
             xbatch = []
             ybatch = []
             mb_samples = []
             for si, sample in enumerate(training_samples):
-                mb_samples.append(sample)
                 if si in idxs:
+                    mb_samples.append(sample)
                     xbatch.append(sample.features)
                     ybatch.append(sample.true_sel)
                     for sq in sample.subqueries:
@@ -757,14 +801,27 @@ class NN2(CardinalityEstimationAlg):
 
             pred = net(xbatch)
             pred = pred.squeeze(1)
-            jl = join_loss_nn(pred, mb_samples, self)
-            jl = np.mean(np.array(jl))
             loss = loss_func(pred, ybatch)
-            loss = loss*jl
+            # if loss.item() < 10.00:
+                # jl = join_loss_nn(pred, mb_samples, self, env)
+                # jl = np.mean(np.array(jl))
+                # print("join loss: ", jl)
 
-            # if (num_iter % 100 == 0):
-            print("num iter: {}, num samples: {}, minibatch loss: {}".format(
-                num_iter, len(xbatch), loss.item()))
+            if (num_iter == 200 and use_jl):
+                jl = join_loss_nn(pred, mb_samples, self, env)
+                jl = np.mean(np.array(jl))
+                max_jl = jl
+                max_qerr = loss.item()
+
+            if (num_iter > 200 and use_jl):
+                jl = join_loss_nn(pred, mb_samples, self, env)
+                jl = np.mean(np.array(jl))
+
+                # normalize both of these to [0...1]
+                norm_jl = (jl - min_jl) / (max_jl - min_jl)
+                loss = (loss - min_qerr) / (max_qerr - min_qerr)
+                print("norm jl: {}, norm qerr: {}".format(norm_jl, loss.item()))
+                loss = loss * norm_jl
 
             if (num_iter > max_iter):
                 print("breaking because max iter done")
@@ -776,7 +833,6 @@ class NN2(CardinalityEstimationAlg):
             num_iter += 1
 
         print("done with training")
-        # print("training loss: ", train_loss)
 
     def test(self, test_samples):
         X = []
@@ -786,7 +842,7 @@ class NN2(CardinalityEstimationAlg):
         X = to_variable(X).float()
         pred = self.net(X)
         pred = pred.squeeze(1)
-        return pred.detach().numpy()
+        return pred.cpu().detach().numpy()
 
     def size(self):
         pass
