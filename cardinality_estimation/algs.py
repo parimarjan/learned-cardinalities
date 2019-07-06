@@ -743,7 +743,7 @@ class NN2(CardinalityEstimationAlg):
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
         # update learning rate
         if adaptive_lr:
-            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=20,
+            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=50,
                             verbose=True, factor=0.1, eps=min_lr)
             plateau_min_lr = 0
 
@@ -767,6 +767,7 @@ class NN2(CardinalityEstimationAlg):
         min_qerr = 0.00
         max_qerr = None
 
+        file_name = "./training-" + self.__str__() + ".dict"
         while True:
 
             # if (num_iter % 1000 == 0 and num_iter != 0):
@@ -788,7 +789,7 @@ class NN2(CardinalityEstimationAlg):
                 results["iter"].append(num_iter)
                 results["qerr"].append(train_loss.item())
                 results["join-loss"].append(jl)
-
+                save_or_update(file_name, results)
                 print("num iter: {}, num samples: {}, loss: {}, join-loss {}".format(
                     num_iter, len(X), train_loss.item(), jl))
 
@@ -814,28 +815,11 @@ class NN2(CardinalityEstimationAlg):
             # if (use_jl and num_iter % 100 == 0):
                 # print(num_iter)
 
-            if (num_iter > 300 and use_jl):
+            if (num_iter > 200 and use_jl):
                 jl = join_loss_nn(pred, mb_samples, self, env)
                 jl = torch.mean(to_variable(jl).float()) - 1.00
                 # jl = torch.mean(to_variable(jl).float())
                 loss = loss*jl
-
-            # some lame attempt at min-max normalization for losses
-            # if (num_iter == 200 and use_jl):
-                # jl = join_loss_nn(pred, mb_samples, self, env)
-                # jl = np.mean(np.array(jl))
-                # max_jl = jl
-                # max_qerr = loss.item()
-
-            # if (num_iter > 200 and use_jl):
-                # jl = join_loss_nn(pred, mb_samples, self, env)
-                # # jl = np.mean(np.array(jl))
-
-                # # normalize both of these to [0...1]
-                # norm_jl = (jl - min_jl) / (max_jl - min_jl)
-                # loss = (loss - min_qerr) / (max_qerr - min_qerr)
-                # print("norm jl: {}, norm qerr: {}".format(norm_jl, loss.item()))
-                # loss = loss * norm_jl
 
             if (num_iter > max_iter):
                 print("breaking because max iter done")
@@ -850,8 +834,6 @@ class NN2(CardinalityEstimationAlg):
             num_iter += 1
 
         print("done with training")
-        file_name = "./training-" + self.__str__() + ".dict"
-        save_or_update(file_name, results)
 
     def test(self, test_samples):
         X = []
