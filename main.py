@@ -40,7 +40,8 @@ def get_alg(alg):
     elif alg == "nn1":
         return NN1(max_iter = args.max_iter)
     elif alg == "nn2":
-        return NN2(max_iter = args.max_iter)
+        return NN2(max_iter = args.max_iter, use_jl=args.use_jl, lr=args.lr,
+                num_hidden_layers=args.num_hidden_layers)
     elif alg == "ourpgm":
         return OurPGM()
     else:
@@ -205,6 +206,7 @@ def main():
             cached=True, serialized=True)
     db_key = deterministic_hash("db-" + args.template_dir)
     if db_key in misc_cache.archive:
+    # if False:
         db = misc_cache.archive[db_key]
     else:
         # either load the db object from cache, or regenerate it.
@@ -370,6 +372,10 @@ def read_flags():
             required=False, default=1000)
     parser.add_argument("--max_iter", type=int,
             required=False, default=100000)
+    parser.add_argument("--lr", type=float,
+            required=False, default=0.001)
+    parser.add_argument("--num_hidden_layers", type=1,
+            required=False, default=1)
 
     # synthetic data flags
     parser.add_argument("--gen_synth_data", type=int, required=False,
@@ -414,6 +420,8 @@ def read_flags():
             default="./caches/")
     parser.add_argument("--execution_cache_threshold", type=int, required=False,
             default=20)
+    parser.add_argument("--use_jl", type=int, required=False,
+            default=0)
 
     return parser.parse_args()
 

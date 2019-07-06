@@ -77,14 +77,19 @@ def compute_qerror(alg, queries, use_subqueries, **kwargs):
     errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
     return errors
 
-def run_all_eps(env, fixed_agent=None):
+def run_all_eps(env, num_queries, fixed_agent=None):
     '''
     @ret: dict: query : info,
         where info is returned at the end of the episode by park. info should
         contain all the neccessary facts about that run.
     '''
     queries = {}
+    # print("run all eps, num = ", num_queries)
     while True:
+        # print("len queries: ", len(queries))
+        if len(queries) >= num_queries:
+            # HACK: avoid running the random episode as below
+            break
         # don't know precise episode lengths, changes based on query, so use
         # the done signal to stop the episode
         done = False
@@ -94,7 +99,10 @@ def run_all_eps(env, fixed_agent=None):
         query = env.get_current_query_name()
         if query in queries.keys():
             # FIXME: ugly hack, so we don't leave an episode hanging midway
-            env._run_random_episode()
+            # env._run_random_episode()
+            print("SHOULD NEVER HAVE HAPPPNED!")
+            pdb.set_trace()
+            assert False
             break
         # episode loop
         num_ep = 0
@@ -142,13 +150,14 @@ def update_cards(est_cards, q):
     return cards
 
 def join_loss_nn(pred, queries, alg, env,
-        baseline="EXHAUSTIVE"):
+        baseline="LEFT_DEEP"):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
     '''
-    if env is None:
-        env = park.make('query_optimizer')
+    assert env is not None
+    # if env is None:
+        # env = park.make('query_optimizer')
 
     start = time.time()
     assert len(queries[0].subqueries) > 0
@@ -160,6 +169,7 @@ def join_loss_nn(pred, queries, alg, env,
         query_dict[str(i)] = q.query
 
     env.initialize_queries(query_dict)
+    # print("initialized queries")
     cardinalities = {}
     # Set estimated cardinalities. For estimated cardinalities, we need to
     # add ONLY the subquery cardinalities
@@ -182,10 +192,11 @@ def join_loss_nn(pred, queries, alg, env,
         pred_start += len(q.subqueries)
 
     env.initialize_cardinalities(cardinalities)
+    # print("initialized cardinalities")
 
     # Learn optimal agent for estimated cardinalities
     agents = []
-    train_q = run_all_eps(env)
+    train_q = run_all_eps(env, len(queries))
     fixed_agent = {}
 
     for i, q in enumerate(queries):
@@ -195,6 +206,7 @@ def join_loss_nn(pred, queries, alg, env,
 
     assert len(fixed_agent) == len(cardinalities) == len(queries)
     agents.append(fixed_agent)
+    # print("created fixed agent")
 
     cardinalities = {}
     # Set true cardinalities
@@ -203,6 +215,7 @@ def join_loss_nn(pred, queries, alg, env,
         cardinalities[str(i)] = update_cards(est_cards, q)
 
     env.initialize_cardinalities(cardinalities)
+    # print("true cardinalities set")
 
     # Test agent on true cardinalities
     assert len(agents) == 1
@@ -210,7 +223,7 @@ def join_loss_nn(pred, queries, alg, env,
     # for rep, fixed_agent in enumerate(agents):
     fixed_agent = agents[0]
 
-    test_q = run_all_eps(env, fixed_agent=fixed_agent)
+    test_q = run_all_eps(env, len(queries), fixed_agent=fixed_agent)
     total_error = 0.00
     baseline_costs = []
     est_card_costs = []
@@ -231,7 +244,7 @@ def join_loss_nn(pred, queries, alg, env,
     return rel_errors
 
 def compute_join_order_loss(alg, queries, use_subqueries,
-        baseline="EXHAUSTIVE"):
+        baseline="LEFT_DEEP"):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
@@ -276,7 +289,7 @@ def compute_join_order_loss(alg, queries, use_subqueries,
 
     # Learn optimal agent for estimated cardinalities
     agents = []
-    train_q = run_all_eps(env)
+    train_q = run_all_eps(env, len(queries))
     fixed_agent = {}
 
     for i, q in enumerate(queries):
@@ -303,7 +316,7 @@ def compute_join_order_loss(alg, queries, use_subqueries,
     # for rep, fixed_agent in enumerate(agents):
     fixed_agent = agents[0]
 
-    test_q = run_all_eps(env, fixed_agent=fixed_agent)
+    test_q = run_all_eps(env, len(queries), fixed_agent=fixed_agent)
     total_error = 0.00
     baseline_costs = []
     est_card_costs = []
