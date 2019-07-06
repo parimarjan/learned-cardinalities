@@ -21,6 +21,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 import random
 from torch.nn.utils.clip_grad import clip_grad_norm_
+from collections import defaultdict
 
 def get_possible_values(sample, db, column_bins=None):
     '''
@@ -728,6 +729,8 @@ class NN2(CardinalityEstimationAlg):
             assert False
             loss_func = torch.nn.MSELoss()
 
+        results = defaultdict(list)
+
         if tfboard_dir:
             make_dir(tfboard_dir)
             tfboard = TensorboardSummaries(tfboard_dir + "/tflogs/" +
@@ -740,7 +743,7 @@ class NN2(CardinalityEstimationAlg):
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
         # update learning rate
         if adaptive_lr:
-            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=4,
+            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=20,
                             verbose=True, factor=0.1, eps=min_lr)
             plateau_min_lr = 0
 
@@ -766,7 +769,8 @@ class NN2(CardinalityEstimationAlg):
 
         while True:
 
-            if (num_iter % 1000 == 0 and num_iter != 0):
+            # if (num_iter % 1000 == 0 and num_iter != 0):
+            if (num_iter % 100 == 0):
                 pred = net(X)
                 pred = pred.squeeze(1)
                 train_loss = loss_func(pred, Y)
@@ -780,6 +784,10 @@ class NN2(CardinalityEstimationAlg):
 
                 if use_jl and adaptive_lr:
                     scheduler.step(jl)
+
+                results["iter"].append(num_iter)
+                results["qerr"].append(train_loss.item())
+                results["join-loss"].append(jl)
 
                 print("num iter: {}, num samples: {}, loss: {}, join-loss {}".format(
                     num_iter, len(X), train_loss.item(), jl))
@@ -842,6 +850,8 @@ class NN2(CardinalityEstimationAlg):
             num_iter += 1
 
         print("done with training")
+        file_name = "./training-" + self.__str__() + ".dict"
+        save_or_update(file_name, results)
 
     def test(self, test_samples):
         X = []
@@ -857,4 +867,14 @@ class NN2(CardinalityEstimationAlg):
         pass
     def __str__(self):
         # FIXME: add parameters of the neural network
-        return self.__class__.__name__
+        # self.max_iter = kwargs["max_iter"]
+        # self.use_jl = kwargs["use_jl"]
+        # self.lr = kwargs["lr"]
+        # self.num_hidden_layers = kwargs["num_hidden_layers"]
+        # self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
+        name = self.__class__.__name__
+        name += "jl-" + str(self.use_jl)
+        name += "hl-" + str(self.num_hidden_layers)
+        name += "hlm-" + str(self.hidden_layer_multiple)
+        return name
+
