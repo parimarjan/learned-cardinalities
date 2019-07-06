@@ -681,7 +681,6 @@ class NN2(CardinalityEstimationAlg):
 
         # TODO: make these all configurable
         self.feature_len = None
-        self.hidden_layer_multiple = 2.0
         self.feat_type = "dict_encoding"
 
         # TODO: configure other variables
@@ -689,6 +688,7 @@ class NN2(CardinalityEstimationAlg):
         self.use_jl = kwargs["use_jl"]
         self.lr = kwargs["lr"]
         self.num_hidden_layers = kwargs["num_hidden_layers"]
+        self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
 
     def train(self, db, training_samples, use_subqueries=False):
         self.db = db
@@ -706,7 +706,7 @@ class NN2(CardinalityEstimationAlg):
 
         # do training
         net = SimpleRegression(len(features),
-                int(len(features)*self.hidden_layer_multiple), 1,
+                self.hidden_layer_multiple, 1,
                 num_hidden_layers=self.num_hidden_layers)
         loss_func = qloss_torch
         print("feature len: ", len(features))
@@ -766,7 +766,7 @@ class NN2(CardinalityEstimationAlg):
 
         while True:
 
-            if (num_iter % 500 == 0):
+            if (num_iter % 1000 == 0 and num_iter != 0):
                 pred = net(X)
                 pred = pred.squeeze(1)
                 train_loss = loss_func(pred, Y)
@@ -808,8 +808,8 @@ class NN2(CardinalityEstimationAlg):
 
             if (num_iter > 300 and use_jl):
                 jl = join_loss_nn(pred, mb_samples, self, env)
-                # jl = torch.mean(to_variable(jl).float()) - 1.00
-                jl = torch.mean(to_variable(jl).float())
+                jl = torch.mean(to_variable(jl).float()) - 1.00
+                # jl = torch.mean(to_variable(jl).float())
                 loss = loss*jl
 
             # some lame attempt at min-max normalization for losses

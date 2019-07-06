@@ -6,11 +6,13 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class SimpleRegression(torch.nn.Module):
     # TODO: add more stuff?
-    def __init__(self, n_input, n_hidden, n_output, num_hidden_layers=1):
+    def __init__(self, input_width, hidden_width_multiple,
+            n_output, num_hidden_layers=1):
         super(SimpleRegression, self).__init__()
+        n_hidden = int(input_width * hidden_width_multiple)
         self.layers = []
         self.layer1 = nn.Sequential(
-            nn.Linear(n_input, n_hidden, bias=True),
+            nn.Linear(input_width, n_hidden, bias=True),
             nn.LeakyReLU()
         ).to(device)
         self.layers.append(self.layer1)
