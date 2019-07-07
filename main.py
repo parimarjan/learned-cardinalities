@@ -119,7 +119,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
     # if hashed_tmp in sql_str_cache.archive:
     if hashed_tmp in sql_str_cache:
         query_strs = sql_str_cache[hashed_tmp]
-        # print("loaded {} query strings".format(len(query_strs)))
+        print("loaded {} query strings".format(len(query_strs)))
 
     if num_samples == -1:
         # select whatever we loaded
@@ -152,11 +152,16 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         else:
             unknown_query_strs.append(sql)
 
+    print("loaded {} query objects".format(len(ret_queries)))
     if len(unknown_query_strs) == 0:
         return ret_queries
     else:
         print("need to generate {} query objects".\
                 format(len(unknown_query_strs)))
+
+        # FIXME: temporary measure
+        if len(unknown_query_strs) >= 1000:
+            return []
 
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
@@ -198,6 +203,7 @@ def main():
     query_templates = []
     assert args.template_dir is not None
     for fn in glob.glob(args.template_dir+"/*"):
+        print(fn)
         with open(fn, "r") as f:
             template = f.read()
             query_templates.append(template)
@@ -207,15 +213,15 @@ def main():
             cached=True, serialized=True)
     db_key = deterministic_hash("db-" + args.template_dir)
     if db_key in misc_cache.archive:
-    # if False:
         db = misc_cache.archive[db_key]
     else:
         # either load the db object from cache, or regenerate it.
         db = DB(args.user, args.pwd, args.db_host, args.port,
                 args.db_name)
-        for template in query_templates:
-            db.update_db_stats(template)
-        misc_cache.archive[db_key] = db
+        # FIXME: do this
+        # for template in query_templates:
+            # db.update_db_stats(template)
+        # misc_cache.archive[db_key] = db
 
     print("generating db object took {} seconds".format(\
             time.time() - start))

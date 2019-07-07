@@ -456,9 +456,9 @@ def _gen_subqueries(all_tables, wheres, aliases):
                 pdb.set_trace()
             join_graph.add_edge(t1, t2)
         if len(joins) > 0 and not nx.is_connected(join_graph):
-            print("skipping query!")
-            print(tables)
-            print(joins)
+            # print("skipping query!")
+            # print(tables)
+            # print(joins)
             # pdb.set_trace()
             continue
         all_subqueries.append(query)
@@ -573,7 +573,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
     try:
         cursor.execute(sql)
     except Exception as e:
-        print("query failed to execute: ", sql)
+        # print("query failed to execute: ", sql)
         # FIXME: better way to do this.
         cursor.execute("ROLLBACK")
         con.commit()
@@ -581,6 +581,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         con.close()
 
         if not "timeout" in str(e):
+            print("failed to execute for reason other than timeout")
             pdb.set_trace()
 
         return None
@@ -666,8 +667,8 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
                 execution_cache_threshold, sql_cache, total_timeout)
         if exp_output is None:
-            print("total count query timed out for: ")
-            print(total_count_query)
+            print("total count query timed out")
+            # print(total_count_query)
             # execute it with explain
             exp_query = "EXPLAIN " + total_count_query
             exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
