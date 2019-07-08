@@ -903,8 +903,9 @@ class NN2(CardinalityEstimationAlg):
         # self.num_hidden_layers = kwargs["num_hidden_layers"]
         # self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
         name = self.__class__.__name__
-        name += "jl-" + str(self.use_jl)
-        name += "hl-" + str(self.num_hidden_layers)
-        name += "hlm-" + str(self.hidden_layer_multiple)
+        if self.use_jl:
+            name += "-jl"
+        # name += "hl-" + str(self.num_hidden_layers)
+        # name += "hlm-" + str(self.hidden_layer_multiple)
         return name
 

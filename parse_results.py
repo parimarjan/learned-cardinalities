@@ -51,7 +51,7 @@ def read_flags():
     parser.add_argument("--per_query", type=int, required=False,
             default=0)
     parser.add_argument("--join_parse", type=int, required=False,
-            default=0)
+            default=1)
 
     return parser.parse_args()
 
@@ -133,55 +133,93 @@ def visualize_query_class(queries, pdf, barcharts=False):
     else:
         FONT_SIZE = 12
         COL_WIDTH = 0.25
+
         # columns
         loss_types = [l for l in set(df["loss_type"])]
         COL_WIDTHS = [COL_WIDTH for l in loss_types]
         # rows
         algs = [l for l in set(df["alg_name"])]
-        # generate nd-array of values
-        mean_vals = np.zeros((len(loss_types), len(algs)))
-        for i, alg in enumerate(algs):
-            tmp_df = df[df["alg_name"] == alg]
-            for j, loss in enumerate(loss_types):
-                tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
-                mean_vals[i][j] = round(tmp_df2.mean()[0], 2)
+        mean_vals = gen_table_data(df, algs, loss_types, "mean")
+        median_vals = gen_table_data(df, algs, loss_types, "median")
+        tail1 = gen_table_data(df, algs, loss_types, "95")
+        tail2 = gen_table_data(df, algs, loss_types, "99")
 
-        median_vals = np.zeros((len(loss_types), len(algs)))
-        for i, alg in enumerate(algs):
-            tmp_df = df[df["alg_name"] == alg]
-            for j, loss in enumerate(loss_types):
-                tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
-                median_vals[i][j] = round(tmp_df2.median()[0], 2)
+        fig, axs = plt.subplots(2,2)
+        for i in range(2):
+            for j in range(2):
+                axs[i][j].axis("tight")
+                axs[i][j].axis("off")
 
-        fig, axs = plt.subplots(2,1)
-        axs[0].axis('tight')
-        axs[1].axis('tight')
-        axs[0].axis("off")
-        axs[1].axis("off")
+        def plot_table(vals, i, j, title):
+            table = axs[i][j].table(cellText=vals,
+                                  rowLabels=algs,
+                                  # rowColours=colors,
+                                  colLabels=loss_types,
+                                  loc='center',
+                                  fontsize=FONT_SIZE,
+                                  colWidths=COL_WIDTHS)
+            axs[i][j].set_title(title)
+            table.set_fontsize(FONT_SIZE)
 
-        # Add a table at the bottom of the axes
-        mean_table = axs[0].table(cellText=mean_vals,
-                              rowLabels=algs,
-                              # rowColours=colors,
-                              colLabels=loss_types,
-                              loc='center',
-                              fontsize=FONT_SIZE,
-                              colWidths=COL_WIDTHS)
-        axs[0].set_title("Mean Losses")
-        mean_table.set_fontsize(FONT_SIZE)
 
-        median_table = axs[1].table(cellText=median_vals,
-                              rowLabels=algs,
-                              # rowColours=colors,
-                              colLabels=loss_types,
-                              loc='center',
-                              fontsize=FONT_SIZE,
-                              colWidths=COL_WIDTHS)
-        axs[1].set_title("Median Losses")
-        median_table.set_fontsize(FONT_SIZE)
+        # plot_table(mean_vals, 0,0,rowLabels, colLabels, FONT_SIZE, COL_WIDTHS)
+        plot_table(mean_vals, 0,0, "Mean Losses")
+        plot_table(median_vals, 0,1, "Median Losses")
+        plot_table(tail1, 1,0, "95th Percentile")
+        plot_table(tail2, 1,1, "99th Percentile")
 
         pdf.savefig()
         plt.clf()
+
+        # columns
+        # loss_types = [l for l in set(df["loss_type"])]
+        # COL_WIDTHS = [COL_WIDTH for l in loss_types]
+        # # rows
+        # algs = [l for l in set(df["alg_name"])]
+        # # generate nd-array of values
+        # mean_vals = np.zeros((len(loss_types), len(algs)))
+        # for i, alg in enumerate(algs):
+            # tmp_df = df[df["alg_name"] == alg]
+            # for j, loss in enumerate(loss_types):
+                # tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
+                # mean_vals[i][j] = round(tmp_df2.mean()[0], 2)
+
+        # median_vals = np.zeros((len(loss_types), len(algs)))
+        # for i, alg in enumerate(algs):
+            # tmp_df = df[df["alg_name"] == alg]
+            # for j, loss in enumerate(loss_types):
+                # tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
+                # median_vals[i][j] = round(tmp_df2.median()[0], 2)
+
+        # fig, axs = plt.subplots(2,1)
+        # axs[0].axis('tight')
+        # axs[1].axis('tight')
+        # axs[0].axis("off")
+        # axs[1].axis("off")
+
+        # # Add a table at the bottom of the axes
+        # mean_table = axs[0].table(cellText=mean_vals,
+                              # rowLabels=algs,
+                              # # rowColours=colors,
+                              # colLabels=loss_types,
+                              # loc='center',
+                              # fontsize=FONT_SIZE,
+                              # colWidths=COL_WIDTHS)
+        # axs[0].set_title("Mean Losses")
+        # mean_table.set_fontsize(FONT_SIZE)
+
+        # median_table = axs[1].table(cellText=median_vals,
+                              # rowLabels=algs,
+                              # # rowColours=colors,
+                              # colLabels=loss_types,
+                              # loc='center',
+                              # fontsize=FONT_SIZE,
+                              # colWidths=COL_WIDTHS)
+        # axs[1].set_title("Median Losses")
+        # median_table.set_fontsize(FONT_SIZE)
+
+        # pdf.savefig()
+        # plt.clf()
 
 def gen_table_data(df, algs, loss_types, summary_type):
     # generate nd-array of values
