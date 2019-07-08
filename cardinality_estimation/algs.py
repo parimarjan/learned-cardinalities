@@ -22,6 +22,7 @@ import seaborn as sns
 import random
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from collections import defaultdict
+import sys
 
 def get_possible_values(sample, db, column_bins=None):
     '''
@@ -775,6 +776,11 @@ class NN2(CardinalityEstimationAlg):
         file_name = "./training-" + self.__str__() + ".dict"
         while True:
 
+            if (num_iter % 10 == 0):
+                # progress stuff
+                print(num_iter, end=",")
+                sys.stdout.flush()
+
             if (num_iter % eval_iter == 0):
                 pred = net(X)
                 pred = pred.squeeze(1)
@@ -794,7 +800,7 @@ class NN2(CardinalityEstimationAlg):
                 results["qerr"].append(train_loss.item())
                 results["join-loss"].append(jl)
                 save_or_update(file_name, results)
-                print("num iter: {}, num samples: {}, loss: {}, join-loss {}".format(
+                print("\nnum iter: {}, num samples: {}, loss: {}, join-loss {}".format(
                     num_iter, len(X), train_loss.item(), jl))
 
             mb_samples = []
