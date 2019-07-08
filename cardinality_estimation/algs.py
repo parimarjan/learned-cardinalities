@@ -688,8 +688,10 @@ class NN2(CardinalityEstimationAlg):
         self.max_iter = kwargs["max_iter"]
         self.use_jl = kwargs["use_jl"]
         self.lr = kwargs["lr"]
+        self.jl_start_iter = kwargs["jl_start_iter"]
         self.num_hidden_layers = kwargs["num_hidden_layers"]
         self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
+        self.eval_iter = kwargs["eval_iter"]
 
     def train(self, db, training_samples, use_subqueries=False):
         self.db = db
@@ -714,14 +716,16 @@ class NN2(CardinalityEstimationAlg):
 
         self.net = net
         self._train_nn_join_loss(self.net, training_samples, self.lr,
+                self.jl_start_iter,
                 loss_func=loss_func, max_iter=self.max_iter, tfboard_dir=None,
-                adaptive_lr=True, loss_threshold=2.0, use_jl=self.use_jl)
+                adaptive_lr=True, loss_threshold=2.0, use_jl=self.use_jl,
+                eval_iter=self.eval_iter)
 
     def _train_nn_join_loss(self, net, training_samples,
-            lr, max_iter=10000, mb_size=1,
+            lr, jl_start_iter, max_iter=10000, eval_iter=200, mb_size=1,
             loss_func=None, tfboard_dir=None, adaptive_lr=True,
             min_lr=1e-17, loss_threshold=1.0, use_jl=False,
-            clip_gradient=50.00):
+            clip_gradient=10.00, rel_qerr_loss=True):
         '''
         TODO: explain
         '''
@@ -743,7 +747,7 @@ class NN2(CardinalityEstimationAlg):
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
         # update learning rate
         if adaptive_lr:
-            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=50,
+            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=25,
                             verbose=True, factor=0.1, eps=min_lr)
             plateau_min_lr = 0
 
@@ -764,14 +768,15 @@ class NN2(CardinalityEstimationAlg):
 
         min_jl = 1.00
         max_jl = None
-        min_qerr = 0.00
-        max_qerr = None
+
+        min_qerr = {}
+        max_qerr = {}
 
         file_name = "./training-" + self.__str__() + ".dict"
         while True:
 
             # if (num_iter % 1000 == 0 and num_iter != 0):
-            if (num_iter % 100 == 0):
+            if (num_iter % 200 == 0):
                 pred = net(X)
                 pred = pred.squeeze(1)
                 train_loss = loss_func(pred, Y)
@@ -815,10 +820,23 @@ class NN2(CardinalityEstimationAlg):
             # if (use_jl and num_iter % 100 == 0):
                 # print(num_iter)
 
-            if (num_iter > 200 and use_jl):
+            if (num_iter > jl_start_iter and \
+                    rel_qerr_loss):
+                # set the max qerrs for each query
+                assert len(cur_samples) == 1
+                sample_key = deterministic_hash(cur_samples[0].query)
+                if sample_key not in max_qerr:
+                    max_qerr[sample_key] = np.array(loss.item())
+                    # min_qerr[sample_key] = 0.00
+
+
+            if (num_iter > jl_start_iter and use_jl):
                 jl = join_loss_nn(pred, mb_samples, self, env)
                 jl = torch.mean(to_variable(jl).float()) - 1.00
-                # jl = torch.mean(to_variable(jl).float())
+                if rel_qerr_loss:
+                    sample_key = deterministic_hash(cur_samples[0].query)
+                    loss = loss / to_variable(max_qerr[sample_key]).float()
+
                 loss = loss*jl
 
             if (num_iter > max_iter):

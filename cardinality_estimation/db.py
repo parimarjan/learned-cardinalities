@@ -48,7 +48,8 @@ class DB():
         #         stats["title"]["id"]["type"] = int
         #         stats["title"]["id"]["num_values"] = x
         self.column_stats = OrderedDict()
-        self.max_discrete_feauturizing_buckets = 100
+        # self.max_discrete_feauturizing_buckets = 100
+        self.max_discrete_feauturizing_buckets = 50
         # generally, these would be range queries, but they can be "=", or "in"
         # queries as well, and we will support upto 10 such values
         self.continuous_feature_size = 10
