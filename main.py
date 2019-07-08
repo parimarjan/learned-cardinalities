@@ -275,6 +275,7 @@ def main():
                 sql_subqueries = sql_str_cache[hashed_key]
             else:
                 print("going to generate subqueries for query num ", i)
+                assert False
                 sql_subqueries = gen_all_subqueries(q.query)
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries

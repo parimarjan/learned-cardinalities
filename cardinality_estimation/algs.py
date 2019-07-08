@@ -666,7 +666,6 @@ class NN1(CardinalityEstimationAlg):
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
                 loss_threshold=2.0)
-                loss_threshold=1.001)
 
         self.net = net
 
@@ -776,7 +775,7 @@ class NN2(CardinalityEstimationAlg):
 
         # update learning rate
         if adaptive_lr:
-            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=5,
+            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10,
                             verbose=True, factor=0.1, eps=min_lr)
             plateau_min_lr = 0
 
@@ -804,7 +803,7 @@ class NN2(CardinalityEstimationAlg):
         file_name = "./training-" + self.__str__() + ".dict"
         while True:
 
-            if (num_iter % 50 == 0):
+            if (num_iter % 100 == 0):
                 # progress stuff
                 print(num_iter, end=",")
                 sys.stdout.flush()
