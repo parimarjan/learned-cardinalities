@@ -746,9 +746,11 @@ class NN2(CardinalityEstimationAlg):
             tfboard.init()
 
         optimizer = torch.optim.Adam(net.parameters(), lr=lr, amsgrad=True)
+        # optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+
         # update learning rate
         if adaptive_lr:
-            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=6,
+            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=5,
                             verbose=True, factor=0.1, eps=min_lr)
             plateau_min_lr = 0
 
@@ -776,7 +778,7 @@ class NN2(CardinalityEstimationAlg):
         file_name = "./training-" + self.__str__() + ".dict"
         while True:
 
-            if (num_iter % 10 == 0):
+            if (num_iter % 50 == 0):
                 # progress stuff
                 print(num_iter, end=",")
                 sys.stdout.flush()
