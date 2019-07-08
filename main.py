@@ -98,16 +98,17 @@ def eval_alg(alg, losses, queries, use_subqueries):
         print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
                 .format(args.db_name, alg, len(queries),
                     get_loss_name(loss_func.__name__),
-                    # np.mean(losses),
-                    # np.median(losses),
-                    # np.percentile(losses,95),
-                    # np.percentile(losses,99)))
                     np.round(np.mean(losses),3),
                     np.round(np.median(losses),3),
                     np.round(np.percentile(losses,95),3),
                     np.round(np.percentile(losses,99),3)))
 
-    print("evaluating alg took: {} seconds".format(time.time()-start))
+    eval_time = time.time() - start
+
+    # FIXME: separate out global stats?
+    for q in queries:
+        q.eval_time[alg.__str__()] = eval_time
+    print("evaluating alg took: {} seconds".format(eval_time))
 
 def gen_query_strs(args, query_template, num_samples, sql_str_cache):
     '''
@@ -295,6 +296,8 @@ def main():
     for q in all_queries:
         q.yhats = {}
         q.losses = defaultdict(dict)
+        q.eval_time = {}
+        q.train_time = {}
 
     if args.test:
         train_queries, test_queries = train_test_split(samples, test_size=args.test_size,
@@ -328,6 +331,9 @@ def main():
         alg.save_model(save_dir=args.result_dir, suffix_name=gen_exp_hash()[0:3])
         train_time = round(time.time() - start, 2)
         print("{}, train-time: {}".format(alg, train_time))
+
+        for q in train_queries:
+            q.train_time[alg.__str__()] = train_time
         eval_alg(alg, losses, train_queries, args.use_subqueries)
 
         if args.test:

@@ -97,5 +97,4 @@ class QueryGenerator():
         print("{} took {} seconds to generate".format(len(all_query_strs),
             time.time()-start))
         return all_query_strs
-        # pdb.set_trace()
 
