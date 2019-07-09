@@ -44,7 +44,10 @@ def get_alg(alg):
                 num_hidden_layers=args.num_hidden_layers,
                 hidden_layer_multiple=args.hidden_layer_multiple,
                     jl_start_iter=args.jl_start_iter, eval_iter =
-                    args.eval_iter)
+                    args.eval_iter, optimizer_name=args.optimizer_name,
+                    adaptive_lr=args.adaptive_lr,
+                    rel_qerr_loss=args.rel_qerr_loss,
+                    clip_gradient=args.clip_gradient)
     elif alg == "ourpgm":
         return OurPGM()
     else:
@@ -393,6 +396,15 @@ def read_flags():
             required=False, default=200)
     parser.add_argument("--lr", type=float,
             required=False, default=0.001)
+    parser.add_argument("--clip_gradient", type=float,
+            required=False, default=10.0)
+    parser.add_argument("--rel_qerr_loss", type=int,
+            required=False, default=1)
+    parser.add_argument("--adaptive_lr", type=int,
+            required=False, default=1)
+
+    parser.add_argument("--optimizer_name", type=str, required=False,
+            default="ams")
 
     parser.add_argument("--num_hidden_layers", type=int,
             required=False, default=1)
