@@ -731,6 +731,7 @@ class NN2(CardinalityEstimationAlg):
         self.clip_gradient = kwargs["clip_gradient"]
         self.rel_qerr_loss = kwargs["rel_qerr_loss"]
         self.adaptive_lr = kwargs["adaptive_lr"]
+        self.baseline = kwargs["baseline"]
 
         # caching related stuff
         self.training_cache = klepto.archives.dir_archive("./nn_training_cache/",
@@ -872,7 +873,8 @@ class NN2(CardinalityEstimationAlg):
                     scheduler.step(train_loss)
 
                 if (num_iter % eval_iter_jl == 0):
-                    jl = join_loss_nn(pred, training_samples, self, env)
+                    jl = join_loss_nn(pred, training_samples, self, env,
+                            baseline=self.baseline)
                     jl = np.mean(np.array(jl))
 
                     if use_jl and adaptive_lr:
@@ -912,7 +914,8 @@ class NN2(CardinalityEstimationAlg):
 
 
             if (num_iter > jl_start_iter and use_jl):
-                jl = join_loss_nn(pred, mb_samples, self, env)
+                jl = join_loss_nn(pred, mb_samples, self, env,
+                        baseline=self.baseline)
                 jl = torch.mean(to_variable(jl).float()) - 1.00
                 if rel_qerr_loss:
                     sample_key = deterministic_hash(cur_samples[0].query)
