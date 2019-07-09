@@ -18,6 +18,7 @@ import seaborn as sns
 import matplotlib.image as mpimg
 from collections import defaultdict
 
+BASELINE = "LEFT_DEEP"
 # TODO: maybe will use this?
 def init_result_row(result):
     result["dbname"].append(args.db_name)
@@ -357,7 +358,7 @@ def parse_query_file_join(fn):
             - first bucket them by tables used
             - for each class, have separate qerror values
     TODO:
-        - change use of EXHAUSTIVE to baseline everywhere etc.
+        - change use of BASELINE to baseline everywhere etc.
         - handle errors better
     '''
     print(fn)
@@ -369,6 +370,8 @@ def parse_query_file_join(fn):
     visualize_query_class(queries, pdf)
 
     if hasattr(queries[0], "join_info") and args.per_query:
+        print("number of queries to plot: ", len(queries))
+        base_alg = [alg for alg in queries[0].join_info.keys()][0]
         # alg name: true, postgres, random etc.
         unique_join_orders = {}
         for q in queries:
@@ -376,8 +379,8 @@ def parse_query_file_join(fn):
             # For true values, just add the Exhaustive orders
             if "true" not in unique_join_orders:
                 unique_join_orders["true"] = []
-            tmp_info = all_infos["Postgres"]
-            unique_join_orders["true"].append(tmp_info["joinOrders"]["EXHAUSTIVE"]["joinStr"])
+            tmp_info = all_infos[base_alg]
+            unique_join_orders["true"].append(tmp_info["joinOrders"][BASELINE]["joinStr"])
 
             # Postgres, Random etc.
             for alg, info in all_infos.items():
@@ -413,7 +416,7 @@ def parse_query_file_join(fn):
 
         # sort queries according to join-loss
         sorted_queries = sorted(queries, key=lambda q: \
-                q.losses["Postgres"]["join"], reverse=True)
+                q.losses[base_alg]["join"], reverse=True)
 
         for q in sorted_queries:
             all_infos = q.join_info
@@ -429,16 +432,17 @@ def parse_query_file_join(fn):
             # txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
             # txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
 
-            txt = all_infos["Postgres"]["sql"]
+            txt = all_infos[base_alg]["sql"]
             firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
             pdf.savefig()
             plt.close()
 
             for alg, info in all_infos.items():
-                if info["queryName"] == "16":
-                    continue
+                # if info["queryName"] == "16":
+                    # continue
                 alg_cards = q.subq_cards[alg]
                 true_cards = q.subq_cards["true"]
+                # pdb.set_trace()
                 plot_join_order(info, pdf, single_plot=False,
                         python_alg_name=alg, est_cards=alg_cards,
                         true_cards=true_cards)

@@ -715,6 +715,12 @@ class NN2(CardinalityEstimationAlg):
         # TODO: configure other variables
         self.max_iter = kwargs["max_iter"]
         self.use_jl = kwargs["use_jl"]
+        if not self.use_jl:
+            # because we eval more frequently
+            self.adaptive_lr_patience = 50
+        else:
+            self.adaptive_lr_patience = 10
+
         self.lr = kwargs["lr"]
         self.jl_start_iter = kwargs["jl_start_iter"]
         self.num_hidden_layers = kwargs["num_hidden_layers"]
@@ -725,6 +731,7 @@ class NN2(CardinalityEstimationAlg):
         self.clip_gradient = kwargs["clip_gradient"]
         self.rel_qerr_loss = kwargs["rel_qerr_loss"]
         self.adaptive_lr = kwargs["adaptive_lr"]
+        self.baseline = kwargs["baseline"]
 
         # caching related stuff
         self.training_cache = klepto.archives.dir_archive("./nn_training_cache/",
@@ -753,6 +760,8 @@ class NN2(CardinalityEstimationAlg):
         self.stats["eval"] = {}
         self.stats["eval"]["qerr"] = {}
         self.stats["eval"]["join-loss"] = {}
+
+        self.stats["model_params"] = {}
 
     def train(self, db, training_samples, use_subqueries=False):
         self.db = db
@@ -818,7 +827,8 @@ class NN2(CardinalityEstimationAlg):
 
         # update learning rate
         if adaptive_lr:
-            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10,
+            scheduler = ReduceLROnPlateau(optimizer, 'min',
+                    patience=self.adaptive_lr_patience,
                             verbose=True, factor=0.1, eps=min_lr)
 
         num_iter = 0
@@ -862,7 +872,8 @@ class NN2(CardinalityEstimationAlg):
                     scheduler.step(train_loss)
 
                 if (num_iter % eval_iter_jl == 0):
-                    jl = join_loss_nn(pred, training_samples, self, env)
+                    jl = join_loss_nn(pred, training_samples, self, env,
+                            baseline=self.baseline)
                     jl = np.mean(np.array(jl))
 
                     if use_jl and adaptive_lr:
@@ -902,7 +913,8 @@ class NN2(CardinalityEstimationAlg):
 
 
             if (num_iter > jl_start_iter and use_jl):
-                jl = join_loss_nn(pred, mb_samples, self, env)
+                jl = join_loss_nn(pred, mb_samples, self, env,
+                        baseline=self.baseline)
                 jl = torch.mean(to_variable(jl).float()) - 1.00
                 if rel_qerr_loss:
                     sample_key = deterministic_hash(cur_samples[0].query)
@@ -923,6 +935,7 @@ class NN2(CardinalityEstimationAlg):
             num_iter += 1
 
         print("done with training")
+        env.clean()
 
     def test(self, test_samples):
         X = []

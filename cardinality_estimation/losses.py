@@ -335,5 +335,5 @@ def compute_join_order_loss(alg, queries, use_subqueries,
     print(q.join_info.keys())
     # total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
     rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
-
+    env.clean()
     return rel_errors

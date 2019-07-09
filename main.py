@@ -47,7 +47,8 @@ def get_alg(alg):
                     args.eval_iter, optimizer_name=args.optimizer_name,
                     adaptive_lr=args.adaptive_lr,
                     rel_qerr_loss=args.rel_qerr_loss,
-                    clip_gradient=args.clip_gradient)
+                    clip_gradient=args.clip_gradient,
+                    baseline=args.baseline_join_alg)
     elif alg == "ourpgm":
         return OurPGM()
     else:
