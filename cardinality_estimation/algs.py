@@ -715,6 +715,12 @@ class NN2(CardinalityEstimationAlg):
         # TODO: configure other variables
         self.max_iter = kwargs["max_iter"]
         self.use_jl = kwargs["use_jl"]
+        if not self.use_jl:
+            # because we eval more frequently
+            self.adaptive_lr_patience = 50
+        else:
+            self.adaptive_lr_patience = 10
+
         self.lr = kwargs["lr"]
         self.jl_start_iter = kwargs["jl_start_iter"]
         self.num_hidden_layers = kwargs["num_hidden_layers"]
@@ -753,6 +759,8 @@ class NN2(CardinalityEstimationAlg):
         self.stats["eval"] = {}
         self.stats["eval"]["qerr"] = {}
         self.stats["eval"]["join-loss"] = {}
+
+        self.stats["model_params"] = {}
 
     def train(self, db, training_samples, use_subqueries=False):
         self.db = db
@@ -818,7 +826,8 @@ class NN2(CardinalityEstimationAlg):
 
         # update learning rate
         if adaptive_lr:
-            scheduler = ReduceLROnPlateau(optimizer, 'min', patience=5,
+            scheduler = ReduceLROnPlateau(optimizer, 'min',
+                    patience=self.adaptive_lr_patience,
                             verbose=True, factor=0.1, eps=min_lr)
 
         num_iter = 0
@@ -923,6 +932,7 @@ class NN2(CardinalityEstimationAlg):
             num_iter += 1
 
         print("done with training")
+        env.clean()
 
     def test(self, test_samples):
         X = []
