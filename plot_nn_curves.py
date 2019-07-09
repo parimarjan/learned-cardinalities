@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 
-cache_dir = "./nn_training_cache"
+cache_dir = "./nn_training_cache_backup"
 cache = klepto.archives.dir_archive(cache_dir,
         cached=True, serialized=True)
 cache.load()
