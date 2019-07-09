@@ -853,12 +853,13 @@ class NN2(CardinalityEstimationAlg):
         file_name = "./training-" + self.__str__() + ".dict"
         while True:
 
-            if (num_iter % eval_iter_qerr == 0):
-                # progress stuff
-                print(num_iter, end=",")
-                sys.stdout.flush()
+            # if (num_iter % eval_iter_qerr == 0):
+                # # progress stuff
+                # print(num_iter, end=",")
+                # sys.stdout.flush()
 
-            if (num_iter % eval_iter_qerr == 0):
+            # if (num_iter % eval_iter_qerr == 0):
+            if (num_iter % 100000 == 0):
                 # evaluate qerr
 
                 pred = net(X)
