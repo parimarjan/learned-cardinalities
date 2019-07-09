@@ -23,6 +23,8 @@ import random
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from collections import defaultdict
 import sys
+import klepto
+import datetime
 
 # FIXME: temporary hack
 NULL_VALUE = "-1"
@@ -666,7 +668,6 @@ class NN1(CardinalityEstimationAlg):
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
                 loss_threshold=2.0)
-                loss_threshold=1.001)
 
         self.net = net
 
@@ -719,70 +720,112 @@ class NN2(CardinalityEstimationAlg):
         self.num_hidden_layers = kwargs["num_hidden_layers"]
         self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
         self.eval_iter = kwargs["eval_iter"]
+        self.optimizer_name = kwargs["optimizer_name"]
+
+        self.clip_gradient = kwargs["clip_gradient"]
+        self.rel_qerr_loss = kwargs["rel_qerr_loss"]
+        self.adaptive_lr = kwargs["adaptive_lr"]
+
+        # caching related stuff
+        self.training_cache = klepto.archives.dir_archive("./nn_training_cache/",
+                cached=True, serialized=True)
+        # will keep storing all the training information in the cache / and
+        # dump it at the end
+        # self.key = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        dt = datetime.datetime.now()
+        # self.key = str(dt.day) + str(dt.hour) + str(dt.minute) + str(dt.second)
+        self.key = "{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
+
+        self.stats = {}
+        self.training_cache[self.key] = self.stats
+
+        # all the configuration parameters are specified here
+        self.stats["kwargs"] = kwargs
+
+        # iteration : value
+        self.stats["gradients"] = {}
+        self.stats["lr"] = {}
+
+        # iteration : value + additional stuff, like query-string : sql
+        self.stats["mb-loss"] = {}
+
+        # iteration: qerr: val, jloss: val
+        self.stats["eval"] = {}
+        self.stats["eval"]["qerr"] = {}
+        self.stats["eval"]["join-loss"] = {}
 
     def train(self, db, training_samples, use_subqueries=False):
         self.db = db
-        # if use_subqueries:
-            # training_samples = get_all_subqueries(training_samples)
         db.init_featurizer()
-        # TODO: for each subquery, fill in the features / true value
 
+        # initialize samples
         for sample in training_samples:
             features = db.get_features(sample)
             sample.features = features
             for subq in sample.subqueries:
                 subq_features = db.get_features(subq)
                 subq.features = subq_features
+        print("feature len: ", len(features))
 
         # do training
         net = SimpleRegression(len(features),
                 self.hidden_layer_multiple, 1,
                 num_hidden_layers=self.num_hidden_layers)
         loss_func = qloss_torch
-        print("feature len: ", len(features))
 
         self.net = net
-        self._train_nn_join_loss(self.net, training_samples, self.lr,
-                self.jl_start_iter,
-                loss_func=loss_func, max_iter=self.max_iter, tfboard_dir=None,
-                adaptive_lr=True, loss_threshold=2.0, use_jl=self.use_jl,
-                eval_iter=self.eval_iter)
+        try:
+            self._train_nn_join_loss(self.net, training_samples, self.lr,
+                    self.jl_start_iter,
+                    loss_func=loss_func, max_iter=self.max_iter, tfboard_dir=None,
+                    loss_threshold=2.0, use_jl=self.use_jl,
+                    eval_iter_jl=self.eval_iter, clip_gradient=self.clip_gradient,
+                    rel_qerr_loss=self.rel_qerr_loss,
+                    adaptive_lr=self.adaptive_lr)
+        except KeyboardInterrupt:
+            print("keyboard interrupt")
+        except park.envs.query_optimizer.query_optimizer.QueryOptError:
+            print("park exception")
+
+        self.training_cache.dump()
+        # just continue as normal, go on to evaluate algorithm etc.
 
     def _train_nn_join_loss(self, net, training_samples,
-            lr, jl_start_iter, max_iter=10000, eval_iter=200, mb_size=1,
+            lr, jl_start_iter, max_iter=10000, eval_iter_jl=500,
+            eval_iter_qerr=100, mb_size=1,
             loss_func=None, tfboard_dir=None, adaptive_lr=True,
             min_lr=1e-17, loss_threshold=1.0, use_jl=False,
             clip_gradient=10.00, rel_qerr_loss=True):
         '''
-        TODO: explain
+        TODO: explain and generalize.
         '''
         if loss_func is None:
             assert False
             loss_func = torch.nn.MSELoss()
 
-        results = defaultdict(list)
+        # results = defaultdict(list)
 
-        if tfboard_dir:
-            make_dir(tfboard_dir)
-            tfboard = TensorboardSummaries(tfboard_dir + "/tflogs/" +
-                time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
-            tfboard.add_variables([
-                'train-loss', 'lr', 'mse-loss'], 'training_set_loss')
-
-            tfboard.init()
-
-        optimizer = torch.optim.Adam(net.parameters(), lr=lr, amsgrad=True)
-        # optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+        if self.optimizer_name == "ams":
+            optimizer = torch.optim.Adam(net.parameters(), lr=lr,
+                    amsgrad=True)
+        elif self.optimizer_name == "adam":
+            optimizer = torch.optim.Adam(net.parameters(), lr=lr,
+                    amsgrad=False)
+        elif self.optimizer_name == "sgd":
+            optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+        else:
+            assert False
 
         # update learning rate
         if adaptive_lr:
             scheduler = ReduceLROnPlateau(optimizer, 'min', patience=5,
                             verbose=True, factor=0.1, eps=min_lr)
-            plateau_min_lr = 0
 
         num_iter = 0
         # create a new park env, and close at the end.
         env = park.make('query_optimizer')
+
+        # TODO: figure out how to put everything on the gpu before starting
 
         X_all = []
         Y_all = []
@@ -795,41 +838,40 @@ class NN2(CardinalityEstimationAlg):
         X = to_variable(X_all).float()
         Y = to_variable(Y_all).float()
 
-        min_jl = 1.00
-        max_jl = None
-
         min_qerr = {}
         max_qerr = {}
 
         file_name = "./training-" + self.__str__() + ".dict"
         while True:
 
-            if (num_iter % 50 == 0):
+            if (num_iter % eval_iter_qerr == 0):
                 # progress stuff
                 print(num_iter, end=",")
                 sys.stdout.flush()
 
-            if (num_iter % eval_iter == 0):
+            if (num_iter % eval_iter_qerr == 0):
+                # evaluate qerr
+
                 pred = net(X)
                 pred = pred.squeeze(1)
                 train_loss = loss_func(pred, Y)
+                self.stats["eval"]["qerr"][num_iter] = train_loss.item()
 
                 if not use_jl and adaptive_lr:
                     # FIXME: should we do this for minibatch / or for train loss?
                     scheduler.step(train_loss)
 
-                jl = join_loss_nn(pred, training_samples, self, env)
-                jl = np.mean(np.array(jl))
+                if (num_iter % eval_iter_jl == 0):
+                    jl = join_loss_nn(pred, training_samples, self, env)
+                    jl = np.mean(np.array(jl))
 
-                if use_jl and adaptive_lr:
-                    scheduler.step(jl)
+                    if use_jl and adaptive_lr:
+                        scheduler.step(jl)
 
-                results["iter"].append(num_iter)
-                results["qerr"].append(train_loss.item())
-                results["join-loss"].append(jl)
-                save_or_update(file_name, results)
-                print("\nnum iter: {}, num samples: {}, loss: {}, join-loss {}".format(
-                    num_iter, len(X), train_loss.item(), jl))
+                    self.stats["eval"]["join-loss"][num_iter] = jl
+
+                    print("\nnum iter: {}, num samples: {}, loss: {}, join-loss {}".format(
+                        num_iter, len(X), train_loss.item(), jl))
 
             mb_samples = []
             xbatch = []
@@ -857,7 +899,6 @@ class NN2(CardinalityEstimationAlg):
                 sample_key = deterministic_hash(cur_samples[0].query)
                 if sample_key not in max_qerr:
                     max_qerr[sample_key] = np.array(loss.item())
-                    # min_qerr[sample_key] = 0.00
 
 
             if (num_iter > jl_start_iter and use_jl):
