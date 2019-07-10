@@ -732,9 +732,9 @@ class NN2(CardinalityEstimationAlg):
         self.rel_qerr_loss = kwargs["rel_qerr_loss"]
         self.adaptive_lr = kwargs["adaptive_lr"]
         self.baseline = kwargs["baseline"]
-
+        nn_cache_dir = kwargs["nn_cache_dir"]
         # caching related stuff
-        self.training_cache = klepto.archives.dir_archive("./nn_training_cache/",
+        self.training_cache = klepto.archives.dir_archive(nn_cache_dir,
                 cached=True, serialized=True)
         # will keep storing all the training information in the cache / and
         # dump it at the end

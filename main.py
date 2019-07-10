@@ -48,7 +48,8 @@ def get_alg(alg):
                     adaptive_lr=args.adaptive_lr,
                     rel_qerr_loss=args.rel_qerr_loss,
                     clip_gradient=args.clip_gradient,
-                    baseline=args.baseline_join_alg)
+                    baseline=args.baseline_join_alg,
+                    nn_cache_dir = args.nn_cache_dir)
     elif alg == "ourpgm":
         return OurPGM()
     else:
@@ -403,6 +404,8 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
+    parser.add_argument("--nn_cache_dir", type=str, required=False,
+            default="./nn_training_cache")
 
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="ams")
