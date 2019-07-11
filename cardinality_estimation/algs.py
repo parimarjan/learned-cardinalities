@@ -714,8 +714,8 @@ class NN2(CardinalityEstimationAlg):
 
         # TODO: configure other variables
         self.max_iter = kwargs["max_iter"]
-        self.use_jl = kwargs["use_jl"]
-        if not self.use_jl:
+        self.jl_variant = kwargs["jl_variant"]
+        if not self.jl_variant:
             # because we eval more frequently
             self.adaptive_lr_patience = 50
         else:
@@ -787,7 +787,7 @@ class NN2(CardinalityEstimationAlg):
             self._train_nn_join_loss(self.net, training_samples, self.lr,
                     self.jl_start_iter,
                     loss_func=loss_func, max_iter=self.max_iter, tfboard_dir=None,
-                    loss_threshold=2.0, use_jl=self.use_jl,
+                    loss_threshold=2.0, jl_variant=self.jl_variant,
                     eval_iter_jl=self.eval_iter, clip_gradient=self.clip_gradient,
                     rel_qerr_loss=self.rel_qerr_loss,
                     adaptive_lr=self.adaptive_lr)
@@ -803,7 +803,7 @@ class NN2(CardinalityEstimationAlg):
             lr, jl_start_iter, max_iter=10000, eval_iter_jl=500,
             eval_iter_qerr=100, mb_size=1,
             loss_func=None, tfboard_dir=None, adaptive_lr=True,
-            min_lr=1e-17, loss_threshold=1.0, use_jl=False,
+            min_lr=1e-17, loss_threshold=1.0, jl_variant=False,
             clip_gradient=10.00, rel_qerr_loss=True):
         '''
         TODO: explain and generalize.
@@ -867,7 +867,7 @@ class NN2(CardinalityEstimationAlg):
                 train_loss = loss_func(pred, Y)
                 self.stats["eval"]["qerr"][num_iter] = train_loss.item()
 
-                if not use_jl and adaptive_lr:
+                if not jl_variant and adaptive_lr:
                     # FIXME: should we do this for minibatch / or for train loss?
                     scheduler.step(train_loss)
 
@@ -876,7 +876,7 @@ class NN2(CardinalityEstimationAlg):
                             baseline=self.baseline)
                     jl = np.mean(np.array(jl))
 
-                    if use_jl and adaptive_lr:
+                    if jl_variant and adaptive_lr:
                         scheduler.step(jl)
 
                     self.stats["eval"]["join-loss"][num_iter] = jl
@@ -912,10 +912,26 @@ class NN2(CardinalityEstimationAlg):
                     max_qerr[sample_key] = np.array(loss.item())
 
 
-            if (num_iter > jl_start_iter and use_jl):
+            if (num_iter > jl_start_iter and jl_variant):
+                if jl_variant == 3:
+                    use_pg_est = True
+                else:
+                    use_pg_est = False
+
                 jl = join_loss_nn(pred, mb_samples, self, env,
-                        baseline=self.baseline)
-                jl = torch.mean(to_variable(jl).float()) - 1.00
+                        baseline=self.baseline, use_pg_est=use_pg_est)
+
+                if jl_variant == 1:
+                    jl = torch.mean(to_variable(jl).float())
+                elif jl_variant == 2:
+                    jl = torch.mean(to_variable(jl).float()) - 1.00
+                elif jl_variant == 3:
+                    # using postgres values for join loss
+                    jl = torch.mean(to_variable(jl).float())
+                else:
+                    assert False
+
+
                 if rel_qerr_loss:
                     sample_key = deterministic_hash(cur_samples[0].query)
                     loss = loss / to_variable(max_qerr[sample_key]).float()
@@ -950,16 +966,9 @@ class NN2(CardinalityEstimationAlg):
     def size(self):
         pass
     def __str__(self):
-        # FIXME: add parameters of the neural network
-        # self.max_iter = kwargs["max_iter"]
-        # self.use_jl = kwargs["use_jl"]
-        # self.lr = kwargs["lr"]
-        # self.num_hidden_layers = kwargs["num_hidden_layers"]
-        # self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
-        name = self.__class__.__name__
-        if self.use_jl:
-            name += "-jl"
-        # name += "hl-" + str(self.num_hidden_layers)
-        # name += "hlm-" + str(self.hidden_layer_multiple)
+        name = "nn"
+        if self.jl_variant:
+            name += "-jl" + str(self.jl_variant)
+
         return name
 

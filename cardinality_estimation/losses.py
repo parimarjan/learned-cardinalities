@@ -150,7 +150,7 @@ def update_cards(est_cards, q):
     return cards
 
 def join_loss_nn(pred, queries, alg, env,
-        baseline="LEFT_DEEP"):
+        baseline="LEFT_DEEP", use_pg_est=False):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
@@ -209,9 +209,13 @@ def join_loss_nn(pred, queries, alg, env,
     # print("created fixed agent")
 
     cardinalities = {}
+
     # Set true cardinalities
     for i, q in enumerate(queries):
-        est_cards = np.array([q.true_count for q in q.subqueries])
+        if use_pg_est:
+            est_cards = np.array([q.true_count for q in q.subqueries])
+        else:
+            est_cards = np.array([q.pg_count for q in q.subqueries])
         cardinalities[str(i)] = update_cards(est_cards, q)
 
     env.initialize_cardinalities(cardinalities)
@@ -240,7 +244,7 @@ def join_loss_nn(pred, queries, alg, env,
     # total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
     rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
 
-    print("join loss compute took ", time.time() - start)
+    # print("join loss compute took ", time.time() - start)
     return rel_errors
 
 def compute_join_order_loss(alg, queries, use_subqueries,

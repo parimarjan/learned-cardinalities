@@ -40,7 +40,7 @@ def get_alg(alg):
     elif alg == "nn1":
         return NN1(max_iter = args.max_iter)
     elif alg == "nn2":
-        return NN2(max_iter = args.max_iter, use_jl=args.use_jl, lr=args.lr,
+        return NN2(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,
                 hidden_layer_multiple=args.hidden_layer_multiple,
                     jl_start_iter=args.jl_start_iter, eval_iter =
@@ -197,8 +197,6 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     return ret_queries
 
 def main():
-    file_name = gen_results_name()
-    print(file_name)
     if args.gen_synth_data:
         gen_synth_data(args)
     elif "osm" in args.db_name:
@@ -210,7 +208,8 @@ def main():
     # subqueries.
     query_templates = []
     assert args.template_dir is not None
-    for fn in glob.glob(args.template_dir+"/*"):
+    fns = list(glob.glob(args.template_dir+"/*"))
+    for fn in fns:
         with open(fn, "r") as f:
             template = f.read()
             query_templates.append(template)
@@ -242,13 +241,14 @@ def main():
             cached=True, serialized=True)
     sql_str_cache.load()
 
-    for template in query_templates:
+    for i, template in enumerate(query_templates):
         # generate queries
         query_strs = gen_query_strs(args, template,
                 args.num_samples_per_template, sql_str_cache)
         samples += gen_query_objs(args, query_strs, query_obj_cache)
         for q in samples:
-            q.template = template
+            q.template_sql = template
+            q.template_name = os.path.basename(fns[i])
 
     # TODO: clear / dump the query_obj cache
     print("len all samples: " , len(samples))
@@ -331,34 +331,33 @@ def main():
     # this is deterministic, so just using it to store this in the saved data.
     # TODO: should not need this if initialized properly.
 
+    train_times = {}
+    eval_times = {}
+
     for alg in algorithms:
         start = time.time()
         alg.train(db, train_queries, use_subqueries=args.use_subqueries)
         alg.save_model(save_dir=args.result_dir, suffix_name=gen_exp_hash()[0:3])
-        train_time = round(time.time() - start, 2)
-        print("{}, train-time: {}".format(alg, train_time))
+        train_times[alg] = round(time.time() - start, 2)
 
-        for q in train_queries:
-            q.train_time[alg.__str__()] = train_time
+        start = time.time()
         eval_alg(alg, losses, train_queries, args.use_subqueries)
 
         if args.test:
             eval_alg(alg, losses, test_queries, args.use_subqueries)
+        eval_times[alg] = round(time.time() - start, 2)
 
-    file_name = gen_results_name() + "_train" + ".pickle"
-    save_or_update(file_name, train_queries)
-    if args.test:
-        file_name = gen_results_name() + "_test" + ".pickle"
-        save_or_update(file_name, test_queries)
+    results = {}
+    results["training_queries"] = train_queries
+    results["test_queries"] = test_queries
+    results["args"] = args
+    results["train_times"] = train_times
+    results["eval_times"] = eval_times
 
-    # save global stuff in results
-    df = pd.DataFrame(result)
-    file_name = gen_results_name() + ".pd"
-    save_or_update(file_name, df)
-    db.save_cache()
-
-def gen_results_name():
-    return args.result_dir + "/results" + gen_exp_hash()[0:3]
+    results_cache = klepto.archives.dir_archive(args.results_cache)
+    dt = datetime.datetime.now()
+    exp_name = args.exp_name + "-{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
+    results_cache.archive[exp_name] = results
 
 def gen_exp_hash():
     return str(deterministic_hash(str(args)))
@@ -374,6 +373,11 @@ def gen_samples_hash():
 
 def read_flags():
     # parser = argparse.ArgumentParser()
+    parser.add_argument("--results_cache", type=str, required=False,
+            default="./results")
+    parser.add_argument("--exp_name", type=str, required=False,
+            default="card_exp")
+
     parser.add_argument("--db_name", type=str, required=False,
             default="card_est")
     parser.add_argument("--db_host", type=str, required=False,
@@ -458,7 +462,7 @@ def read_flags():
             default="./caches/")
     parser.add_argument("--execution_cache_threshold", type=int, required=False,
             default=20)
-    parser.add_argument("--use_jl", type=int, required=False,
+    parser.add_argument("--jl_variant", type=int, required=False,
             default=0)
 
     return parser.parse_args()

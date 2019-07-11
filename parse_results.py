@@ -17,35 +17,15 @@ from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 import matplotlib.image as mpimg
 from collections import defaultdict
+import klepto
 
 BASELINE = "LEFT_DEEP"
-# TODO: maybe will use this?
-def init_result_row(result):
-    result["dbname"].append(args.db_name)
-    result["template_dir"].append(args.template_dir)
-    result["seed"].append(args.random_seed)
-    result["args"].append(args)
-    result["num_bins"].append(args.num_bins)
-    result["avg_factor"].append(args.avg_factor)
-    result["num_columns"].append(len(db.column_stats))
-
-    result["train-time"].append(train_time)
-    result["eval-time"].append(eval_time)
-    result["alg_name"].append(alg.__str__())
-    result["loss-type"].append(loss_func.__name__)
-    result["loss"].append(cur_loss)
-    result["test-set"].append(0)
-    result["num_vals"].append(len(train_queries))
 
 def read_flags():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--period_len", type=int, required=False,
-            default=10)
     parser.add_argument("--db_name", type=str, required=False,
-            default="synth-gaussian")
-    parser.add_argument("--plot", type=int, required=False,
-            default=1)
-    parser.add_argument("--result_dir", type=str, required=False,
+            default="imdb")
+    parser.add_argument("--results_dir", type=str, required=False,
             default="./results/")
     parser.add_argument("--per_subquery", type=int, required=False,
             default=0)
@@ -56,8 +36,7 @@ def read_flags():
 
     return parser.parse_args()
 
-def visualize_query_class(queries, pdf, barcharts=False):
-    q0 = queries[0]
+def plot_query(q0, pdf):
     jc = extract_join_clause(q0.query)
     pred_columns, pred_types, _ = extract_predicates(q0.query)
     pred_columns = [p[0:p.find(".")] for p in pred_columns]
@@ -86,141 +65,6 @@ def visualize_query_class(queries, pdf, barcharts=False):
 
     pdf.savefig()
     plt.close()
-    true_sels = [q.true_sel for q in queries]
-    x = pd.Series(true_sels, name="true selectivities")
-    ax = sns.distplot(x, kde=False)
-    total_count = q0.total_count
-    plt.title("Selectivities, total: " + str(total_count))
-    plt.tight_layout()
-    pdf.savefig()
-    plt.clf()
-
-    use_losses = ["qerr", "rel", "join"]
-    # for each loss key, make a new plot
-    all_losses = []
-    for q in queries:
-        for alg_name, losses in q.losses.items():
-            for loss_type, loss in losses.items():
-                if not loss_type in use_losses:
-                    continue
-                tmp = {}
-                tmp["alg_name"] = alg_name
-                tmp["loss_type"] = loss_type
-                tmp["loss"] = loss
-                all_losses.append(tmp)
-
-    df = pd.DataFrame(all_losses)
-    if barcharts:
-        non_join_df = df[df["loss_type"] != "join"]
-        ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
-                data=non_join_df, estimator=np.median, ci=99)
-
-        fig = ax.get_figure()
-        plt.title(",".join(q0.table_names))
-        plt.tight_layout()
-        pdf.savefig()
-        plt.clf()
-
-        if "join" in set(df["loss_type"]):
-            join_df = df[df["loss_type"] == "join"]
-            ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
-                    data=join_df, estimator=np.median, ci=99)
-
-            fig = ax.get_figure()
-            plt.title(",".join(q0.table_names))
-            plt.tight_layout()
-            pdf.savefig()
-            plt.clf()
-    else:
-        FONT_SIZE = 12
-        COL_WIDTH = 0.25
-
-        # columns
-        loss_types = [l for l in set(df["loss_type"])]
-        COL_WIDTHS = [COL_WIDTH for l in loss_types]
-        # rows
-        algs = [l for l in set(df["alg_name"])]
-        mean_vals = gen_table_data(df, algs, loss_types, "mean")
-        median_vals = gen_table_data(df, algs, loss_types, "median")
-        tail1 = gen_table_data(df, algs, loss_types, "95")
-        tail2 = gen_table_data(df, algs, loss_types, "99")
-
-        fig, axs = plt.subplots(2,2)
-        for i in range(2):
-            for j in range(2):
-                axs[i][j].axis("tight")
-                axs[i][j].axis("off")
-
-        def plot_table(vals, i, j, title):
-            table = axs[i][j].table(cellText=vals,
-                                  rowLabels=algs,
-                                  # rowColours=colors,
-                                  colLabels=loss_types,
-                                  loc='center',
-                                  fontsize=FONT_SIZE,
-                                  colWidths=COL_WIDTHS)
-            axs[i][j].set_title(title)
-            table.set_fontsize(FONT_SIZE)
-
-
-        # plot_table(mean_vals, 0,0,rowLabels, colLabels, FONT_SIZE, COL_WIDTHS)
-        plot_table(mean_vals, 0,0, "Mean Losses")
-        plot_table(median_vals, 0,1, "Median Losses")
-        plot_table(tail1, 1,0, "95th Percentile")
-        plot_table(tail2, 1,1, "99th Percentile")
-
-        pdf.savefig()
-        plt.clf()
-
-        # columns
-        # loss_types = [l for l in set(df["loss_type"])]
-        # COL_WIDTHS = [COL_WIDTH for l in loss_types]
-        # # rows
-        # algs = [l for l in set(df["alg_name"])]
-        # # generate nd-array of values
-        # mean_vals = np.zeros((len(loss_types), len(algs)))
-        # for i, alg in enumerate(algs):
-            # tmp_df = df[df["alg_name"] == alg]
-            # for j, loss in enumerate(loss_types):
-                # tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
-                # mean_vals[i][j] = round(tmp_df2.mean()[0], 2)
-
-        # median_vals = np.zeros((len(loss_types), len(algs)))
-        # for i, alg in enumerate(algs):
-            # tmp_df = df[df["alg_name"] == alg]
-            # for j, loss in enumerate(loss_types):
-                # tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
-                # median_vals[i][j] = round(tmp_df2.median()[0], 2)
-
-        # fig, axs = plt.subplots(2,1)
-        # axs[0].axis('tight')
-        # axs[1].axis('tight')
-        # axs[0].axis("off")
-        # axs[1].axis("off")
-
-        # # Add a table at the bottom of the axes
-        # mean_table = axs[0].table(cellText=mean_vals,
-                              # rowLabels=algs,
-                              # # rowColours=colors,
-                              # colLabels=loss_types,
-                              # loc='center',
-                              # fontsize=FONT_SIZE,
-                              # colWidths=COL_WIDTHS)
-        # axs[0].set_title("Mean Losses")
-        # mean_table.set_fontsize(FONT_SIZE)
-
-        # median_table = axs[1].table(cellText=median_vals,
-                              # rowLabels=algs,
-                              # # rowColours=colors,
-                              # colLabels=loss_types,
-                              # loc='center',
-                              # fontsize=FONT_SIZE,
-                              # colWidths=COL_WIDTHS)
-        # axs[1].set_title("Median Losses")
-        # median_table.set_fontsize(FONT_SIZE)
-
-        # pdf.savefig()
-        # plt.clf()
 
 def gen_table_data(df, algs, loss_types, summary_type):
     # generate nd-array of values
@@ -240,11 +84,6 @@ def gen_table_data(df, algs, loss_types, summary_type):
 
     return vals
 
-def parse_query_file_card(fn):
-    print(fn)
-    pdf_name = fn.replace(".pickle", ".pdf")
-    pdf = PdfPages(pdf_name)
-    queries = load_object(fn)
 
     # TODO: add average results page
     data = defaultdict(list)
@@ -399,14 +238,6 @@ def parse_query_file_join(fn):
                 order_data["order"].append(o)
                 order_data["order_hash"].append(hash(o) % 100)
 
-            # join_order_ids = [hash(o) % 100 for o in v]
-            # x = pd.Series(join_order_ids, name="join_orders")
-            # ax = sns.distplot(x, kde=False)
-            # plt.title(k + ": Join Order Distribution")
-            # plt.tight_layout()
-            # pdf.savefig()
-            # plt.clf()
-
         order_df = pd.DataFrame(order_data)
         ax = sns.countplot(x="order_hash", hue="alg",
                 data=order_df)
@@ -466,16 +297,62 @@ def parse_query_file_join(fn):
 
     pdf.close()
 
-def parse_data():
-    fns = glob.glob(args.result_dir + "/*train*.pickle")
-    for fn in fns:
-        if args.join_parse:
-            parse_query_file_join(fn)
+def parse_query_objs(results_cache, trainining_queries=True):
+    '''
+    '''
+    # open relevant pdfs
+    if args.per_query:
+        pass
+
+    data = defaultdict(list)
+    # other things we care about?
+    for k, results in results_cache.items():
+        if "args" in results:
+            result_args = results["args"]
+            # filter out stuff based on args
+            if args.db_name != result_args.db_name:
+                print("skipping: ", result_args.db_name)
+                continue
+        # else, just parse it
+
+        if trainining_queries:
+            queries = results["training_queries"]
         else:
-            parse_query_file_card(fn)
+            queries = results["test_queries"]
+        print(k)
+        print(len(queries))
+
+        # update the dictionaries using each query
+        if args.per_query:
+            pass
+            # plot_queries(queries, result_args)
+
+        for q in queries:
+            # selectivity prediction
+            true_sel = q.true_sel
+            template = q.template_name
+
+            for alg, loss_types in q.losses.items():
+                for lt, loss in loss_types.items():
+                    data["alg_name"].append(alg)
+                    data["loss_type"].append(lt)
+                    data["loss"].append(loss)
+                    data["template"].append(template)
+                    data["true_sel"].append(true_sel)
+                    # TODO: add the predicted selectivity by this alg
+
+    df = pd.DataFrame(data)
+    return df
 
 def main():
-    parse_data()
+    results_cache = klepto.archives.dir_archive(args.results_dir)
+    results_cache.load()
+    # collect all the data in a large dataframe
+    train_df = parse_query_objs(results_cache, True)
+    # test_df = parse_query_objs(results_cache, False)
+
+    # do stuff with this data. Bar graphs, summary tables et al.
+    pdb.set_trace()
 
 args = read_flags()
 main()
