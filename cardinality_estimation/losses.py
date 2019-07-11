@@ -213,9 +213,9 @@ def join_loss_nn(pred, queries, alg, env,
     # Set true cardinalities
     for i, q in enumerate(queries):
         if use_pg_est:
-            est_cards = np.array([q.true_count for q in q.subqueries])
-        else:
             est_cards = np.array([q.pg_count for q in q.subqueries])
+        else:
+            est_cards = np.array([q.true_count for q in q.subqueries])
         cardinalities[str(i)] = update_cards(est_cards, q)
 
     env.initialize_cardinalities(cardinalities)
