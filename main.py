@@ -417,7 +417,7 @@ def read_flags():
     parser.add_argument("--num_hidden_layers", type=int,
             required=False, default=1)
     parser.add_argument("--hidden_layer_multiple", type=float,
-            required=False, default=2.0)
+            required=False, default=0.5)
 
     # synthetic data flags
     parser.add_argument("--gen_synth_data", type=int, required=False,
