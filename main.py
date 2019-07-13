@@ -245,10 +245,11 @@ def main():
         # generate queries
         query_strs = gen_query_strs(args, template,
                 args.num_samples_per_template, sql_str_cache)
-        samples += gen_query_objs(args, query_strs, query_obj_cache)
-        for q in samples:
+        cur_samples = gen_query_objs(args, query_strs, query_obj_cache)
+        for q in cur_samples:
             q.template_sql = template
             q.template_name = os.path.basename(fns[i])
+        samples += cur_samples
 
     # TODO: clear / dump the query_obj cache
     print("len all samples: " , len(samples))
