@@ -1,0 +1,47 @@
+title = "Template 1"
+
+[base_sql]
+sql = '''SELECT COUNT(*) FROM title as t,
+movie_companies as mc,
+company_type as ct,
+company_name as cn,
+kind_type as kt,
+movie_info as mi,
+info_type as it,
+cast_info as ci,
+role_type as rt,
+name as n
+WHERE
+t.id = mc.movie_id
+AND t.id = ci.movie_id
+AND t.id = mi.movie_id
+AND mi.info_type_id = it.id
+AND it.id = '3'
+AND mc.company_type_id = ct.id
+AND mc.company_id = cn.id
+AND t.kind_id = kt.id
+AND ci.person_id = n.id
+AND ci.role_id = rt.id
+AND mi.info IN 'Xgenre'
+AND cn.name IN 'Xcompany_name'
+AND ct.kind IN 'Xcompany_type'
+AND kt.kind IN 'Xmovie_kind'
+AND rt.role IN 'Xrole'
+AND n.gender IN 'Xgender' '''
+
+# template 1
+[[templates]]
+
+# all the unknown predicates in the base sql will be specified in groups
+[templates.pred1]
+
+# Length of these lists should be the same
+type = ["sql"] # sample from given sql, sample from given list
+columns = ["kt.kind", "cn.name", "ct.kind"]
+keys = ["Xmovie_kind", "Xcompany_name", "Xcompany_type"]
+
+[templates.pred2]
+columns = ["test123", "test4"]
+
+# template 2
+[[templates]]

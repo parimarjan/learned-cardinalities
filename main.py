@@ -23,6 +23,8 @@ from multiprocessing import Pool
 import multiprocessing
 import numpy as np
 from db_utils.query_generator import QueryGenerator
+from db_utils.query_generator2 import QueryGenerator2
+import toml
 
 def get_alg(alg):
     if alg == "independent":
@@ -117,6 +119,8 @@ def eval_alg(alg, losses, queries, use_subqueries):
 
 def gen_query_strs(args, query_template, num_samples, sql_str_cache):
     '''
+    @query_template: str OR dict.
+
     @ret: [Query, Query, ...]
     '''
     query_strs = []
@@ -137,8 +141,13 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
     elif len(query_strs) < num_samples:
         # need to generate additional queries
         req_samples = num_samples - len(query_strs)
-        qg = QueryGenerator(query_template, args.user, args.db_host, args.port,
-                args.pwd, args.db_name)
+        if isinstance(query_template, dict):
+            qg = QueryGenerator2(query_template, args.user, args.db_host, args.port,
+                    args.pwd, args.db_name)
+        elif isinstance(query_template, str):
+            qg = QueryGenerator(query_template, args.user, args.db_host, args.port,
+                    args.pwd, args.db_name)
+
         gen_sqls = qg.gen_queries(req_samples)
         query_strs += gen_sqls
         # save on the disk
@@ -210,9 +219,14 @@ def main():
     assert args.template_dir is not None
     fns = list(glob.glob(args.template_dir+"/*"))
     for fn in fns:
-        with open(fn, "r") as f:
-            template = f.read()
-            query_templates.append(template)
+        if ".sql" in fn:
+            with open(fn, "r") as f:
+                template = f.read()
+        elif ".toml" in fn:
+            template = toml.load(fn)
+        else:
+            assert False
+        query_templates.append(template)
 
     start = time.time()
     misc_cache = klepto.archives.dir_archive("./misc_cache",
@@ -226,7 +240,10 @@ def main():
         db = DB(args.user, args.pwd, args.db_host, args.port,
                 args.db_name)
         for template in query_templates:
-            db.update_db_stats(template)
+            if isinstance(template, dict):
+                db.update_db_stats(template["base_sql"]["sql"])
+            else:
+                db.update_db_stats(template)
         misc_cache.archive[db_key] = db
 
     print("generating db object took {} seconds".format(\
