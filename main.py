@@ -176,14 +176,11 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         print("need to generate {} query objects".\
                 format(len(unknown_query_strs)))
 
-        # FIXME: temporary measure
-        if len(unknown_query_strs) >= 1000:
-            return []
-
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
     start = time.time()
-    num_processes = min(len(unknown_query_strs), multiprocessing.cpu_count())
+    num_processes = int(min(len(unknown_query_strs),
+        multiprocessing.cpu_count()))
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
             args.pwd, args.db_name, None,
@@ -263,10 +260,13 @@ def main():
         query_strs = gen_query_strs(args, template,
                 args.num_samples_per_template, sql_str_cache)
         cur_samples = gen_query_objs(args, query_strs, query_obj_cache)
-        for q in cur_samples:
-            q.template_sql = template
-            q.template_name = os.path.basename(fns[i])
-        samples += cur_samples
+        for sample_id, q in enumerate(cur_samples):
+            # if sample_id in [12]:
+                # continue
+
+            # q.template_sql = template
+            q.template_name = os.path.basename(fns[i]) + str(sample_id)
+            samples.append(q)
 
     # TODO: clear / dump the query_obj cache
     print("len all samples: " , len(samples))
@@ -295,11 +295,12 @@ def main():
         for i, q in enumerate(samples):
             hashed_key = deterministic_hash(q.query)
             if hashed_key in sql_str_cache:
+            # if False:
                 sql_subqueries = sql_str_cache[hashed_key]
             else:
                 print("going to generate subqueries for query num ", i)
-                assert False
                 sql_subqueries = gen_all_subqueries(q.query)
+                # pdb.set_trace()
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries
 
@@ -443,7 +444,7 @@ def read_flags():
     parser.add_argument("--gen_bn_dist", type=int, required=False,
             default=0)
     parser.add_argument("--only_nonzero_samples", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--use_subqueries", type=int, required=False,
             default=0)
     parser.add_argument("--synth_table", type=str, required=False,
