@@ -53,8 +53,12 @@ class QueryGenerator2():
         # for each group, select appropriate predicates
         for pred_group in templated_preds:
             print(pred_group["columns"])
-            if pred_group["type"] == "sql":
-                cur_sql = pred_group["sql"]
+            if "sql" in pred_group["type"]:
+                if pred_group["type"] == "sqls":
+                    cur_sql = random.choice(pred_group["sqls"])
+                else:
+                    cur_sql = pred_group["sql"]
+
                 if pred_group["dependencies"]:
                     # need to replace placeholders in cur_sql
                     for fixed_key, fixed_pred in pred_vals.items():
@@ -72,23 +76,27 @@ class QueryGenerator2():
                     return None
 
                 # now use one of the different sampling methods
+                num_samples = random.randint(pred_group["min_samples"],
+                        pred_group["max_samples"])
                 if pred_group["sampling_method"] == "quantile":
                     num_quantiles = pred_group["num_quantiles"]
-                    num_samples = random.randint(pred_group["min_samples"],
-                            pred_group["max_samples"])
                     curp = random.randint(0, num_quantiles-1)
                     chunk_len = int(len(output) / num_quantiles)
                     tmp_output = output[curp*chunk_len: (curp+1)*chunk_len]
 
                     samples = [random.choice(tmp_output) for _ in
                             range(num_samples)]
-                    total_count = sum([int(s[-1]) for s in samples])
-                    print("count: ", total_count)
                     gen_sql = self._update_sql_in(gen_sql, samples,
                             pred_group["keys"], pred_vals)
 
                 else:
-                    assert False
+                    samples = [random.choice(output) for _ in
+                            range(num_samples)]
+                    gen_sql = self._update_sql_in(gen_sql, samples,
+                            pred_group["keys"], pred_vals)
+
+                total_count = sum([int(s[-1]) for s in samples])
+                print("count: ", total_count)
 
             elif pred_group["type"] == "list":
                 if pred_group["sampling_method"] == "uniform":
@@ -100,7 +108,6 @@ class QueryGenerator2():
                         key = pred_group["keys"][idx]
                         gen_sql = gen_sql.replace(key, str(val))
                         pred_vals[key] = str(val)
-
             else:
                 assert False
 

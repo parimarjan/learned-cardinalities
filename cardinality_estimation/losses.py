@@ -338,6 +338,10 @@ def compute_join_order_loss(alg, queries, use_subqueries,
         est_card_costs.append(float(card_cost))
     print(q.join_info.keys())
     # total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
+
+    # avoid divide by 0
+    baseline_costs = np.maximum(baseline_costs, 1.00)
+    est_card_costs = np.maximum(est_card_costs, 1.00)
     rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
     env.clean()
     return rel_errors
