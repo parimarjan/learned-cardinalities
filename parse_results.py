@@ -19,8 +19,6 @@ import matplotlib.image as mpimg
 from collections import defaultdict
 import klepto
 
-BASELINE = "LEFT_DEEP"
-
 def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db_name", type=str, required=False,
@@ -87,10 +85,7 @@ def gen_table_data(df, algs, loss_types, summary_type):
 def parse_query_objs(results_cache, trainining_queries=True):
     '''
     '''
-    # open relevant pdfs
-    if args.per_query:
-        pass
-
+    query_data = defaultdict(list)
     data = defaultdict(list)
     # other things we care about?
     for k, results in results_cache.items():
@@ -109,15 +104,11 @@ def parse_query_objs(results_cache, trainining_queries=True):
         print(k)
         print(len(queries))
 
-        # update the dictionaries using each query
-        if args.per_query:
-            pass
-            # plot_queries(queries, result_args)
-
         for q in queries:
             # selectivity prediction
             true_sel = q.true_sel
             template = q.template_name
+            query_data[q.template_name].append(q)
 
             for alg, loss_types in q.losses.items():
                 for lt, loss in loss_types.items():
@@ -129,7 +120,7 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     # TODO: add the predicted selectivity by this alg
 
     df = pd.DataFrame(data)
-    return df
+    return df, query_data
 
 def gen_error_summaries(df, pdf, barcharts=False, tables=True):
 
@@ -196,20 +187,24 @@ def gen_error_summaries(df, pdf, barcharts=False, tables=True):
         pdf.savefig()
         plt.clf()
 
+def plot_queries(query_data, pdf):
+    pass
+
 def main():
     results_cache = klepto.archives.dir_archive(args.results_dir)
     results_cache.load()
     # collect all the data in a large dataframe
-    train_df = parse_query_objs(results_cache, True)
+    train_df, query_data = parse_query_objs(results_cache, True)
     # test_df = parse_query_objs(results_cache, False)
-
 
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
     gen_error_summaries(train_df, summary_pdf)
-
     summary_pdf.close()
-    # do stuff with this data. Bar graphs, summary tables et al.
-    pdb.set_trace()
+
+    if args.per_query:
+        queries_pdf = PdfPages(args.results_dir + "/training_queries.pdf")
+        plot_queries(query_data, queries_pdf)
+        queries_pdf.close()
 
 args = read_flags()
 main()
