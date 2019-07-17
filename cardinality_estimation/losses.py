@@ -156,6 +156,7 @@ def join_loss_nn(pred, queries, alg, env,
     to plot.
     '''
     assert env is not None
+    assert not use_pg_est
     # if env is None:
         # env = park.make('query_optimizer')
 

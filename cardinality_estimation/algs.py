@@ -717,10 +717,11 @@ class NN2(CardinalityEstimationAlg):
         self.jl_variant = kwargs["jl_variant"]
         if not self.jl_variant:
             # because we eval more frequently
-            self.adaptive_lr_patience = 50
+            self.adaptive_lr_patience = 100
         else:
             self.adaptive_lr_patience = 10
 
+        self.divide_mb_len = kwargs["divide_mb_len"]
         self.lr = kwargs["lr"]
         self.jl_start_iter = kwargs["jl_start_iter"]
         self.num_hidden_layers = kwargs["num_hidden_layers"]
@@ -852,6 +853,7 @@ class NN2(CardinalityEstimationAlg):
         max_qerr = {}
 
         file_name = "./training-" + self.__str__() + ".dict"
+        start = time.time()
         while True:
 
             if (num_iter % 100 == 0):
@@ -866,12 +868,15 @@ class NN2(CardinalityEstimationAlg):
                 pred = pred.squeeze(1)
                 train_loss = loss_func(pred, Y)
                 self.stats["eval"]["qerr"][num_iter] = train_loss.item()
+                # print("\nnum iter: {}, num samples: {}, loss: {}".format(
+                    # num_iter, len(X), train_loss.item()))
 
                 if not jl_variant and adaptive_lr:
                     # FIXME: should we do this for minibatch / or for train loss?
                     scheduler.step(train_loss)
 
                 if (num_iter % eval_iter_jl == 0):
+                    jl_eval_start = time.time()
                     jl = join_loss_nn(pred, training_samples, self, env,
                             baseline=self.baseline)
                     jl = np.mean(np.array(jl))
@@ -881,8 +886,9 @@ class NN2(CardinalityEstimationAlg):
 
                     self.stats["eval"]["join-loss"][num_iter] = jl
 
-                    print("\nnum iter: {}, num samples: {}, loss: {}, join-loss {}".format(
-                        num_iter, len(X), train_loss.item(), jl))
+                    print("""\nnum iter: {}, num samples: {}, loss: {},join-loss {}, time: {}""".format(
+                        num_iter, len(X), train_loss.item(), jl,
+                        time.time()-jl_eval_start))
 
             mb_samples = []
             xbatch = []
@@ -902,6 +908,10 @@ class NN2(CardinalityEstimationAlg):
             pred = net(xbatch)
             pred = pred.squeeze(1)
             loss = loss_func(pred, ybatch)
+
+            # FIXME: temporary, to try and adjust for the variable batch size.
+            if self.divide_mb_len:
+                loss /= len(pred)
 
             if (num_iter > jl_start_iter and \
                     rel_qerr_loss):
@@ -950,7 +960,7 @@ class NN2(CardinalityEstimationAlg):
             optimizer.step()
             num_iter += 1
 
-        print("done with training")
+        print("training took: {} seconds".format(time.time()-start))
         env.clean()
 
     def test(self, test_samples):

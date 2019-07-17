@@ -51,7 +51,8 @@ def get_alg(alg):
                     rel_qerr_loss=args.rel_qerr_loss,
                     clip_gradient=args.clip_gradient,
                     baseline=args.baseline_join_alg,
-                    nn_cache_dir = args.nn_cache_dir)
+                    nn_cache_dir = args.nn_cache_dir,
+                    divide_mb_len = args.divide_mb_len)
     elif alg == "ourpgm":
         return OurPGM()
     else:
@@ -429,6 +430,8 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--nn_cache_dir", type=str, required=False,
             default="./nn_training_cache")
+    parser.add_argument("--divide_mb_len", type=int, required=False,
+            default=1)
 
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="ams")
@@ -474,7 +477,7 @@ def read_flags():
     parser.add_argument("--result_dir", type=str, required=False,
             default="./results/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,
-            default="EXHAUSTIVE")
+            default="LEFT_DEEP")
     parser.add_argument("--db_file_name", type=str, required=False,
             default=None)
     parser.add_argument("--cache_dir", type=str, required=False,
