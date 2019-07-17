@@ -37,8 +37,6 @@ class DB():
         # TODO: collect other stats about each table in the DB etc.
         # get a random sample of values from each column so we can use it to
         # generate sensible queries
-        # self.con = pg.connect(user=self.user, host=self.db_host, port=self.port,
-                # password=self.pwd, database=self.db_name)
         self.sql_cache = klepto.archives.dir_archive(cache_dir)
         # self.sql_cache = klepto.archives.dir_archive()
 
@@ -84,10 +82,14 @@ class DB():
             return self.sql_cache.archive[hashed_sql]
         start = time.time()
 
-        con = pg.connect(user=self.user, port=self.port,
-                password=self.pwd, database=self.db_name)
-        # con = pg.connect(user=self.user, host=self.db_host, port=self.port,
+        ## FIXME: get stuff that works on both places
+        # works on aws
+        # con = pg.connect(user=self.user, port=self.port,
                 # password=self.pwd, database=self.db_name)
+
+        # works on chunky
+        con = pg.connect(user=self.user, host=self.db_host, port=self.port,
+                password=self.pwd, database=self.db_name)
         cursor = con.cursor()
         if timeout is not None:
             cursor.execute("SET statement_timeout = {}".format(timeout))

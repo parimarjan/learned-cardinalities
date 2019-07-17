@@ -19,7 +19,11 @@ import matplotlib.image as mpimg
 from collections import defaultdict
 import klepto
 
+import warnings
+warnings.filterwarnings("ignore")
+
 BASELINE = "LEFT_DEEP"
+FIX_TEMPLATE = False
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -27,6 +31,8 @@ def read_flags():
             default="imdb")
     parser.add_argument("--results_dir", type=str, required=False,
             default="./results/")
+    parser.add_argument("--output_dir", type=str, required=False,
+            default="./pdfs/")
     parser.add_argument("--per_subquery", type=int, required=False,
             default=0)
     parser.add_argument("--per_query", type=int, required=False,
@@ -72,15 +78,15 @@ def gen_table_data(df, algs, loss_types, summary_type):
     for i, alg in enumerate(algs):
         tmp_df = df[df["alg_name"] == alg]
         for j, loss in enumerate(loss_types):
-            tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]
+            tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]["loss"]
             if summary_type == "mean":
-                vals[i][j] = round(tmp_df2.mean()[0], 2)
+                vals[i][j] = round(tmp_df2.mean(), 2)
             elif summary_type == "median":
-                vals[i][j] = round(tmp_df2.median()[0], 2)
+                vals[i][j] = round(tmp_df2.median(), 2)
             elif summary_type == "95":
-                vals[i][j] = round(tmp_df2.quantile(0.95)[0], 2)
+                vals[i][j] = round(tmp_df2.quantile(0.95), 2)
             elif summary_type == "99":
-                vals[i][j] = round(tmp_df2.quantile(0.99)[0], 2)
+                vals[i][j] = round(tmp_df2.quantile(0.99), 2)
 
     return vals
 
@@ -93,6 +99,15 @@ def parse_query_objs(results_cache, trainining_queries=True):
 
     data = defaultdict(list)
     # other things we care about?
+    if FIX_TEMPLATE:
+        qmap = {}
+        fns = glob.glob("./templates/myjob/*.sql")
+        for fn in fns:
+            f = open(fn, "r")
+            query = f.read()
+            qmap[query] = os.path.basename(fn)
+            f.close()
+
     for k, results in results_cache.items():
         if "args" in results:
             result_args = results["args"]
@@ -100,24 +115,38 @@ def parse_query_objs(results_cache, trainining_queries=True):
             if args.db_name != result_args.db_name:
                 print("skipping: ", result_args.db_name)
                 continue
+            if hasattr(result_args, "optimizer_name"):
+                optimizer_name = result_args.optimizer_name
+            else:
+                optimizer_name = "adam"
+
+            if hasattr(result_args, "jl_start_iter"):
+                jl_start_iter = result_args.jl_start_iter
+            else:
+                jl_start_iter = 200
+
         # else, just parse it
 
         if trainining_queries:
             queries = results["training_queries"]
         else:
             queries = results["test_queries"]
-        print(k)
-        print(len(queries))
 
         # update the dictionaries using each query
         if args.per_query:
             pass
             # plot_queries(queries, result_args)
 
-        for q in queries:
+        for i, q in enumerate(queries):
             # selectivity prediction
             true_sel = q.true_sel
-            template = q.template_name
+
+            if FIX_TEMPLATE:
+                if not q.query in qmap:
+                    pdb.set_trace()
+                template = qmap[q.query]
+            else:
+                template = q.template_name
 
             for alg, loss_types in q.losses.items():
                 for lt, loss in loss_types.items():
@@ -126,12 +155,76 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     data["loss"].append(loss)
                     data["template"].append(template)
                     data["true_sel"].append(true_sel)
+                    data["optimizer_name"].append(optimizer_name)
+                    data["jl_start_iter"].append(jl_start_iter)
+                    data["num_subqueries"].append(len(q.subqueries))
+
                     # TODO: add the predicted selectivity by this alg
 
     df = pd.DataFrame(data)
     return df
 
-def gen_error_summaries(df, pdf, barcharts=False, tables=True):
+def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
+        alg_order):
+
+    # algs = ["nn", "nn-jl1", "nn-jl2", "Postgres"]
+
+    # first, only plot join losses
+    sort_df = df[df["loss_type"] == sort_by_loss_type]
+    sort_df = sort_df[sort_df["alg_name"] == sort_by_alg]
+    # assert len(sort_df) >= 110
+    if len(sort_df) < 110:
+        print("skipping experiment as less than 110 queries")
+        return
+
+    # sort_df = sort_df[sort_df["loss"] > 5.00]
+    sort_df.sort_values("loss", ascending=False, inplace=True)
+    templates = sort_df["template"].drop_duplicates()
+    # templates = [t for t in templates]
+    templates = templates.values[0:15]
+
+    # if sort_by_alg == "Postgres":
+        # print(templates)
+        # # print(sort_df)
+        # pdb.set_trace()
+
+    # will also select the qerrors
+    to_plot = df[df["template"].isin(templates)]
+
+    fg = sns.catplot(x="loss_type", y="loss", hue="alg_name", col="template",
+            col_wrap=5, kind="bar", data=to_plot, estimator=np.median, ci=100,
+            legend_out=False, col_order=templates, sharex=False, order=["join",
+                "qerr"], hue_order=alg_order)
+
+
+    for i, ax in enumerate(fg.axes.flat):
+        tmp = templates[i]
+        sqs = sort_df[sort_df["template"] == tmp]["num_subqueries"].values[0]
+        title = tmp + " ,#subqueries: " + str(sqs)
+        ax.set_title(title)
+
+    # plt.subplots_adjust(top= 1 - 1/8.0)
+    # fg.fig.suptitle('Worst Queries, sorted by {}'.format(sort_by_loss_type),
+            # y= 1 - 1/16.0)
+
+    fg.fig.suptitle("Sorted by worst {} for {}".format(sort_by_loss_type,
+        sort_by_alg),
+            x=0.5, y=.99, horizontalalignment='center',
+            verticalalignment='top', fontsize = 40)
+
+    # plt.gcf()
+
+    # fg.set(ylim=(0,50.0))
+    fg.set(yscale="log")
+    fg.despine(left=True)
+
+    # plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+    pdf.savefig()
+    plt.clf()
+
+def gen_error_summaries(df, pdf, algs=None,barcharts=False, tables=True):
 
     if barcharts:
         non_join_df = df[df["loss_type"] != "join"]
@@ -163,7 +256,9 @@ def gen_error_summaries(df, pdf, barcharts=False, tables=True):
         loss_types = [l for l in set(df["loss_type"])]
         COL_WIDTHS = [COL_WIDTH for l in loss_types]
         # rows
-        algs = [l for l in set(df["alg_name"])]
+        if algs is None:
+            algs = [l for l in set(df["alg_name"])]
+
         mean_vals = gen_table_data(df, algs, loss_types, "mean")
         median_vals = gen_table_data(df, algs, loss_types, "median")
         tail1 = gen_table_data(df, algs, loss_types, "95")
@@ -203,9 +298,16 @@ def main():
     train_df = parse_query_objs(results_cache, True)
     # test_df = parse_query_objs(results_cache, False)
 
+    make_dir(args.output_dir)
+    summary_pdf = PdfPages(args.output_dir + "/summary.pdf")
 
-    summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
-    gen_error_summaries(train_df, summary_pdf)
+    algs = ["nn", "nn-jl1", "nn-jl2", "Postgres"]
+    train_df = train_df[train_df["alg_name"].isin(algs)]
+    gen_error_summaries(train_df, summary_pdf, algs=algs)
+
+    for alg in algs:
+        gen_query_bar_graphs(train_df, summary_pdf, "join", alg, algs)
+        gen_query_bar_graphs(train_df, summary_pdf, "qerr", alg, algs)
 
     summary_pdf.close()
     # do stuff with this data. Bar graphs, summary tables et al.
