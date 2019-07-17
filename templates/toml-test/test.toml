@@ -1,0 +1,221 @@
+title = "Template 1"
+
+[base_sql]
+sql = '''SELECT COUNT(*) FROM title as t,
+movie_companies as mc,
+company_type as ct,
+company_name as cn,
+kind_type as kt,
+movie_info as mi,
+info_type as it,
+cast_info as ci,
+role_type as rt,
+name as n
+WHERE
+t.id = mc.movie_id
+AND t.id = ci.movie_id
+AND t.id = mi.movie_id
+AND mi.info_type_id = it.id
+AND it.id = '3'
+AND mc.company_type_id = ct.id
+AND mc.company_id = cn.id
+AND t.kind_id = kt.id
+AND ci.person_id = n.id
+AND ci.role_id = rt.id
+AND mi.info IN (Xgenre)
+AND cn.name IN (Xcompany_name)
+AND ct.kind IN (Xcompany_type)
+AND kt.kind IN (Xmovie_kind)
+AND rt.role IN (Xrole)
+AND n.gender IN (Xgender)
+AND n.surname_pcode IN (Xsurname)
+'''
+
+# template 1
+[[templates]]
+
+  name = "1a"
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+
+  # Length of these lists should be the same
+  type = "sql" # sample from given sql, sample from given list
+  columns = ["kt.kind", "cn.name", "ct.kind"]
+  keys = ["Xmovie_kind", "Xcompany_name", "Xcompany_type"]
+  dependencies = 0
+
+  sql = '''
+  SELECT kt.kind, cn.name, ct.kind, count(*)
+  FROM kind_type as kt, company_name as cn,
+  company_type as ct, movie_companies as mc,
+  title as t
+  WHERE t.id = mc.movie_id
+  AND t.kind_id = kt.id
+  AND mc.company_id = cn.id
+  AND mc.company_type_id = ct.id
+  GROUP BY kt.kind, cn.name, ct.kind
+  HAVING count(*) > 200
+  ORDER BY count(*) desc
+  '''
+
+  # uniform (from the output of sql, or list).
+  # quantile: divide the output into N quantiles, choose a quantile, and
+  # sample only from that section
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 2
+  max_samples = 15
+
+  [[templates.predicates]]
+  type = "sql"
+  columns = ["mi.info"]
+  keys = ["Xgenre"]
+  dependencies = 1
+
+  # we want to sample this based on the ALREADY selected value for company name /
+  # company type
+  sql = '''
+  SELECT mi.info, count(*)
+  FROM company_name as cn,
+  company_type as ct, movie_companies as mc,
+  title as t, movie_info as mi, info_type as it
+  WHERE t.id = mc.movie_id
+  AND mc.company_id = cn.id
+  AND mc.company_type_id = ct.id
+  AND mi.movie_id = t.id
+  AND mi.info_type_id = it.id
+  AND it.id = '3'
+  AND cn.name IN (Xcompany_name)
+  AND ct.kind IN (Xcompany_type)
+  GROUP BY mi.info
+  ORDER BY count(*) desc
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 2
+  max_samples = 15
+
+  [[templates.predicates]]
+
+  type = "sql"
+  columns = ["n.gender", "n.surname_pcode", "rt.role"]
+  keys = ["Xgender", "Xsurname", "Xrole"]
+  dependencies = 0
+
+  sql = '''
+  SELECT n.gender, n.surname_pcode, rt.role, count(*)
+  FROM cast_info as ci,
+  name as n, role_type as rt
+  WHERE ci.person_id = n.id
+  AND ci.role_id = rt.id
+  AND n.gender IS NOT NULL
+  AND n.surname_pcode IS NOT NULL
+  GROUP BY n.gender, n.surname_pcode, rt.role
+  HAVING count(*) > 100
+  ORDER BY count(*) desc
+  '''
+
+# uniform (from the output of sql, or list).
+# quantile: divide the output into N quantiles, choose a quantile, and
+# sample only from that section
+  sampling_method = "quantile"
+  num_quantiles = 4
+  min_samples = 4
+  max_samples = 12
+
+# template 2
+[[templates]]
+
+  name = "1b"
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+
+  # Length of these lists should be the same
+  type = "sql" # sample from given sql, sample from given list
+  columns = ["mi.info", "cn.name", "ct.kind"]
+  keys = ["Xgenre", "Xcompany_name", "Xcompany_type"]
+  dependencies = 0
+
+  sql = '''
+  SELECT mi.info, cn.name, ct.kind, count(*)
+  FROM movie_info as mi, company_name as cn,
+  company_type as ct, movie_companies as mc,
+  title as t, info_type as it
+  WHERE t.id = mc.movie_id
+  AND t.id = mi.movie_id
+  AND mc.company_id = cn.id
+  AND mc.company_type_id = ct.id
+  AND mi.info_type_id = it.id
+  AND it.id = '3'
+  GROUP BY mi.info, cn.name, ct.kind
+  HAVING count(*) > 200
+  ORDER BY count(*) desc
+  '''
+
+  # uniform (from the output of sql, or list).
+  # quantile: divide the output into N quantiles, choose a quantile, and
+  # sample only from that section
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 2
+  max_samples = 15
+
+  [[templates.predicates]]
+  type = "sql"
+  columns = ["kt.kind"]
+  keys = ["Xmovie_kind"]
+  dependencies = 1
+
+  # we want to sample this based on the ALREADY selected value for company name /
+  # company type
+  sql = '''
+  SELECT kt.kind, count(*)
+  FROM company_name as cn,
+  company_type as ct, movie_companies as mc,
+  title as t, kind_type as kt
+  WHERE t.id = mc.movie_id
+  AND mc.company_id = cn.id
+  AND mc.company_type_id = ct.id
+  AND t.kind_id = kt.id
+  AND cn.name IN (Xcompany_name)
+  AND ct.kind IN (Xcompany_type)
+  GROUP BY kt.kind
+  ORDER BY count(*) desc
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 2
+  max_samples = 10
+
+  [[templates.predicates]]
+
+  type = "sql"
+  columns = ["n.gender", "n.surname_pcode", "rt.role"]
+  keys = ["Xgender", "Xsurname", "Xrole"]
+  dependencies = 0
+
+  sql = '''
+  SELECT n.gender, n.surname_pcode, rt.role, count(*)
+  FROM cast_info as ci,
+  name as n, role_type as rt
+  WHERE ci.person_id = n.id
+  AND ci.role_id = rt.id
+  AND n.gender IS NOT NULL
+  AND n.surname_pcode IS NOT NULL
+  GROUP BY n.gender, n.surname_pcode, rt.role
+  HAVING count(*) > 100
+  ORDER BY count(*) desc
+  '''
+
+# uniform (from the output of sql, or list).
+# quantile: divide the output into N quantiles, choose a quantile, and
+# sample only from that section
+  sampling_method = "quantile"
+  num_quantiles = 4
+  min_samples = 4
+  max_samples = 12
+

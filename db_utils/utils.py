@@ -91,8 +91,8 @@ def extract_predicates(query):
         '''
         for i, obj in enumerate(pred[cur_pred_type]):
             assert i <= 1
-            if isinstance(obj, str):
-                assert "." in obj
+            if isinstance(obj, str) and "." in obj:
+                # assert "." in obj
                 column = obj
             elif isinstance(obj, dict):
                 assert "literal" in obj
@@ -462,11 +462,39 @@ def _gen_subqueries(all_tables, wheres, aliases):
             # pdb.set_trace()
             continue
         all_subqueries.append(query)
-        # print("num subqueries: ", len(all_subqueries))
 
     return all_subqueries
 
+def nx_graph_to_query(G):
+    froms = []
+    conds = []
+    for nd in G.nodes(data=True):
+        node = nd[0]
+        data = nd[1]
+        if "real_name" in data:
+            froms.append(ALIAS_FORMAT.format(TABLE=data["real_name"],
+                                             ALIAS=node))
+        else:
+            froms.append(node)
+
+        for pred in data["predicates"]:
+            conds.append(pred)
+
+    for edge in G.edges(data=True):
+        conds.append(edge[2]['join_condition'])
+
+    # preserve order for caching
+    froms.sort()
+    conds.sort()
+    from_clause = " , ".join(froms)
+    if len(conds) > 0:
+        wheres = ' AND '.join(conds)
+        from_clause += " WHERE " + wheres
+    count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
+    return count_query
+
 def _gen_subqueries_nx(query):
+    start = time.time()
     froms,aliases,tables = extract_from_clause(query)
     joins = extract_join_clause(query)
     pred_columns, pred_types, pred_vals = extract_predicates(query)
@@ -510,8 +538,25 @@ def _gen_subqueries_nx(query):
 
     # TODO: Next, need an efficient way to generate all connected subgraphs, and
     # then convert each of them to a sql queries
+    all_subqueries = []
 
-    pdb.set_trace()
+    # find all possible subsets of the nodes
+    combs = []
+    all_nodes = list(join_graph.nodes())
+    for i in range(1, len(all_nodes)+1):
+        combs += itertools.combinations(list(range(len(all_nodes))), i)
+
+    for node_idxs in combs:
+        nodes = [all_nodes[idx] for idx in node_idxs]
+        subg = join_graph.subgraph(nodes)
+        if nx.is_connected(subg):
+            sql_str = nx_graph_to_query(subg)
+            all_subqueries.append(sql_str)
+
+    print("num subqueries: ", len(all_subqueries))
+    print("took: ", time.time() - start)
+
+    return all_subqueries
 
 def gen_all_subqueries(query):
     '''
@@ -520,10 +565,10 @@ def gen_all_subqueries(query):
     FIXME: mix-match of moz_sql_parser AND sqlparse...
     '''
     start = time.time()
-    if False:
-        print("experimental subquery generation")
-        _gen_subqueries_nx(query)
+    all_subqueries = _gen_subqueries_nx(query)
+    return all_subqueries
 
+    ### old slow stuff
     # print("gen all subqueries!")
     _,aliases,tables = extract_from_clause(query)
     parsed = sqlparse.parse(query)[0]
@@ -585,13 +630,11 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
 
         if not "timeout" in str(e):
             print("failed to execute for reason other than timeout")
+            print(e)
             pdb.set_trace()
 
         return None
-        # print("returning arbitrary large value for now")
-        # pdb.set_trace()
-        # return [[10000000]]
-        # return None
+
     exp_output = cursor.fetchall()
     cursor.close()
     con.close()
@@ -640,8 +683,6 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     '''
     if execution_cache_threshold is None:
         execution_cache_threshold = 60
-    # print(sql)
-    # print("timeout: ", timeout)
 
     if "SELECT COUNT" not in sql:
         print("no SELECT COUNT in sql!")
@@ -666,13 +707,31 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
 
     if total_count is None:
         total_count_query = get_total_count_query(sql)
+
+        # if we should just update value based on pg' estimate for total count
+        # v/s finding true count
+        TRUE_TOTAL_COUNT = False
         total_timeout = 180000
-        exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
-                execution_cache_threshold, sql_cache, total_timeout)
-        if exp_output is None:
-            print("total count query timed out")
-            # print(total_count_query)
-            # execute it with explain
+        if TRUE_TOTAL_COUNT:
+            exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
+                    execution_cache_threshold, sql_cache, total_timeout)
+            if exp_output is None:
+                print("total count query timed out")
+                # print(total_count_query)
+                # execute it with explain
+                exp_query = "EXPLAIN " + total_count_query
+                exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
+                        execution_cache_threshold, sql_cache, total_timeout)
+                if exp_output is None:
+                    print("pg est was None for ")
+                    print(exp_query)
+                    pdb.set_trace()
+                total_count = pg_est_from_explain(exp_output)
+                print("pg total count est: ", total_count)
+            else:
+                total_count = exp_output[0][0]
+                print("total count: ", total_count)
+        else:
             exp_query = "EXPLAIN " + total_count_query
             exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
                     execution_cache_threshold, sql_cache, total_timeout)
@@ -682,9 +741,6 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
                 pdb.set_trace()
             total_count = pg_est_from_explain(exp_output)
             print("pg total count est: ", total_count)
-        else:
-            total_count = exp_output[0][0]
-            print("total count: ", total_count)
 
     # need to extract predicate columns, predicate operators, and predicate
     # values now.
