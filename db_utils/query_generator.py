@@ -24,8 +24,9 @@ class QueryGenerator():
         @ret: [sql queries]
         '''
         start = time.time()
+        # TODO: make these instance variables initialized in __init__
         pred_columns, pred_types, pred_strs = extract_predicates(self.query_template)
-        # from_clauses, aliases, tables = extract_from_clause(query_template)
+        from_clauses, aliases, tables = extract_from_clause(self.query_template)
         joins = extract_join_clause(self.query_template)
         all_query_strs = []
 
@@ -38,11 +39,11 @@ class QueryGenerator():
                     pass
                 elif pred_types[i] == "in":
                     if not "SELECT" in pred_str[0]:
-                            # or not "select" in pred_str[0]:
                         # leave this as is.
                         continue
                     pred_sql = pred_str[0]
                     if col not in self.valid_pred_vals:
+                        # pred_sql should be a sql that we can execute
                         output = cached_execute_query(pred_sql, self.user,
                                 self.db_host, self.port, self.pwd, self.db_name,
                                 100, None, None)
@@ -66,10 +67,18 @@ class QueryGenerator():
                     gen_query = gen_query.replace("'" + pred_sql + "'", new_pred_str)
 
                 elif pred_types[i] == "lte" or pred_types[i] == "lt":
+                    if not "SELECT" in str(pred_str[0]):
+                        # leave this as is.
+                        continue
                     assert len(pred_str) == 2
                     if col not in self.valid_pred_vals:
+                        table = col[0:col.find(".")]
+                        if table in aliases:
+                            table = ALIAS_FORMAT.format(TABLE = aliases[table],
+                                                ALIAS = table)
+
                         sel_query = SELECT_ALL_COL_TEMPLATE.format(COL = col,
-                                                TABLE = col[0:col.find(".")])
+                                                TABLE = table)
                         output = cached_execute_query(sel_query, self.user,
                                 self.db_host, self.port, self.pwd, self.db_name,
                                 100, None, None)

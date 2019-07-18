@@ -1,0 +1,123 @@
+title = "Template 3"
+# inspired by template 2 in JOB
+
+[base_sql]
+sql = '''SELECT COUNT(*) FROM title as t,
+movie_keyword as mk, keyword as k,
+movie_companies as mc, company_name as cn,
+company_type as ct, movie_info as mi1,
+info_type as it1, movie_info as mi2,
+info_type as it2, kind_type as kt
+WHERE t.id = mk.movie_id
+AND t.id = mc.movie_id
+AND t.id = mi1.movie_id
+AND t.id = mi2.movie_id
+AND t.kind_id = kt.id
+AND mk.movie_id = mc.movie_id
+AND k.id = mk.keyword_id
+AND cn.id = mc.company_id
+AND ct.id = mc.company_type_id
+AND it1.id = '4'
+AND it1.id = mi1.info_type_id
+AND it2.id = '3'
+AND it2.id = mi2.info_type_id
+AND t.production_year <= Xprod_year_up
+AND Xprod_year_low < t.production_year
+AND k.keyword IN (Xkeyword)
+AND cn.country_code IN (Xcompany_country)
+AND ct.kind IN (Xcompany_type)
+AND mi1.info IN (Xlanguage)
+AND mi2.info IN (Xgenre)
+AND kt.kind IN (Xmovie_kind)
+'''
+
+# template 1
+[[templates]]
+
+  name = "1a"
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+  type = "list"
+  columns = ["t.production_year"]
+  keys = ["Xprod_year_low", "Xprod_year_up"]
+  dependencies = 0
+  options = [[1900, 2015]]
+
+  sampling_method = "uniform"
+  pred_type = "range"
+  min_samples = 1
+  max_samples = 1
+
+  [[templates.predicates]]
+  type = "sqls"
+  columns = ["k.keyword", "mi2.info", "kt.kind"]
+  keys = ["Xkeyword", "Xgenre", "Xmovie_kind"]
+  dependencies = 0
+  sampling_method = "uniform"
+  sqls = ["SELECT k.keyword, kt.kind, mi.info, count(*) FROM keyword as k, kind_type as kt, movie_info as mi, title as t, info_type as it, movie_keyword as mk WHERE t.id = mk.movie_id AND mk.keyword_id = k.id AND t.id = mi.movie_id AND mi.info_type_id = it.id AND it.id = '3' AND kt.id = t.kind_id GROUP BY k.keyword, kt.kind, mi.info HAVING count(*) > 2000 ORDER BY count(*) desc",
+  "SELECT k.keyword, kt.kind, mi.info, count(*) FROM keyword as k, kind_type as kt, movie_info as mi, title as t, info_type as it, movie_keyword as mk WHERE t.id = mk.movie_id AND mk.keyword_id = k.id AND t.id = mi.movie_id AND mi.info_type_id = it.id AND it.id = '3' AND kt.id = t.kind_id GROUP BY k.keyword, kt.kind, mi.info HAVING count(*) < 2000"]
+
+  min_samples = 1
+  max_samples = 15
+
+  [[templates.predicates]]
+  type = "sqls"
+  columns = ["ct.kind", "cn.country_code", "mi1.info"]
+  keys = ["Xcompany_type", "Xcompany_country", "Xlanguage"]
+  dependencies = 0
+  sampling_method = "uniform"
+
+  sqls = ["""SELECT ct.kind, cn.country_code, mi.info, count(*) FROM company_name as cn, movie_companies as mc, company_type as ct, title as t, movie_info as mi, info_type as it WHERE cn.id = mc.company_id AND ct.kind IS NOT NULL AND cn.country_code IS NOT NULL AND mc.company_type_id = ct.id AND t.id = mc.movie_id AND t.id = mi.movie_id AND mi.info_type_id = it.id AND it.id = '4' GROUP BY ct.kind, cn.country_code, mi.info HAVING count(*) > 5000 order by count(*) desc""",
+  """ SELECT ct.kind, cn.country_code, mi.info, count(*) FROM company_name as cn, movie_companies as mc, company_type as ct, title as t, movie_info as mi, info_type as it WHERE cn.id = mc.company_id AND ct.kind IS NOT NULL AND cn.country_code IS NOT NULL AND mc.company_type_id = ct.id AND t.id = mc.movie_id AND t.id = mi.movie_id AND mi.info_type_id = it.id AND it.id = '4' GROUP BY ct.kind, cn.country_code, mi.info HAVING count(*) < 500"""]
+
+  min_samples = 1
+  max_samples = 15
+
+# template 2
+#[[templates]]
+
+  #name = "1b"
+
+  ## all the unknown predicates in the base sql will be specified in groups
+  #[[templates.predicates]]
+  #type = "list"
+  #columns = ["t.production_year"]
+  #keys = ["Xprod_year_low", "Xprod_year_up"]
+  #dependencies = 0
+  options = [[1925, 1975], [1975, 2015], [1875, 1975], [1925,
+  2015], [1950, 1990], [1990, 2015]]
+  #sampling_method = "uniform"
+  #pred_type = "range"
+  #min_samples = 1
+  #max_samples = 1
+
+  #[[templates.predicates]]
+  #type = "sqls"
+  #columns = ["k.keyword"]
+  #keys = ["Xkeyword"]
+  #dependencies = 0
+  #sampling_method = "uniform"
+
+  #sqls = ["SELECT k.keyword, count(*) FROM keyword as k, movie_keyword as mk WHERE k.id = mk.keyword_id GROUP BY k.keyword HAVING count(*) > 5000" ,
+  #"SELECT k.keyword, count(*) FROM keyword as k, movie_keyword as mk WHERE k.id = mk.keyword_id GROUP BY k.keyword HAVING count(*) < 1000"]
+
+  #min_samples = 1
+  #max_samples = 5
+
+  #[[templates.predicates]]
+  #type = "sql"
+  #columns = ["ct.kind", "cn.country_code"]
+  #keys = ["Xcompany_type", "Xcompany_country"]
+  #dependencies = 0
+  #sampling_method = "quantile"
+  #num_quantiles = 2
+
+  #sql = '''SELECT ct.kind, cn.country_code, count(*) FROM company_name as cn,
+  #movie_companies as mc, company_type as ct WHERE cn.id = mc.company_id
+  #AND ct.kind IS NOT NULL AND cn.country_code IS NOT NULL
+  #AND mc.company_type_id = ct.id GROUP BY ct.kind,
+  #cn.country_code HAVING count(*) > 500 order by count(*) desc'''
+
+  #min_samples = 1
+  #max_samples = 5

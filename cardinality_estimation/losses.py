@@ -77,14 +77,19 @@ def compute_qerror(alg, queries, use_subqueries, **kwargs):
     errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
     return errors
 
-def run_all_eps(env, fixed_agent=None):
+def run_all_eps(env, num_queries, fixed_agent=None):
     '''
     @ret: dict: query : info,
         where info is returned at the end of the episode by park. info should
         contain all the neccessary facts about that run.
     '''
     queries = {}
+    # print("run all eps, num = ", num_queries)
     while True:
+        # print("len queries: ", len(queries))
+        if len(queries) >= num_queries:
+            # HACK: avoid running the random episode as below
+            break
         # don't know precise episode lengths, changes based on query, so use
         # the done signal to stop the episode
         done = False
@@ -93,6 +98,11 @@ def run_all_eps(env, fixed_agent=None):
         # query = deterministic_hash(query)
         query = env.get_current_query_name()
         if query in queries.keys():
+            # FIXME: ugly hack, so we don't leave an episode hanging midway
+            # env._run_random_episode()
+            print("SHOULD NEVER HAVE HAPPPNED!")
+            pdb.set_trace()
+            assert False
             break
         # episode loop
         num_ep = 0
@@ -139,8 +149,107 @@ def update_cards(est_cards, q):
         cards[table_key] = int(est_cards[j])
     return cards
 
+def join_loss_nn(pred, queries, alg, env,
+        baseline="LEFT_DEEP", use_pg_est=False):
+    '''
+    TODO: also updates each query object with the relevant stats that we want
+    to plot.
+    '''
+    assert env is not None
+    assert not use_pg_est
+    # if env is None:
+        # env = park.make('query_optimizer')
+
+    start = time.time()
+    assert len(queries[0].subqueries) > 0
+    # Set queries
+    query_dict = {}
+
+    # each queries index is set to its name
+    for i, q in enumerate(queries):
+        query_dict[str(i)] = q.query
+
+    env.initialize_queries(query_dict)
+    # print("initialized queries")
+    cardinalities = {}
+    # Set estimated cardinalities. For estimated cardinalities, we need to
+    # add ONLY the subquery cardinalities
+    pred_start = 0
+    for i, q in enumerate(queries):
+        # skip the first query, since that is not a subquery
+        pred_start += 1
+        yhat = []
+        # this loop depends on the fact that pred[0],
+        # pred[0+len(q[0].subqueries)]], etc would be the cardinalities for the
+        # full query objects
+        for j in range(pred_start, pred_start+len(q.subqueries), 1):
+            yhat.append(pred[j])
+        yhat = np.array(yhat, dtype=np.float32)
+        assert len(yhat) == len(q.subqueries)
+        totals = np.array([q.total_count for q in q.subqueries],
+                        dtype=np.float32)
+        est_cards = np.multiply(yhat, totals)
+        cardinalities[str(i)] = update_cards(est_cards, q)
+        pred_start += len(q.subqueries)
+
+    env.initialize_cardinalities(cardinalities)
+    # print("initialized cardinalities")
+
+    # Learn optimal agent for estimated cardinalities
+    agents = []
+    train_q = run_all_eps(env, len(queries))
+    fixed_agent = {}
+
+    for i, q in enumerate(queries):
+        info = train_q[str(i)]
+        actions = info["joinOrders"][baseline]["joinEdgeChoices"]
+        fixed_agent[str(i)] = actions
+
+    assert len(fixed_agent) == len(cardinalities) == len(queries)
+    agents.append(fixed_agent)
+    # print("created fixed agent")
+
+    cardinalities = {}
+
+    # Set true cardinalities
+    for i, q in enumerate(queries):
+        if use_pg_est:
+            est_cards = np.array([q.pg_count for q in q.subqueries])
+        else:
+            est_cards = np.array([q.true_count for q in q.subqueries])
+        cardinalities[str(i)] = update_cards(est_cards, q)
+
+    env.initialize_cardinalities(cardinalities)
+    # print("true cardinalities set")
+
+    # Test agent on true cardinalities
+    assert len(agents) == 1
+    # TODO: save the data / compare across queries etc.
+    # for rep, fixed_agent in enumerate(agents):
+    fixed_agent = agents[0]
+
+    test_q = run_all_eps(env, len(queries), fixed_agent=fixed_agent)
+    total_error = 0.00
+    baseline_costs = []
+    est_card_costs = []
+
+    for i, q in enumerate(queries):
+        info = test_q[str(i)]
+        bcost = info["costs"][baseline]
+        card_cost = info["costs"]["RL"]
+        cur_error = card_cost - bcost
+        total_error += card_cost - bcost
+        baseline_costs.append(float(bcost))
+        est_card_costs.append(float(card_cost))
+
+    # total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
+    rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
+
+    # print("join loss compute took ", time.time() - start)
+    return rel_errors
+
 def compute_join_order_loss(alg, queries, use_subqueries,
-        baseline="EXHAUSTIVE"):
+        baseline="LEFT_DEEP"):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
@@ -185,7 +294,7 @@ def compute_join_order_loss(alg, queries, use_subqueries,
 
     # Learn optimal agent for estimated cardinalities
     agents = []
-    train_q = run_all_eps(env)
+    train_q = run_all_eps(env, len(queries))
     fixed_agent = {}
 
     for i, q in enumerate(queries):
@@ -212,7 +321,7 @@ def compute_join_order_loss(alg, queries, use_subqueries,
     # for rep, fixed_agent in enumerate(agents):
     fixed_agent = agents[0]
 
-    test_q = run_all_eps(env, fixed_agent=fixed_agent)
+    test_q = run_all_eps(env, len(queries), fixed_agent=fixed_agent)
     total_error = 0.00
     baseline_costs = []
     est_card_costs = []
@@ -229,8 +338,11 @@ def compute_join_order_loss(alg, queries, use_subqueries,
         baseline_costs.append(float(bcost))
         est_card_costs.append(float(card_cost))
     print(q.join_info.keys())
-    total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
-    print("total avg error: {}: {}".format(baseline, total_avg_err))
-    rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
+    # total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
 
+    # avoid divide by 0
+    baseline_costs = np.maximum(baseline_costs, 1.00)
+    est_card_costs = np.maximum(est_card_costs, 1.00)
+    rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
+    env.clean()
     return rel_errors

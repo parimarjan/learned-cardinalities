@@ -1,12 +1,11 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES']=''
 import tensorflow as tf
-
 
 class TensorboardSummaries(object):
     def __init__(self, tb_path):
-        config = tf.ConfigProto(device_count = {'GPU': 0})
-        self.sess = tf.Session(config=config)
+        # config = tf.ConfigProto(device_count = {'GPU': 0})
+        # self.sess = tf.Session(config=config)
+        self.sess = tf.Session()
         self.summary_ops = {}
         self.summary_vars = {}
         self.writer = tf.summary.FileWriter(tb_path)

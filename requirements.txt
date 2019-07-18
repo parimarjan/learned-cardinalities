@@ -1,2 +1,15 @@
 moz-sql-parser
+sqlparse
 klepto
+psycopg2-binary
+numpy
+pandas
+torch
+torchvision
+tensorflow
+networkx
+pomegranate
+matplotlib
+seaborn
+sklearn
+toml

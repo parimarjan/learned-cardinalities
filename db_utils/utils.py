@@ -26,53 +26,7 @@ MAX_TEMPLATE = "SELECT {COL} FROM {TABLE} WHERE {COL} IS NOT NULL ORDER BY {COL}
 UNIQUE_VALS_TEMPLATE = "SELECT DISTINCT {COL} FROM {FROM_CLAUSE}"
 UNIQUE_COUNT_TEMPLATE = "SELECT COUNT(*) FROM (SELECT DISTINCT {COL} from {FROM_CLAUSE}) AS t"
 
-def prepare_text(dat):
-    cpy = BytesIO()
-    for row in dat:
-        cpy.write('\t'.join([repr(x) for x in row]) + '\n')
-    return(cpy)
-
-def prepare_binary(dat):
-    pgcopy_dtype = [('num_fields','>i2')]
-    for field, dtype in dat.dtype.descr:
-        pgcopy_dtype += [(field + '_length', '>i4'),
-                         (field, dtype.replace('<', '>'))]
-    pgcopy = np.empty(dat.shape, pgcopy_dtype)
-    pgcopy['num_fields'] = len(dat.dtype)
-    for i in range(len(dat.dtype)):
-        field = dat.dtype.names[i]
-        pgcopy[field + '_length'] = dat.dtype[i].alignment
-        pgcopy[field] = dat[field]
-    cpy = BytesIO()
-    cpy.write(pack('!11sii', b'PGCOPY\n\377\r\n\0', 0, 0))
-    cpy.write(pgcopy.tostring())  # all rows
-    cpy.write(pack('!h', -1))  # file trailer
-    return(cpy)
-'''
-https://stackoverflow.com/questions/8144002/use-binary-copy-table-from-with-psycopg2/8150329#8150329
-
-Need to actually figure out how to use it etc.
-'''
-def time_pgcopy(dat, table, binary):
-    print('Processing copy object for ' + table)
-    tstart = datetime.now()
-    if binary:
-        cpy = prepare_binary(dat)
-    else:  # text
-        cpy = prepare_text(dat)
-    tendw = datetime.now()
-    print('Copy object prepared in ' + str(tendw - tstart) + '; ' +
-          str(cpy.tell()) + ' bytes; transfering to database')
-    cpy.seek(0)
-    if binary:
-        curs.copy_expert('COPY ' + table + ' FROM STDIN WITH BINARY', cpy)
-    else:  # text
-        curs.copy_from(cpy, table)
-    conn.commit()
-    tend = datetime.now()
-    print('Database copy time: ' + str(tend - tendw))
-    print('        Total time: ' + str(tend - tstart))
-    return
+RANGE_PREDS = ["gt", "gte", "lt", "lte"]
 
 def pg_est_from_explain(output):
     '''
@@ -104,7 +58,7 @@ def extract_join_clause(query):
         if pred_type != "eq":
             continue
 
-        if not "." in columns[1]:
+        if not "." in str(columns[1]):
             continue
 
         join_clauses.append(columns[0] + " = " + columns[1])
@@ -116,9 +70,6 @@ def get_all_wheres(parsed_query):
     if "where" not in parsed_query:
         pass
     elif "and" not in parsed_query["where"]:
-        # print(parsed_query)
-        # print("and not in where!!!")
-        # pdb.set_trace()
         pred_vals = [parsed_query["where"]]
     else:
         pred_vals = parsed_query["where"]["and"]
@@ -135,20 +86,95 @@ def extract_predicates(query):
     FIXME: temporary hack. For range queries, always returning key
     "lt", and vals for both the lower and upper bound
     '''
-    def parse_lt_column(pred, cur_pred_type):
-        # TODO: generalize more.
-        for obj in pred[cur_pred_type]:
-            if isinstance(obj, str):
-                assert "." in obj
+    def parse_column(pred, cur_pred_type):
+        '''
+        gets the name of the column, and whether column location is on the left
+        (0) or right (1)
+        '''
+        for i, obj in enumerate(pred[cur_pred_type]):
+            assert i <= 1
+            if isinstance(obj, str) and "." in obj:
+                # assert "." in obj
                 column = obj
             elif isinstance(obj, dict):
                 assert "literal" in obj
                 val = obj["literal"]
+                val_loc = i
             else:
-                assert False
+                val = obj
+                val_loc = i
+
         assert column is not None
         assert val is not None
-        return column, val
+        return column, val_loc, val
+
+    def _parse_predicate(pred, pred_type):
+        if pred_type == "eq":
+            columns = pred[pred_type]
+            if len(columns) <= 1:
+                return None
+            # FIXME: more robust handling?
+            if "." in str(columns[1]):
+                # should be a join, skip this.
+                # Note: joins only happen in "eq" predicates
+                return None
+            predicate_types.append(pred_type)
+            predicate_cols.append(columns[0])
+            predicate_vals.append(columns[1])
+
+        elif pred_type in RANGE_PREDS:
+            vals = [None, None]
+            col_name, val_loc, val = parse_column(pred, pred_type)
+            vals[val_loc] = val
+
+            # this loop may find no matching predicate for the other side, in
+            # which case, we just leave the val as None
+            for pred2 in pred_vals:
+                pred2_type = list(pred2.keys())[0]
+                if pred2_type in RANGE_PREDS:
+                    col_name2, val_loc2, val2 = parse_column(pred2, pred2_type)
+                    if col_name2 == col_name:
+                        # assert val_loc2 != val_loc
+                        if val_loc2 == val_loc:
+                            # same predicate as pred
+                            continue
+                        vals[val_loc2] = val2
+                        break
+
+            predicate_types.append("lt")
+            predicate_cols.append(col_name)
+            if "g" in pred_type:
+                # reverse vals, since left hand side now means upper bound
+                vals.reverse()
+            predicate_vals.append(vals)
+
+        elif pred_type == "between":
+            # we just treat it as a range query
+            col = pred[pred_type][0]
+            val1 = pred[pred_type][1]
+            val2 = pred[pred_type][2]
+            vals = [val1, val2]
+            predicate_types.append("lt")
+            predicate_cols.append(col)
+            predicate_vals.append(vals)
+        elif pred_type == "in" \
+                or "like" in pred_type:
+            # includes preds like, ilike, nlike etc.
+            column = pred[pred_type][0]
+            # what if column has been seen before? Will just be added again to
+            # the list of predicates, which is the correct behaviour
+            vals = pred[pred_type][1]
+            if isinstance(vals, dict):
+                vals = vals["literal"]
+            if not isinstance(vals, list):
+                vals = [vals]
+            predicate_types.append(pred_type)
+            predicate_cols.append(column)
+            predicate_vals.append(vals)
+        else:
+            # TODO: need to support "OR" statements
+            return None
+            # assert False, "unsupported predicate type"
 
     predicate_cols = []
     predicate_types = []
@@ -156,67 +182,13 @@ def extract_predicates(query):
     parsed_query = parse(query)
     pred_vals = get_all_wheres(parsed_query)
 
+    # print("starting extract predicate cols!")
     for i, pred in enumerate(pred_vals):
         assert len(pred.keys()) == 1
         pred_type = list(pred.keys())[0]
-        if pred_type == "eq":
-            columns = pred[pred_type]
-            if "." in columns[1]:
-                # should be a join, skip this.
-                continue
+        _parse_predicate(pred, pred_type)
 
-            if columns[0] in predicate_cols:
-                # skip repeating columns
-                continue
-            predicate_types.append(pred_type)
-            predicate_cols.append(columns[0])
-            predicate_vals.append(columns[1])
-        elif pred_type == "lte":
-            continue
-        elif pred_type == "lt":
-            # FIXME: Need to deal with cases in which ONLY one side of the
-            # range query is provided
-
-            # this should technically work for both "lt", "lte", "gt" etc.
-            column, val = parse_lt_column(pred, pred_type)
-
-            # find the matching lte
-            pred_lte = None
-            # fml, shitty hacks.
-            for pred2 in pred_vals:
-                pred2_type = list(pred2.keys())[0]
-                if pred2_type == "lte":
-                    column2, val2 = parse_lt_column(pred2, pred2_type)
-                    if column2 == column:
-                        pred_lte = pred2
-                        break
-            assert pred_lte is not None
-            # if pred_lte is None:
-                # print(pred_vals)
-                # pdb.set_trace()
-
-            predicate_types.append(pred_type)
-            predicate_cols.append(column)
-            predicate_vals.append((val, val2))
-
-        elif pred_type == "in":
-            column = pred[pred_type][0]
-            vals = pred[pred_type][1]
-            # print(vals)
-            # pdb.set_trace()
-            if isinstance(vals, dict):
-                vals = vals["literal"]
-            if not isinstance(vals, list):
-                vals = [vals]
-
-            predicate_types.append(pred_type)
-            predicate_cols.append(column)
-            predicate_vals.append(vals)
-        else:
-            continue
-            # pdb.set_trace()
-            # assert False, "unsupported predicate type"
-
+    # print("extract predicate cols done!")
     return predicate_cols, predicate_types, predicate_vals
 
 def extract_from_clause(query):
@@ -339,14 +311,15 @@ def find_next_match(tables, wheres, index):
         match += " " + token.value
 
         if (token.value == "BETWEEN"):
-            # ugh..
+            # ugh ugliness
             index, a = token_list.token_next(index)
             index, AND = token_list.token_next(index)
             index, b = token_list.token_next(index)
             match += " " + a.value
             match += " " + AND.value
             match += " " + b.value
-            break
+            # Note: important not to break here! Will break when we hit the
+            # "AND" in the next iteration.
 
     # print("tables: ", tables)
     # print("match: ", match)
@@ -485,15 +458,106 @@ def _gen_subqueries(all_tables, wheres, aliases):
                 pdb.set_trace()
             join_graph.add_edge(t1, t2)
         if len(joins) > 0 and not nx.is_connected(join_graph):
-            print("skipping query!")
-            print(tables)
-            print(joins)
+            # print("skipping query!")
+            # print(tables)
+            # print(joins)
             # pdb.set_trace()
             continue
         all_subqueries.append(query)
-        # print("num subqueries: ", len(all_subqueries))
 
-    print("num generated sql subqueries: ", len(all_subqueries))
+    return all_subqueries
+
+def nx_graph_to_query(G):
+    froms = []
+    conds = []
+    for nd in G.nodes(data=True):
+        node = nd[0]
+        data = nd[1]
+        if "real_name" in data:
+            froms.append(ALIAS_FORMAT.format(TABLE=data["real_name"],
+                                             ALIAS=node))
+        else:
+            froms.append(node)
+
+        for pred in data["predicates"]:
+            conds.append(pred)
+
+    for edge in G.edges(data=True):
+        conds.append(edge[2]['join_condition'])
+
+    # preserve order for caching
+    froms.sort()
+    conds.sort()
+    from_clause = " , ".join(froms)
+    if len(conds) > 0:
+        wheres = ' AND '.join(conds)
+        from_clause += " WHERE " + wheres
+    count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
+    return count_query
+
+def _gen_subqueries_nx(query):
+    start = time.time()
+    froms,aliases,tables = extract_from_clause(query)
+    joins = extract_join_clause(query)
+    pred_columns, pred_types, pred_vals = extract_predicates(query)
+    join_graph = nx.Graph()
+    for j in joins:
+        j1 = j.split("=")[0]
+        j2 = j.split("=")[1]
+        t1 = j1[0:j1.find(".")].strip()
+        t2 = j2[0:j2.find(".")].strip()
+        try:
+            assert t1 in tables or t1 in aliases
+            assert t2 in tables or t2 in aliases
+        except:
+            print(t1, t2)
+            print(tables)
+            print(joins)
+            print("table not in tables!")
+            pdb.set_trace()
+
+        join_graph.add_edge(t1, t2)
+        join_graph[t1][t2]["join_condition"] = j
+        if t1 in aliases:
+            table1 = aliases[t1]
+            table2 = aliases[t2]
+
+            join_graph.nodes()[t1]["real_name"] = table1
+            join_graph.nodes()[t2]["real_name"] = table2
+
+    parsed = sqlparse.parse(query)[0]
+    # let us go over all the where clauses
+    where_clauses = None
+    for token in parsed.tokens:
+        if (type(token) == sqlparse.sql.Where):
+            where_clauses = token
+    assert where_clauses is not None
+
+    for t1 in join_graph.nodes():
+        tables = [t1]
+        matches = find_all_clauses(tables, where_clauses)
+        join_graph.nodes()[t1]["predicates"] = matches
+
+    # TODO: Next, need an efficient way to generate all connected subgraphs, and
+    # then convert each of them to a sql queries
+    all_subqueries = []
+
+    # find all possible subsets of the nodes
+    combs = []
+    all_nodes = list(join_graph.nodes())
+    for i in range(1, len(all_nodes)+1):
+        combs += itertools.combinations(list(range(len(all_nodes))), i)
+
+    for node_idxs in combs:
+        nodes = [all_nodes[idx] for idx in node_idxs]
+        subg = join_graph.subgraph(nodes)
+        if nx.is_connected(subg):
+            sql_str = nx_graph_to_query(subg)
+            all_subqueries.append(sql_str)
+
+    print("num subqueries: ", len(all_subqueries))
+    print("took: ", time.time() - start)
+
     return all_subqueries
 
 def gen_all_subqueries(query):
@@ -502,6 +566,11 @@ def gen_all_subqueries(query):
     @ret: [sql strings], that represent all subqueries excluding cross-joins.
     FIXME: mix-match of moz_sql_parser AND sqlparse...
     '''
+    start = time.time()
+    all_subqueries = _gen_subqueries_nx(query)
+    return all_subqueries
+
+    ### old slow stuff
     # print("gen all subqueries!")
     _,aliases,tables = extract_from_clause(query)
     parsed = sqlparse.parse(query)[0]
@@ -512,12 +581,15 @@ def gen_all_subqueries(query):
             where_clauses = token
     assert where_clauses is not None
     all_subqueries = _gen_subqueries(tables, where_clauses, aliases)
+    print("generated {} sql subqueries in {}: ".format(len(all_subqueries),
+        time.time()-start))
     return all_subqueries
 
 def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         execution_cache_threshold, sql_cache_dir=None, timeout=120000):
     '''
     @timeout:
+    @db_host: going to ignore it so default localhost is used.
     executes the given sql on the DB, and caches the results in a
     persistent store if it took longer than self.execution_cache_threshold.
     '''
@@ -537,23 +609,34 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
 
     start = time.time()
 
-    con = pg.connect(user=user, host=db_host, port=port,
+    ## for chunky
+    # con = pg.connect(user=user, host=db_host, port=port,
+            # password=pwd, database=db_name)
+
+    ## for aws
+    con = pg.connect(user=user, port=port,
             password=pwd, database=db_name)
+
     cursor = con.cursor()
     if timeout is not None:
         cursor.execute("SET statement_timeout = {}".format(timeout))
     try:
         cursor.execute(sql)
     except Exception as e:
-        print("query failed to execute: ", sql)
-        print(e)
+        # print("query failed to execute: ", sql)
+        # FIXME: better way to do this.
         cursor.execute("ROLLBACK")
         con.commit()
         cursor.close()
         con.close()
-        print("returning arbitrary large value for now")
-        return [[10000000]]
-        # return None
+
+        if not "timeout" in str(e):
+            print("failed to execute for reason other than timeout")
+            print(e)
+            pdb.set_trace()
+
+        return None
+
     exp_output = cursor.fetchall()
     cursor.close()
     con.close()
@@ -563,7 +646,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         sql_cache.archive[hashed_sql] = exp_output
     return exp_output
 
-def _get_total_count_query(sql):
+def get_total_count_query(sql):
     '''
     @ret: sql query.
     '''
@@ -572,6 +655,14 @@ def _get_total_count_query(sql):
     # re-executing it always
     from_clause = " , ".join(froms)
     joins = extract_join_clause(sql)
+    if len(joins) < len(froms)-1:
+        print("joins < len(froms)-1")
+        print(sql)
+        print(joins)
+        print(len(joins))
+        print(froms)
+        print(len(froms))
+        # pdb.set_trace()
     join_clause = ' AND '.join(joins)
     if len(join_clause) > 0:
         from_clause += " WHERE " + join_clause
@@ -596,32 +687,62 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         execution_cache_threshold = 60
 
     if "SELECT COUNT" not in sql:
-        sql = sql[sql.find("FROM"):]
-        sql = "SELECT COUNT(*) " + sql
-        print(sql)
+        print("no SELECT COUNT in sql!")
+        exit(-1)
 
     output = cached_execute_query(sql, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
+
+    # TODO: better error handling
     if output is None:
         return None
     # from query string, to Query object
     true_val = output[0][0]
-    # print("true_val: ", true_val)
+    print("true_val: ", true_val)
     exp_query = "EXPLAIN " + sql
     exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
     if exp_output is None:
         return None
     pg_est = pg_est_from_explain(exp_output)
-    # print("pg_est: ", pg_est)
+    print("pg_est: ", pg_est)
 
     if total_count is None:
-        total_count_query = _get_total_count_query(sql)
-        exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
-                execution_cache_threshold, sql_cache, timeout)
-        if exp_output is None:
-            return None
-        total_count = exp_output[0][0]
+        total_count_query = get_total_count_query(sql)
+
+        # if we should just update value based on pg' estimate for total count
+        # v/s finding true count
+        TRUE_TOTAL_COUNT = False
+        total_timeout = 180000
+        if TRUE_TOTAL_COUNT:
+            exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
+                    execution_cache_threshold, sql_cache, total_timeout)
+            if exp_output is None:
+                print("total count query timed out")
+                # print(total_count_query)
+                # execute it with explain
+                exp_query = "EXPLAIN " + total_count_query
+                exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
+                        execution_cache_threshold, sql_cache, total_timeout)
+                if exp_output is None:
+                    print("pg est was None for ")
+                    print(exp_query)
+                    pdb.set_trace()
+                total_count = pg_est_from_explain(exp_output)
+                print("pg total count est: ", total_count)
+            else:
+                total_count = exp_output[0][0]
+                print("total count: ", total_count)
+        else:
+            exp_query = "EXPLAIN " + total_count_query
+            exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
+                    execution_cache_threshold, sql_cache, total_timeout)
+            if exp_output is None:
+                print("pg est was None for ")
+                print(exp_query)
+                pdb.set_trace()
+            total_count = pg_est_from_explain(exp_output)
+            print("pg total count est: ", total_count)
 
     # need to extract predicate columns, predicate operators, and predicate
     # values now.
