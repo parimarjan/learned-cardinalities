@@ -22,7 +22,7 @@ import klepto
 import warnings
 warnings.filterwarnings("ignore")
 
-BASELINE = "LEFT_DEEP"
+BASELINE = "EXHAUSTIVE"
 FIX_TEMPLATE = False
 
 def read_flags():
@@ -39,6 +39,8 @@ def read_flags():
             default=0)
     parser.add_argument("--join_parse", type=int, required=False,
             default=1)
+    parser.add_argument("--worst_query_joins", type=int, required=False,
+            default=0)
 
     return parser.parse_args()
 
@@ -165,9 +167,9 @@ def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
     sort_df = df[df["loss_type"] == sort_by_loss_type]
     sort_df = sort_df[sort_df["alg_name"] == sort_by_alg]
     # assert len(sort_df) >= 110
-    if len(sort_df) < 110:
-        print("skipping experiment as less than 110 queries")
-        return
+    # if len(sort_df) < 110:
+        # print("skipping experiment as less than 110 queries")
+        # return
 
     # sort_df = sort_df[sort_df["loss"] > 5.00]
     sort_df.sort_values("loss", ascending=False, inplace=True)
@@ -216,7 +218,18 @@ def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
     pdf.savefig()
     plt.clf()
 
-def gen_error_summaries(df, pdf, algs=None,barcharts=False, tables=True):
+def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True):
+    # firstPage = plt.figure()
+    # firstPage.clf()
+    # txt = "Summary Results \n"
+    # txt += "Num Experiments: " + str(len(set(orig_df["train-time"]))) + "\n"
+    # txt += "DB: " + str(set(orig_df["dbname"])) + "\n"
+    # txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
+    # txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
+
+    # firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
+    # pdf.savefig()
+    # plt.close()
 
     if barcharts:
         non_join_df = df[df["loss_type"] != "join"]
@@ -247,9 +260,11 @@ def gen_error_summaries(df, pdf, algs=None,barcharts=False, tables=True):
         # columns
         loss_types = [l for l in set(df["loss_type"])]
         COL_WIDTHS = [COL_WIDTH for l in loss_types]
-        # rows
-        if algs is None:
-            algs = [l for l in set(df["alg_name"])]
+        all_algs = [l for l in set(df["alg_name"])]
+        algs = []
+        for alg in all_algs:
+            if alg in algs_to_plot:
+                algs.append(alg)
 
         mean_vals = gen_table_data(df, algs, loss_types, "mean")
         median_vals = gen_table_data(df, algs, loss_types, "median")
@@ -284,7 +299,75 @@ def gen_error_summaries(df, pdf, algs=None,barcharts=False, tables=True):
         plt.clf()
 
 def plot_queries(query_data, pdf):
-    pass
+    for qname, queries in query_data.items():
+        plot_single_query(qname, queries, pdf)
+
+def plot_single_query(qname, queries, pdf):
+    base_alg = [alg for alg in queries[0].join_info.keys()][0]
+    # alg name: true, postgres, random etc.
+    unique_join_orders = {}
+    for q in queries:
+        all_infos = q.join_info
+        # For true values, just add the Exhaustive orders
+        if "true" not in unique_join_orders:
+            unique_join_orders["true"] = []
+        tmp_info = all_infos[base_alg]
+        unique_join_orders["true"].append(tmp_info["joinOrders"][BASELINE]["joinStr"])
+
+        # Postgres, Random etc.
+        for alg, info in all_infos.items():
+            if alg not in unique_join_orders:
+                unique_join_orders[alg] = []
+            unique_join_orders[alg].append(info["joinOrders"]["RL"]["joinStr"])
+
+    order_data = {}
+    order_data["alg"] = []
+    order_data["order"] = []
+    order_data["order_hash"] = []
+
+    for k,v in unique_join_orders.items():
+        for o in v:
+            order_data["alg"].append(k)
+            order_data["order"].append(o)
+            order_data["order_hash"].append(hash(o) % 100)
+
+    order_df = pd.DataFrame(order_data)
+    ax = sns.countplot(x="order_hash", hue="alg",
+            data=order_df)
+    plt.title("Join Order Distribution")
+    pdf.savefig()
+    plt.clf()
+
+    # sort queries according to join-loss
+    sorted_queries = sorted(queries, key=lambda q: \
+            q.losses[base_alg]["join"], reverse=True)
+
+    for q in sorted_queries:
+        all_infos = q.join_info
+        from park.envs.query_optimizer.qopt_utils import plot_join_order
+        # write out the sql
+        ## parameters
+        firstPage = plt.figure()
+        firstPage.clf()
+
+        ## TODO: just paste all the args here?
+        # txt = "Average Results \n"
+        # txt += "Num Experiments: " + str(len(set(orig_df["train-time"]))) + "\n"
+        # txt += "DB: " + str(set(orig_df["dbname"])) + "\n"
+        # txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
+        # txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
+
+        txt = all_infos[base_alg]["sql"]
+        firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
+        pdf.savefig()
+        plt.close()
+
+        for alg, info in all_infos.items():
+            alg_cards = q.subq_cards[alg]
+            true_cards = q.subq_cards["true"]
+            plot_join_order(info, pdf, single_plot=False,
+                    python_alg_name=alg, est_cards=alg_cards,
+                    true_cards=true_cards)
 
 def main():
     results_cache = klepto.archives.dir_archive(args.results_dir)
@@ -297,11 +380,13 @@ def main():
     make_dir(args.output_dir)
     algs = ["nn", "nn-jl1", "nn-jl2", "Postgres"]
     train_df = train_df[train_df["alg_name"].isin(algs)]
-    gen_error_summaries(train_df, summary_pdf, algs=algs)
+    print("going to generate summary pdf")
+    gen_error_summaries(train_df, summary_pdf, algs_to_plot=algs)
 
-    for alg in algs:
-        gen_query_bar_graphs(train_df, summary_pdf, "join", alg, algs)
-        gen_query_bar_graphs(train_df, summary_pdf, "qerr", alg, algs)
+    if args.worst_query_joins:
+        for alg in algs:
+            gen_query_bar_graphs(train_df, summary_pdf, "join", alg, algs)
+            gen_query_bar_graphs(train_df, summary_pdf, "qerr", alg, algs)
 
     summary_pdf.close()
 

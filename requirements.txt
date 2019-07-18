@@ -12,3 +12,4 @@ pomegranate
 matplotlib
 seaborn
 sklearn
+toml

@@ -608,12 +608,12 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
     start = time.time()
 
     ## for chunky
-    con = pg.connect(user=user, host=db_host, port=port,
-            password=pwd, database=db_name)
+    # con = pg.connect(user=user, host=db_host, port=port,
+            # password=pwd, database=db_name)
 
     ## for aws
-    # con = pg.connect(user=user, port=port,
-            # password=pwd, database=db_name)
+    con = pg.connect(user=user, port=port,
+            password=pwd, database=db_name)
 
     cursor = con.cursor()
     if timeout is not None:
