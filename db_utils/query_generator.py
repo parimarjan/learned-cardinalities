@@ -59,7 +59,9 @@ class QueryGenerator():
                     for k in range(num_pred_vals):
                         val = random.choice(self.valid_pred_vals[col])
                         if val is not None:
-                            vals.append("'{}'".format(val[0].replace("'","")))
+                            # pdb.set_trace()
+                            # vals.append("'{}'".format(val[0].replace("'","")))
+                            vals.append("'{}'".format(str(val[0]).replace("'","")))
                     # "'{}'".format(random.choice(self.valid_pred_vals[col])[0].replace("'",""))
                     vals = [s for s in set(vals)]
                     vals.sort()
@@ -67,9 +69,11 @@ class QueryGenerator():
                     gen_query = gen_query.replace("'" + pred_sql + "'", new_pred_str)
 
                 elif pred_types[i] == "lte" or pred_types[i] == "lt":
-                    if not "SELECT" in str(pred_str[0]):
-                        # leave this as is.
-                        continue
+                    # print("going to sample for range query")
+                    # pdb.set_trace()
+                    # if not "SELECT" in str(pred_str[0]):
+                        # # leave this as is.
+                        # continue
                     assert len(pred_str) == 2
                     if col not in self.valid_pred_vals:
                         table = col[0:col.find(".")]
@@ -93,6 +97,7 @@ class QueryGenerator():
                     gen_query = gen_query.replace(low_pred, low_val)
                     gen_query = gen_query.replace(high_pred, high_val)
 
+            print(gen_query)
             all_query_strs.append(gen_query)
         print("{} took {} seconds to generate".format(len(all_query_strs),
             time.time()-start))

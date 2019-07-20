@@ -54,7 +54,7 @@ def get_alg(alg):
                     nn_cache_dir = args.nn_cache_dir,
                     divide_mb_len = args.divide_mb_len)
     elif alg == "ourpgm":
-        return OurPGM()
+        return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
         assert False
 
@@ -129,10 +129,9 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
     # TODO: change key to be based on file name?
     hashed_tmp = deterministic_hash(query_template)
 
-    # if hashed_tmp in sql_str_cache.archive:
     if hashed_tmp in sql_str_cache:
         query_strs = sql_str_cache[hashed_tmp]
-        # print("loaded {} query strings".format(len(query_strs)))
+        print("loaded {} query strings".format(len(query_strs)))
 
     if num_samples == -1:
         # select whatever we loaded
@@ -153,6 +152,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
         query_strs += gen_sqls
         # save on the disk
         sql_str_cache.archive[hashed_tmp] = query_strs
+    print("returning {} query strs".format(len(query_strs)))
     return query_strs
 
 def gen_query_objs(args, query_strs, query_obj_cache):
@@ -230,14 +230,15 @@ def main():
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
     db_key = deterministic_hash("db-" + args.template_dir)
-    if db_key in misc_cache.archive:
-    # if False:
+    # if db_key in misc_cache.archive:
+    if False:
         db = misc_cache.archive[db_key]
     else:
         # either load the db object from cache, or regenerate it.
         db = DB(args.user, args.pwd, args.db_host, args.port,
                 args.db_name)
         for template in query_templates:
+            print(template)
             if isinstance(template, dict):
                 db.update_db_stats(template["base_sql"]["sql"])
             else:
@@ -313,6 +314,7 @@ def main():
 
     samples = remove_doubles(samples)
     all_queries = samples
+    print("after removing doubles, len: ", len(samples))
 
     # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
     # in all of the queries
@@ -358,21 +360,21 @@ def main():
         start = time.time()
         alg.train(db, train_queries, use_subqueries=args.use_subqueries)
         alg.save_model(save_dir=args.result_dir, suffix_name=gen_exp_hash()[0:3])
-        train_times[alg] = round(time.time() - start, 2)
+        train_times[alg.__str__()] = round(time.time() - start, 2)
 
         start = time.time()
         eval_alg(alg, losses, train_queries, args.use_subqueries)
 
         if args.test:
             eval_alg(alg, losses, test_queries, args.use_subqueries)
-        eval_times[alg] = round(time.time() - start, 2)
+        eval_times[alg.__str__()] = round(time.time() - start, 2)
 
     results = {}
     results["training_queries"] = train_queries
-    results["test_queries"] = test_queries
+    # results["test_queries"] = test_queries
     results["args"] = args
     results["train_times"] = train_times
-    results["eval_times"] = eval_times
+    # results["eval_times"] = eval_times
 
     results_cache = klepto.archives.dir_archive(args.results_cache)
     dt = datetime.datetime.now()
@@ -397,6 +399,10 @@ def read_flags():
             default="./results")
     parser.add_argument("--exp_name", type=str, required=False,
             default="card_exp")
+    parser.add_argument("--pgm_backend", type=str, required=False,
+            default="ourpgm")
+    parser.add_argument("--pgm_alg_name", type=str, required=False,
+            default="chow-liu")
 
     parser.add_argument("--db_name", type=str, required=False,
             default="card_est")
@@ -481,7 +487,7 @@ def read_flags():
     parser.add_argument("--db_file_name", type=str, required=False,
             default=None)
     parser.add_argument("--cache_dir", type=str, required=False,
-            default="./caches/")
+            default="./pgm_caches/")
     parser.add_argument("--execution_cache_threshold", type=int, required=False,
             default=20)
     parser.add_argument("--jl_variant", type=int, required=False,

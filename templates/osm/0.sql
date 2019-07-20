@@ -7,5 +7,5 @@ AND 'Xc1' < osm2.c1
 AND osm2.c1 <= 'Yc1'
 AND 'Xc2' < osm2.c2
 AND osm2.c2 <= 'Yc2'
-AND osm2.d0 IN (Xd0)
-AND osm2.d1 IN (Xd1)
+AND osm2.d0 IN ('SELECT osm2.d0 FROM osm2 WHERE osm2.d0 IS NOT NULL')
+AND osm2.d1 IN ('SELECT osm2.d1 FROM osm2 WHERE osm2.d1 IS NOT NULL')

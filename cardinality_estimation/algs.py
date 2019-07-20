@@ -93,19 +93,20 @@ def get_possible_values(sample, db, column_bins=None):
             else:
                 assert False
 
-        if len(possible_vals) == 0:
-            # add every value in the current column
-            if state in column_bins:
-                # add every element of the bin
-                # possible_vals = list(range(len(column_bins[state])))
-                for vi, _ in enumerate(column_bins[state]):
-                    possible_vals.append(vi+1)
-            else:
-                for val in db.column_stats[state]["unique_values"]:
-                    if val[0] is None:
-                        possible_vals.append(NULL_VALUE)
-                    else:
-                        possible_vals.append(val[0])
+        ## FIXME: DO this in our PGM model.
+        # if len(possible_vals) == 0:
+            # # add every value in the current column
+            # if state in column_bins:
+                # # add every element of the bin
+                # # possible_vals = list(range(len(column_bins[state])))
+                # for vi, _ in enumerate(column_bins[state]):
+                    # possible_vals.append(vi+1)
+            # else:
+                # for val in db.column_stats[state]["unique_values"]:
+                    # if val[0] is None:
+                        # possible_vals.append(NULL_VALUE)
+                    # else:
+                        # possible_vals.append(val[0])
         all_possible_vals.append(possible_vals)
     return all_possible_vals
 
@@ -148,16 +149,24 @@ class OurPGM(CardinalityEstimationAlg):
 
     def __init__(self, *args, **kwargs):
         self.min_groupby = 0
-        self.model = PGM()
-        self.test_cache = {}
+        self.backend = kwargs["backend"]
+        self.alg_name = kwargs["alg_name"]
+        self.model = PGM(alg_name=self.alg_name, backend=self.backend)
 
         self.num_bins = 100
+        self.test_cache = {}
         self.column_bins = {}
+
+    def __str__(self):
+        name = self.alg_name
+        return name
 
     def _load_training_data(self, db, continuous_cols):
         '''
-        FIXME: we should be able to essentially use this for ANY table which
-        does not have discretization.
+        @ret:
+            samples: 2d array. each row represents an output from the group by
+            of postgres over the given columns.
+            weights: count of that group by row
         '''
         start = time.time()
         assert len(db.tables) == 1
@@ -236,7 +245,6 @@ class OurPGM(CardinalityEstimationAlg):
             samples, weights = self._load_training_data(db, True)
         elif "imdb" in db.db_name:
             assert False
-            # samples, weights = self._load_imdb_model(db, training_samples, **kwargs)
         elif "dmv" in db.db_name:
             samples, weights = self._load_training_data(db, False)
         else:
@@ -244,6 +252,10 @@ class OurPGM(CardinalityEstimationAlg):
 
         columns = list(db.column_stats.keys())
         self.model.train(samples, weights, state_names=columns)
+        self.DEBUG = True
+        # if self.DEBUG:
+            # self.debug_model = BayesianNetwork.from_samples(samples, weights=weights,
+                    # state_names=columns, algorithm="chow-liu", n_jobs=-1)
 
     def test(self, test_samples):
         estimates = []
@@ -255,7 +267,23 @@ class OurPGM(CardinalityEstimationAlg):
                 continue
             model_sample = get_possible_values(query, self.db,
                     self.column_bins)
-            est_sel = self.model.evaluate(model_sample)
+
+            if self.DEBUG:
+                # TODO: take cross-product ONLY over the ones without empty list
+                sample_cross_prod = itertools.product(*model_sample)
+                est_sel = 0.00
+                for s in sample_cross_prod:
+                    cur_sample = [[s[0]], [s[1]]]
+                    est_sel += self.model.evaluate(cur_sample)
+                    # print(est_sel)
+                    # # pom_est_sel = self.model.pom_model.probability(cur_sample)
+                    # pom_est_sel = self.debug_model.probability(s)
+                    # print(est_sel, pom_est_sel)
+                    # pdb.set_trace()
+
+            else:
+                # normal method
+                est_sel = self.model.evaluate(model_sample)
             estimates.append(est_sel)
             self.test_cache[hashed_query] = est_sel
         return estimates
@@ -288,6 +316,7 @@ class BN(CardinalityEstimationAlg):
         # non-persistent cast, just to avoid running same alg again
         self.test_cache = {}
         self.min_groupby = 0
+        self.column_bins = {}
 
     def train(self, db, training_samples, **kwargs):
         # generate the group-by over all the columns we care about.
@@ -307,6 +336,7 @@ class BN(CardinalityEstimationAlg):
             assert False
 
         self.save_model()
+        print("trained BN model!")
 
     def _load_osm_model(self, db, training_samples, **kwargs):
         # load directly to numpy since should be much faster
@@ -418,64 +448,6 @@ class BN(CardinalityEstimationAlg):
                     state_names=pred_columns, algorithm=self.alg, n_jobs=-1)
 
     def test(self, test_samples):
-        # def _query_to_sample(sample):
-            # '''
-            # takes in a Query object, and converts it to the representation to
-            # be fed into the pomegranate bayesian net model
-            # '''
-            # model_sample = []
-            # for state in self.model.states:
-                # # find the right column entry in sample
-                # val = None
-                # possible_vals = []
-                # for i, column in enumerate(sample.pred_column_names):
-                    # if column == state.name:
-                        # cmp_op = sample.cmp_ops[i]
-                        # val = sample.vals[i]
-                        # if cmp_op == "in":
-                            # if hasattr(sample.vals[i], "__len__"):
-                                # # dedup
-                                # val = set(val)
-                            # # possible_vals = [int(v.replace("'","")) for v in val]
-                            # ## FIXME:
-                            # all_vals = [str(v.replace("'","")) for v in val]
-                            # for v in all_vals:
-                                # if v != "tv mini series":
-                                    # possible_vals.append(v)
-                        # elif cmp_op == "lt":
-                            # assert len(val) == 2
-                            # if self.db.db_name == "imdb":
-                                # # FIXME: hardcoded for current query...
-                                # val = [int(v) for v in val]
-                                # for ival in range(val[0], val[1]):
-                                    # possible_vals.append(str(ival))
-                            # else:
-                                # # discretize first
-                                # bins = self.column_bins[column]
-                                # val = [float(v) for v in val]
-                                # try:
-                                    # disc_vals = np.digitize(val, bins)
-                                    # for ival in range(disc_vals[0], disc_vals[1]+1):
-                                        # # possible_vals.append(ival)
-                                        # possible_vals.append(str(ival))
-                                # except:
-                                    # print(val)
-                                    # pdb.set_trace()
-                        # elif cmp_op == "eq":
-                            # possible_vals.append(val)
-                        # else:
-                            # print(sample)
-                            # print(column)
-                            # print(cmp_op)
-                            # pdb.set_trace()
-                # if len(possible_vals) == 0:
-                    # assert "county" != state.name
-                    # for dv in self.model.marginal()[len(model_sample)].parameters:
-                        # for k in dv:
-                            # possible_vals.append(k)
-                # model_sample.append(possible_vals)
-            # return model_sample
-
         if self.gen_bn_dist:
             self.est_dist_pdf = PdfPages("./bn_est_dist.pdf")
         db = self.db
@@ -495,8 +467,8 @@ class BN(CardinalityEstimationAlg):
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
                 continue
-            model_sample = get_possible_values(query, self.db)
-            # model_sample = _query_to_sample(query)
+            model_sample = get_possible_values(query, self.db,
+                    self.column_bins)
             all_points = []
             for element in itertools.product(*model_sample):
                 all_points.append(element)
@@ -521,7 +493,7 @@ class BN(CardinalityEstimationAlg):
                         except Exception as e:
                             # FIXME: add minimum amount.
                             # unknown key ...
-                            # print("unknown key got!")
+                            print("unknown key got!")
                             total = self.db.column_stats["dmv.record_type"]["total_values"]
                             est_sel += float(self.min_groupby) / total
                             print(e)

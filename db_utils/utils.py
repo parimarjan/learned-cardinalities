@@ -610,12 +610,12 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
     start = time.time()
 
     ## for chunky
-    # con = pg.connect(user=user, host=db_host, port=port,
-            # password=pwd, database=db_name)
+    con = pg.connect(user=user, host=db_host, port=port,
+            password=pwd, database=db_name)
 
     ## for aws
-    con = pg.connect(user=user, port=port,
-            password=pwd, database=db_name)
+    # con = pg.connect(user=user, port=port,
+            # password=pwd, database=db_name)
 
     cursor = con.cursor()
     if timeout is not None:
@@ -707,12 +707,13 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     pg_est = pg_est_from_explain(exp_output)
     print("pg_est: ", pg_est)
 
+    # FIXME: start caching the true total count values
     if total_count is None:
         total_count_query = get_total_count_query(sql)
 
         # if we should just update value based on pg' estimate for total count
         # v/s finding true count
-        TRUE_TOTAL_COUNT = False
+        TRUE_TOTAL_COUNT = True
         total_timeout = 180000
         if TRUE_TOTAL_COUNT:
             exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
