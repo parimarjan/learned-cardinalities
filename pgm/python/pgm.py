@@ -9,6 +9,12 @@ import csv
 from pomegranate import BayesianNetwork
 import math
 import itertools
+import time
+import klepto
+from utils.utils import *
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 system = platform.system()
 if system == 'Linux':
@@ -38,6 +44,7 @@ class PGM():
         @samples: 2d array. Each row represents a unique point in the joint
         distribution, with each column representing a random variable.
         '''
+        start = time.time()
         assert state_names is not None
         self.state_names = state_names
 
@@ -68,6 +75,12 @@ class PGM():
             # TODO: cache the trained model, based on hash of mapped samples?
             self.pom_model = BayesianNetwork.from_samples(mapped_samples, weights=weights,
                     state_names=self.state_names, algorithm="chow-liu", n_jobs=-1)
+
+            # self.pom_model.plot()
+            # fn = str(self.state_names) + "-chow-liu.pdf"
+            # plt.savefig(fn)
+            # plt.close()
+
             if self.alg_name == "greg":
                 # compute all the appropriate SVD's
                 self.edge_svds = {}
@@ -77,9 +90,16 @@ class PGM():
                 for i, s in enumerate(self.pom_model.states):
                     state_to_idx[s.name] = i
 
+                # Expensive computation, so save it if possible
+                misc_cache = klepto.archives.dir_archive("./misc_cache/edge_svds/")
+                misc_cache.load()
                 for edge in self.pom_model.edges:
                     node1 = state_to_idx[edge[0].name]
                     node2 = state_to_idx[edge[1].name]
+                    edge_nodes = [node1, node2]
+                    edge_nodes.sort()
+                    edge_key = (edge_nodes[0], edge_nodes[1])
+
                     # FIXME: check
                     cond_dist = edge[1].distribution
                     assert "ConditionalProbabilityTable" in str(type(cond_dist))
@@ -90,7 +110,16 @@ class PGM():
                     node2_vals = [k for k in self.pom_model.marginal()[node2].parameters[0].keys()]
                     dim2 = len(marg2)
 
-                    # print(dim1, dim2)
+                    svd_key = str(marg1) + str(marg2) + str(node1_vals) + str(node2_vals)
+                    svd_key = deterministic_hash(svd_key)
+                    if svd_key in misc_cache:
+                        self.edge_svds[edge_key] = misc_cache[svd_key]
+                        print("found edge key {} in cache".format(edge_key))
+                        print(np.max(self.edge_svds[edge_key][1]))
+                        continue
+                    else:
+                        print("did not find edge key {} in cache".format(edge_keedge_key))
+
                     joint_mat = np.zeros((dim1, dim2))
                     for i in range(dim1):
                         for j in range(dim2):
@@ -107,10 +136,10 @@ class PGM():
                             # print(i,j,joint_mat[i,j])
                             # pdb.set_trace()
 
+
                     # TODO: replace this by scipy.sparse svd's so can only
                     # compute for top-k values
 
-                    # print(joint_mat)
                     uh, sv, vh = np.linalg.svd(joint_mat, full_matrices=False)
                     # print(np.max(sv))
                     assert np.max(sv) < 1.1
@@ -124,15 +153,16 @@ class PGM():
                     for xj in range(dim2):
                         vh[:,xj] /= math.sqrt(marg2[xj])
 
-                    edge_nodes = [node1, node2]
-                    edge_nodes.sort()
-                    # list can't be hashed...
-                    edge_key = (edge_nodes[0], edge_nodes[1])
                     assert edge_key not in self.edge_svds
                     self.edge_svds[edge_key] = (uh, sv, vh)
 
+                    misc_cache[svd_key] = self.edge_svds[edge_key]
+                misc_cache.dump()
+                misc_cache.clear()
             else:
                 assert False
+
+        print("pgm model took {} seconds to train".format(time.time()-start))
 
     def evaluate(self, rv_values):
         '''
@@ -152,64 +182,28 @@ class PGM():
             return self._eval_ourpgm(sample)
         elif self.backend == "pomegranate":
             assert self.pom_model is not None
-            sample = self._get_sample(rv_values, False)
-            assert len(sample) == len(self.state_names)
             if self.alg_name == "greg":
-                # sample_cross_prod = itertools.product(*sample)
-                # print(sample_cross_prod)
-                # for s in sample_cross_prod
-                # pdb.set_trace()
-                # first calculate the probability under the independence
-                # assumption for each of the variables
-                ind_probs = []
-                # nodes on which we have a condition
-                # nodes = [i for i,s in enumerate(sample) if len(s) != 0]
-                # print(nodes)
+                sample = self._get_sample(rv_values, False)
+                assert len(sample) == len(self.state_names)
+                # find the appropriate marginals, and nodes
                 cond_nodes = []
+                margs = []
+                cur_node_vals = []
                 for i,vals in enumerate(sample):
                     if len(vals) == 0:
                         continue
                     cond_nodes.append(i)
                     marg = self.pom_model.marginal()[i].values()
-                    # add all the probabilities for the given values of the
-                    # node.
-                    cur_prob = 0.00
-                    for val in vals:
-                        # since we are enforcing that the val and index in the
-                        # sample should be the same
-                        cur_prob += marg[val]
-                    ind_probs.append(cur_prob)
+                    margs.append(marg)
+                    cur_node_vals.append(vals)
+                all_points = itertools.product(*cur_node_vals)
 
-                # print("ind probs: ", ind_probs)
-                ind_prob = np.product(np.array(ind_probs))
-
-                # calculate the correction term, only for the edges
-                correction_term = 0.00
-                for edge_nodes, svds in self.edge_svds.items():
-                    if not (edge_nodes[0] in cond_nodes and edge_nodes[1] in cond_nodes):
-                        continue
-                    uh = svds[0]
-                    sv = svds[1]
-                    vh = svds[2]
-                    possible_vals = [sample[edge_nodes[0]],
-                                        sample[edge_nodes[1]]]
-                    # take the cross-product of the possible values x_i, x_j in
-                    # the two nodes, and calculate the correction term based on
-                    # the svds
-                    for (xi, xj) in itertools.product(*possible_vals):
-                        # print(xi, xj)
-                        fi = uh[xi,:]
-                        gi = vh[:,xj]
-                        # FIXME: should we be summing these for each xi,xj
-                        # combination
-                        correction_term += np.dot(np.multiply(fi, sv), gi)
-                        # print(correction_term)
-                        # pdb.set_trace()
-
-                print("prob: ", ind_prob)
-                print("correction term: ", correction_term)
-                pdb.set_trace()
-                return ind_prob + ind_prob*correction_term
+                # TODO: parallelize this
+                est = 0.00
+                for p in all_points:
+                    assert len(p) == len(cond_nodes) == len(cur_node_vals)
+                    est += self._eval_greg_pointwise(cond_nodes, margs, p)
+                return est
             else:
                 assert False
 
@@ -270,5 +264,62 @@ class PGM():
                 writer.writerow([est])
         return est
 
-    def _evaluate_greg_pointwise(self, sample):
+    def _eval_greg_pointwise(self, cond_nodes, margs, point):
+        '''
+        @cond_nodes: the nodes (0...n-1) which are being used in the current
+        point.
+        @margs: for the given nodes in cond_nodes, these are the marginal
+        distributions
+        @point: particular point, where point[i] is a value assignment to the
+        random variable cond_nodes[i].
+        '''
+        assert len(cond_nodes) == len(margs) == len(point)
+        # calculate the correction term, only for the edges
+        correction_term = 0.00
+        ind_prob = 1.00
+        for i, p in enumerate(point):
+            ind_prob = ind_prob*margs[i][p]
+
+        for edge_nodes, svds in self.edge_svds.items():
+            # if not (edge_nodes[0] in cond_nodes and edge_nodes[1] in cond_nodes):
+                # continue
+            # idxs into point / margs
+            idx1 = None
+            idx2 = None
+            for nodei, node in enumerate(cond_nodes):
+                if edge_nodes[0] == node:
+                    idx1 = nodei
+                elif edge_nodes[1] == node:
+                    idx2 = nodei
+
+            # skip if both the nodes in the edge nodes aren't in cond_nodes
+            if idx1 is None or idx2 is None:
+                continue
+
+            uh = svds[0]
+            sv = svds[1]
+            vh = svds[2]
+
+            try:
+                xi = point[idx1]
+                xj = point[idx2]
+                assert type(xi) == int
+                assert type(xj) == int
+            except:
+                print(edge_nodes)
+                print(point)
+                pdb.set_trace()
+
+            fi = uh[xi,:]
+            gi = vh[:,xj]
+            # FIXME: should we be summing these for each xi,xj
+            # combination
+            correction_term += np.dot(np.multiply(fi, sv), gi)
+            # print(correction_term)
+            # pdb.set_trace()
+
+        # print("ind prob: ", ind_prob)
+        # print("correction term: ", correction_term)
+        # pdb.set_trace()
+        return ind_prob + ind_prob*correction_term
 

@@ -230,8 +230,8 @@ def main():
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
     db_key = deterministic_hash("db-" + args.template_dir)
-    # if db_key in misc_cache.archive:
-    if False:
+    if db_key in misc_cache.archive:
+    # if False:
         db = misc_cache.archive[db_key]
     else:
         # either load the db object from cache, or regenerate it.
@@ -359,7 +359,6 @@ def main():
     for alg in algorithms:
         start = time.time()
         alg.train(db, train_queries, use_subqueries=args.use_subqueries)
-        alg.save_model(save_dir=args.result_dir, suffix_name=gen_exp_hash()[0:3])
         train_times[alg.__str__()] = round(time.time() - start, 2)
 
         start = time.time()

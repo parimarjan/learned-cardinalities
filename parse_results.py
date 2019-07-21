@@ -37,8 +37,6 @@ def read_flags():
             default=0)
     parser.add_argument("--per_query", type=int, required=False,
             default=0)
-    parser.add_argument("--join_parse", type=int, required=False,
-            default=1)
     parser.add_argument("--worst_query_joins", type=int, required=False,
             default=0)
 
@@ -151,7 +149,10 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     data["true_sel"].append(true_sel)
                     data["optimizer_name"].append(optimizer_name)
                     data["jl_start_iter"].append(jl_start_iter)
-                    data["num_subqueries"].append(len(q.subqueries))
+                    if hasattr(q, "subqueries"):
+                        data["num_subqueries"].append(len(q.subqueries))
+                    else:
+                        data["num_subqueries"].append(0)
 
                     # TODO: add the predicted selectivity by this alg
 
@@ -295,6 +296,14 @@ def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True)
         plot_table(tail1, 1,0, "95th Percentile")
         plot_table(tail2, 1,1, "99th Percentile")
 
+        tmp_df = df[df["alg_name"] == "Postgres"]
+        tmp_df = tmp_df[tmp_df["loss_type"] == "qerr"]
+        plt.suptitle("Dataset: {}, Num Queries: {}".format(args.db_name,
+            len(tmp_df)),
+                x=0.5, y=.99, horizontalalignment='center',
+                verticalalignment='top', fontsize = 10)
+
+        plt.savefig("summary.png")
         pdf.savefig()
         plt.clf()
 
@@ -378,7 +387,7 @@ def main():
 
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
     make_dir(args.output_dir)
-    algs = ["nn", "nn-jl1", "nn-jl2", "Postgres"]
+    algs = ["nn", "nn-jl1", "nn-jl2", "Postgres", "ourpgm", "greg", "chow-liu"]
     train_df = train_df[train_df["alg_name"].isin(algs)]
     print("going to generate summary pdf")
     gen_error_summaries(train_df, summary_pdf, algs_to_plot=algs)

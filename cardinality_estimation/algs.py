@@ -92,21 +92,6 @@ def get_possible_values(sample, db, column_bins=None):
                 possible_vals.append(val)
             else:
                 assert False
-
-        ## FIXME: DO this in our PGM model.
-        # if len(possible_vals) == 0:
-            # # add every value in the current column
-            # if state in column_bins:
-                # # add every element of the bin
-                # # possible_vals = list(range(len(column_bins[state])))
-                # for vi, _ in enumerate(column_bins[state]):
-                    # possible_vals.append(vi+1)
-            # else:
-                # for val in db.column_stats[state]["unique_values"]:
-                    # if val[0] is None:
-                        # possible_vals.append(NULL_VALUE)
-                    # else:
-                        # possible_vals.append(val[0])
         all_possible_vals.append(possible_vals)
     return all_possible_vals
 
@@ -149,6 +134,7 @@ class OurPGM(CardinalityEstimationAlg):
 
     def __init__(self, *args, **kwargs):
         self.min_groupby = 0
+        self.kwargs = kwargs
         self.backend = kwargs["backend"]
         self.alg_name = kwargs["alg_name"]
         self.model = PGM(alg_name=self.alg_name, backend=self.backend)
@@ -156,6 +142,7 @@ class OurPGM(CardinalityEstimationAlg):
         self.num_bins = 100
         self.test_cache = {}
         self.column_bins = {}
+        self.DEBUG = False
 
     def __str__(self):
         name = self.alg_name
@@ -226,6 +213,7 @@ class OurPGM(CardinalityEstimationAlg):
                 # FIXME: need to make this consistent throughout
                 if sample[j] is None:
                     # FIXME: what should be the sentinel value?
+                    print("adding NULL_VALUE")
                     samples[i].append(NULL_VALUE)
                 else:
                     samples[i].append(sample[j])
@@ -239,6 +227,7 @@ class OurPGM(CardinalityEstimationAlg):
 
     def train(self, db, training_samples, **kwargs):
         self.db = db
+
         if "synth" in db.db_name:
             samples, weights = self._load_training_data(db, False)
         elif "osm" in db.db_name:
@@ -249,13 +238,25 @@ class OurPGM(CardinalityEstimationAlg):
             samples, weights = self._load_training_data(db, False)
         else:
             assert False
-
         columns = list(db.column_stats.keys())
-        self.model.train(samples, weights, state_names=columns)
-        self.DEBUG = True
-        # if self.DEBUG:
-            # self.debug_model = BayesianNetwork.from_samples(samples, weights=weights,
-                    # state_names=columns, algorithm="chow-liu", n_jobs=-1)
+
+        # TODO: make this more robust
+        model_key = deterministic_hash(str(columns) + str(self.kwargs))
+
+        model = self.load_model(model_key)
+        if model is None:
+            self.model.train(samples, weights, state_names=columns)
+            self.save_model(self.model, model_key)
+        else:
+            self.model = model
+
+
+    def load_model(self, key):
+        # TODO have a system to do this
+        return None
+
+    def save_model(self, model, key):
+        pass
 
     def test(self, test_samples):
         estimates = []
@@ -268,22 +269,17 @@ class OurPGM(CardinalityEstimationAlg):
             model_sample = get_possible_values(query, self.db,
                     self.column_bins)
 
+            # normal method
+            est_sel = self.model.evaluate(model_sample)
             if self.DEBUG:
-                # TODO: take cross-product ONLY over the ones without empty list
-                sample_cross_prod = itertools.product(*model_sample)
-                est_sel = 0.00
-                for s in sample_cross_prod:
-                    cur_sample = [[s[0]], [s[1]]]
-                    est_sel += self.model.evaluate(cur_sample)
-                    # print(est_sel)
-                    # # pom_est_sel = self.model.pom_model.probability(cur_sample)
-                    # pom_est_sel = self.debug_model.probability(s)
-                    # print(est_sel, pom_est_sel)
-                    # pdb.set_trace()
+                true_sel = query.true_sel
+                qerr = max(true_sel / est_sel, est_sel / true_sel)
+                if qerr > 4.00:
+                    print(query)
+                    print("est sel: {}, true sel: {}, qerr: {}".format(est_sel,
+                        true_sel, qerr))
+                    pdb.set_trace()
 
-            else:
-                # normal method
-                est_sel = self.model.evaluate(model_sample)
             estimates.append(est_sel)
             self.test_cache[hashed_query] = est_sel
         return estimates
