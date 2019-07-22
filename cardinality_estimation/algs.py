@@ -104,11 +104,12 @@ class CardinalityEstimationAlg():
         pass
     def test(self, test_samples, **kwargs):
         pass
-    def size(self):
+    def num_parameters(self):
         '''
         size of the parameters needed so we can compare across different algorithms.
         '''
-        pass
+        return 0
+
     def __str__(self):
         return self.__class__.__name__
     def save_model(self, save_dir="./", suffix_name=""):
@@ -250,6 +251,22 @@ class OurPGM(CardinalityEstimationAlg):
         else:
             self.model = model
 
+        NUM_PARAMS_NOT_IMPL = True
+        if NUM_PARAMS_NOT_IMPL:
+            # calculate it using pomegranate model
+            model = BayesianNetwork.from_samples(samples, weights=weights,
+                    state_names=columns, algorithm="chow-liu", n_jobs=-1)
+            self.param_count = 0
+            for state in model.states:
+
+                dist = state.distribution.parameters[0]
+                if isinstance(dist, list):
+                    self.param_count += len(dist)*3
+                elif isinstance(dist, dict):
+                    self.param_count += len(dist)*2
+
+    def num_parameters(self):
+        return self.param_count
 
     def load_model(self, key):
         # TODO have a system to do this

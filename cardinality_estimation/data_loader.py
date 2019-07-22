@@ -118,17 +118,19 @@ def get_gaussian_data_params(args):
     return means, covs
 
 def get_table_name(args):
-    return args.synth_table + str(args.synth_num_columns) + str(args.random_seed)
+    return args.synth_table + str(args.synth_num_columns) + \
+        str(args.synth_period_len) + str(args.random_seed)
 
 def gen_synth_data(args):
     con = pg.connect(user=args.user, host=args.db_host, port=args.port,
             password=args.pwd, database=args.db_name)
     cur = con.cursor()
     table_name = get_table_name(args)
+    # table_name = args.synth_table + str(args.synth_num_columns)
     exists = check_table_exists(cur, table_name)
-    # print("exists: ", exists)
-    # if exists:
-        # return
+    print("exists: ", exists)
+    if exists:
+        return
     con.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
     # always creates the table and fills it up with data.
     cur.execute("DROP TABLE IF EXISTS {TABLE}".format(TABLE=table_name))
@@ -165,10 +167,12 @@ def update_synth_templates(args, query_templates):
     # generation stuff
     print("update synth templates!!")
     table_name = get_table_name(args)
+
     # add a select count(*) for every combination of columns
     meta_tmp = "SELECT COUNT(*) FROM {TABLE} WHERE {CONDS}"
     # TEST.col2 = 'col2'
-    cond_meta_tmp = "{TABLE}.{COLUMN} in (X{COLUMN})"
+    # cond_meta_tmp = "{TABLE}.{COLUMN} IN (X{COLUMN})"
+    cond_meta_tmp = "{TABLE}.{COLUMN} IN ('SELECT {COLUMN} FROM {TABLE}')"
     column_list = []
     combs = []
     for i in range(args.synth_num_columns):
@@ -181,4 +185,5 @@ def update_synth_templates(args, query_templates):
     cond_str = " AND ".join(conditions)
     query_tmp = meta_tmp.format(TABLE = table_name,
                     CONDS = cond_str)
+    print(query_tmp)
     query_templates.append(query_tmp)

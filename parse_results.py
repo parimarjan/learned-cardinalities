@@ -378,6 +378,42 @@ def plot_single_query(qname, queries, pdf):
                     python_alg_name=alg, est_cards=alg_cards,
                     true_cards=true_cards)
 
+def gen_scaling_summary(results_cache):
+    data = defaultdict(list)
+    for k, results in results_cache.items():
+        result_args = results["args"]
+        try:
+            float(results["num_params"]["chow-liu"])
+            data["num_params"].append(results["num_params"]["chow-liu"])
+        except:
+            continue
+
+        data["num_columns"].append(result_args.synth_num_columns)
+        data["period_len"].append(result_args.synth_period_len)
+        data["eval_time"].append(results["eval_times"]["chow-liu"])
+
+    df = pd.DataFrame(data)
+
+    summary_pdf = PdfPages(args.results_dir + "/scaling_summary.pdf")
+    make_dir(args.output_dir)
+
+    ax = sns.lineplot(x="num_columns", y="eval_time", hue="period_len",
+            style="period_len", data=df)
+
+    plt.title("Scaling wrt Time")
+    plt.tight_layout()
+    pdf.savefig()
+    plt.clf()
+
+    ax = sns.lineplot(x="num_columns", y="num_params", hue="period_len",
+            style="period_len",
+            data=df)
+
+    plt.title("Scaling wrt Params")
+    plt.tight_layout()
+    pdf.savefig()
+    plt.clf()
+
 def main():
     results_cache = klepto.archives.dir_archive(args.results_dir)
     results_cache.load()
@@ -387,9 +423,9 @@ def main():
 
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
     make_dir(args.output_dir)
+
     algs = ["nn", "nn-jl1", "nn-jl2", "Postgres", "ourpgm", "greg", "chow-liu"]
     train_df = train_df[train_df["alg_name"].isin(algs)]
-    print("going to generate summary pdf")
     gen_error_summaries(train_df, summary_pdf, algs_to_plot=algs)
 
     if args.worst_query_joins:

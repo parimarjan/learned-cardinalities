@@ -111,11 +111,11 @@ def eval_alg(alg, losses, queries, use_subqueries):
                     np.round(np.percentile(losses,95),3),
                     np.round(np.percentile(losses,99),3)))
 
-    eval_time = time.time() - start
+    # eval_time = time.time() - start
 
     # FIXME: separate out global stats?
-    for q in queries:
-        q.eval_time[alg.__str__()] = eval_time
+    # for q in queries:
+        # q.eval_time[alg.__str__()] = eval_time
     print("evaluating alg took: {} seconds".format(eval_time))
 
 def gen_query_strs(args, query_template, num_samples, sql_str_cache):
@@ -214,23 +214,25 @@ def main():
     # Steps: collect statistics, gen templates, filter out zeros and dups, gen
     # subqueries.
     query_templates = []
-    assert args.template_dir is not None
-    fns = list(glob.glob(args.template_dir+"/*"))
-    for fn in fns:
-        if ".sql" in fn:
-            with open(fn, "r") as f:
-                template = f.read()
-        elif ".toml" in fn:
-            template = toml.load(fn)
-        else:
-            assert False
-        query_templates.append(template)
+    if args.template_dir is None:
+        update_synth_templates(args, query_templates)
+    else:
+        fns = list(glob.glob(args.template_dir+"/*"))
+        for fn in fns:
+            if ".sql" in fn:
+                with open(fn, "r") as f:
+                    template = f.read()
+            elif ".toml" in fn:
+                template = toml.load(fn)
+            else:
+                assert False
+            query_templates.append(template)
 
     start = time.time()
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
-    db_key = deterministic_hash("db-" + args.template_dir)
-    if db_key in misc_cache.archive:
+    db_key = deterministic_hash("db-" + str(args.template_dir))
+    if args.template_dir is not None and db_key in misc_cache.archive:
     # if False:
         db = misc_cache.archive[db_key]
     else:
@@ -267,7 +269,10 @@ def main():
                 # continue
 
             # q.template_sql = template
-            q.template_name = os.path.basename(fns[i]) + str(sample_id)
+            if args.template_dir is None:
+                q.template_name = "synth" + str(sample_id)
+            else:
+                q.template_name = os.path.basename(fns[i]) + str(sample_id)
             samples.append(q)
 
     # TODO: clear / dump the query_obj cache
@@ -355,6 +360,7 @@ def main():
 
     train_times = {}
     eval_times = {}
+    num_params = {}
 
     for alg in algorithms:
         start = time.time()
@@ -367,13 +373,15 @@ def main():
         if args.test:
             eval_alg(alg, losses, test_queries, args.use_subqueries)
         eval_times[alg.__str__()] = round(time.time() - start, 2)
+        num_params[alg.__str__()] = alg.num_parameters()
 
     results = {}
     results["training_queries"] = train_queries
-    # results["test_queries"] = test_queries
+    results["test_queries"] = test_queries
     results["args"] = args
     results["train_times"] = train_times
-    # results["eval_times"] = eval_times
+    results["eval_times"] = eval_times
+    results["num_params"] = num_params
 
     results_cache = klepto.archives.dir_archive(args.results_cache)
     dt = datetime.datetime.now()
