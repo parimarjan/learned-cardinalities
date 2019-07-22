@@ -90,7 +90,8 @@ def eval_alg(alg, losses, queries, use_subqueries):
         loss_name = get_loss_name(loss_func.__name__)
         if "join" in loss_name:
             losses = loss_func(alg, queries, args.use_subqueries,
-                    baseline=args.baseline_join_alg)
+                    baseline=args.baseline_join_alg,
+                    compute_runtime=args.compute_runtime)
             assert len(losses) == len(queries)
             # only used with queries, since subqueries don't have an associated join-loss
             for i, q in enumerate(queries):
@@ -111,11 +112,6 @@ def eval_alg(alg, losses, queries, use_subqueries):
                     np.round(np.percentile(losses,95),3),
                     np.round(np.percentile(losses,99),3)))
 
-    eval_time = time.time() - start
-
-    # FIXME: separate out global stats?
-    for q in queries:
-        q.eval_time[alg.__str__()] = eval_time
     print("evaluating alg took: {} seconds".format(eval_time))
 
 def gen_query_strs(args, query_template, num_samples, sql_str_cache):
@@ -131,7 +127,10 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
 
     if hashed_tmp in sql_str_cache:
         query_strs = sql_str_cache[hashed_tmp]
-        print("loaded {} query strings".format(len(query_strs)))
+        # print("loaded {} query strings".format(len(query_strs)))
+    else:
+        # TMP: for imdb data
+        assert False
 
     if num_samples == -1:
         # select whatever we loaded
@@ -152,7 +151,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
         query_strs += gen_sqls
         # save on the disk
         sql_str_cache.archive[hashed_tmp] = query_strs
-    print("returning {} query strs".format(len(query_strs)))
+    # print("returning {} query strs".format(len(query_strs)))
     return query_strs
 
 def gen_query_objs(args, query_strs, query_obj_cache):
@@ -263,10 +262,6 @@ def main():
                 args.num_samples_per_template, sql_str_cache)
         cur_samples = gen_query_objs(args, query_strs, query_obj_cache)
         for sample_id, q in enumerate(cur_samples):
-            # if sample_id in [12]:
-                # continue
-
-            # q.template_sql = template
             q.template_name = os.path.basename(fns[i]) + str(sample_id)
             samples.append(q)
 
@@ -370,10 +365,10 @@ def main():
 
     results = {}
     results["training_queries"] = train_queries
-    # results["test_queries"] = test_queries
+    results["test_queries"] = test_queries
     results["args"] = args
     results["train_times"] = train_times
-    # results["eval_times"] = eval_times
+    results["eval_times"] = eval_times
 
     results_cache = klepto.archives.dir_archive(args.results_cache)
     dt = datetime.datetime.now()
@@ -451,6 +446,8 @@ def read_flags():
             default=0)
     parser.add_argument("--gen_bn_dist", type=int, required=False,
             default=0)
+    parser.add_argument("--compute_runtime", type=int, required=False,
+            default=0)
     parser.add_argument("--only_nonzero_samples", type=int, required=False,
             default=0)
     parser.add_argument("--use_subqueries", type=int, required=False,
@@ -486,7 +483,7 @@ def read_flags():
     parser.add_argument("--db_file_name", type=str, required=False,
             default=None)
     parser.add_argument("--cache_dir", type=str, required=False,
-            default="./pgm_caches/")
+            default="./caches/")
     parser.add_argument("--execution_cache_threshold", type=int, required=False,
             default=20)
     parser.add_argument("--jl_variant", type=int, required=False,

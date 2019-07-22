@@ -130,6 +130,7 @@ def parse_query_objs(results_cache, trainining_queries=True):
             queries = results["test_queries"]
 
         for i, q in enumerate(queries):
+            pdb.set_trace()
             # selectivity prediction
             true_sel = q.true_sel
             if FIX_TEMPLATE:

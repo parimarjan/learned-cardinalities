@@ -117,19 +117,6 @@ def run_all_eps(env, num_queries, fixed_agent=None):
         queries[query] = info
     return queries
 
-def update_cost_model(query, cm="MM"):
-    '''
-    @query: Query object with all subquery objects.
-    @ret: dict: table_key : cost
-    '''
-    costs = {}
-    assert len(q.subqueries) > 0
-    for sqi, subq in enumerate(query.subqueries):
-        tables = subq.table_names
-        tables.sort()
-        table_key = " ".join(tables)
-        table_key = " " + table_key
-
 # FIXME: make this its own function.
 def update_cards(est_cards, q):
     '''
@@ -249,7 +236,7 @@ def join_loss_nn(pred, queries, alg, env,
     return rel_errors
 
 def compute_join_order_loss(alg, queries, use_subqueries,
-        baseline="LEFT_DEEP"):
+        baseline="LEFT_DEEP", compute_runtime=False):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
@@ -257,14 +244,10 @@ def compute_join_order_loss(alg, queries, use_subqueries,
     assert len(queries[0].subqueries) > 0
     # create a new park env, and close at the end.
     env = park.make('query_optimizer')
+    # don't execute when computing optimal plans for estimated cardinalities
+    env.set("execOnDB", False)
     # Set queries
     query_dict = {}
-
-    # TMP: debugging, hardcoded-queries
-    # queries = queries[0:1]
-    # fname = "/home/pari/query-optimizer/simple-queries/0.sql"
-    # with open(fname, "r") as f:
-        # queries[0].query = f.read()
 
     # each queries index is set to its name
     for i, q in enumerate(queries):
@@ -286,11 +269,6 @@ def compute_join_order_loss(alg, queries, use_subqueries,
         q.subq_cards[alg.__str__()] = cardinalities[str(i)]
 
     env.initialize_cardinalities(cardinalities)
-    # let us now initialize the cost model costs, based on all the subqueries that we
-    # have.
-    # cost_model = {}
-    # for i, q in enumerate(queries):
-        # cost_model[i] = update_cost_model(q)
 
     # Learn optimal agent for estimated cardinalities
     agents = []
@@ -314,11 +292,10 @@ def compute_join_order_loss(alg, queries, use_subqueries,
         q.subq_cards["true"] = cardinalities[str(i)]
 
     env.initialize_cardinalities(cardinalities)
+    env.set("execOnDB", True)
 
     # Test agent on true cardinalities
     assert len(agents) == 1
-    # TODO: save the data / compare across queries etc.
-    # for rep, fixed_agent in enumerate(agents):
     fixed_agent = agents[0]
 
     test_q = run_all_eps(env, len(queries), fixed_agent=fixed_agent)
@@ -337,8 +314,6 @@ def compute_join_order_loss(alg, queries, use_subqueries,
         total_error += card_cost - bcost
         baseline_costs.append(float(bcost))
         est_card_costs.append(float(card_cost))
-    print(q.join_info.keys())
-    # total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
 
     # avoid divide by 0
     baseline_costs = np.maximum(baseline_costs, 1.00)

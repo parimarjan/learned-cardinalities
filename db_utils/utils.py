@@ -11,6 +11,7 @@ import psycopg2 as pg
 from utils.utils import *
 import networkx as nx
 import klepto
+import getpass
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
@@ -609,13 +610,15 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
 
     start = time.time()
 
-    ## for chunky
-    con = pg.connect(user=user, host=db_host, port=port,
-            password=pwd, database=db_name)
-
-    ## for aws
-    # con = pg.connect(user=user, port=port,
-            # password=pwd, database=db_name)
+    os_user = getpass.getuser()
+    if os_user == "ubuntu":
+        # for aws
+        con = pg.connect(user=user, port=port,
+                password=pwd, database=db_name)
+    else:
+        # for chunky
+        con = pg.connect(user=user, host=db_host, port=port,
+                password=pwd, database=db_name)
 
     cursor = con.cursor()
     if timeout is not None:

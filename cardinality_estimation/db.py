@@ -82,14 +82,15 @@ class DB():
             return self.sql_cache.archive[hashed_sql]
         start = time.time()
 
-        ## FIXME: get stuff that works on both places
-        # works on aws
-        # con = pg.connect(user=self.user, port=self.port,
-                # password=self.pwd, database=self.db_name)
-
-        # works on chunky
-        con = pg.connect(user=self.user, host=self.db_host, port=self.port,
-                password=self.pwd, database=self.db_name)
+        os_user = getpass.getuser()
+        if os_user == "ubuntu":
+            # works on aws
+            con = pg.connect(user=self.user, port=self.port,
+                    password=self.pwd, database=self.db_name)
+        else:
+            # works on chunky
+            con = pg.connect(user=self.user, host=self.db_host, port=self.port,
+                    password=self.pwd, database=self.db_name)
         cursor = con.cursor()
         if timeout is not None:
             cursor.execute("SET statement_timeout = {}".format(timeout))
