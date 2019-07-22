@@ -292,7 +292,9 @@ def compute_join_order_loss(alg, queries, use_subqueries,
         q.subq_cards["true"] = cardinalities[str(i)]
 
     env.initialize_cardinalities(cardinalities)
-    env.set("execOnDB", True)
+
+    if compute_runtime:
+        env.set("execOnDB", True)
 
     # Test agent on true cardinalities
     assert len(agents) == 1
@@ -315,9 +317,6 @@ def compute_join_order_loss(alg, queries, use_subqueries,
         baseline_costs.append(float(bcost))
         est_card_costs.append(float(card_cost))
 
-    # avoid divide by 0
-    baseline_costs = np.maximum(baseline_costs, 1.00)
-    est_card_costs = np.maximum(est_card_costs, 1.00)
-    rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
+    rel_errors = np.array(est_card_costs) - np.array(baseline_costs)
     env.clean()
     return rel_errors

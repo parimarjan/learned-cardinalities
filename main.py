@@ -306,7 +306,6 @@ def main():
 
         print("subquery generation took {} seconds".format(time.time()-start))
 
-
     samples = remove_doubles(samples)
     all_queries = samples
     print("after removing doubles, len: ", len(samples))
