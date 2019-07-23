@@ -19,10 +19,9 @@ import matplotlib.pyplot as plt
 system = platform.system()
 if system == 'Linux':
     lib_file = "libpgm.so"
+    pgm = CDLL(lib_file, mode=RTLD_GLOBAL)
 else:
     lib_file = "libpgm.dylib"
-
-pgm = CDLL(lib_file, mode=RTLD_GLOBAL)
 
 class PGM():
     '''
