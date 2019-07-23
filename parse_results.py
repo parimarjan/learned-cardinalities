@@ -42,6 +42,23 @@ def read_flags():
 
     return parser.parse_args()
 
+def add_data_row(data, alg, lt, loss, template, true_sel, optimizer_name,
+        jl_start_iter, q, baseline, cost):
+    data["alg_name"].append(alg)
+    data["loss_type"].append(lt)
+    data["loss"].append(loss)
+    data["template"].append(template)
+    data["true_sel"].append(true_sel)
+    data["optimizer_name"].append(optimizer_name)
+    data["jl_start_iter"].append(jl_start_iter)
+    data["baseline"].append(baseline)
+    data["cost"].append(cost)
+    if hasattr(q, "subqueries"):
+        data["num_subqueries"].append(len(q.subqueries))
+    else:
+        data["num_subqueries"].append(0)
+
+
 def plot_query(q0, pdf):
     jc = extract_join_clause(q0.query)
     pred_columns, pred_types, _ = extract_predicates(q0.query)
@@ -130,7 +147,7 @@ def parse_query_objs(results_cache, trainining_queries=True):
             queries = results["test_queries"]
 
         for i, q in enumerate(queries):
-            pdb.set_trace()
+            # add runtime data to same df
             # selectivity prediction
             true_sel = q.true_sel
             if FIX_TEMPLATE:
@@ -141,19 +158,39 @@ def parse_query_objs(results_cache, trainining_queries=True):
                 template = q.template_name
             query_data[q.template_name].append(q)
 
+            rt_algs = q.join_info.keys()
+            for alg in rt_algs:
+                ## FIXME: decompose this!! better schema for experiment results
+                # current alg
+                rts = q.join_info[alg]["dbmsAllRuntimes"]["RL"]
+                cost = q.join_info[alg]["costs"]["RL"]
+                for rt in rts:
+                    add_data_row(data, alg, "runtime", float(rt), template,
+                            true_sel, optimizer_name, jl_start_iter, q,
+                            BASELINE, cost)
+
+                # other baselines
+                rts = q.join_info[alg]["dbmsAllRuntimes"][BASELINE]
+                cost = q.join_info[alg]["costs"][BASELINE]
+                for rt in rts:
+                    add_data_row(data, "true", "runtime", float(rt), template,
+                            true_sel, optimizer_name, jl_start_iter, q,
+                            BASELINE, cost)
+
             for alg, loss_types in q.losses.items():
+                cost = q.join_info[alg]["costs"]["RL"]
+                true_card_cost = q.join_info[alg]["costs"][BASELINE]
                 for lt, loss in loss_types.items():
-                    data["alg_name"].append(alg)
-                    data["loss_type"].append(lt)
-                    data["loss"].append(loss)
-                    data["template"].append(template)
-                    data["true_sel"].append(true_sel)
-                    data["optimizer_name"].append(optimizer_name)
-                    data["jl_start_iter"].append(jl_start_iter)
-                    if hasattr(q, "subqueries"):
-                        data["num_subqueries"].append(len(q.subqueries))
+                    add_data_row(data, alg, lt, loss, template, true_sel,
+                            optimizer_name, jl_start_iter, q, BASELINE, cost)
+                    if lt == "qerr":
+                        min_loss = 1.00
                     else:
-                        data["num_subqueries"].append(0)
+                        min_loss = 0.00
+
+                    add_data_row(data, "true", lt, min_loss, template,
+                            true_sel, optimizer_name, jl_start_iter, q,
+                            BASELINE, true_card_cost)
 
                     # TODO: add the predicted selectivity by this alg
 
@@ -217,6 +254,22 @@ def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
     # plt.tight_layout()
     plt.tight_layout(rect=[0, 0, 1, 0.95])
 
+    pdf.savefig()
+    plt.clf()
+
+def gen_runtime_plots(df, pdf):
+    '''
+    Plot: x-axis: cost, y-axis = runtime, color = alg name
+    '''
+    # select only runtime rows
+    df = df[df["loss_type"] == "runtime"]
+    ax = sns.scatterplot(x="cost", y="loss", hue="alg_name",
+            data=df, estimator=np.mean, ci=99)
+
+    fig = ax.get_figure()
+    # plt.title(",".join(q0.table_names))
+    plt.title("Cost Model Output v/s Runtime")
+    plt.tight_layout()
     pdf.savefig()
     plt.clf()
 
@@ -388,10 +441,16 @@ def main():
 
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
     make_dir(args.output_dir)
-    algs = ["nn", "nn-jl1", "nn-jl2", "Postgres", "ourpgm", "greg", "chow-liu"]
+    algs = ["nn", "nn-jl1", "nn-jl2", "Postgres", "ourpgm", "greg", "chow-liu",
+            "true"]
     train_df = train_df[train_df["alg_name"].isin(algs)]
     print("going to generate summary pdf")
     gen_error_summaries(train_df, summary_pdf, algs_to_plot=algs)
+    if "runtime" in set(train_df["loss_type"]):
+        print("going to generate runtime summary")
+        gen_runtime_plots(train_df, summary_pdf)
+    else:
+        assert False
 
     if args.worst_query_joins:
         for alg in algs:
@@ -401,6 +460,7 @@ def main():
     summary_pdf.close()
 
     if args.per_query:
+        # FIXME: fix this
         queries_pdf = PdfPages(args.results_dir + "/training_queries.pdf")
         plot_queries(query_data, queries_pdf)
         queries_pdf.close()
