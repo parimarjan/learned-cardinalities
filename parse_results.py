@@ -25,6 +25,9 @@ warnings.filterwarnings("ignore")
 BASELINE = "EXHAUSTIVE"
 FIX_TEMPLATE = False
 
+# ms
+MAX_RUNTIME = 500000
+
 def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db_name", type=str, required=False,
@@ -97,13 +100,13 @@ def gen_table_data(df, algs, loss_types, summary_type):
         for j, loss in enumerate(loss_types):
             tmp_df2 = tmp_df[tmp_df["loss_type"] == loss]["loss"]
             if summary_type == "mean":
-                vals[i][j] = round(tmp_df2.mean(), 2)
+                vals[i][j] = round(tmp_df2.mean(), 1)
             elif summary_type == "median":
-                vals[i][j] = round(tmp_df2.median(), 2)
+                vals[i][j] = round(tmp_df2.median(), 1)
             elif summary_type == "95":
-                vals[i][j] = round(tmp_df2.quantile(0.95), 2)
+                vals[i][j] = round(tmp_df2.quantile(0.95), 1)
             elif summary_type == "99":
-                vals[i][j] = round(tmp_df2.quantile(0.99), 2)
+                vals[i][j] = round(tmp_df2.quantile(0.99), 1)
 
     return vals
 
@@ -123,6 +126,7 @@ def parse_query_objs(results_cache, trainining_queries=True):
             f.close()
 
     for k, results in results_cache.items():
+        print(k)
         if "args" in results:
             result_args = results["args"]
             # filter out stuff based on args
@@ -165,6 +169,9 @@ def parse_query_objs(results_cache, trainining_queries=True):
                 rts = q.join_info[alg]["dbmsAllRuntimes"]["RL"]
                 cost = q.join_info[alg]["costs"]["RL"]
                 for rt in rts:
+                    if rt > MAX_RUNTIME:
+                        print(rt)
+                        continue
                     add_data_row(data, alg, "runtime", float(rt), template,
                             true_sel, optimizer_name, jl_start_iter, q,
                             BASELINE, cost)
@@ -216,11 +223,6 @@ def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
     # templates = [t for t in templates]
     templates = templates.values[0:15]
 
-    # if sort_by_alg == "Postgres":
-        # print(templates)
-        # # print(sort_df)
-        # pdb.set_trace()
-
     # will also select the qerrors
     to_plot = df[df["template"].isin(templates)]
 
@@ -263,10 +265,15 @@ def gen_runtime_plots(df, pdf):
     '''
     # select only runtime rows
     df = df[df["loss_type"] == "runtime"]
+    df["loss"] /= 1000
     ax = sns.scatterplot(x="cost", y="loss", hue="alg_name",
             data=df, estimator=np.mean, ci=99)
 
     fig = ax.get_figure()
+    # ax.set_yscale("log")
+    ax.set_ylim((0, 10**2))
+    ax.set_ylabel("seconds")
+
     # plt.title(",".join(q0.table_names))
     plt.title("Cost Model Output v/s Runtime")
     plt.tight_layout()

@@ -173,6 +173,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     if len(unknown_query_strs) == 0:
         return ret_queries
     else:
+        assert False
         print("need to generate {} query objects".\
                 format(len(unknown_query_strs)))
 
@@ -237,7 +238,6 @@ def main():
         db = DB(args.user, args.pwd, args.db_host, args.port,
                 args.db_name)
         for template in query_templates:
-            print(template)
             if isinstance(template, dict):
                 db.update_db_stats(template["base_sql"]["sql"])
             else:
@@ -294,6 +294,7 @@ def main():
             if hashed_key in sql_str_cache.archive:
                 sql_subqueries = sql_str_cache.archive[hashed_key]
             else:
+                assert False
                 print("going to generate subqueries for query num ", i)
                 sql_subqueries = gen_all_subqueries(q.query)
                 # pdb.set_trace()
