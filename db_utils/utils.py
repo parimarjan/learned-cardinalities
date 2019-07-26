@@ -30,6 +30,28 @@ MAX_TEMPLATE = "SELECT {COL} FROM {TABLE} WHERE {COL} IS NOT NULL ORDER BY {COL}
 UNIQUE_VALS_TEMPLATE = "SELECT DISTINCT {COL} FROM {FROM_CLAUSE}"
 UNIQUE_COUNT_TEMPLATE = "SELECT COUNT(*) FROM (SELECT DISTINCT {COL} from {FROM_CLAUSE}) AS t"
 
+INDEX_LIST_CMD = """
+select
+    t.relname as table_name,
+    a.attname as column_name,
+    i.relname as index_name
+from
+    pg_class t,
+    pg_class i,
+    pg_index ix,
+    pg_attribute a
+where
+    t.oid = ix.indrelid
+    and i.oid = ix.indexrelid
+    and a.attrelid = t.oid
+    and a.attnum = ANY(ix.indkey)
+    and t.relkind = 'r'
+   -- and t.relname like 'mytable'
+order by
+    t.relname,
+    i.relname;"""
+
+
 RANGE_PREDS = ["gt", "gte", "lt", "lte"]
 
 def benchmark_sql(sql, user, db_host, port, pwd, db_name):
@@ -59,10 +81,11 @@ def benchmark_sql(sql, user, db_host, port, pwd, db_name):
 
     exec_time = time.time() - start
 
+    output = cursor.fetchall()
     cursor.close()
     con.close()
 
-    return exec_time
+    return output, exec_time
 
 def visualize_query_plan(sql, db_name, out_name_suffix):
     '''

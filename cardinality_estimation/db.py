@@ -58,6 +58,13 @@ class DB():
         self.aliases = {}
         self.cmp_ops_onehot = {}
 
+        index_list = self.execute(INDEX_LIST_CMD)
+        # key: table.column
+        # val: index name
+        self.indexes = {}
+        for (table, col, idx_name) in index_list:
+            self.indexes[table + "." + col] = idx_name
+
     def get_entropies(self):
         '''
         pairwise entropies among all columns of the db?
@@ -325,7 +332,8 @@ class DB():
         self.sql_cache.dump()
         return queries
 
-    def update_db_stats(self, query_template):
+    def update_db_stats(self, query_template, create_indices=False,
+            delete_indices=False):
         '''
         '''
         if "SELECT COUNT" not in query_template:
@@ -355,10 +363,18 @@ class DB():
             else:
                 print("need to generate stuff for column: ", column)
                 column_stats = {}
-                table = column[0:column.find(".")]
-                if table in self.aliases:
-                    table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
-                                        ALIAS = table)
+                table_name = column[0:column.find(".")]
+                if table_name in self.aliases:
+                    table = ALIAS_FORMAT.format(TABLE = self.aliases[table_name],
+                                        ALIAS = table_name)
+                    index_key = self.aliases[table_name] + column[column.find("."):]
+                else:
+                    index_key = table_name + column[column.find("."):]
+                # if index_key in self.indexes:
+                    # print("found ", index_key)
+                # else:
+                    # print("not found ", index_key)
+                # pdb.set_trace()
                 min_query = MIN_TEMPLATE.format(TABLE = table,
                                                 COL   = column)
                 max_query = MAX_TEMPLATE.format(TABLE = table,

@@ -118,6 +118,22 @@ class Postgres(CardinalityEstimationAlg):
     def test(self, test_samples):
         return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
 
+class PostgresRegex(CardinalityEstimationAlg):
+    def test(self, test_samples):
+        # return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
+        ret = []
+        for s in test_samples:
+            REGEX = False
+            for cmp_op in s.cmp_ops:
+                if "like" in cmp_op.lower():
+                    REGEX = True
+            if REGEX:
+                sel = s.true_sel
+            else:
+                sel = s.pg_count / float(s.total_count)
+            ret.append(sel)
+        return ret
+
 class Random(CardinalityEstimationAlg):
     def test(self, test_samples):
         return np.array([random.random() for _ in test_samples])

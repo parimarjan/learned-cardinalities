@@ -23,8 +23,6 @@ import warnings
 warnings.filterwarnings("ignore")
 
 BASELINE = "EXHAUSTIVE"
-# ms
-MAX_RUNTIME = 500000
 OLD_QUERY = True
 
 def read_flags():
@@ -41,7 +39,8 @@ def read_flags():
             default=0)
     parser.add_argument("--runtime_reps", type=int, required=False,
             default=0)
-
+    parser.add_argument("--use_explain", type=int, required=False,
+            default=1)
     parser.add_argument("--db_name", type=str, required=False,
             default="imdb")
     parser.add_argument("--db_host", type=str, required=False,
@@ -120,23 +119,27 @@ def gen_table_data(df, algs, loss_types, summary_type):
 
     return vals
 
-def update_runtimes(query):
+def update_runtimes(query, explain):
     if not hasattr(query, "runtimes"):
         query.runtimes = defaultdict(list)
+
     for i in range(args.runtime_reps):
         for alg, sqls in query.executed_sqls.items():
-            # if alg == "true" and len(query.runtimes[alg]) == 2:
-                # print("fixed true runtimes")
-                # query.runtimes[alg] = []
 
             if len(query.runtimes[alg]) > i:
                 continue
 
             assert len(sqls) == 1
-            exec_sql = list(sqls)[0]
-            exec_time = benchmark_sql(exec_sql, args.user, args.db_host,
+            sql = list(sqls)[0]
+            if explain:
+                sql = "EXPLAIN (ANALYZE, COSTS, FORMAT JSON) " + sql
+
+            output, exec_time = benchmark_sql(sql, args.user, args.db_host,
                     args.port, args.pwd, args.db_name)
+
             print("iter: {}, alg: {}, time: {}".format(i, alg, exec_time))
+            print(type(output[0]))
+            pdb.set_trace()
             query.runtimes[alg].append(exec_time)
 
 def fix_query_structure(query):
@@ -151,12 +154,14 @@ def fix_query_structure(query):
 
     for alg in query.join_info:
         exec_sql = query.join_info[alg]["executedSqls"]["RL"]
+        assert exec_sql != ""
         cost = query.join_info[alg]["costs"]["RL"]
         query.executed_sqls[alg].add(exec_sql)
         query.costs[alg] = cost
 
         exec_sql = query.join_info[alg]["executedSqls"][BASELINE]
         cost = query.join_info[alg]["costs"][BASELINE]
+        assert exec_sql != ""
 
         query.executed_sqls["true"].add(exec_sql)
         query.costs["true"] = cost
@@ -209,9 +214,9 @@ def parse_query_objs(results_cache, trainining_queries=True):
         for i, q in enumerate(queries):
             if OLD_QUERY:
                 fix_query_structure(q)
-            if args.runtime_reps:
-                # just testing stuff
-                update_runtimes(q)
+
+            # just testing stuff
+            update_runtimes(q, args.use_explain)
 
             # add runtime data to same df
             # selectivity prediction
