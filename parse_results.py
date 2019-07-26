@@ -220,6 +220,15 @@ def parse_query_objs(results_cache, trainining_queries=True):
             # just testing stuff
             update_runtimes(q, args.use_explain)
 
+            cur_query = q
+            print(q.template_name)
+            print(cur_query.runtimes)
+            for k,v in cur_query.runtimes.items():
+                v = np.array(v)
+                print(k, np.mean(v), np.var(v))
+
+            # pdb.set_trace()
+
             # add runtime data to same df
             # selectivity prediction
             true_sel = q.true_sel
@@ -297,6 +306,22 @@ def gen_runtime_plots(df, pdf):
     # select only runtime rows
     df = df[df["loss_type"] == "runtime"]
     ax = sns.scatterplot(x="cost", y="loss", hue="alg_name",
+            data=df, estimator=np.mean, ci=99)
+
+    fig = ax.get_figure()
+    # ax.set_yscale("log")
+    maxy = min(10**2, max(df["loss"]))
+    ax.set_ylim((0, maxy))
+    ax.set_ylabel("seconds")
+
+    # plt.title(",".join(q0.table_names))
+    plt.title("Cost Model Output v/s Runtime")
+    plt.tight_layout()
+    pdf.savefig()
+    plt.clf()
+
+    # do second different type of plot
+    ax = sns.lineplot(x="cost", y="loss", hue="alg_name",
             data=df, estimator=np.mean, ci=99)
 
     fig = ax.get_figure()
