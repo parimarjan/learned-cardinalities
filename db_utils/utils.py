@@ -66,14 +66,18 @@ def benchmark_sql(sql, user, db_host, port, pwd, db_name):
     time.sleep(2)
 
     os_user = getpass.getuser()
-    if os_user == "ubuntu":
-        # for aws
-        con = pg.connect(user=user, port=port,
-                password=pwd, database=db_name)
-    else:
-        # for chunky
-        con = pg.connect(user=user, host=db_host, port=port,
-                password=pwd, database=db_name)
+    con = pg.connect(user=user, port=port,
+            password=pwd, database=db_name)
+
+    # if os_user == "ubuntu":
+        # # for aws
+        # con = pg.connect(user=user, port=port,
+                # password=pwd, database=db_name)
+    # else:
+        # # for chunky
+        # con = pg.connect(user=user, host=db_host, port=port,
+                # password=pwd, database=db_name)
+
     cursor = con.cursor()
 
     start = time.time()

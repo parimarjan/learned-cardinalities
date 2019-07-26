@@ -122,6 +122,8 @@ def gen_table_data(df, algs, loss_types, summary_type):
 def update_runtimes(query, explain):
     if not hasattr(query, "runtimes"):
         query.runtimes = defaultdict(list)
+    if explain and not hasattr(query, "explains"):
+        query.explains = defaultdict(list)
 
     for i in range(args.runtime_reps):
         for alg, sqls in query.executed_sqls.items():
@@ -138,9 +140,9 @@ def update_runtimes(query, explain):
                     args.port, args.pwd, args.db_name)
 
             print("iter: {}, alg: {}, time: {}".format(i, alg, exec_time))
-            print(type(output[0]))
-            pdb.set_trace()
             query.runtimes[alg].append(exec_time)
+            if explain:
+                query.explains[alg].append(output)
 
 def fix_query_structure(query):
     '''
