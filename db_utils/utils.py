@@ -12,6 +12,9 @@ from utils.utils import *
 import networkx as nx
 import klepto
 import getpass
+import os
+import subprocess as sp
+import time
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
@@ -28,6 +31,58 @@ UNIQUE_VALS_TEMPLATE = "SELECT DISTINCT {COL} FROM {FROM_CLAUSE}"
 UNIQUE_COUNT_TEMPLATE = "SELECT COUNT(*) FROM (SELECT DISTINCT {COL} from {FROM_CLAUSE}) AS t"
 
 RANGE_PREDS = ["gt", "gte", "lt", "lte"]
+
+def benchmark_sql(sql, user, db_host, port, pwd, db_name):
+    '''
+    TODO: should we be doing anything smarter?
+    '''
+    # first drop cache
+    # FIXME: choose the right file automatically
+    drop_cache_cmd = "./drop_cache.sh"
+    p = sp.Popen(drop_cache_cmd, shell=True)
+    p.wait()
+    time.sleep(2)
+
+    os_user = getpass.getuser()
+    if os_user == "ubuntu":
+        # for aws
+        con = pg.connect(user=user, port=port,
+                password=pwd, database=db_name)
+    else:
+        # for chunky
+        con = pg.connect(user=user, host=db_host, port=port,
+                password=pwd, database=db_name)
+    cursor = con.cursor()
+
+    start = time.time()
+    cursor.execute(sql)
+
+    exec_time = time.time() - start
+
+    cursor.close()
+    con.close()
+
+    return exec_time
+
+def visualize_query_plan(sql, db_name, out_name_suffix):
+    '''
+    '''
+    if "EXPLAIN" not in sql:
+        sql = "EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT JSON) " + sql
+    # first drop cache
+    drop_cache_cmd = "./drop_cache.sh"
+    p = sp.Popen(drop_cache_cmd, shell=True)
+    p.wait()
+    time.sleep(2)
+
+    tmp_fn = "./explain/test_" + out_name_suffix + ".sql"
+    with open(tmp_fn, "w") as f:
+        f.write(sql)
+    json_out = "./explain/analyze_" + out_name_suffix + ".json"
+    psql_cmd = "psql -d {} -qAt -f {} > {}".format(db_name, tmp_fn, json_out)
+
+    p = sp.Popen(psql_cmd, shell=True)
+    p.wait()
 
 def pg_est_from_explain(output):
     '''

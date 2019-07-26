@@ -23,15 +23,12 @@ import warnings
 warnings.filterwarnings("ignore")
 
 BASELINE = "EXHAUSTIVE"
-FIX_TEMPLATE = False
-
 # ms
 MAX_RUNTIME = 500000
+OLD_QUERY = True
 
 def read_flags():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db_name", type=str, required=False,
-            default="imdb")
     parser.add_argument("--results_dir", type=str, required=False,
             default="./results/")
     parser.add_argument("--output_dir", type=str, required=False,
@@ -42,6 +39,19 @@ def read_flags():
             default=0)
     parser.add_argument("--worst_query_joins", type=int, required=False,
             default=0)
+    parser.add_argument("--runtime_reps", type=int, required=False,
+            default=0)
+
+    parser.add_argument("--db_name", type=str, required=False,
+            default="imdb")
+    parser.add_argument("--db_host", type=str, required=False,
+            default="localhost")
+    parser.add_argument("--user", type=str, required=False,
+            default="")
+    parser.add_argument("--pwd", type=str, required=False,
+            default="")
+    parser.add_argument("--port", type=str, required=False,
+            default=5432)
 
     return parser.parse_args()
 
@@ -110,23 +120,69 @@ def gen_table_data(df, algs, loss_types, summary_type):
 
     return vals
 
+def update_runtimes(query):
+    if not hasattr(query, "runtimes"):
+        query.runtimes = defaultdict(list)
+    for i in range(args.runtime_reps):
+        for alg, sqls in query.executed_sqls.items():
+            # if alg == "true" and len(query.runtimes[alg]) == 2:
+                # print("fixed true runtimes")
+                # query.runtimes[alg] = []
+
+            if len(query.runtimes[alg]) > i:
+                continue
+
+            assert len(sqls) == 1
+            exec_sql = list(sqls)[0]
+            exec_time = benchmark_sql(exec_sql, args.user, args.db_host,
+                    args.port, args.pwd, args.db_name)
+            print("iter: {}, alg: {}, time: {}".format(i, alg, exec_time))
+            query.runtimes[alg].append(exec_time)
+
+def fix_query_structure(query):
+    '''
+    TODO: ideally, this structure for Query objects should be created from the
+    start itself.
+    '''
+    if not hasattr(query, "executed_sqls"):
+        query.executed_sqls = defaultdict(set)
+    if not hasattr(query, "costs"):
+        query.costs = {}
+
+    for alg in query.join_info:
+        exec_sql = query.join_info[alg]["executedSqls"]["RL"]
+        cost = query.join_info[alg]["costs"]["RL"]
+        query.executed_sqls[alg].add(exec_sql)
+        query.costs[alg] = cost
+
+        exec_sql = query.join_info[alg]["executedSqls"][BASELINE]
+        cost = query.join_info[alg]["costs"][BASELINE]
+
+        query.executed_sqls["true"].add(exec_sql)
+        query.costs["true"] = cost
+
+    # add true losses
+    for alg, loss_types in query.losses.items():
+        break
+    loss_types = [k for k in loss_types]
+
+    for lt in loss_types:
+        if lt == "qerr":
+            min_loss = 1.00
+        else:
+            min_loss = 0.00
+
+        query.losses["true"][lt] = min_loss
+
 def parse_query_objs(results_cache, trainining_queries=True):
     '''
     '''
     query_data = defaultdict(list)
     data = defaultdict(list)
-    # other things we care about?
-    if FIX_TEMPLATE:
-        qmap = {}
-        fns = glob.glob("./templates/myjob/*.sql")
-        for fn in fns:
-            f = open(fn, "r")
-            query = f.read()
-            qmap[query] = os.path.basename(fn)
-            f.close()
 
     for k, results in results_cache.items():
         print(k)
+        # FIXME: simplify this
         if "args" in results:
             result_args = results["args"]
             # filter out stuff based on args
@@ -136,12 +192,12 @@ def parse_query_objs(results_cache, trainining_queries=True):
             if hasattr(result_args, "optimizer_name"):
                 optimizer_name = result_args.optimizer_name
             else:
-                optimizer_name = "adam"
+                optimizer_name = "unknown"
 
             if hasattr(result_args, "jl_start_iter"):
                 jl_start_iter = result_args.jl_start_iter
             else:
-                jl_start_iter = 200
+                jl_start_iter = -1
 
         # else, just parse it
 
@@ -151,85 +207,57 @@ def parse_query_objs(results_cache, trainining_queries=True):
             queries = results["test_queries"]
 
         for i, q in enumerate(queries):
+            if OLD_QUERY:
+                fix_query_structure(q)
+            if args.runtime_reps:
+                # just testing stuff
+                update_runtimes(q)
+
             # add runtime data to same df
             # selectivity prediction
             true_sel = q.true_sel
-            if FIX_TEMPLATE:
-                if not q.query in qmap:
-                    pdb.set_trace()
-                template = qmap[q.query]
-            else:
-                template = q.template_name
             query_data[q.template_name].append(q)
 
-            rt_algs = q.join_info.keys()
-            for alg in rt_algs:
-                ## FIXME: decompose this!! better schema for experiment results
-                # current alg
-                rts = q.join_info[alg]["dbmsAllRuntimes"]["RL"]
-                cost = q.join_info[alg]["costs"]["RL"]
+            # multiple runtimes, while there is only a single loss, so treating
+            # them separately for now.
+            for alg, rts in q.runtimes.items():
+                cost = q.costs[alg]
                 for rt in rts:
-                    if rt > MAX_RUNTIME:
-                        print(rt)
-                        continue
-                    add_data_row(data, alg, "runtime", float(rt), template,
-                            true_sel, optimizer_name, jl_start_iter, q,
-                            BASELINE, cost)
-
-                # other baselines
-                rts = q.join_info[alg]["dbmsAllRuntimes"][BASELINE]
-                cost = q.join_info[alg]["costs"][BASELINE]
-                for rt in rts:
-                    add_data_row(data, "true", "runtime", float(rt), template,
+                    add_data_row(data, alg, "runtime", rt, q.template_name,
                             true_sel, optimizer_name, jl_start_iter, q,
                             BASELINE, cost)
 
             for alg, loss_types in q.losses.items():
-                cost = q.join_info[alg]["costs"]["RL"]
-                true_card_cost = q.join_info[alg]["costs"][BASELINE]
+                cost = q.costs[alg]
                 for lt, loss in loss_types.items():
-                    add_data_row(data, alg, lt, loss, template, true_sel,
+                    add_data_row(data, alg, lt, loss, q.template_name, true_sel,
                             optimizer_name, jl_start_iter, q, BASELINE, cost)
-                    if lt == "qerr":
-                        min_loss = 1.00
-                    else:
-                        min_loss = 0.00
-
-                    add_data_row(data, "true", lt, min_loss, template,
-                            true_sel, optimizer_name, jl_start_iter, q,
-                            BASELINE, true_card_cost)
-
-                    # TODO: add the predicted selectivity by this alg
 
     df = pd.DataFrame(data)
+
     return df, query_data
 
 def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
         alg_order):
 
-    # algs = ["nn", "nn-jl1", "nn-jl2", "Postgres"]
-
     # first, only plot join losses
     sort_df = df[df["loss_type"] == sort_by_loss_type]
     sort_df = sort_df[sort_df["alg_name"] == sort_by_alg]
-    # assert len(sort_df) >= 110
-    # if len(sort_df) < 110:
-        # print("skipping experiment as less than 110 queries")
-        # return
 
     # sort_df = sort_df[sort_df["loss"] > 5.00]
     sort_df.sort_values("loss", ascending=False, inplace=True)
+
     templates = sort_df["template"].drop_duplicates()
-    # templates = [t for t in templates]
     templates = templates.values[0:15]
 
-    # will also select the qerrors
+    ## this was done to plot multiple error bars for each loss type in same
+    ## figure
     to_plot = df[df["template"].isin(templates)]
 
     fg = sns.catplot(x="loss_type", y="loss", hue="alg_name", col="template",
             col_wrap=5, kind="bar", data=to_plot, estimator=np.median, ci=100,
             legend_out=False, col_order=templates, sharex=False, order=["join",
-                "qerr"], hue_order=alg_order)
+                "qerr", "runtime"], hue_order=alg_order)
 
 
     for i, ax in enumerate(fg.axes.flat):
@@ -237,10 +265,6 @@ def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
         sqs = sort_df[sort_df["template"] == tmp]["num_subqueries"].values[0]
         title = tmp + " ,#subqueries: " + str(sqs)
         ax.set_title(title)
-
-    # plt.subplots_adjust(top= 1 - 1/8.0)
-    # fg.fig.suptitle('Worst Queries, sorted by {}'.format(sort_by_loss_type),
-            # y= 1 - 1/16.0)
 
     fg.fig.suptitle("Sorted by worst {} for {}".format(sort_by_loss_type,
         sort_by_alg),
@@ -265,13 +289,13 @@ def gen_runtime_plots(df, pdf):
     '''
     # select only runtime rows
     df = df[df["loss_type"] == "runtime"]
-    df["loss"] /= 1000
     ax = sns.scatterplot(x="cost", y="loss", hue="alg_name",
             data=df, estimator=np.mean, ci=99)
 
     fig = ax.get_figure()
     # ax.set_yscale("log")
-    ax.set_ylim((0, 10**2))
+    maxy = min(10**2, max(df["loss"]))
+    ax.set_ylim((0, maxy))
     ax.set_ylabel("seconds")
 
     # plt.title(",".join(q0.table_names))
@@ -445,12 +469,17 @@ def main():
     # collect all the data in a large dataframe
     train_df, query_data = parse_query_objs(results_cache, True)
     # test_df = parse_query_objs(results_cache, False)
+    results_cache.dump()
 
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
     make_dir(args.output_dir)
+
+    # take intersection of the algs below, and the algs in train_df
     algs = ["nn", "nn-jl1", "nn-jl2", "Postgres", "ourpgm", "greg", "chow-liu",
             "true"]
     train_df = train_df[train_df["alg_name"].isin(algs)]
+    algs = [alg for alg in set(train_df["alg_name"])]
+
     print("going to generate summary pdf")
     gen_error_summaries(train_df, summary_pdf, algs_to_plot=algs)
     if "runtime" in set(train_df["loss_type"]):
@@ -462,6 +491,7 @@ def main():
     if args.worst_query_joins:
         for alg in algs:
             gen_query_bar_graphs(train_df, summary_pdf, "join", alg, algs)
+            gen_query_bar_graphs(train_df, summary_pdf, "runtime", alg, algs)
             gen_query_bar_graphs(train_df, summary_pdf, "qerr", alg, algs)
 
     summary_pdf.close()
