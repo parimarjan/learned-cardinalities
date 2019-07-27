@@ -24,6 +24,7 @@ warnings.filterwarnings("ignore")
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
+DEBUG = True
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -220,12 +221,26 @@ def parse_query_objs(results_cache, trainining_queries=True):
             # just testing stuff
             update_runtimes(q, args.use_explain)
 
-            cur_query = q
-            print(q.template_name)
-            print(cur_query.runtimes)
-            for k,v in cur_query.runtimes.items():
-                v = np.array(v)
-                print(k, np.mean(v), np.var(v))
+            if DEBUG:
+                cur_query = q
+                print(q.template_name)
+                print(cur_query.runtimes)
+                for k,v in cur_query.runtimes.items():
+                    v = np.array(v)
+                    print(k, np.mean(v), np.var(v))
+
+                for k,v in cur_query.explains.items():
+                    explain1 = v[0][0][0]
+                    # vals = extract_values(explain1, "Node Type")
+
+                    pdb.set_trace()
+
+                    # for plan in v:
+                        # if str(plan) == str(explain1):
+                            # print("same plans!")
+                        # else:
+                            # print("different plan!")
+                            # pdb.set_trace()
 
             # pdb.set_trace()
 

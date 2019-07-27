@@ -17,6 +17,33 @@ import time
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+def extract_values(obj, key):
+    """Recursively pull values of specified key from nested JSON."""
+    arr = []
+
+    def extract(obj, arr, key):
+        """Return all matching values in an object."""
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, (dict, list)):
+                    extract(v, arr, key)
+                elif k == key:
+                    # if "Scan" in v:
+                        # print(v)
+                        # pdb.set_trace()
+                    # if "Join" in v:
+                        # print(obj)
+                        # pdb.set_trace()
+                    arr.append(v)
+
+        elif isinstance(obj, list):
+            for item in obj:
+                extract(item, arr, key)
+        return arr
+
+    results = extract(obj, arr, key)
+    return results
+
 def is_float(val):
     try:
         float(val)
