@@ -24,7 +24,7 @@ warnings.filterwarnings("ignore")
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
-DEBUG = True
+DEBUG = False
 
 def read_flags():
     parser = argparse.ArgumentParser()
