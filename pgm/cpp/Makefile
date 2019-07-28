@@ -14,7 +14,7 @@ else
 endif
 
 ${LIB}: main.cc
-	$(CLANG) -std=c++11 -fPIC -c main.cc -o main.o
+	$(CLANG) -std=c++11 -I /data/pari/libs/ -fPIC -c main.cc -o main.o
 	$(CLANG) -shared  -Wl,-soname,${LIB} -o ${LIB} main.o
 
 clean:

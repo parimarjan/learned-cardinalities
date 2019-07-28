@@ -11,12 +11,22 @@
 #include <set>
 #include <map>
 #include <fstream>
+//#include "Eigen/Dense"
+#include <Eigen/Dense>
 
 
 using namespace std::chrono;
 using namespace std;
 
 bool VERBOSE = false;
+
+Eigen::MatrixXd ConvertToEigenMatrix(std::vector<std::vector<double>> data)
+{
+    Eigen::MatrixXd eMatrix(data.size(), data[0].size());
+    for (int i = 0; i < data.size(); ++i)
+        eMatrix.row(i) = Eigen::VectorXd::Map(&data[i][0], data[0].size());
+    return eMatrix;
+}
 
 struct Edges
 {
@@ -25,7 +35,9 @@ struct Edges
 	vector<double> col_sum;
 	vector<double> row_sum;
 
-	void init(int size1,vector<int> &data_array1,int size2,vector<int> &data_array2,vector<int> &count_column)
+  void init(int size1,vector<int> &data_array1,int size2,vector<int>
+      &data_array2,vector<int> &count_column, bool use_svd, int
+      num_singular_vals)
 	{
 		prob_matrix.resize(size1);
 		for(int i=0;i<size1;i++)
@@ -58,6 +70,33 @@ struct Edges
 			}
 			col_sum[i]=sum;
 		}
+
+    // prob matrix has been appropriately initialized, and should not be
+    // changed again. If svd flag is set, we will replace it with a SVD
+    // reconstruction, based on top-k singular values
+    if (use_svd) {
+      Eigen::MatrixXd prob_eigen = ConvertToEigenMatrix(prob_matrix);
+      Eigen::BDCSVD<Eigen::MatrixXcd> svd(prob_eigen, Eigen::ComputeThinU | Eigen::ComputeThinV);
+      const Eigen::MatrixXcd &U = svd.matrixU();
+      const Eigen::MatrixXcd &V = svd.matrixV();
+      const Eigen::VectorXcd &SVec = svd.singularValues();
+
+      // TODO: can we avoid materializing the whole matrices?
+      //set<int> firstK;
+      //for (int i = 0; i < num_singular_vals; i++) {
+        //firstK.insert(i);
+      //}
+      //U = U(all, set);
+      //V = V(all, set);
+      //SVec = Svec(set);
+
+      Eigen::MatrixXcd S = SVec.asDiagonal();
+      Eigen::MatrixXcd recon = (U*S)*V.transpose();
+
+      bool close = (recon - prob_eigen).isMuchSmallerThan(0.001);
+      cout << "reconstruction allclose: " << close << endl;
+
+    }
 
 		for(int j=0;j<size2;j++)
 		{
@@ -186,6 +225,8 @@ struct Graphical_Model
 	int graph_size;
 	vector<Nodes> node_list;
 	vector<vector<Edges> > edge_matrix;
+  bool use_svd;
+  int num_singular_vals;
 
 	void fill_data(vector<vector<int> > &data_matrix, vector<int> &count_column)
 	{
@@ -208,15 +249,18 @@ struct Graphical_Model
 			for(int j=i+1;j<col_num;j++)
 			{
 				Edges temp_edge;
-				temp_edge.init(node_list[i].alphabet_size,data_matrix[i],node_list[j].alphabet_size,data_matrix[j],count_column);
+				temp_edge.init(node_list[i].alphabet_size,data_matrix[i],node_list[j].alphabet_size,data_matrix[j],count_column, use_svd, num_singular_vals);
 				edge_matrix[i].push_back(temp_edge);
 			}
 		}
 
 	}
 
-	void init(vector<vector<int> > &data_matrix, vector<int> &count_column)
+	void init(vector<vector<int> > &data_matrix, vector<int> &count_column,
+      bool use_svd, int num_singular_vals)
 	{
+    use_svd = use_svd;
+    num_singular_vals = num_singular_vals;
 		fill_data(data_matrix,count_column);
 	}
 
@@ -397,16 +441,14 @@ struct Graphical_Model
 
 		}
 	}
-
-
-
 };
 
 Graphical_Model pgm;
 
-void init(vector<vector<int> > &data_matrix,vector<int> &count_column)
+void init(vector<vector<int> > &data_matrix,vector<int> &count_column,
+    bool use_svd, int num_singular_vals)
 {
-	pgm.init(data_matrix,count_column);
+	pgm.init(data_matrix,count_column, use_svd, num_singular_vals);
 }
 
 void train()
@@ -456,7 +498,7 @@ double eval(vector<set<int>  > &filter,bool approx,double frac)
 	return ans;
 }
 
-extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim_col)
+extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim_col, bool use_svd, int num_singular_vals)
 {
   vector<vector<int> > data_matrix(col_sz);
 
@@ -476,7 +518,8 @@ extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim
   	count_column.push_back(*count_ptr);
   	count_ptr++;
   }
-  init(data_matrix,count_column);
+
+  init(data_matrix,count_column, use_svd, num_singular_vals);
   return ;
 }
 
@@ -513,8 +556,9 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
 
 int main(int argc, char *argv[])
 {
-
 	fstream file,file1;
+  bool use_svd = false;
+  int num_singular_vals = 100;
 
 	string a,b,c;
 	double p,q,r;
@@ -552,8 +596,6 @@ int main(int argc, char *argv[])
     count_column.push_back(p);
 
 	}
-
-
 
 	int myints1[]= {7,6,1,11,10,9,8};
 	std::set<int> MySet1(myints1, myints1 + 7);
@@ -609,9 +651,7 @@ int main(int argc, char *argv[])
 		cout<<count_column[i]<<" ";
 	}
 
-
-
-	init(data_vec,count_column);
+	init(data_vec,count_column, use_svd, num_singular_vals);
 	pgm.print();
 
 	train();

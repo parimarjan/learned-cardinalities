@@ -28,7 +28,8 @@ class PGM():
     '''
     Serves as a wrapper class for the libpgm.so backend.
     '''
-    def __init__(self, alg_name="chow-liu", backend="ourpgm"):
+    def __init__(self, alg_name="chow-liu", backend="ourpgm", use_svd=True,
+            num_singular_vals=10):
         # index = random variable. For each random variable, map it to integers
         # 0...n-1 (where n is the size of that random variable)
         self.word2index = []
@@ -38,6 +39,8 @@ class PGM():
         self.save_csv = True
         self.backend = backend
         self.alg_name = alg_name
+        self.use_svd = use_svd
+        self.num_singular_vals = num_singular_vals
 
     def train(self, samples, weights, state_names=None):
         '''
@@ -69,17 +72,13 @@ class PGM():
         if self.backend == "ourpgm":
             pgm.py_init(mapped_samples.ctypes.data_as(c_void_p),
                     c_long(mapped_samples.shape[0]), c_long(mapped_samples.shape[1]),
-                    weights.ctypes.data_as(c_void_p), c_long(weights.shape[0]))
+                    weights.ctypes.data_as(c_void_p), c_long(weights.shape[0]),
+                    self.use_svd, c_long(self.num_singular_vals))
             pgm.py_train()
         elif self.backend == "pomegranate":
             # TODO: cache the trained model, based on hash of mapped samples?
             self.pom_model = BayesianNetwork.from_samples(mapped_samples, weights=weights,
                     state_names=self.state_names, algorithm="chow-liu", n_jobs=-1)
-
-            # self.pom_model.plot()
-            # fn = str(self.state_names) + "-chow-liu.pdf"
-            # plt.savefig(fn)
-            # plt.close()
 
             if self.alg_name == "greg":
                 # compute all the appropriate SVD's
@@ -133,8 +132,6 @@ class PGM():
                             joint_term = cond_dist.probability(sample) * marg1[i]
 
                             joint_mat[i, j] = (joint_term - ind_term) / math.sqrt(ind_term)
-                            # print(i,j,joint_mat[i,j])
-                            # pdb.set_trace()
 
 
                     # TODO: replace this by scipy.sparse svd's so can only
@@ -159,6 +156,9 @@ class PGM():
                     misc_cache[svd_key] = self.edge_svds[edge_key]
                 misc_cache.dump()
                 misc_cache.clear()
+            elif self.alg_name == "chow-liu":
+                # TODO: svd stuff
+                print("trained chow-liu")
             else:
                 assert False
 
@@ -204,6 +204,84 @@ class PGM():
                     assert len(p) == len(cond_nodes) == len(cur_node_vals)
                     est += self._eval_greg_pointwise(cond_nodes, margs, p)
                 return est
+            elif self.alg_name == "chow-liu":
+                sample = self._get_sample(rv_values, True)
+                assert len(sample) == len(self.state_names)
+
+                # for each factor of the decomposed tree, which is got by
+                # summing over the appropriate distribution
+                sum_terms = []
+                for i, state in enumerate(self.pom_model.states):
+                    marg = self.pom_model.marginal()[i].values()
+                    dist = state.distribution
+                    cur_term = 0.00
+                    if "ConditionalProbabilityTable" in str(type(dist)):
+                        # who is the parent?
+                        parent_idx, cur_idx = state.distribution.column_idxs
+                        assert cur_idx == i
+                        marg_parent = \
+                            self.pom_model.marginal()[parent_idx].values()
+                        # print("parent idx: ", parent_idx)
+                        # print(sample[parent_idx])
+                        # print("cur idx: ", cur_idx)
+                        # print(sample[cur_idx])
+                        # pdb.set_trace()
+
+                        # parent_val = 1
+                        # test = 0.00
+                        # for child_val in range(len(marg)):
+                            # point_sample = [parent_val, child_val]
+                            # test += dist.probability(point_sample)
+                        # print(test)
+                        # pdb.set_trace()
+
+                        # child_val = 1
+                        # test = 0.00
+                        # for parent_val in range(len(marg_parent)):
+                            # point_sample = [parent_val, child_val]
+                            # test += dist.probability(point_sample)
+                        # print(test)
+                        # pdb.set_trace()
+
+                        # double for loop over valid values in current node /
+                        # and parent node
+                        for parent_val in sample[parent_idx]:
+                            for child_val in sample[cur_idx]:
+                                point_sample = [parent_val, child_val]
+                                # Note: parent_val / parent_idx should be the
+                                # same by construction
+                                cond_prob = dist.probability(point_sample)
+                                cond_prob *= marg_parent[parent_val]
+                                cur_term += cond_prob
+                                print(child_val, parent_val)
+                                print(cond_prob)
+                                print(cur_term)
+
+                        # for child_val in sample[cur_idx]:
+                            # child_prob = 0.00
+                            # for parent_val
+
+                        # parent_marg_prob = 0.00
+                        # for parent_val in sample[parent_idx]:
+                            # parent_marg_prob += marg_parent[parent_val]
+
+                        # print("parent marg prob: ", parent_marg_prob)
+                        # cur_term *= parent_marg_prob
+                        # print(cur_term)
+
+                    else:
+                        assert i == 0
+                        # root node, just add appropriate values from marg
+                        # valid_vals = sample[i]
+                        # for v in valid_vals:
+                            # cur_term += marg[v]
+                        cur_term = 1.00
+
+                    sum_terms.append(cur_term)
+
+                print(sum_terms)
+                pdb.set_trace()
+                return np.product(np.array(sum_terms))
             else:
                 assert False
 
