@@ -57,16 +57,20 @@ def get_possible_values(sample, db, column_bins=None):
                 continue
             cmp_op = sample.cmp_ops[i]
             val = sample.vals[i]
-            # dedup
-            if hasattr(sample.vals[i], "__len__"):
-                val = set(val)
 
             if cmp_op == "in":
+                # dedup
+                if hasattr(sample.vals[i], "__len__"):
+                    val = set(val)
                 # FIXME: something with the osm dataset
                 possible_vals = [str(v.replace("'","")) for v in val]
                 # possible_vals = [v for v in val]
             elif cmp_op == "lt":
-                assert len(val) == 2
+                # assert len(val) == 2
+                # if len(val) != 2:
+                    # print(val)
+                    # pdb.set_trace()
+
                 if column not in column_bins:
                     # then select everything in the given range of
                     # integers.
@@ -163,6 +167,7 @@ class OurPGM(CardinalityEstimationAlg):
         assert len(db.tables) == 1
         table = [t for t in db.tables][0]
         columns = list(db.column_stats.keys())
+        print("continuous cols: ", continuous_cols)
 
         if not continuous_cols:
             FROM = table
@@ -192,6 +197,7 @@ class OurPGM(CardinalityEstimationAlg):
                     by ntile'''.format(COL = col,
                                        NTILE = ntile,
                                        TABLE = table)
+                    print(bin_cmd)
                     result = db.execute(bin_cmd)
                     self.column_bins[full_col_name] = [r[0] for r in result]
                 else:
@@ -207,6 +213,7 @@ class OurPGM(CardinalityEstimationAlg):
         group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
 
         groupby_output = db.execute(group_by)
+        print("len groupby output: ", len(groupby_output))
 
         samples = []
         weights = []
@@ -291,6 +298,7 @@ class OurPGM(CardinalityEstimationAlg):
 
             # normal method
             est_sel = self.model.evaluate(model_sample)
+
             if self.DEBUG:
                 true_sel = query.true_sel
                 qerr = max(true_sel / est_sel, est_sel / true_sel)

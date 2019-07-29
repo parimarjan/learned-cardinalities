@@ -210,7 +210,9 @@ def main():
     elif "osm" in args.db_name:
         load_osm_data(args)
     elif "dmv" in args.db_name:
-        load_dmv_data(args)
+        load_csv_data(args)
+    elif "higgs" in args.db_name:
+        load_csv_data(args)
 
     # Steps: collect statistics, gen templates, filter out zeros and dups, gen
     # subqueries.

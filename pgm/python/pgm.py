@@ -77,6 +77,7 @@ class PGM():
             pgm.py_train()
         elif self.backend == "pomegranate":
             # TODO: cache the trained model, based on hash of mapped samples?
+            # TODO: mapped samples should be extended to include all 0's.
             self.pom_model = BayesianNetwork.from_samples(mapped_samples, weights=weights,
                     state_names=self.state_names, algorithm="chow-liu", n_jobs=-1)
 
@@ -157,7 +158,7 @@ class PGM():
                 misc_cache.dump()
                 misc_cache.clear()
             elif self.alg_name == "chow-liu":
-                # TODO: svd stuff
+                # should not need to do anything here.
                 print("trained chow-liu")
             else:
                 assert False
@@ -182,7 +183,23 @@ class PGM():
             return self._eval_ourpgm(sample)
         elif self.backend == "pomegranate":
             assert self.pom_model is not None
-            if self.alg_name == "greg":
+            if self.alg_name == "chow-liu":
+                sample = self._get_sample(rv_values, True)
+                # print(sample)
+                # pdb.set_trace()
+                # TODO: add approximation option / flag
+                all_points = []
+                for p in itertools.product(*sample):
+                    all_points.append(p)
+                all_points = np.array(all_points)
+                # we should be able to evaluate all these in parallel
+                # print("going to call pomegrante's eval")
+                # pdb.set_trace()
+                est_vals = self.pom_model.probability(all_points)
+                est_val = np.sum(est_vals)
+                return est_val
+
+            elif self.alg_name == "greg":
                 sample = self._get_sample(rv_values, False)
                 assert len(sample) == len(self.state_names)
                 # find the appropriate marginals, and nodes
@@ -204,84 +221,6 @@ class PGM():
                     assert len(p) == len(cond_nodes) == len(cur_node_vals)
                     est += self._eval_greg_pointwise(cond_nodes, margs, p)
                 return est
-            elif self.alg_name == "chow-liu":
-                sample = self._get_sample(rv_values, True)
-                assert len(sample) == len(self.state_names)
-
-                # for each factor of the decomposed tree, which is got by
-                # summing over the appropriate distribution
-                sum_terms = []
-                for i, state in enumerate(self.pom_model.states):
-                    marg = self.pom_model.marginal()[i].values()
-                    dist = state.distribution
-                    cur_term = 0.00
-                    if "ConditionalProbabilityTable" in str(type(dist)):
-                        # who is the parent?
-                        parent_idx, cur_idx = state.distribution.column_idxs
-                        assert cur_idx == i
-                        marg_parent = \
-                            self.pom_model.marginal()[parent_idx].values()
-                        # print("parent idx: ", parent_idx)
-                        # print(sample[parent_idx])
-                        # print("cur idx: ", cur_idx)
-                        # print(sample[cur_idx])
-                        # pdb.set_trace()
-
-                        # parent_val = 1
-                        # test = 0.00
-                        # for child_val in range(len(marg)):
-                            # point_sample = [parent_val, child_val]
-                            # test += dist.probability(point_sample)
-                        # print(test)
-                        # pdb.set_trace()
-
-                        # child_val = 1
-                        # test = 0.00
-                        # for parent_val in range(len(marg_parent)):
-                            # point_sample = [parent_val, child_val]
-                            # test += dist.probability(point_sample)
-                        # print(test)
-                        # pdb.set_trace()
-
-                        # double for loop over valid values in current node /
-                        # and parent node
-                        for parent_val in sample[parent_idx]:
-                            for child_val in sample[cur_idx]:
-                                point_sample = [parent_val, child_val]
-                                # Note: parent_val / parent_idx should be the
-                                # same by construction
-                                cond_prob = dist.probability(point_sample)
-                                cond_prob *= marg_parent[parent_val]
-                                cur_term += cond_prob
-                                print(child_val, parent_val)
-                                print(cond_prob)
-                                print(cur_term)
-
-                        # for child_val in sample[cur_idx]:
-                            # child_prob = 0.00
-                            # for parent_val
-
-                        # parent_marg_prob = 0.00
-                        # for parent_val in sample[parent_idx]:
-                            # parent_marg_prob += marg_parent[parent_val]
-
-                        # print("parent marg prob: ", parent_marg_prob)
-                        # cur_term *= parent_marg_prob
-                        # print(cur_term)
-
-                    else:
-                        assert i == 0
-                        # root node, just add appropriate values from marg
-                        # valid_vals = sample[i]
-                        # for v in valid_vals:
-                            # cur_term += marg[v]
-                        cur_term = 1.00
-
-                    sum_terms.append(cur_term)
-
-                print(sum_terms)
-                pdb.set_trace()
-                return np.product(np.array(sum_terms))
             else:
                 assert False
 

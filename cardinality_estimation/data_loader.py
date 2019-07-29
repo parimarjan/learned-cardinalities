@@ -6,7 +6,7 @@ from db_utils.utils import *
 import pandas as pd
 import numpy as np
 
-def load_dmv_data(args):
+def load_csv_data(args):
     # if the table doesn't already exist, then load it in
     con = pg.connect(user=args.user, host=args.db_host, port=args.port,
             password=args.pwd, database=args.db_name)
@@ -15,13 +15,24 @@ def load_dmv_data(args):
     exists = check_table_exists(cur, table_name)
     if not exists:
         from sqlalchemy import create_engine
-        # df = pd.read_csv("/data/pari/dmv.csv")
-        df = pd.read_csv(args.db_file_name)
-        no_space_column_names = []
+        print("going to read csv!")
+        df = pd.read_csv(args.db_file_name, header=None)
+        updated_cols = []
         for k in df.keys():
-            no_space_column_names.append(k.replace(" ", "_").lower())
-        df.columns = no_space_column_names
-        cmd = 'postgresql://{}:{}@localhost:5432/dmv'.format(args.user, args.pwd)
+            try:
+                int(k)
+                k = "col" + str(k)
+            except:
+                # if it was not an int, do nothing
+                pass
+            k = k.replace(" ", "_")
+            k = k.lower()
+            k = k.encode("utf-8", "strict").decode("utf-8")
+            updated_cols.append(k)
+
+        df.columns = updated_cols
+        cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(args.user,
+                args.pwd, args.db_name)
         engine = create_engine(cmd)
         print("going to load in db!")
         df.to_sql(table_name, engine)
