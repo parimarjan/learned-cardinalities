@@ -11,30 +11,100 @@
 #include <set>
 #include <map>
 #include <fstream>
-//#include "Eigen/Dense"
+//#include <assert>
+#include <cassert>
 #include <Eigen/Dense>
+//#include <Eigen/Eigen>
 
-
+//using namespace Eigen;
 using namespace std::chrono;
 using namespace std;
 
 bool VERBOSE = false;
 
+// in the future, we may want to experiment with other stuff here
+// 1 ==> store just the joint probability in the SVD matrix
+// 2 ==> store the difference from the indepence assumption
+int SVD_VERSION = 1;
+
+/* assumes data is stored in column-major order */
 Eigen::MatrixXd ConvertToEigenMatrix(std::vector<std::vector<double>> data)
 {
-    Eigen::MatrixXd eMatrix(data.size(), data[0].size());
+    Eigen::MatrixXd eMatrix(data[0].size(), data.size());
+
     for (int i = 0; i < data.size(); ++i)
-        eMatrix.row(i) = Eigen::VectorXd::Map(&data[i][0], data[0].size());
+        //eMatrix.row(i) = Eigen::VectorXd::Map(&data[i][0], data[0].size());
+        eMatrix.col(i) = Eigen::VectorXd::Map(&data[i][0], data[0].size());
     return eMatrix;
+}
+
+// FIXME: temporary till assert can be included
+void _ASSERT(int val1, int val2) {
+  if (val1 != val2) {
+    cout << "assertion failed" << endl;
+    exit(-1);
+  }
+}
+
+double elem_diff(vector<double> vec1, vector<double> vec2)
+{
+ double diff = 0.00;
+ for (int i = 0; i < vec1.size(); i++) {
+    diff += abs(vec1[i] - vec2[i]);
+ }
+ return diff;
+}
+
+bool all_close(vector<double> vec1, vector<double> vec2, double eps)
+{
+ double diff = 0.00;
+ for (int i = 0; i < vec1.size(); i++) {
+    diff += abs(vec1[i] - vec2[i]);
+ }
+ if (diff > eps) {
+   return false;
+ }
+ return true;
+}
+
+/* Converts to std::vec<vec<..>> in column major form.
+ *
+ * @mat: Eigen format. TODO: should be able to take any Eigen matrix type.
+ * @num_cols: -1 = all columns.
+ */
+vector<vector<double>> ConvertEigenToVec(Eigen::MatrixXd mat, int num_cols)
+{
+  //vector< vector<double> > vec(mat.cols(), vector<double>(mat.rows(), 0));
+	vector<vector<double>> vec;
+  if (num_cols == -1) num_cols = mat.cols();
+  vec.resize(num_cols);
+  for (int i = 0; i < num_cols; i++) {
+    // initialize the column from eigen matrix
+    vec[i].resize(mat.rows(),0.00);
+    double *start = mat.data() + i*mat.rows();
+    std::copy(start, start + mat.rows(), vec[i].begin());
+  }
+
+  _ASSERT(vec.size(), mat.cols());
+  _ASSERT(vec[0].size(), mat.rows());
+  return vec;
 }
 
 struct Edges
 {
 	int col_num,row_num;
+  // stored in column major form. Outer vector represents columns, then each
+  // contiguous inner vector represents a single column of data.
+  // each element, (i,j) represents the joint probability of x_i, x_j.
+  // FIXME: indices i,j are based on the node positions assigned at the start
+  // (?)
 	vector<vector<double> > prob_matrix;
 	vector<double> col_sum;
 	vector<double> row_sum;
 
+  /* @size1: num columns
+   * @size2: num rows
+   */
   void init(int size1,vector<int> &data_array1,int size2,vector<int>
       &data_array2,vector<int> &count_column, bool use_svd, int
       num_singular_vals)
@@ -71,33 +141,6 @@ struct Edges
 			col_sum[i]=sum;
 		}
 
-    // prob matrix has been appropriately initialized, and should not be
-    // changed again. If svd flag is set, we will replace it with a SVD
-    // reconstruction, based on top-k singular values
-    if (use_svd) {
-      Eigen::MatrixXd prob_eigen = ConvertToEigenMatrix(prob_matrix);
-      Eigen::BDCSVD<Eigen::MatrixXcd> svd(prob_eigen, Eigen::ComputeThinU | Eigen::ComputeThinV);
-      const Eigen::MatrixXcd &U = svd.matrixU();
-      const Eigen::MatrixXcd &V = svd.matrixV();
-      const Eigen::VectorXcd &SVec = svd.singularValues();
-
-      // TODO: can we avoid materializing the whole matrices?
-      //set<int> firstK;
-      //for (int i = 0; i < num_singular_vals; i++) {
-        //firstK.insert(i);
-      //}
-      //U = U(all, set);
-      //V = V(all, set);
-      //SVec = Svec(set);
-
-      Eigen::MatrixXcd S = SVec.asDiagonal();
-      Eigen::MatrixXcd recon = (U*S)*V.transpose();
-
-      bool close = (recon - prob_eigen).isMuchSmallerThan(0.001);
-      cout << "reconstruction allclose: " << close << endl;
-
-    }
-
 		for(int j=0;j<size2;j++)
 		{
 			double sum=0.0;
@@ -108,6 +151,69 @@ struct Edges
 			row_sum[j]=sum;
 		}
 	}
+
+  void update_joint_svd_edge(vector<double> prob1, vector<double> prob2,
+      int num_singular_vals)
+  {
+    // prob matrix has been appropriately initialized, and should not be
+    // changed again. If svd flag is set, we will replace it with a SVD
+    // reconstruction, based on top-k singular values
+
+    if (SVD_VERSION == 2) {
+      for (int i = 0; i < prob_matrix.size(); i++) {
+        for (int j = 0; j < prob_matrix[0].size(); j++) {
+          // storing only the difference from the independence assumption
+          cout << "orig: " << prob_matrix[i][j] << endl;
+          this->prob_matrix[i][j] = prob_matrix[i][j] - (prob1[i]*prob2[j]);
+          cout << "updated: " << prob_matrix[i][j] << endl;
+        }
+      }
+    }
+
+    // will replace prob_matrix with the svd-d' version
+
+    Eigen::MatrixXd prob_eigen = ConvertToEigenMatrix(prob_matrix);
+    // TODO: can we avoid materializing the whole matrices?
+    Eigen::BDCSVD<Eigen::MatrixXd> svd(prob_eigen, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    const Eigen::MatrixXd &U = svd.matrixU();
+    const Eigen::MatrixXd &V = svd.matrixV();
+    const Eigen::VectorXd &SVec = svd.singularValues();
+
+    if (num_singular_vals == -1) num_singular_vals = SVec.size();
+    // else, only consider top num_singular_vals while doing reconstruction
+
+    Eigen::MatrixXd S = SVec.asDiagonal();
+    int k = std::min(num_singular_vals, (int) SVec.size());
+    cout << "k: " << k << endl;
+
+    Eigen::MatrixXd recon = U.block(0,0,U.rows(),k)\
+                            *S.block(0,0,k,k)\
+                            *V.block(0,0,V.rows(),k).transpose();
+
+    vector<vector<double>> recon_prob_mat = ConvertEigenToVec(recon, -1);
+
+    if (VERBOSE) {
+      bool close = (recon - prob_eigen).isMuchSmallerThan(0.01);
+      cout << "reconstruction allclose: " << close << endl;
+      cout << "orig prob.size " << prob_matrix.size() << endl;
+      cout << "orig prob[0].size " << prob_matrix[0].size() << endl;
+      cout << "recon prob.size " << recon_prob_mat.size() << endl;
+      cout << "recon prob[0].size " << recon_prob_mat[0].size() << endl;
+      cout << "prob_eigen.rows " << prob_eigen.rows() << endl;
+      cout << "prob_eigen.cols " << prob_eigen.cols() << endl;
+
+      // just to check since easier to do linear algebra comparisons after
+      // conversion to Eigen
+      Eigen::MatrixXd prob_eigen2 = ConvertToEigenMatrix(recon_prob_mat);
+      bool close2 = (prob_eigen - prob_eigen2).isMuchSmallerThan(0.01);
+
+      cout << "prob_eigen2.rows " << prob_eigen2.rows() << endl;
+      cout << "prob_eigen2.cols " << prob_eigen2.cols() << endl;
+      cout << "reconstruction to c++, close: " << close2 << endl;
+    }
+
+    //this->prob_matrix = recon_prob_mat;
+  }
 
 	double cal_mutual_info()
 	{
@@ -249,19 +355,58 @@ struct Graphical_Model
 			for(int j=i+1;j<col_num;j++)
 			{
 				Edges temp_edge;
-				temp_edge.init(node_list[i].alphabet_size,data_matrix[i],node_list[j].alphabet_size,data_matrix[j],count_column, use_svd, num_singular_vals);
+        temp_edge.init(node_list[i].alphabet_size,data_matrix[i],node_list[j].alphabet_size,data_matrix[j],count_column, use_svd, num_singular_vals);
 				edge_matrix[i].push_back(temp_edge);
 			}
 		}
-
 	}
+
+  /* TODO: describe.
+   */
+  void update_joint_svd_all()
+  {
+		for (int i = 0; i < edge_matrix.size(); i++)
+		{
+			for(int j = 0; j < edge_matrix[i].size(); j++)
+			{
+        int node2_idx = j+i+1;
+        // sanity checks
+        Nodes *node1 = &node_list[i];
+        Nodes *node2 = &node_list[node2_idx];
+        Edges *edge = &edge_matrix[i][j];
+
+        _ASSERT(node1->prob_list.size(), node1->alphabet_size);
+        _ASSERT(node2->prob_list.size(), node2->alphabet_size);
+        _ASSERT(edge->prob_matrix.size() * edge->prob_matrix[0].size(),
+            node1->alphabet_size*node2->alphabet_size);
+        _ASSERT(edge->prob_matrix.size(),
+            node1->alphabet_size);
+        _ASSERT(edge->prob_matrix[0].size(),
+            node2->alphabet_size);
+
+        // now we are ready to update the edge
+        edge->update_joint_svd_edge(node1->prob_list, node2->prob_list,
+            num_singular_vals);
+			}
+		}
+  }
 
 	void init(vector<vector<int> > &data_matrix, vector<int> &count_column,
       bool use_svd, int num_singular_vals)
 	{
-    use_svd = use_svd;
-    num_singular_vals = num_singular_vals;
+    if (VERBOSE) {
+      cout << "init!" << endl;
+      cout << "use svd: " << use_svd << endl;
+      cout << "num svs: " << num_singular_vals	 << endl;
+    }
+    this->use_svd = use_svd;
+    this->num_singular_vals = num_singular_vals;
+
 		fill_data(data_matrix,count_column);
+
+    // at this point, the edge matrix would have been initialized. So we can
+    // update the joint distribution matrices stored in each edge
+    if (use_svd) update_joint_svd_all();
 	}
 
 	void create_graph(vector<mst_sort> &added_edges)
@@ -293,20 +438,15 @@ struct Graphical_Model
 			}
 
 			process_order.erase(process_order.begin());
-
 		}
-
 	}
 
 	void MST()
 	{
 		vector<mst_sort> mutual_info_vec;
-
 		set<int> vertices_added;
 		set<int>::iterator it1,it2;
-
 		vector<mst_sort> added_edges;
-
 
 		for(int i=0;i<graph_size;i++)
 		{
@@ -345,7 +485,6 @@ struct Graphical_Model
 		}
 
 		create_graph(added_edges);
-
 	}
 
 	void train()
@@ -396,15 +535,23 @@ struct Graphical_Model
 				for(std::map<int,double>::iterator it_kid=child_map.begin();it_kid!=child_map.end();it_kid++)
 				{
 					int child_val=it_kid->first;
-					if(child_node<curr_node)
-					{
-						ans+=(temp_edge->prob_matrix[child_val][par_val]*it_kid->second)/prob_par;
-					}
-					else
-					{
-						ans+=(temp_edge->prob_matrix[par_val][child_val]*it_kid->second)/prob_par;
-					}
+          double joint_prob;
 
+          if (child_node < curr_node) {
+            joint_prob = temp_edge->prob_matrix[child_val][par_val];
+          } else {
+            joint_prob = temp_edge->prob_matrix[par_val][child_val];
+          }
+
+          if (use_svd && SVD_VERSION == 2) {
+            // In this case, we were just storing the difference from the
+            // independence assumption. So we just add the independence back
+            // in.
+            double prob_child = node_list[child_node].prob_list[child_val];
+            joint_prob += (prob_child * prob_par);
+          }
+
+					ans+= (joint_prob * it_kid->second) / prob_par;
 				}
 
 				if(approx)
@@ -558,7 +705,7 @@ int main(int argc, char *argv[])
 {
 	fstream file,file1;
   bool use_svd = false;
-  int num_singular_vals = 100;
+  int num_singular_vals = -1;
 
 	string a,b,c;
 	double p,q,r;

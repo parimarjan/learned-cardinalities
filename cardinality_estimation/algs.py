@@ -138,7 +138,10 @@ class OurPGM(CardinalityEstimationAlg):
         self.kwargs = kwargs
         self.backend = kwargs["backend"]
         self.alg_name = kwargs["alg_name"]
-        self.model = PGM(alg_name=self.alg_name, backend=self.backend)
+        self.use_svd = kwargs["use_svd"]
+        self.num_singular_vals = kwargs["num_singular_vals"]
+        self.model = PGM(alg_name=self.alg_name, backend=self.backend,
+                use_svd=self.use_svd, num_singular_vals=self.num_singular_vals)
 
         self.num_bins = 100
         self.test_cache = {}

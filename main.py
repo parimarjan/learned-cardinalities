@@ -54,7 +54,8 @@ def get_alg(alg):
                     nn_cache_dir = args.nn_cache_dir,
                     divide_mb_len = args.divide_mb_len)
     elif alg == "ourpgm":
-        return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
+        return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend,
+                use_svd=args.use_svd, num_singular_vals=args.num_singular_vals)
     else:
         assert False
 
@@ -445,6 +446,10 @@ def read_flags():
             default="./nn_training_cache")
     parser.add_argument("--divide_mb_len", type=int, required=False,
             default=1)
+    parser.add_argument("--use_svd", type=int, required=False,
+            default=0)
+    parser.add_argument("--num_singular_vals", type=int, required=False,
+            default=-1, help="-1 means all")
 
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="ams")
