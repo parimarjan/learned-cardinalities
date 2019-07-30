@@ -16,6 +16,13 @@ import os
 import subprocess as sp
 import time
 
+import networkx as nx
+from networkx.drawing.nx_agraph import write_dot,graphviz_layout
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
 
@@ -53,6 +60,104 @@ order by
 
 
 RANGE_PREDS = ["gt", "gte", "lt", "lte"]
+
+def _find_all_tables(plan):
+    '''
+    '''
+    # find all the scan nodes under the current level, and return those
+    table_names = extract_values(plan, "Relation Name")
+    table_names.sort()
+    return table_names
+
+def plot_graph(G, base_table_nodes, join_nodes, title="test"):
+    NODE_SIZE = 300
+    plt.title(title)
+    pos = graphviz_layout(G, prog='dot')
+    # first draw just the base tables
+    nx.draw_networkx_nodes(G, pos,
+               nodelist=base_table_nodes,
+               node_color='b',
+               node_size=NODE_SIZE,
+               alpha=0.2)
+
+    nx.draw_networkx_nodes(G, pos,
+               nodelist=join_nodes,
+               node_color='r',
+               node_size=NODE_SIZE,
+               alpha=0.2)
+
+
+    node_labels = {}
+    for n in G.nodes():
+        if len(G.nodes[n]["tables"]) == 1:
+            node_labels[n] = n
+        else:
+            node_labels[n] = n
+
+        nx.draw_networkx_labels(G, pos, node_labels, font_size=8)
+
+    nx.draw_networkx_edges(G,pos,width=1.0,
+            alpha=0.5,with_labels=False)
+    plt.tight_layout()
+    plt.savefig("test.png")
+    plt.close()
+
+def explain_to_nx(explain1):
+    '''
+    '''
+    # JOIN_KEYS = ["Hash Join", "Nested Loop", "Join"]
+    base_table_nodes = []
+    join_nodes = []
+
+    def _get_node_name(tables):
+        name = ""
+        if len(tables) > 1:
+            name = str(deterministic_hash(str(tables)))[0:3]
+            join_nodes.append(name)
+        else:
+            name = tables[0]
+            # shorten it
+            name = "".join([n[0] for n in name.split("_")])
+            if name in base_table_nodes:
+                name = name + "2"
+            base_table_nodes.append(name)
+        return name
+
+    def traverse(obj):
+        """Return all matching values in an object."""
+        if isinstance(obj, dict):
+            if "Plans" in obj:
+                if len(obj["Plans"]) == 2:
+                    # these are all the joins
+                    # print(obj.keys())
+                    # print(obj["Node Type"])
+                    left_tables = _find_all_tables(obj["Plans"][0])
+                    right_tables = _find_all_tables(obj["Plans"][1])
+                    # print("left tables: ", left_tables)
+                    # print("right: ", right_tables)
+                    node0 = _get_node_name(left_tables)
+                    node1 = _get_node_name(right_tables)
+
+                    # update graph
+                    G.add_edge(node0, node1)
+                    # add other parameters on the nodes
+                    G.nodes[node0]["tables"] = left_tables
+                    G.nodes[node1]["tables"] = right_tables
+
+            for k, v in obj.items():
+                if isinstance(v, (dict, list)):
+                    traverse(v)
+                # print(k)
+
+        elif isinstance(obj, list):
+            for item in obj:
+                traverse(item)
+
+    G = nx.DiGraph()
+    traverse(explain1)
+    # print(G.nodes(data=True))
+    plot_graph(G, base_table_nodes, join_nodes)
+    pdb.set_trace()
 
 def benchmark_sql(sql, user, db_host, port, pwd, db_name):
     '''

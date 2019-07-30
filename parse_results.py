@@ -24,7 +24,7 @@ warnings.filterwarnings("ignore")
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
-DEBUG = False
+DEBUG = True
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -56,7 +56,7 @@ def read_flags():
     return parser.parse_args()
 
 def add_data_row(data, alg, lt, loss, template, true_sel, optimizer_name,
-        jl_start_iter, q, baseline, cost):
+        jl_start_iter, q, baseline, cost, pg_cost):
     data["alg_name"].append(alg)
     data["loss_type"].append(lt)
     data["loss"].append(loss)
@@ -66,6 +66,7 @@ def add_data_row(data, alg, lt, loss, template, true_sel, optimizer_name,
     data["jl_start_iter"].append(jl_start_iter)
     data["baseline"].append(baseline)
     data["cost"].append(cost)
+    data["pg_cost"].append(pg_cost)
     if hasattr(q, "subqueries"):
         data["num_subqueries"].append(len(q.subqueries))
     else:
@@ -119,6 +120,17 @@ def gen_table_data(df, algs, loss_types, summary_type):
                 vals[i][j] = round(tmp_df2.quantile(0.99), 1)
 
     return vals
+
+def update_pg_costs(query):
+    if not hasattr(query, "pg_costs"):
+        query.pg_costs = {}
+
+    for alg_name, v in query.explains.items():
+        # ugh ugly structure
+        explain = v[0][0][0][0]
+        vals = extract_values(explain, "Total Cost")
+        total_cost = vals[-1]
+        query.pg_costs[alg_name] = total_cost
 
 def update_runtimes(query, explain):
     if not hasattr(query, "runtimes"):
@@ -220,29 +232,43 @@ def parse_query_objs(results_cache, trainining_queries=True):
 
             # just testing stuff
             update_runtimes(q, args.use_explain)
+            if args.use_explain:
+                update_pg_costs(q)
 
             if DEBUG:
+                QUERY_LIST = ["29c.sql", "19d.sql", "30c.sql", "20a.sql"]
                 cur_query = q
+                cont = True
+                for debug_query_name in QUERY_LIST:
+                    if debug_query_name in q.template_name:
+                        cont = False
+                if cont:
+                    continue
+
                 print(q.template_name)
                 print(cur_query.runtimes)
-                for k,v in cur_query.runtimes.items():
+
+                for k,v in q.runtimes.items():
                     v = np.array(v)
                     print(k, np.mean(v), np.var(v))
 
-                for k,v in cur_query.explains.items():
+                for k,v in q.explains.items():
                     explain1 = v[0][0][0]
-                    # vals = extract_values(explain1, "Node Type")
+                    # FIXME: tmp
+                    fn = "./explains/" + q.template_name[0:3] + str(k)
+                    # save analyze plan:
+                    explain_str = json.dumps(explain1)
+                    with open(fn + ".json", "w") as f:
+                        f.write(explain_str)
 
-                    pdb.set_trace()
+                    with open(fn + ".sql", "w") as f:
+                        execs = [val for val in q.executed_sqls[k]]
+                        f.write(execs[0])
 
-                    # for plan in v:
-                        # if str(plan) == str(explain1):
-                            # print("same plans!")
-                        # else:
-                            # print("different plan!")
-                            # pdb.set_trace()
+                pdb.set_trace()
 
-            # pdb.set_trace()
+                    # TODO: fix this
+                    # G = explain_to_nx(explain1)
 
             # add runtime data to same df
             # selectivity prediction
@@ -253,16 +279,19 @@ def parse_query_objs(results_cache, trainining_queries=True):
             # them separately for now.
             for alg, rts in q.runtimes.items():
                 cost = q.costs[alg]
+                pg_cost = q.pg_costs[alg]
                 for rt in rts:
                     add_data_row(data, alg, "runtime", rt, q.template_name,
                             true_sel, optimizer_name, jl_start_iter, q,
-                            BASELINE, cost)
+                            BASELINE, cost, pg_cost)
 
             for alg, loss_types in q.losses.items():
                 cost = q.costs[alg]
+                pg_cost = q.pg_costs[alg]
                 for lt, loss in loss_types.items():
                     add_data_row(data, alg, lt, loss, q.template_name, true_sel,
-                            optimizer_name, jl_start_iter, q, BASELINE, cost)
+                            optimizer_name, jl_start_iter, q, BASELINE, cost,
+                            pg_cost)
 
     df = pd.DataFrame(data)
 
@@ -318,38 +347,33 @@ def gen_runtime_plots(df, pdf):
     '''
     Plot: x-axis: cost, y-axis = runtime, color = alg name
     '''
+    def _gen_plot(x_axis, plot_type):
+        if plot_type == "scatter":
+            ax = sns.scatterplot(x=x_axis, y="loss", hue="alg_name",
+                    data=df, estimator=np.mean, ci=99)
+        elif plot_type == "line":
+            ax = sns.lineplot(x=x_axis, y="loss", hue="alg_name",
+                    data=df, estimator=np.mean, ci=99)
+
+        fig = ax.get_figure()
+        # ax.set_yscale("log")
+        maxy = min(10**2, max(df["loss"]))
+        ax.set_ylim((0, maxy))
+        ax.set_ylabel("seconds")
+
+        # plt.title(",".join(q0.table_names))
+        plt.title("Cost Model Output v/s Runtime")
+        plt.tight_layout()
+        pdf.savefig()
+        plt.clf()
+
     # select only runtime rows
     df = df[df["loss_type"] == "runtime"]
-    ax = sns.scatterplot(x="cost", y="loss", hue="alg_name",
-            data=df, estimator=np.mean, ci=99)
+    _gen_plot("cost", "scatter")
+    _gen_plot("cost", "line")
+    _gen_plot("pg_cost", "scatter")
+    _gen_plot("pg_cost", "line")
 
-    fig = ax.get_figure()
-    # ax.set_yscale("log")
-    maxy = min(10**2, max(df["loss"]))
-    ax.set_ylim((0, maxy))
-    ax.set_ylabel("seconds")
-
-    # plt.title(",".join(q0.table_names))
-    plt.title("Cost Model Output v/s Runtime")
-    plt.tight_layout()
-    pdf.savefig()
-    plt.clf()
-
-    # do second different type of plot
-    ax = sns.lineplot(x="cost", y="loss", hue="alg_name",
-            data=df, estimator=np.mean, ci=99)
-
-    fig = ax.get_figure()
-    # ax.set_yscale("log")
-    maxy = min(10**2, max(df["loss"]))
-    ax.set_ylim((0, maxy))
-    ax.set_ylabel("seconds")
-
-    # plt.title(",".join(q0.table_names))
-    plt.title("Cost Model Output v/s Runtime")
-    plt.tight_layout()
-    pdf.savefig()
-    plt.clf()
 
 def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True):
     # firstPage = plt.figure()
@@ -490,18 +514,20 @@ def plot_single_query(qname, queries, pdf):
         ## parameters
         firstPage = plt.figure()
         firstPage.clf()
-
-        ## TODO: just paste all the args here?
-        # txt = "Average Results \n"
-        # txt += "Num Experiments: " + str(len(set(orig_df["train-time"]))) + "\n"
-        # txt += "DB: " + str(set(orig_df["dbname"])) + "\n"
-        # txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
-        # txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
-
-        txt = all_infos[base_alg]["sql"]
+        txt = qname
         firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
         pdf.savefig()
         plt.close()
+
+        firstPage = plt.figure()
+        firstPage.clf()
+
+        txt = all_infos[base_alg]["sql"]
+
+        firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
+        pdf.savefig()
+        plt.close()
+
 
         for alg, info in all_infos.items():
             alg_cards = q.subq_cards[alg]
@@ -516,7 +542,7 @@ def main():
     # collect all the data in a large dataframe
     train_df, query_data = parse_query_objs(results_cache, True)
     # test_df = parse_query_objs(results_cache, False)
-    results_cache.dump()
+    # results_cache.dump()
 
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
     make_dir(args.output_dir)
