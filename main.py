@@ -127,10 +127,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
 
     if hashed_tmp in sql_str_cache.archive:
         query_strs = sql_str_cache.archive[hashed_tmp]
-        # print("loaded {} query strings".format(len(query_strs)))
-    else:
-        # TMP: for imdb data
-        assert False
+        print("loaded {} query strings".format(len(query_strs)))
 
     if num_samples == -1:
         # select whatever we loaded
@@ -173,7 +170,6 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     if len(unknown_query_strs) == 0:
         return ret_queries
     else:
-        assert False
         print("need to generate {} query objects".\
                 format(len(unknown_query_strs)))
 

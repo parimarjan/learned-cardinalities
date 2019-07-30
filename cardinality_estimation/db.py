@@ -370,6 +370,7 @@ class DB():
                     index_key = self.aliases[table_name] + column[column.find("."):]
                 else:
                     index_key = table_name + column[column.find("."):]
+                    table = table_name
                 # if index_key in self.indexes:
                     # print("found ", index_key)
                 # else:
