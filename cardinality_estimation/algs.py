@@ -76,19 +76,6 @@ def get_possible_values(sample, db, column_bins=None):
                     # discretize first
                     bins = column_bins[column]
                     vals = [float(v) for v in val]
-                    # print(bins)
-                    # print(vals)
-                    # pdb.set_trace()
-                    # for bi, bval in enumerate(bins):
-                        # if bval >= vals[0]:
-                            # # if 0 not in binned vals
-                            # # possible_vals.append(bi+1)
-                            # possible_vals.append(bi)
-                        # elif bval < vals[0]:
-                            # continue
-                        # if bval > vals[1]:
-                            # break
-
                     vals = np.digitize(vals, bins, right=True)
                     for bi in range(vals[0],vals[1]+1):
                         possible_vals.append(bi)
@@ -166,12 +153,12 @@ class OurPGM(CardinalityEstimationAlg):
     def _load_osm_data(self, db):
         start = time.time()
         # load directly to numpy since should be much faster
-        data = np.fromfile('/Users/pari/osm.bin',
+        data = np.fromfile('/data/pari/osm.bin',
                 dtype=np.int64).reshape(-1, 6)
         columns = list(db.column_stats.keys())
         # drop the index column
-        data = data[0:100000,1:6]
-        # data = data[:,1:6]
+        # data = data[0:100000,1:6]
+        data = data[:,1:6]
         self.column_bins = {}
         for i in range(data.shape[1]):
             # these columns don't need to be discretized.
@@ -473,7 +460,7 @@ class BN(CardinalityEstimationAlg):
     def _load_osm_model(self, db, training_samples, **kwargs):
         # load directly to numpy since should be much faster
         print("load osm model!")
-        data = np.fromfile('/Users/pari/osm.bin',
+        data = np.fromfile('/data/pari/osm.bin',
                 dtype=np.int64).reshape(-1, 6)
         columns = list(db.column_stats.keys())
         # drop the index column
@@ -654,7 +641,15 @@ class BN(CardinalityEstimationAlg):
                     # don't do any averaging
                     print("going to evaluate")
                     # pdb.set_trace()
-                    est_sel = np.sum(self.model.probability(all_points))
+                    # est_sel = np.sum(self.model.probability(all_points))
+                    est_sel = 0.00
+                    for p in all_points:
+                        try:
+                            est_sel += self.model.probability(p)
+                        except Exception as e:
+                            # FIXME: add minimum amount.
+                            print(e)
+                            continue
                 else:
                     N = len(all_points)
                     samples_to_use = max(1000, int(N/self.avg_factor))
