@@ -421,25 +421,25 @@ class BN(CardinalityEstimationAlg):
                     if hasattr(sample.vals[i], "__len__"):
                         val = set(val)
                     # FIXME: something with the osm dataset
-                    # possible_vals = [str(v.replace("'","")) for v in val]
+                    possible_vals = [str(v.replace("'","")) for v in val]
                     # possible_vals = [v for v in val]
-                    possible_vals = [int(v) for v in val]
+                    # possible_vals = [int(v) for v in val]
                 elif cmp_op == "lt":
                     if column not in column_bins:
                         # then select everything in the given range of
                         # integers.
                         val = [int(v) for v in val]
                         for ival in range(val[0], val[1]):
-                            # possible_vals.append(str(ival))
-                            possible_vals.append(ival)
+                            possible_vals.append(str(ival))
+                            # possible_vals.append(ival)
                     else:
                         # discretize first
                         bins = column_bins[column]
                         vals = [float(v) for v in val]
                         vals = np.digitize(vals, bins, right=True)
                         for bi in range(vals[0],vals[1]+1):
-                            # possible_vals.append(str(bi))
-                            possible_vals.append(bi)
+                            possible_vals.append(str(bi+1))
+                            # possible_vals.append(bi)
 
                 elif cmp_op == "eq":
                     possible_vals.append(val)
@@ -651,7 +651,7 @@ class BN(CardinalityEstimationAlg):
                 if self.avg_factor == 1:
                     # don't do any averaging
                     print("going to evaluate")
-                    pdb.set_trace()
+                    # pdb.set_trace()
                     est_sel = np.sum(self.model.probability(all_points))
                 else:
                     N = len(all_points)
