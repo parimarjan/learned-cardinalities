@@ -1,13 +1,12 @@
 OS = $(shell uname -s)
 
-#CFLAGS = -O3 -std=c++11 -Wall -fno-use-cxa-atexit -fPIC
+CFLAGS = -O3 -std=c++11 -fPIC -I /usr/local/Cellar/eigen/3.3.7/include/eigen3/
 ifeq (${OS}, Darwin)
   # OS X
 	CLANG ?= clang++
 	LIB = libpgm.dylib
 else ifeq (${OS}, Linux)
   # Linux
-   #CLANG ?= g++
  	CLANG ?= clang++
 	LIB = libpgm.so
 else
@@ -15,8 +14,11 @@ else
 endif
 
 ${LIB}: main.cc
-	$(CLANG) -std=c++11 -I /data/pari/libs/ -fPIC -c main.cc -o main.o
-	$(CLANG) -shared  -Wl,-soname,${LIB} -o ${LIB} main.o
+	$(CLANG) $(CFLAGS) -c main.cc -o main.o
+	# FIXME: need to test on linux, will just sharing dynamiclib to shared work?
+	# original command was:
+	#$(CLANG) -shared  -Wl,-soname,${LIB} -o ${LIB} main.o
+	$(CLANG) -dynamiclib -o ${LIB} main.o
 
 clean:
 	rm -f *.bc *.o *.out ${LIB}

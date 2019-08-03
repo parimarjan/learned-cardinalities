@@ -41,6 +41,7 @@ class PGM():
         self.alg_name = alg_name
         self.use_svd = use_svd
         self.num_singular_vals = num_singular_vals
+        print(self.backend, self.alg_name)
 
     def train(self, samples, weights, state_names=None):
         '''
@@ -80,6 +81,7 @@ class PGM():
             # TODO: mapped samples should be extended to include all 0's.
             self.pom_model = BayesianNetwork.from_samples(mapped_samples, weights=weights,
                     state_names=self.state_names, algorithm="chow-liu", n_jobs=-1)
+            print("pomegranate training done!")
 
             if self.alg_name == "greg":
                 # compute all the appropriate SVD's
@@ -159,7 +161,7 @@ class PGM():
                 misc_cache.clear()
             elif self.alg_name == "chow-liu":
                 # should not need to do anything here.
-                print("trained chow-liu")
+                print("trained chow-liu using pomegranate")
             else:
                 assert False
 
@@ -180,7 +182,10 @@ class PGM():
         if self.backend == "ourpgm":
             sample = self._get_sample(rv_values, True)
             assert len(sample) == len(self.state_names)
-            return self._eval_ourpgm(sample)
+            est_val = self._eval_ourpgm(sample)
+            assert est_val <= 1.00
+            return est_val
+
         elif self.backend == "pomegranate":
             assert self.pom_model is not None
             if self.alg_name == "chow-liu":
@@ -194,9 +199,9 @@ class PGM():
                 all_points = np.array(all_points)
                 # we should be able to evaluate all these in parallel
                 # print("going to call pomegrante's eval")
-                # pdb.set_trace()
                 est_vals = self.pom_model.probability(all_points)
                 est_val = np.sum(est_vals)
+                assert est_val <= 1.00
                 return est_val
 
             elif self.alg_name == "greg":
@@ -229,6 +234,8 @@ class PGM():
         sample = []
         for col, col_points in enumerate(rv_values):
             mapper = self.word2index[col]
+            # print(len(mapper.keys()))
+            # pdb.set_trace()
             sample.append([])
             # TODO: if col_points is empty, then append every possible value into it.
             if len(col_points) == 0 and fill_empty_rv:

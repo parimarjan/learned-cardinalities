@@ -66,11 +66,6 @@ def get_possible_values(sample, db, column_bins=None):
                 possible_vals = [str(v.replace("'","")) for v in val]
                 # possible_vals = [v for v in val]
             elif cmp_op == "lt":
-                # assert len(val) == 2
-                # if len(val) != 2:
-                    # print(val)
-                    # pdb.set_trace()
-
                 if column not in column_bins:
                     # then select everything in the given range of
                     # integers.
@@ -81,14 +76,23 @@ def get_possible_values(sample, db, column_bins=None):
                     # discretize first
                     bins = column_bins[column]
                     vals = [float(v) for v in val]
-                    for bi, bval in enumerate(bins):
-                        if bval >= vals[0]:
-                            # ntile's start from 1
-                            possible_vals.append(bi+1)
-                        elif bval < vals[0]:
-                            continue
-                        if bval > vals[1]:
-                            break
+                    # print(bins)
+                    # print(vals)
+                    # pdb.set_trace()
+                    # for bi, bval in enumerate(bins):
+                        # if bval >= vals[0]:
+                            # # if 0 not in binned vals
+                            # # possible_vals.append(bi+1)
+                            # possible_vals.append(bi)
+                        # elif bval < vals[0]:
+                            # continue
+                        # if bval > vals[1]:
+                            # break
+
+                    vals = np.digitize(vals, bins, right=True)
+                    for bi in range(vals[0],vals[1]+1):
+                        possible_vals.append(bi)
+
                     # print(vals)
                     # print(possible_vals)
                     # pdb.set_trace()
@@ -147,14 +151,53 @@ class OurPGM(CardinalityEstimationAlg):
         self.model = PGM(alg_name=self.alg_name, backend=self.backend,
                 use_svd=self.use_svd, num_singular_vals=self.num_singular_vals)
 
-        self.num_bins = 100
+        self.num_bins = 500
         self.test_cache = {}
         self.column_bins = {}
-        self.DEBUG = False
+        self.DEBUG = True
+        self.param_count = -1
 
     def __str__(self):
         name = self.alg_name
         return name
+
+    def _load_osm_data(self, db):
+        start = time.time()
+        # load directly to numpy since should be much faster
+        data = np.fromfile('/Users/pari/osm.bin',
+                dtype=np.int64).reshape(-1, 6)
+        columns = list(db.column_stats.keys())
+        # drop the index column
+        data = data[0:100000,1:6]
+        # data = data[:,1:6]
+        self.column_bins = {}
+        for i in range(data.shape[1]):
+            # these columns don't need to be discretized.
+            # FIXME: use more general check here.
+            if db.column_stats[columns[i]]["num_values"] < 1000:
+                continue
+            d0 = data[:, i]
+            _, bins = pd.qcut(d0, self.num_bins, retbins=True, duplicates="drop")
+            # _, bins = pd.qcut(d0, self.num_bins, retbins=True)
+            self.column_bins[columns[i]] = bins
+            data[:, i] = np.digitize(d0, bins, right=True)
+            print(len(set(d0)))
+            print(min(d0))
+            # pdb.set_trace()
+
+        end = time.time()
+        df = pd.DataFrame(data)
+        df = df.groupby([0,1,2,3,4]).size().\
+                sort_values(ascending=False).\
+                reset_index(name='count')
+
+        # FIXME: should not be hardcoded
+        samples = df.values[:,0:5]
+        weights = np.array(df["count"])
+
+        print("took : ", end-start)
+        # pdb.set_trace()
+        return samples, weights
 
     def _load_training_data(self, db, continuous_cols):
         '''
@@ -210,6 +253,7 @@ class OurPGM(CardinalityEstimationAlg):
 
         group_by = GROUPBY_TEMPLATE.format(COLS = columns_str,
                 FROM_CLAUSE=FROM)
+        print(group_by)
         group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
 
         groupby_output = db.execute(group_by)
@@ -242,7 +286,8 @@ class OurPGM(CardinalityEstimationAlg):
         if "synth" in db.db_name:
             samples, weights = self._load_training_data(db, False)
         elif "osm" in db.db_name:
-            samples, weights = self._load_training_data(db, True)
+            # samples, weights = self._load_training_data(db, True)
+            samples, weights = self._load_osm_data(db)
         elif "imdb" in db.db_name:
             assert False
         elif "dmv" in db.db_name:
@@ -261,7 +306,7 @@ class OurPGM(CardinalityEstimationAlg):
         else:
             self.model = model
 
-        NUM_PARAMS_NOT_IMPL = True
+        NUM_PARAMS_NOT_IMPL = False
         if NUM_PARAMS_NOT_IMPL:
             # calculate it using pomegranate model
             model = BayesianNetwork.from_samples(samples, weights=weights,
@@ -342,6 +387,67 @@ class BN(CardinalityEstimationAlg):
         self.min_groupby = 0
         self.column_bins = {}
 
+    def get_possible_values(self, sample, db, column_bins=None):
+        '''
+        @sample: Query object.
+        @db: DB class object.
+        @column_bins: {column_name : bins}. Used if we want to discretize some of
+        the columns.
+
+        @ret: RV = Random Variable / Column
+            [[RV1-1, RV1-2, ...], [RV2-1, RV2-2, ...] ...]
+            Each index refers to a column in the database (or a random variable).
+            The predicates in the sample query are used to get all possible values
+            that the random variable will need to be evaluated on.
+        '''
+        all_possible_vals = []
+        # loop over each column in db
+        states = db.column_stats.keys()
+        for state in states:
+            # find the right column entry in sample
+            # val = None
+            possible_vals = []
+            # Note: Query.vals / Query.pred_column_names aren't sorted, and if
+            # there are no predicates on a column, then it will not have an entry
+            # in Query.vals
+            for i, column in enumerate(sample.pred_column_names):
+                if column != state:
+                    continue
+                cmp_op = sample.cmp_ops[i]
+                val = sample.vals[i]
+
+                if cmp_op == "in":
+                    # dedup
+                    if hasattr(sample.vals[i], "__len__"):
+                        val = set(val)
+                    # FIXME: something with the osm dataset
+                    # possible_vals = [str(v.replace("'","")) for v in val]
+                    # possible_vals = [v for v in val]
+                    possible_vals = [int(v) for v in val]
+                elif cmp_op == "lt":
+                    if column not in column_bins:
+                        # then select everything in the given range of
+                        # integers.
+                        val = [int(v) for v in val]
+                        for ival in range(val[0], val[1]):
+                            # possible_vals.append(str(ival))
+                            possible_vals.append(ival)
+                    else:
+                        # discretize first
+                        bins = column_bins[column]
+                        vals = [float(v) for v in val]
+                        vals = np.digitize(vals, bins, right=True)
+                        for bi in range(vals[0],vals[1]+1):
+                            # possible_vals.append(str(bi))
+                            possible_vals.append(bi)
+
+                elif cmp_op == "eq":
+                    possible_vals.append(val)
+                else:
+                    assert False
+            all_possible_vals.append(possible_vals)
+        return all_possible_vals
+
     def train(self, db, training_samples, **kwargs):
         # generate the group-by over all the columns we care about.
         # FIXME: for now, just for one table.
@@ -364,7 +470,8 @@ class BN(CardinalityEstimationAlg):
 
     def _load_osm_model(self, db, training_samples, **kwargs):
         # load directly to numpy since should be much faster
-        data = np.fromfile('/data/pari/osm.bin',
+        print("load osm model!")
+        data = np.fromfile('/Users/pari/osm.bin',
                 dtype=np.int64).reshape(-1, 6)
         columns = list(db.column_stats.keys())
         # drop the index column
@@ -491,7 +598,7 @@ class BN(CardinalityEstimationAlg):
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
                 continue
-            model_sample = get_possible_values(query, self.db,
+            model_sample = self.get_possible_values(query, self.db,
                     self.column_bins)
             all_points = []
             for element in itertools.product(*model_sample):
@@ -543,6 +650,8 @@ class BN(CardinalityEstimationAlg):
             else:
                 if self.avg_factor == 1:
                     # don't do any averaging
+                    print("going to evaluate")
+                    pdb.set_trace()
                     est_sel = np.sum(self.model.probability(all_points))
                 else:
                     N = len(all_points)
