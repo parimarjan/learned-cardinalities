@@ -159,6 +159,8 @@ class OurPGM(CardinalityEstimationAlg):
 
     def __str__(self):
         name = self.alg_name
+        if self.use_svd:
+            name += str(self.num_singular_vals)
         return name
 
     def _load_osm_data(self, db):
@@ -802,7 +804,7 @@ class NN1(CardinalityEstimationAlg):
         print("feature len: ", len(X[0]))
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
-                loss_threshold=2.0)
+                loss_threshold=5.0)
 
         self.net = net
 
