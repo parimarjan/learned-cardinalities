@@ -121,7 +121,7 @@ class DB():
         print("saved cache to disk")
         self.sql_cache.dump()
 
-    def init_featurizer(self):
+    def init_featurizer(self, microsoft=True):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -169,6 +169,9 @@ class DB():
 
             self.featurizer[col] = (self.feature_len, pred_len, continuous)
             self.feature_len += pred_len
+
+            if microsoft:
+                self.feature_len += 1
 
     def get_features(self, query):
         '''
@@ -289,6 +292,8 @@ class DB():
             else:
                 assert False
 
+        pg_est = query.pg_count / query.total_count
+        feature_vector[-1] = pg_est
         return feature_vector
 
     def gen_subqueries(self, query):

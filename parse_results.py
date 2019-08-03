@@ -28,7 +28,7 @@ FIX_TEMPLATE = False
 def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db_name", type=str, required=False,
-            default="imdb")
+            default="dmv")
     parser.add_argument("--results_dir", type=str, required=False,
             default="./results/")
     parser.add_argument("--output_dir", type=str, required=False,
@@ -109,9 +109,9 @@ def parse_query_objs(results_cache, trainining_queries=True):
         if "args" in results:
             result_args = results["args"]
             # filter out stuff based on args
-            if args.db_name != result_args.db_name:
-                print("skipping: ", result_args.db_name)
-                continue
+            # if args.db_name != result_args.db_name:
+                # print("skipping: ", result_args.db_name)
+                # continue
             if hasattr(result_args, "optimizer_name"):
                 optimizer_name = result_args.optimizer_name
             else:
@@ -142,6 +142,9 @@ def parse_query_objs(results_cache, trainining_queries=True):
 
             for alg, loss_types in q.losses.items():
                 for lt, loss in loss_types.items():
+                    #FIXME:
+                    if "postgres," in alg:
+                        alg = alg.replace("postgres,","")
                     data["alg_name"].append(alg)
                     data["loss_type"].append(lt)
                     data["loss"].append(loss)
@@ -149,6 +152,7 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     data["true_sel"].append(true_sel)
                     data["optimizer_name"].append(optimizer_name)
                     data["jl_start_iter"].append(jl_start_iter)
+                    data["db_name"].append(result_args.db_name)
                     if hasattr(q, "subqueries"):
                         data["num_subqueries"].append(len(q.subqueries))
                     else:
@@ -218,6 +222,75 @@ def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
 
     pdf.savefig()
     plt.clf()
+
+def gen_error_summaries_pgm(df, pdf, algs_to_plot=None,barcharts=False, tables=True):
+    # firstPage = plt.figure()
+    # firstPage.clf()
+    # txt = "Summary Results \n"
+    # txt += "Num Experiments: " + str(len(set(orig_df["train-time"]))) + "\n"
+    # txt += "DB: " + str(set(orig_df["dbname"])) + "\n"
+    # txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
+    # txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
+
+    # firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
+    # pdf.savefig()
+    # plt.close()
+
+    if tables:
+        FONT_SIZE = 12
+        COL_WIDTH = 0.25
+
+        # columns
+        loss_types = [l for l in set(df["loss_type"])]
+        COL_WIDTHS = [COL_WIDTH for l in loss_types]
+        all_algs = [l for l in set(df["alg_name"])]
+        algs = all_algs
+        # algs = []
+        # for alg in all_algs:
+            # if alg in algs_to_plot:
+                # algs.append(alg)
+
+        mean_vals = gen_table_data(df, algs, loss_types, "mean")
+        median_vals = gen_table_data(df, algs, loss_types, "median")
+        tail1 = gen_table_data(df, algs, loss_types, "95")
+        tail2 = gen_table_data(df, algs, loss_types, "99")
+
+        fig, axs = plt.subplots(2,2)
+        for i in range(2):
+            for j in range(2):
+                axs[i][j].axis("tight")
+                axs[i][j].axis("off")
+
+        def plot_table(vals, i, j, title):
+            table = axs[i][j].table(cellText=vals,
+                                  rowLabels=algs,
+                                  # rowColours=colors,
+                                  colLabels=loss_types,
+                                  loc='center',
+                                  fontsize=FONT_SIZE,
+                                  colWidths=COL_WIDTHS)
+            axs[i][j].set_title(title)
+            table.set_fontsize(FONT_SIZE)
+
+
+        # plot_table(mean_vals, 0,0,rowLabels, colLabels, FONT_SIZE, COL_WIDTHS)
+        plot_table(mean_vals, 0,0, "Mean Losses")
+        plot_table(median_vals, 0,1, "Median Losses")
+        plot_table(tail1, 1,0, "95th Percentile")
+        plot_table(tail2, 1,1, "99th Percentile")
+
+        tmp_df = df[df["alg_name"] == "chow-liu"]
+        tmp_df = tmp_df[tmp_df["loss_type"] == "qerr"]
+        db_name = list(tmp_df["db_name"])[0]
+        plt.suptitle("Dataset: {}, Num Queries: {}".format(db_name,
+            len(tmp_df)),
+                x=0.5, y=.99, horizontalalignment='center',
+                verticalalignment='top', fontsize = 10)
+
+        # plt.savefig("summary.png")
+        pdf.savefig()
+        plt.clf()
+
 
 def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True):
     # firstPage = plt.figure()
@@ -423,6 +496,15 @@ def main():
 
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
     make_dir(args.output_dir)
+    if True:
+        print(train_df.keys())
+        print(set(train_df["db_name"]))
+        for db in set(train_df["db_name"]):
+            train_df_tmp = train_df[train_df["db_name"] == db]
+            gen_error_summaries_pgm(train_df_tmp, summary_pdf)
+
+        summary_pdf.close()
+        exit(-1)
 
     algs = ["nn", "nn-jl1", "nn-jl2", "Postgres", "ourpgm", "greg", "chow-liu"]
     train_df = train_df[train_df["alg_name"].isin(algs)]

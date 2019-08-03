@@ -131,6 +131,8 @@ def get_gaussian_data_params(args):
 def get_table_name(args):
     return args.synth_table + str(args.synth_num_columns) + \
         str(args.synth_period_len) + str(args.random_seed)
+        # + \
+        # str(args.synth_num_vals)
 
 def gen_synth_data(args):
     con = pg.connect(user=args.user, host=args.db_host, port=args.port,

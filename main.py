@@ -431,7 +431,7 @@ def read_flags():
     parser.add_argument("-n", "--num_samples_per_template", type=int,
             required=False, default=1000)
     parser.add_argument("--max_iter", type=int,
-            required=False, default=100000)
+            required=False, default=5000)
     parser.add_argument("--jl_start_iter", type=int,
             required=False, default=200)
     parser.add_argument("--eval_iter", type=int,
