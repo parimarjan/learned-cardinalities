@@ -69,7 +69,7 @@ def _find_all_tables(plan):
     table_names.sort()
     return table_names
 
-def plot_graph(G, base_table_nodes, join_nodes, title="test"):
+def plot_graph_explain(G, base_table_nodes, join_nodes, fn, title="test"):
     NODE_SIZE = 300
     plt.title(title)
     pos = graphviz_layout(G, prog='dot')
@@ -99,7 +99,7 @@ def plot_graph(G, base_table_nodes, join_nodes, title="test"):
     nx.draw_networkx_edges(G,pos,width=1.0,
             alpha=0.5,with_labels=False)
     plt.tight_layout()
-    plt.savefig("test.png")
+    plt.savefig(fn)
     plt.close()
 
 def explain_to_nx(explain1):
@@ -133,16 +133,22 @@ def explain_to_nx(explain1):
                     # print(obj["Node Type"])
                     left_tables = _find_all_tables(obj["Plans"][0])
                     right_tables = _find_all_tables(obj["Plans"][1])
-                    # print("left tables: ", left_tables)
-                    # print("right: ", right_tables)
+                    all_tables = left_tables + right_tables
+                    node_type = obj["Node Type"]
+                    all_tables.sort()
+
                     node0 = _get_node_name(left_tables)
                     node1 = _get_node_name(right_tables)
+                    node_new = _get_node_name(all_tables)
 
                     # update graph
-                    G.add_edge(node0, node1)
+                    # G.add_edge(node0, node1)
+                    G.add_edge(node0, node_new)
+                    G.add_edge(node1, node_new)
                     # add other parameters on the nodes
                     G.nodes[node0]["tables"] = left_tables
                     G.nodes[node1]["tables"] = right_tables
+                    G.nodes[node_new]["tables"] = all_tables
 
             for k, v in obj.items():
                 if isinstance(v, (dict, list)):
@@ -155,9 +161,9 @@ def explain_to_nx(explain1):
 
     G = nx.DiGraph()
     traverse(explain1)
-    # print(G.nodes(data=True))
-    plot_graph(G, base_table_nodes, join_nodes)
-    pdb.set_trace()
+    G.base_table_nodes = base_table_nodes
+    G.join_nodes = join_nodes
+    return G
 
 def benchmark_sql(sql, user, db_host, port, pwd, db_name):
     '''

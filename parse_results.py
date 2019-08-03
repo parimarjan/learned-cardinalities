@@ -6,6 +6,8 @@ from utils.utils import *
 from db_utils.utils import *
 import pdb
 import glob
+import warnings
+warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -18,9 +20,6 @@ import seaborn as sns
 import matplotlib.image as mpimg
 from collections import defaultdict
 import klepto
-
-import warnings
-warnings.filterwarnings("ignore")
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
@@ -236,14 +235,18 @@ def parse_query_objs(results_cache, trainining_queries=True):
                 update_pg_costs(q)
 
             if DEBUG:
-                QUERY_LIST = ["29c.sql", "19d.sql", "30c.sql", "20a.sql"]
+                # QUERY_LIST = ["29c.sql", "19d.sql", "30c.sql", "20a.sql"]
+                # QUERY_LIST = ["30c.sql"]
+                QUERY_LIST = []
                 cur_query = q
-                cont = True
-                for debug_query_name in QUERY_LIST:
-                    if debug_query_name in q.template_name:
-                        cont = False
-                if cont:
-                    continue
+
+                if len(QUERY_LIST) > 0:
+                    cont = True
+                    for debug_query_name in QUERY_LIST:
+                        if debug_query_name in q.template_name:
+                            cont = False
+                    if cont:
+                        continue
 
                 print(q.template_name)
                 print(cur_query.runtimes)
@@ -254,8 +257,12 @@ def parse_query_objs(results_cache, trainining_queries=True):
 
                 for k,v in q.explains.items():
                     explain1 = v[0][0][0]
-                    # FIXME: tmp
+                    # TODO: fix this
+                    G = explain_to_nx(explain1)
+
                     fn = "./explains/" + q.template_name[0:3] + str(k)
+                    plot_graph_explain(G, G.base_table_nodes, G.join_nodes,
+                            fn+".png", q.template_name[0:3] + str(k))
                     # save analyze plan:
                     explain_str = json.dumps(explain1)
                     with open(fn + ".json", "w") as f:
@@ -263,12 +270,11 @@ def parse_query_objs(results_cache, trainining_queries=True):
 
                     with open(fn + ".sql", "w") as f:
                         execs = [val for val in q.executed_sqls[k]]
+                        assert len(execs) == 1
                         f.write(execs[0])
 
-                pdb.set_trace()
-
-                    # TODO: fix this
-                    # G = explain_to_nx(explain1)
+                    print(k)
+                    pdb.set_trace()
 
             # add runtime data to same df
             # selectivity prediction
@@ -303,11 +309,12 @@ def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
     # first, only plot join losses
     sort_df = df[df["loss_type"] == sort_by_loss_type]
     sort_df = sort_df[sort_df["alg_name"] == sort_by_alg]
-
-    # sort_df = sort_df[sort_df["loss"] > 5.00]
+    sort_df = sort_df[sort_df["loss"] > 2.00]
     sort_df.sort_values("loss", ascending=False, inplace=True)
-
     templates = sort_df["template"].drop_duplicates()
+    if len(templates) == 0:
+        return
+
     templates = templates.values[0:15]
 
     ## this was done to plot multiple error bars for each loss type in same
@@ -347,21 +354,25 @@ def gen_runtime_plots(df, pdf):
     '''
     Plot: x-axis: cost, y-axis = runtime, color = alg name
     '''
-    def _gen_plot(x_axis, plot_type):
+    def _gen_plot(x_axis, plot_type, style, hue):
         if plot_type == "scatter":
-            ax = sns.scatterplot(x=x_axis, y="loss", hue="alg_name",
+            ax = sns.scatterplot(x=x_axis, y="loss", hue=hue, style=style,
                     data=df, estimator=np.mean, ci=99)
+        if plot_type == "reg":
+            fg = sns.lmplot(x=x_axis, y="loss", hue=hue,
+                    data=df, ci=5)
+            fg.set(yscale="log")
+
         elif plot_type == "line":
             ax = sns.lineplot(x=x_axis, y="loss", hue="alg_name",
                     data=df, estimator=np.mean, ci=99)
 
-        fig = ax.get_figure()
+        # fig = ax.get_figure()
         # ax.set_yscale("log")
-        maxy = min(10**2, max(df["loss"]))
-        ax.set_ylim((0, maxy))
-        ax.set_ylabel("seconds")
+        # maxy = min(10**2, max(df["loss"]))
+        # ax.set_ylim((0, maxy))
+        # ax.set_ylabel("seconds")
 
-        # plt.title(",".join(q0.table_names))
         plt.title("Cost Model Output v/s Runtime")
         plt.tight_layout()
         pdf.savefig()
@@ -369,10 +380,12 @@ def gen_runtime_plots(df, pdf):
 
     # select only runtime rows
     df = df[df["loss_type"] == "runtime"]
-    _gen_plot("cost", "scatter")
-    _gen_plot("cost", "line")
-    _gen_plot("pg_cost", "scatter")
-    _gen_plot("pg_cost", "line")
+    _gen_plot("cost", "reg", "alg_name", "alg_name")
+
+    # _gen_plot("pg_cost", "scatter")
+    # _gen_plot("cost", "line")
+    # _gen_plot("pg_cost", "scatter")
+    # _gen_plot("pg_cost", "line")
 
 
 def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True):
