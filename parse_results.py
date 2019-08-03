@@ -23,7 +23,7 @@ import klepto
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
-DEBUG = True
+DEBUG = False
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -46,11 +46,11 @@ def read_flags():
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
-            default="")
+            default="imdb")
     parser.add_argument("--pwd", type=str, required=False,
             default="")
     parser.add_argument("--port", type=str, required=False,
-            default=5432)
+            default=5400)
 
     return parser.parse_args()
 
@@ -137,8 +137,8 @@ def update_runtimes(query, explain):
     if explain and not hasattr(query, "explains"):
         query.explains = defaultdict(list)
 
-    for i in range(args.runtime_reps):
-        for alg, sqls in query.executed_sqls.items():
+    for alg, sqls in query.executed_sqls.items():
+        for i in range(args.runtime_reps):
 
             if len(query.runtimes[alg]) > i:
                 continue
@@ -151,7 +151,8 @@ def update_runtimes(query, explain):
             output, exec_time = benchmark_sql(sql, args.user, args.db_host,
                     args.port, args.pwd, args.db_name)
 
-            print("iter: {}, alg: {}, time: {}".format(i, alg, exec_time))
+            print("iter: {}, {}: alg: {}, time: {}".format(i,
+                query.template_name, alg, exec_time))
             query.runtimes[alg].append(exec_time)
             if explain:
                 query.explains[alg].append(output)
@@ -555,7 +556,7 @@ def main():
     # collect all the data in a large dataframe
     train_df, query_data = parse_query_objs(results_cache, True)
     # test_df = parse_query_objs(results_cache, False)
-    # results_cache.dump()
+    results_cache.dump()
 
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
     make_dir(args.output_dir)
