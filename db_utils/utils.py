@@ -182,7 +182,10 @@ def benchmark_sql(sql, user, db_host, port, pwd, db_name):
 
     if os_user == "ubuntu":
         # for aws
-        con = pg.connect(user=user, port=port,
+        # con = pg.connect(user=user, port=port,
+                # password=pwd, database=db_name)
+        print(user, db_host, port, pwd, db_name)
+        con = pg.connect(user=user, host=db_host, port=port,
                 password=pwd, database=db_name)
     else:
         # for chunky

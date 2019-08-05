@@ -1,13 +1,14 @@
+import warnings
+warnings.filterwarnings("ignore")
 import argparse
 import os
 import pandas
 import time
 from utils.utils import *
 from db_utils.utils import *
+from cardinality_estimation.query import *
 import pdb
 import glob
-import warnings
-warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -23,7 +24,7 @@ import klepto
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
-DEBUG = True
+DEBUG = False
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -46,11 +47,11 @@ def read_flags():
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
-            default="imdb")
+            default="ubuntu")
     parser.add_argument("--pwd", type=str, required=False,
             default="")
     parser.add_argument("--port", type=str, required=False,
-            default=5400)
+            default=5433)
 
     return parser.parse_args()
 
@@ -70,7 +71,6 @@ def add_data_row(data, alg, lt, loss, template, true_sel, optimizer_name,
         data["num_subqueries"].append(len(q.subqueries))
     else:
         data["num_subqueries"].append(0)
-
 
 def plot_query(q0, pdf):
     jc = extract_join_clause(q0.query)
@@ -131,7 +131,7 @@ def update_pg_costs(query):
         total_cost = vals[-1]
         query.pg_costs[alg_name] = total_cost
 
-def update_runtimes(query, explain):
+def update_runtimes(query, explain, patch_pg_cards=True):
     if not hasattr(query, "runtimes"):
         query.runtimes = defaultdict(list)
     if explain and not hasattr(query, "explains"):
@@ -143,13 +143,27 @@ def update_runtimes(query, explain):
             if len(query.runtimes[alg]) > i:
                 continue
 
+            if patch_pg_cards:
+                updated_cards = get_cardinalities(query, alg)
+                # pdb.set_trace()
+                # update the cardinalities file in $PG_DATA_DIR
+                PG_DATA_DIR = os.environ["PG_DATA_DIR"]
+                assert PG_DATA_DIR != ""
+                fn = PG_DATA_DIR + "/cur_cardinalities.json"
+                with open(fn, 'w') as f:
+                    json.dump(updated_cards, f)
+
             assert len(sqls) == 1
             sql = list(sqls)[0]
             if explain:
                 sql = "EXPLAIN (ANALYZE, COSTS, FORMAT JSON) " + sql
 
-            output, exec_time = benchmark_sql(sql, args.user, args.db_host,
-                    args.port, args.pwd, args.db_name)
+            try:
+                output, exec_time = benchmark_sql(sql, args.user, args.db_host,
+                        args.port, args.pwd, args.db_name)
+            except:
+                print("{} failed to execute ".format(query.template_name))
+                continue
 
             print("iter: {}, {}: alg: {}, time: {}".format(i,
                 query.template_name, alg, exec_time))
@@ -238,6 +252,9 @@ def parse_query_objs(results_cache, trainining_queries=True):
             if OLD_QUERY:
                 fix_query_structure(q)
 
+            # if "30c" not in q.template_name:
+                # continue
+
             # just testing stuff
             update_runtimes(q, args.use_explain)
             if args.use_explain:
@@ -300,7 +317,10 @@ def parse_query_objs(results_cache, trainining_queries=True):
             # them separately for now.
             for alg, rts in q.runtimes.items():
                 cost = q.costs[alg]
-                pg_cost = q.pg_costs[alg]
+                try:
+                    pg_cost = q.pg_costs[alg]
+                except:
+                    pg_cost = -1.00
                 for rt in rts:
                     add_data_row(data, alg, "runtime", rt, q.template_name,
                             true_sel, optimizer_name, jl_start_iter, q,
@@ -308,7 +328,10 @@ def parse_query_objs(results_cache, trainining_queries=True):
 
             for alg, loss_types in q.losses.items():
                 cost = q.costs[alg]
-                pg_cost = q.pg_costs[alg]
+                try:
+                    pg_cost = q.pg_costs[alg]
+                except:
+                    pg_cost = -1.00
                 for lt, loss in loss_types.items():
                     add_data_row(data, alg, lt, loss, q.template_name, true_sel,
                             optimizer_name, jl_start_iter, q, BASELINE, cost,

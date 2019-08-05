@@ -16,7 +16,6 @@ def get_cardinalities(query, alg):
     # totals = []
 
     for i, subq in enumerate(query.subqueries):
-        pred
         if alg == "true":
             yhat = subq.true_sel
         else:
@@ -26,9 +25,6 @@ def get_cardinalities(query, alg):
         tables = subq.table_names
         tables.sort()
         table_key = " ".join(tables)
-        # ugh, initial space because of the way cardinalities json was
-        # generated..
-        table_key = " " + table_key
         cards[table_key] = int(est_count)
     return cards
 

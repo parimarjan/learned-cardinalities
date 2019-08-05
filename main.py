@@ -394,11 +394,11 @@ def read_flags():
             default="chow-liu")
 
     parser.add_argument("--db_name", type=str, required=False,
-            default="card_est")
+            default="imdb")
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
-            default="")
+            default="ubuntu")
     parser.add_argument("--pwd", type=str, required=False,
             default="")
     parser.add_argument("--template_dir", type=str, required=False,
