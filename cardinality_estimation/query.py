@@ -2,6 +2,36 @@ import pdb
 import psycopg2 as pg
 from db_utils.utils import *
 
+def get_cardinalities(query, alg):
+    '''
+    @query: Query object
+    @alg: str, name of the algorithm. "true" needs to be handled separately for
+    now.
+
+    @ret: dict, keys are sorted table names in the format: " table1 table2 ...
+    tableN ", and values are the cardinality estimates
+    '''
+    cards = {}
+    # yhat = []
+    # totals = []
+
+    for i, subq in enumerate(query.subqueries):
+        pred
+        if alg == "true":
+            yhat = subq.true_sel
+        else:
+            yhat = subq.yhats[alg]
+        est_count = subq.total_count * yhat
+
+        tables = subq.table_names
+        tables.sort()
+        table_key = " ".join(tables)
+        # ugh, initial space because of the way cardinalities json was
+        # generated..
+        table_key = " " + table_key
+        cards[table_key] = int(est_count)
+    return cards
+
 class Query():
     '''
     '''

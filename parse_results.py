@@ -23,7 +23,7 @@ import klepto
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
-DEBUG = False
+DEBUG = True
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -226,6 +226,14 @@ def parse_query_objs(results_cache, trainining_queries=True):
         else:
             queries = results["test_queries"]
 
+        if DEBUG:
+            # QUERY_LIST = ["29c.sql", "19d.sql", "30c.sql", "20a.sql"]
+            # QUERY_LIST = ["30c.sql"]
+            RT_EPS = 3.00
+            QUERY_LIST = []
+            PG_BETTER = []
+            TRUE_BETTER = []
+
         for i, q in enumerate(queries):
             if OLD_QUERY:
                 fix_query_structure(q)
@@ -236,9 +244,6 @@ def parse_query_objs(results_cache, trainining_queries=True):
                 update_pg_costs(q)
 
             if DEBUG:
-                # QUERY_LIST = ["29c.sql", "19d.sql", "30c.sql", "20a.sql"]
-                # QUERY_LIST = ["30c.sql"]
-                QUERY_LIST = []
                 cur_query = q
 
                 if len(QUERY_LIST) > 0:
@@ -249,12 +254,23 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     if cont:
                         continue
 
-                print(q.template_name)
-                print(cur_query.runtimes)
+                # print(q.template_name)
+                # print(cur_query.runtimes)
 
                 for k,v in q.runtimes.items():
                     v = np.array(v)
-                    print(k, np.mean(v), np.var(v))
+                    # print(k, np.mean(v), np.var(v))
+
+                pg_rts = q.runtimes["Postgres"]
+                true_rts = q.runtimes["true"]
+                pg_rt = np.mean(pg_rts)
+                true_rt = np.mean(true_rts)
+                if pg_rt - true_rt > RT_EPS:
+                    print("true better: ", pg_rt - true_rt)
+                    TRUE_BETTER.append(q)
+                elif true_rt - pg_rt > RT_EPS:
+                    print("pg better: ", true_rt - pg_rt)
+                    PG_BETTER.append(q)
 
                 for k,v in q.explains.items():
                     explain1 = v[0][0][0]
@@ -274,8 +290,6 @@ def parse_query_objs(results_cache, trainining_queries=True):
                         assert len(execs) == 1
                         f.write(execs[0])
 
-                    print(k)
-                    pdb.set_trace()
 
             # add runtime data to same df
             # selectivity prediction
@@ -299,6 +313,14 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     add_data_row(data, alg, lt, loss, q.template_name, true_sel,
                             optimizer_name, jl_start_iter, q, BASELINE, cost,
                             pg_cost)
+
+    if DEBUG:
+        pg_templates = [q.template_name for q in PG_BETTER]
+        true_templates = [q.template_name for q in TRUE_BETTER]
+        print(pg_templates)
+        print(true_templates)
+
+        pdb.set_trace()
 
     df = pd.DataFrame(data)
 
@@ -362,7 +384,7 @@ def gen_runtime_plots(df, pdf):
         if plot_type == "reg":
             fg = sns.lmplot(x=x_axis, y="loss", hue=hue,
                     data=df, ci=5)
-            fg.set(yscale="log")
+            # fg.set(yscale="log")
 
         elif plot_type == "line":
             ax = sns.lineplot(x=x_axis, y="loss", hue="alg_name",
@@ -387,7 +409,6 @@ def gen_runtime_plots(df, pdf):
     # _gen_plot("cost", "line")
     # _gen_plot("pg_cost", "scatter")
     # _gen_plot("pg_cost", "line")
-
 
 def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True):
     # firstPage = plt.figure()

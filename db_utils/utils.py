@@ -766,18 +766,18 @@ def gen_all_subqueries(query):
 
     ### old slow stuff
     # print("gen all subqueries!")
-    _,aliases,tables = extract_from_clause(query)
-    parsed = sqlparse.parse(query)[0]
-    # let us go over all the where clauses
-    where_clauses = None
-    for token in parsed.tokens:
-        if (type(token) == sqlparse.sql.Where):
-            where_clauses = token
-    assert where_clauses is not None
-    all_subqueries = _gen_subqueries(tables, where_clauses, aliases)
-    print("generated {} sql subqueries in {}: ".format(len(all_subqueries),
-        time.time()-start))
-    return all_subqueries
+    # _,aliases,tables = extract_from_clause(query)
+    # parsed = sqlparse.parse(query)[0]
+    # # let us go over all the where clauses
+    # where_clauses = None
+    # for token in parsed.tokens:
+        # if (type(token) == sqlparse.sql.Where):
+            # where_clauses = token
+    # assert where_clauses is not None
+    # all_subqueries = _gen_subqueries(tables, where_clauses, aliases)
+    # print("generated {} sql subqueries in {}: ".format(len(all_subqueries),
+        # time.time()-start))
+    # return all_subqueries
 
 def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         execution_cache_threshold, sql_cache_dir=None, timeout=120000):
