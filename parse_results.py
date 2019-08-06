@@ -40,6 +40,8 @@ def read_flags():
             default=0)
     parser.add_argument("--runtime_reps", type=int, required=False,
             default=0)
+    parser.add_argument("--use_orig_query", type=int, required=False,
+            default=0)
     parser.add_argument("--use_explain", type=int, required=False,
             default=1)
     parser.add_argument("--db_name", type=str, required=False,
@@ -131,7 +133,8 @@ def update_pg_costs(query):
         total_cost = vals[-1]
         query.pg_costs[alg_name] = total_cost
 
-def update_runtimes(query, explain, patch_pg_cards=True):
+def update_runtimes(query, explain, use_orig_query=False,
+        patch_pg_cards=True):
     if not hasattr(query, "runtimes"):
         query.runtimes = defaultdict(list)
     if explain and not hasattr(query, "explains"):
@@ -156,9 +159,11 @@ def update_runtimes(query, explain, patch_pg_cards=True):
             assert len(sqls) == 1
 
             sql = list(sqls)[0]
-            # FIXME:
-            # if True:
-                # sql = query.query
+
+            # FIXME: this only has effect if the join collapse limit paramter
+            # has not been set, ideally, that should be handled here too.
+            if use_orig_query:
+                sql = query.query
 
             if explain:
                 sql = "EXPLAIN (ANALYZE, COSTS, FORMAT JSON) " + sql
@@ -261,7 +266,8 @@ def parse_query_objs(results_cache, trainining_queries=True):
                 continue
 
             # just testing stuff
-            update_runtimes(q, args.use_explain)
+            update_runtimes(q, args.use_explain,
+                    use_orig_query=args.use_orig_query)
             if args.use_explain:
                 update_pg_costs(q)
 
