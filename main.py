@@ -52,7 +52,8 @@ def get_alg(alg):
                     clip_gradient=args.clip_gradient,
                     baseline=args.baseline_join_alg,
                     nn_cache_dir = args.nn_cache_dir,
-                    divide_mb_len = args.divide_mb_len)
+                    divide_mb_len = args.divide_mb_len,
+                    rel_jloss=args.rel_jloss)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
@@ -398,7 +399,7 @@ def read_flags():
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
-            default="ubuntu")
+            default="")
     parser.add_argument("--pwd", type=str, required=False,
             default="")
     parser.add_argument("--template_dir", type=str, required=False,
@@ -421,6 +422,9 @@ def read_flags():
             required=False, default=10.0)
     parser.add_argument("--rel_qerr_loss", type=int,
             required=False, default=1)
+    parser.add_argument("--rel_jloss", type=int,
+            required=False, default=1)
+
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
     parser.add_argument("--nn_cache_dir", type=str, required=False,
@@ -429,7 +433,7 @@ def read_flags():
             default=1)
 
     parser.add_argument("--optimizer_name", type=str, required=False,
-            default="ams")
+            default="adam")
 
     parser.add_argument("--num_hidden_layers", type=int,
             required=False, default=1)

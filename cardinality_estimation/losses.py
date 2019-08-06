@@ -229,8 +229,8 @@ def join_loss_nn(pred, queries, alg, env,
         baseline_costs.append(float(bcost))
         est_card_costs.append(float(card_cost))
 
-    # total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
-    rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
+    # rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
+    rel_errors = np.array(est_card_costs)  - np.array(baseline_costs)
 
     # print("join loss compute took ", time.time() - start)
     return rel_errors

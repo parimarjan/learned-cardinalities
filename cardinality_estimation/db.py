@@ -96,7 +96,7 @@ class DB():
                     password=self.pwd, database=self.db_name)
         else:
             # works on chunky
-            con = pg.connect(user=self.user, host=self.db_host, port=self.port,
+            con = pg.connect(user=os_user, host=self.db_host, port=self.port,
                     password=self.pwd, database=self.db_name)
         cursor = con.cursor()
         if timeout is not None:

@@ -745,6 +745,7 @@ class NN2(CardinalityEstimationAlg):
 
         self.clip_gradient = kwargs["clip_gradient"]
         self.rel_qerr_loss = kwargs["rel_qerr_loss"]
+        self.rel_jloss = kwargs["rel_jloss"]
         self.adaptive_lr = kwargs["adaptive_lr"]
         self.baseline = kwargs["baseline"]
         nn_cache_dir = kwargs["nn_cache_dir"]
@@ -805,7 +806,7 @@ class NN2(CardinalityEstimationAlg):
                     loss_threshold=2.0, jl_variant=self.jl_variant,
                     eval_iter_jl=self.eval_iter, clip_gradient=self.clip_gradient,
                     rel_qerr_loss=self.rel_qerr_loss,
-                    adaptive_lr=self.adaptive_lr)
+                    adaptive_lr=self.adaptive_lr, rel_jloss=self.rel_jloss)
         except KeyboardInterrupt:
             print("keyboard interrupt")
         except park.envs.query_optimizer.query_optimizer.QueryOptError:
@@ -819,7 +820,8 @@ class NN2(CardinalityEstimationAlg):
             eval_iter_qerr=100, mb_size=1,
             loss_func=None, tfboard_dir=None, adaptive_lr=True,
             min_lr=1e-17, loss_threshold=1.0, jl_variant=False,
-            clip_gradient=10.00, rel_qerr_loss=True):
+            clip_gradient=10.00, rel_qerr_loss=True,
+            jl_divide_constant=1, rel_jloss=True):
         '''
         TODO: explain and generalize.
         '''
@@ -865,6 +867,7 @@ class NN2(CardinalityEstimationAlg):
 
         min_qerr = {}
         max_qerr = {}
+        max_jloss = {}
 
         file_name = "./training-" + self.__str__() + ".dict"
         start = time.time()
@@ -923,9 +926,6 @@ class NN2(CardinalityEstimationAlg):
             pred = pred.squeeze(1)
             loss = loss_func(pred, ybatch)
 
-            # FIXME: temporary, to try and adjust for the variable batch size.
-            if self.divide_mb_len:
-                loss /= len(pred)
 
             if (num_iter > jl_start_iter and \
                     rel_qerr_loss):
@@ -935,7 +935,6 @@ class NN2(CardinalityEstimationAlg):
                 if sample_key not in max_qerr:
                     max_qerr[sample_key] = np.array(loss.item())
 
-
             if (num_iter > jl_start_iter and jl_variant):
                 if jl_variant == 3:
                     use_pg_est = True
@@ -944,6 +943,7 @@ class NN2(CardinalityEstimationAlg):
 
                 jl = join_loss_nn(pred, mb_samples, self, env,
                         baseline=self.baseline, use_pg_est=use_pg_est)
+
 
                 if jl_variant == 1:
                     jl = torch.mean(to_variable(jl).float())
@@ -955,12 +955,25 @@ class NN2(CardinalityEstimationAlg):
                 else:
                     assert False
 
-
                 if rel_qerr_loss:
                     sample_key = deterministic_hash(cur_samples[0].query)
                     loss = loss / to_variable(max_qerr[sample_key]).float()
 
+                # if jl_divide_constant:
+                    # jl /= jl_divide_constant
+
+                if sample_key not in max_jloss:
+                    max_jloss[sample_key] = np.array(max(jl.item(), 1.00))
+
+                if rel_jloss:
+                    sample_key = deterministic_hash(cur_samples[0].query)
+                    jl = jl / to_variable(max_jloss[sample_key]).float()
+
                 loss = loss*jl
+
+            # FIXME: temporary, to try and adjust for the variable batch size.
+            if self.divide_mb_len:
+                loss /= len(pred)
 
             if (num_iter > max_iter):
                 print("breaking because max iter done")
