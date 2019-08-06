@@ -751,6 +751,7 @@ class NN1(CardinalityEstimationAlg):
 
         # TODO: configure other variables
         self.max_iter = kwargs["max_iter"]
+        self.lr = kwargs["lr"]
 
     def train(self, db, training_samples, save_model=True,
             use_subqueries=False):
@@ -799,7 +800,7 @@ class NN1(CardinalityEstimationAlg):
         print("feature len: ", len(X[0]))
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
-                loss_threshold=5.0)
+                loss_threshold=2.0)
 
         self.net = net
 
