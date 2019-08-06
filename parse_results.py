@@ -154,7 +154,12 @@ def update_runtimes(query, explain, patch_pg_cards=True):
                     json.dump(updated_cards, f)
 
             assert len(sqls) == 1
+
             sql = list(sqls)[0]
+            # FIXME:
+            # if True:
+                # sql = query.query
+
             if explain:
                 sql = "EXPLAIN (ANALYZE, COSTS, FORMAT JSON) " + sql
 
@@ -252,8 +257,8 @@ def parse_query_objs(results_cache, trainining_queries=True):
             if OLD_QUERY:
                 fix_query_structure(q)
 
-            # if "30c" not in q.template_name:
-                # continue
+            if "19d" not in q.template_name:
+                continue
 
             # just testing stuff
             update_runtimes(q, args.use_explain)
