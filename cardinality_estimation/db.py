@@ -58,13 +58,6 @@ class DB():
         self.aliases = {}
         self.cmp_ops_onehot = {}
 
-        index_list = self.execute(INDEX_LIST_CMD)
-        # key: table.column
-        # val: index name
-        self.indexes = {}
-        for (table, col, idx_name) in index_list:
-            self.indexes[table + "." + col] = idx_name
-
     def get_entropies(self):
         '''
         pairwise entropies among all columns of the db?
@@ -89,15 +82,14 @@ class DB():
             return self.sql_cache.archive[hashed_sql]
         start = time.time()
 
-        os_user = getpass.getuser()
-        if os_user == "ubuntu":
-            # works on aws
-            con = pg.connect(user=self.user, port=self.port,
-                    password=self.pwd, database=self.db_name)
-        else:
-            # works on chunky
-            con = pg.connect(user=os_user, host=self.db_host, port=self.port,
-                    password=self.pwd, database=self.db_name)
+        ## FIXME: get stuff that works on both places
+        # works on aws
+        # con = pg.connect(user=self.user, port=self.port,
+                # password=self.pwd, database=self.db_name)
+
+        # works on chunky
+        con = pg.connect(user=self.user, host=self.db_host, port=self.port,
+                password=self.pwd, database=self.db_name)
         cursor = con.cursor()
         if timeout is not None:
             cursor.execute("SET statement_timeout = {}".format(timeout))
@@ -129,7 +121,7 @@ class DB():
         print("saved cache to disk")
         self.sql_cache.dump()
 
-    def init_featurizer(self):
+    def init_featurizer(self, heuristic_features=True):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -178,7 +170,10 @@ class DB():
             self.featurizer[col] = (self.feature_len, pred_len, continuous)
             self.feature_len += pred_len
 
-    def get_features(self, query):
+            if heuristic_features:
+                self.feature_len += 1
+
+    def get_features(self, query, heuristic_features=True):
         '''
         TODO: add different featurization options.
         @query: Query object
@@ -297,6 +292,9 @@ class DB():
             else:
                 assert False
 
+        if heuristic_features:
+            pg_est = query.pg_count / query.total_count
+            feature_vector[-1] = pg_est
         return feature_vector
 
     def gen_subqueries(self, query):
@@ -332,8 +330,7 @@ class DB():
         self.sql_cache.dump()
         return queries
 
-    def update_db_stats(self, query_template, create_indices=False,
-            delete_indices=False):
+    def update_db_stats(self, query_template):
         '''
         '''
         if "SELECT COUNT" not in query_template:
@@ -363,19 +360,10 @@ class DB():
             else:
                 print("need to generate stuff for column: ", column)
                 column_stats = {}
-                table_name = column[0:column.find(".")]
-                if table_name in self.aliases:
-                    table = ALIAS_FORMAT.format(TABLE = self.aliases[table_name],
-                                        ALIAS = table_name)
-                    index_key = self.aliases[table_name] + column[column.find("."):]
-                else:
-                    index_key = table_name + column[column.find("."):]
-                    table = table_name
-                # if index_key in self.indexes:
-                    # print("found ", index_key)
-                # else:
-                    # print("not found ", index_key)
-                # pdb.set_trace()
+                table = column[0:column.find(".")]
+                if table in self.aliases:
+                    table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
+                                        ALIAS = table)
                 min_query = MIN_TEMPLATE.format(TABLE = table,
                                                 COL   = column)
                 max_query = MAX_TEMPLATE.format(TABLE = table,

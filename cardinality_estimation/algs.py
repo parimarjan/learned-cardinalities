@@ -817,7 +817,7 @@ class NN2(CardinalityEstimationAlg):
 
     def _train_nn_join_loss(self, net, training_samples,
             lr, jl_start_iter, max_iter=10000, eval_iter_jl=500,
-            eval_iter_qerr=100, mb_size=1,
+            eval_iter_qerr=1000, mb_size=1,
             loss_func=None, tfboard_dir=None, adaptive_lr=True,
             min_lr=1e-17, loss_threshold=1.0, jl_variant=False,
             clip_gradient=10.00, rel_qerr_loss=True,
