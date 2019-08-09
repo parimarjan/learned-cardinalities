@@ -291,7 +291,7 @@ def main():
             if hashed_key in sql_str_cache.archive:
                 sql_subqueries = sql_str_cache.archive[hashed_key]
             else:
-                assert False
+                # assert False
                 print("going to generate subqueries for query num ", i)
                 sql_subqueries = gen_all_subqueries(q.query)
                 # pdb.set_trace()
