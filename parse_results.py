@@ -193,6 +193,8 @@ def fix_query_structure(query):
         query.costs = {}
 
     for alg in query.join_info:
+        print(query.join_info[alg]["executedSqls"].keys())
+        pdb.set_trace()
         exec_sql = query.join_info[alg]["executedSqls"]["RL"]
         assert exec_sql != ""
         cost = query.join_info[alg]["costs"]["RL"]
