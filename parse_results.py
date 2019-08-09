@@ -139,13 +139,13 @@ def update_runtimes(query, explain, use_orig_query=False,
         query.runtimes = defaultdict(list)
     if explain and not hasattr(query, "explains"):
         query.explains = defaultdict(list)
+    # print(query)
 
     for alg, sqls in query.executed_sqls.items():
         for i in range(args.runtime_reps):
 
             if len(query.runtimes[alg]) > i:
                 continue
-
             if patch_pg_cards:
                 updated_cards = get_cardinalities(query, alg)
                 # pdb.set_trace()
@@ -155,6 +155,7 @@ def update_runtimes(query, explain, use_orig_query=False,
                 fn = PG_DATA_DIR + "/cur_cardinalities.json"
                 with open(fn, 'w') as f:
                     json.dump(updated_cards, f)
+                print("updated cardinalities")
 
             assert len(sqls) == 1
 
@@ -173,7 +174,7 @@ def update_runtimes(query, explain, use_orig_query=False,
                         args.port, args.pwd, args.db_name)
             except:
                 print("{} failed to execute ".format(query.template_name))
-                continue
+                exit(-1)
 
             print("iter: {}, {}: alg: {}, time: {}".format(i,
                 query.template_name, alg, exec_time))
@@ -262,8 +263,8 @@ def parse_query_objs(results_cache, trainining_queries=True):
             if OLD_QUERY:
                 fix_query_structure(q)
 
-            if "19d" not in q.template_name:
-                continue
+            # if "19d" not in q.template_name:
+                # continue
 
             # just testing stuff
             update_runtimes(q, args.use_explain,
