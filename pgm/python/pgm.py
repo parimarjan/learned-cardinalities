@@ -11,7 +11,7 @@ import math
 import itertools
 import time
 import klepto
-from utils.utils import *
+# from utils.utils import *
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -23,6 +23,9 @@ else:
     lib_file = "libpgm.dylib"
 
 pgm = CDLL(lib_file, mode=RTLD_GLOBAL)
+
+def deterministic_hash(string):
+    return int(hashlib.sha1(str(string).encode("utf-8")).hexdigest(), 16)
 
 class PGM():
     '''
@@ -181,7 +184,9 @@ class PGM():
 
         if self.backend == "ourpgm":
             sample = self._get_sample(rv_values, True)
+            print(sample)
             assert len(sample) == len(self.state_names)
+            print("before _eval pgm")
             est_val = self._eval_ourpgm(sample)
             assert est_val <= 1.00
             return est_val

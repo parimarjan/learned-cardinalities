@@ -28,6 +28,7 @@ import datetime
 
 # FIXME: temporary hack
 NULL_VALUE = "-1"
+OSM_FILE = '/Users/pari/db_data/osm.bin'
 
 def get_possible_values(sample, db, column_bins=None):
     '''
@@ -153,7 +154,9 @@ class OurPGM(CardinalityEstimationAlg):
     def _load_osm_data(self, db):
         start = time.time()
         # load directly to numpy since should be much faster
-        data = np.fromfile('/data/pari/osm.bin',
+        # data = np.fromfile('/data/pari/osm.bin',
+                # dtype=np.int64).reshape(-1, 6)
+        data = np.fromfile(OSM_FILE,
                 dtype=np.int64).reshape(-1, 6)
         columns = list(db.column_stats.keys())
         # drop the index column
@@ -460,7 +463,7 @@ class BN(CardinalityEstimationAlg):
     def _load_osm_model(self, db, training_samples, **kwargs):
         # load directly to numpy since should be much faster
         print("load osm model!")
-        data = np.fromfile('/data/pari/osm.bin',
+        data = np.fromfile(OSM_FILE,
                 dtype=np.int64).reshape(-1, 6)
         columns = list(db.column_stats.keys())
         # drop the index column
