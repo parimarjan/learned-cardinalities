@@ -139,7 +139,7 @@ class OurPGM(CardinalityEstimationAlg):
         self.model = PGM(alg_name=self.alg_name, backend=self.backend,
                 use_svd=self.use_svd, num_singular_vals=self.num_singular_vals)
 
-        self.num_bins = 500
+        self.num_bins = 10000
         self.test_cache = {}
         self.column_bins = {}
         self.DEBUG = True

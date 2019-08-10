@@ -8,10 +8,10 @@ import pandas as pd
 import pdb
 import random
 
-SEEDS = [1234]
+SEEDS = [1234, 2345]
 NUM_COLUMNS = [3]
 PERIOD_LEN = [10]
-NUM_SAMPLES = 100000
+NUM_SAMPLES = 1000000
 NUM_RVS = 5
 
 # Generalized from:
@@ -51,7 +51,7 @@ def get_gaussian_data_params(seed, num_columns, period_len):
             else:
                 # for the non-diagonal entries
                 # uniformly choose the correlation between the elements
-                corr = random.uniform(0.0, 1.00)
+                corr = random.uniform(0.1, 1.00)
                 covs[i][j] = corr*stds[i]*stds[j]
                 covs[j][i] = corr*stds[i]*stds[j]
     return means, covs
@@ -64,16 +64,12 @@ def get_samples(data, num_test_samples):
     samples = []
     for i in range(num_test_samples):
         # generate a list of options from each column
-        print(data.shape)
         sample = []
         for col in range(data.shape[1]):
             cur_col = data[:,col]
-            # rvs = []
-            # for v in set(cur_col):
-                # rvs.append(v)
-
-            # normal case:
             rvs = np.random.choice(cur_col, NUM_RVS)
+            # get rid of doubles
+            rvs = np.unique(rvs)
             sample.append(rvs)
 
         samples.append(sample)
@@ -88,9 +84,9 @@ def test_simple():
     '''
     cases = [SEEDS, NUM_COLUMNS, PERIOD_LEN]
     for (seed, num_columns, period_len) in itertools.product(*cases):
+        print(seed, num_columns, period_len)
         means, covs = get_gaussian_data_params(seed, num_columns, period_len)
         data = gen_gaussian_data(means, covs, NUM_SAMPLES)
-        print(data.shape)
 
         df = pd.DataFrame(data)
         column_list = list(range(num_columns))
@@ -115,6 +111,6 @@ def test_simple():
         for s in test_samples:
             pom_ests.append(model.evaluate(s))
 
-        pdb.set_trace()
+        assert np.allclose(pom_ests, our_ests)
 
 test_simple()

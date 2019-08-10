@@ -184,9 +184,7 @@ class PGM():
 
         if self.backend == "ourpgm":
             sample = self._get_sample(rv_values, True)
-            print(sample)
             assert len(sample) == len(self.state_names)
-            print("before _eval pgm")
             est_val = self._eval_ourpgm(sample)
             assert est_val <= 1.00
             return est_val
@@ -206,7 +204,10 @@ class PGM():
                 # print("going to call pomegrante's eval")
                 est_vals = self.pom_model.probability(all_points)
                 est_val = np.sum(est_vals)
-                assert est_val <= 1.00
+                # assert est_val <= 1.00
+                if est_val > 1.00:
+                    print(est_val)
+                    pdb.set_trace()
                 return est_val
 
             elif self.alg_name == "greg":
