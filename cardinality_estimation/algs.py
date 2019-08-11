@@ -268,25 +268,30 @@ class OurPGM(CardinalityEstimationAlg):
             if db.column_stats[column]["num_values"] < 1000:
                 # not continuous
                 continue
-            _, bins = pd.qcut(df.values[i], self.num_bins,
+            _, bins = pd.qcut(df.values[:,i], self.num_bins,
                     retbins=True, duplicates="drop")
             self.column_bins[column] = bins
-            df.values[i] = np.digitize(df.values[i], bins)
-            print(len(set(df.values[i])))
-            print(min(df.values[i]))
-            pdb.set_trace()
+            df.values[:,i] = np.digitize(df.values[:,i], bins, right=True)
+            print(len(set(df.values[:,i])))
+            print(min(df.values[:,i]))
+            # pdb.set_trace()
 
         # finally, do group by and generate the distribution + counts
         # FIXME: does this specify all columns?
-        df = df.groupby().size().\
+
+        headers = [k for k in df.keys()]
+        df = df.groupby(headers).size().\
                 sort_values(ascending=False).\
                 reset_index(name='count')
+        # pdb.set_trace()
 
         # FIXME: should not be hardcoded
         samples = df.values[:,0:-1]
         weights = np.array(df["count"])
 
         print("_load_training_data took {} seconds".format(time.time()-start))
+        print("samples shape: ", samples.shape)
+        print("weights shape: ", weights.shape)
         return samples, weights
 
     def _load_training_data(self, db, continuous_cols):
@@ -377,7 +382,8 @@ class OurPGM(CardinalityEstimationAlg):
             samples, weights = self._load_training_data(db, False)
         elif "osm" in db.db_name:
             # samples, weights = self._load_training_data(db, True)
-            samples, weights = self._load_osm_data(db)
+            # samples, weights = self._load_osm_data(db)
+            samples, weights = self._load_training_data2(db)
         elif "imdb" in db.db_name:
             assert False
         elif "dmv" in db.db_name:
@@ -403,7 +409,6 @@ class OurPGM(CardinalityEstimationAlg):
                     state_names=columns, algorithm="chow-liu", n_jobs=-1)
             self.param_count = 0
             for state in model.states:
-
                 dist = state.distribution.parameters[0]
                 if isinstance(dist, list):
                     self.param_count += len(dist)*3
