@@ -212,7 +212,7 @@ struct Edges
       cout << "reconstruction to c++, close: " << close2 << endl;
     }
 
-    //this->prob_matrix = recon_prob_mat;
+    this->prob_matrix = recon_prob_mat;
   }
 
 	double cal_mutual_info()

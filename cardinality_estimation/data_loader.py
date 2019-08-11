@@ -6,7 +6,7 @@ from db_utils.utils import *
 import pandas as pd
 import numpy as np
 
-def load_csv_data(args):
+def load_csv_data(args, header=0, sep=","):
     # if the table doesn't already exist, then load it in
     # con = pg.connect(user=args.user, host=args.db_host, port=args.port,
             # password=args.pwd, database=args.db_name)
@@ -20,7 +20,9 @@ def load_csv_data(args):
     if not exists:
         from sqlalchemy import create_engine
         print("going to read csv!")
-        df = pd.read_csv(args.db_file_name, header=None)
+        df = pd.read_csv(args.db_file_name, header=header, sep=sep,
+                low_memory=False)
+        pdb.set_trace()
         updated_cols = []
         for k in df.keys():
             try:
