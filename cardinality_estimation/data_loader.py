@@ -8,11 +8,11 @@ import numpy as np
 
 def load_csv_data(args, header=0, sep=","):
     # if the table doesn't already exist, then load it in
-    # con = pg.connect(user=args.user, host=args.db_host, port=args.port,
-            # password=args.pwd, database=args.db_name)
-
-    con = pg.connect(user=args.user, port=args.port,
+    con = pg.connect(user=args.user, host=args.db_host, port=args.port,
             password=args.pwd, database=args.db_name)
+
+    # con = pg.connect(user=args.user, port=args.port,
+            # password=args.pwd, database=args.db_name)
 
     cur = con.cursor()
     table_name = args.db_name
@@ -48,10 +48,10 @@ def load_osm_data(args):
     loads data into the appropriate db instance, if it is not already there.
     '''
     # if the table doesn't already exist, then load it in
-    # con = pg.connect(user=args.user, host=args.db_host, port=args.port,
-            # password=args.pwd, database=args.db_name)
-    con = pg.connect(user=args.user, port=args.port,
+    con = pg.connect(user=args.user, host=args.db_host, port=args.port,
             password=args.pwd, database=args.db_name)
+    # con = pg.connect(user=args.user, port=args.port,
+            # password=args.pwd, database=args.db_name)
     cur = con.cursor()
     table_name = args.db_name
     exists = check_table_exists(cur, table_name)

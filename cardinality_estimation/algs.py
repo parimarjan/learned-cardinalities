@@ -90,10 +90,22 @@ def get_possible_values(sample, db, column_bins=None):
                 if column not in column_bins:
                     # then select everything in the given range of
                     # integers.
-                    val = [int(v) for v in val]
-                    for ival in range(val[0], val[1]):
-                        possible_vals.append(str(ival))
-                        weights.append(1.00)
+                    # print(column)
+                    # print("was not in the binned columns")
+                    # pdb.set_trace()
+                    val = [float(v) for v in val]
+
+                    # FIXME: this should only cover the discrete values in this
+                    # column which are in between val[0] and val[1]
+                    # for ival in range(val[0], val[1]):
+                        # possible_vals.append(str(ival))
+                        # weights.append(1.00)
+
+                    for v in db.column_stats[column]["unique_values"]:
+                        v = v[0]
+                        if v >= val[0] and v <= val[1]:
+                            possible_vals.append(v)
+                            weights.append(1.00)
                 else:
                     # discretize first
                     bins = column_bins[column]
@@ -193,7 +205,7 @@ class OurPGM(CardinalityEstimationAlg):
         self.model = PGM(alg_name=self.alg_name, backend=self.backend,
                 use_svd=self.use_svd, num_singular_vals=self.num_singular_vals)
 
-        self.num_bins = 100
+        self.num_bins = 500
         self.test_cache = {}
         self.column_bins = {}
         self.DEBUG = False
@@ -208,10 +220,10 @@ class OurPGM(CardinalityEstimationAlg):
     def _load_osm_data(self, db):
         start = time.time()
         # load directly to numpy since should be much faster
-        # data = np.fromfile('/data/pari/osm.bin',
-                # dtype=np.int64).reshape(-1, 6)
-        data = np.fromfile(OSM_FILE,
+        data = np.fromfile('/data/pari/osm.bin',
                 dtype=np.int64).reshape(-1, 6)
+        # data = np.fromfile(OSM_FILE,
+                # dtype=np.int64).reshape(-1, 6)
         columns = list(db.column_stats.keys())
         # drop the index column
         # data = data[0:100000,1:6]
@@ -247,7 +259,8 @@ class OurPGM(CardinalityEstimationAlg):
 
     def _load_training_data2(self, db):
         '''
-        Should be a general purpose function that works on all tables.
+        Should be a general purpose function that works on all single table
+        cases, with both discrete and continuous columns.
         '''
         start = time.time()
         assert len(db.tables) == 1
@@ -258,34 +271,44 @@ class OurPGM(CardinalityEstimationAlg):
         # just select all of these columns from the given table
         select_all = "SELECT {COLS} FROM {TABLE};".format(COLS = columns_str,
                                                          TABLE = table)
-        cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(db.user,
-                db.pwd, db.db_name)
-        engine = create_engine(cmd)
-        df = pd.read_sql_query(select_all, engine)
+        # TODO: add cache here.
+        data_cache = klepto.archives.dir_archive("./misc_cache",
+                cached=True, serialized=True)
+        cache_key = select_all
+        # if cache_key in data_cache.archive:
+        if False:
+            df = data_cache.archive[cache_key]
+            # samples = df.values[:,0:-1]
+            # weights = np.array(df["count"])
+            # print("loading training data from cache took {} seconds".format(\
+                    # time.time() - start))
+            # return samples, weights
+        else:
+            cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(db.user,
+                    db.pwd, db.db_name)
+            engine = create_engine(cmd)
+            df = pd.read_sql_query(select_all, engine)
+            data_cache.archive[cache_key] = df
+
         # now, df should contain all the raw columns. If there are continuous
         # columns, then we will need to bin them.
         for i, column in enumerate(columns):
             if db.column_stats[column]["num_values"] < 1000:
+                print("{} is treated as discrete column".format(column))
                 # not continuous
                 continue
             _, bins = pd.qcut(df.values[:,i], self.num_bins,
                     retbins=True, duplicates="drop")
             self.column_bins[column] = bins
             df.values[:,i] = np.digitize(df.values[:,i], bins, right=True)
-            print(len(set(df.values[:,i])))
-            print(min(df.values[:,i]))
-            # pdb.set_trace()
-
-        # finally, do group by and generate the distribution + counts
-        # FIXME: does this specify all columns?
+            print("{}, bins: {}, min value: {}".format(column,
+                len(set(df.values[:,i])), min(df.values[:,i])))
 
         headers = [k for k in df.keys()]
         df = df.groupby(headers).size().\
                 sort_values(ascending=False).\
                 reset_index(name='count')
-        # pdb.set_trace()
 
-        # FIXME: should not be hardcoded
         samples = df.values[:,0:-1]
         weights = np.array(df["count"])
 
@@ -382,12 +405,14 @@ class OurPGM(CardinalityEstimationAlg):
             samples, weights = self._load_training_data(db, False)
         elif "osm" in db.db_name:
             # samples, weights = self._load_training_data(db, True)
-            # samples, weights = self._load_osm_data(db)
-            samples, weights = self._load_training_data2(db)
+            samples, weights = self._load_osm_data(db)
+            # samples, weights = self._load_training_data2(db)
         elif "imdb" in db.db_name:
             assert False
         elif "dmv" in db.db_name:
             samples, weights = self._load_training_data(db, False)
+        elif "higgs" in db.db_name:
+            samples, weights = self._load_training_data2(db)
         else:
             assert False
         columns = list(db.column_stats.keys())
@@ -858,8 +883,10 @@ class NN1(CardinalityEstimationAlg):
 
         # TODO: make these all configurable
         self.feature_len = None
-        self.hidden_layer_multiple = 2.0
+        # self.hidden_layer_multiple = 2.0
         self.feat_type = "dict_encoding"
+        self.num_hidden_layers = kwargs["num_hidden_layers"]
+        self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
 
         # as in the dl papers (not sure if this is needed)
         self.log_transform = False
@@ -867,13 +894,14 @@ class NN1(CardinalityEstimationAlg):
         # TODO: configure other variables
         self.max_iter = kwargs["max_iter"]
         self.lr = kwargs["lr"]
+        self.eval_iter = kwargs["eval_iter"]
 
     def train(self, db, training_samples, save_model=True,
             use_subqueries=False):
         self.db = db
         if use_subqueries:
             training_samples = get_all_subqueries(training_samples)
-        db.init_featurizer()
+        # db.init_featurizer()
         X = []
         Y = []
         for sample in training_samples:
@@ -900,8 +928,12 @@ class NN1(CardinalityEstimationAlg):
             query_str += s.query
 
         # do training
+        # net = SimpleRegression(len(X[0]),
+                # int(len(X[0])*self.hidden_layer_multiple), 1)
+
         net = SimpleRegression(len(X[0]),
-                int(len(X[0])*self.hidden_layer_multiple), 1)
+                self.hidden_layer_multiple, 1,
+                num_hidden_layers=self.num_hidden_layers)
 
         if save_model:
             make_dir("./models")
@@ -915,7 +947,7 @@ class NN1(CardinalityEstimationAlg):
         print("feature len: ", len(X[0]))
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
-                loss_threshold=2.0)
+                loss_threshold=1.00, mb_size=128, eval_iter=self.eval_iter)
 
         self.net = net
 
@@ -923,7 +955,7 @@ class NN1(CardinalityEstimationAlg):
             print("saved model path")
             torch.save(net.state_dict(), model_path)
 
-    def test(self, test_samples):
+    def _test(self, test_samples):
         X = []
         for sample in test_samples:
             X.append(self.db.get_features(sample))
@@ -942,6 +974,19 @@ class NN1(CardinalityEstimationAlg):
             pred = self.net(X)
             pred = pred.squeeze(1)
         return pred.cpu().detach().numpy()
+
+    def test(self, test_samples):
+        '''
+        '''
+        # TODO: evaluate in batches of MAX_TEST_SIZE in order to avoid
+        # overwhelming the gpu memory
+        preds = np.zeros(0)
+        MAX_TRAINING_SIZE = 1024
+        for i in range(0,len(test_samples),MAX_TRAINING_SIZE):
+            batch = test_samples[i:i+MAX_TRAINING_SIZE]
+            batch_preds = self._test(batch)
+            preds = np.append(preds, batch_preds)
+        return preds
 
     def size(self):
         pass
@@ -1014,7 +1059,7 @@ class NN2(CardinalityEstimationAlg):
 
     def train(self, db, training_samples, use_subqueries=False):
         self.db = db
-        db.init_featurizer()
+        # db.init_featurizer()
 
         # initialize samples
         for sample in training_samples:

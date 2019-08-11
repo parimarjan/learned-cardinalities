@@ -14,9 +14,7 @@
 //#include <assert>
 #include <cassert>
 #include <Eigen/Dense>
-//#include <Eigen/Eigen>
 
-//using namespace Eigen;
 using namespace std::chrono;
 using namespace std;
 

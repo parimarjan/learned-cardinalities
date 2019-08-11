@@ -183,7 +183,7 @@ class PGM():
         assert len(rv_values) == len(self.state_names)
 
         if self.backend == "ourpgm":
-            sample = self._get_sample(rv_values, True)
+            sample = self._get_sample(rv_values, True, weights)
             assert len(sample) == len(self.state_names)
             # TODO: update weights based on _get_sample
             if weights is not None:
@@ -256,18 +256,21 @@ class PGM():
             else:
                 assert False
 
-    def _get_sample(self, rv_values, fill_empty_rv):
+    def _get_sample(self, rv_values, fill_empty_rv, weights=None):
         # convert to word2index representation
         sample = []
         for col, col_points in enumerate(rv_values):
             mapper = self.word2index[col]
-            # print(len(mapper.keys()))
-            # pdb.set_trace()
             sample.append([])
             # TODO: if col_points is empty, then append every possible value into it.
             if len(col_points) == 0 and fill_empty_rv:
+                if weights is not None:
+                    assert len(weights[col]) == 0
                 for _, cur_val in mapper.items():
                     sample[col].append(cur_val)
+                    if weights is not None:
+                        weights[col].append(1.0)
+
             for p in col_points:
                 # FIXME: dumb shiz
                 try:

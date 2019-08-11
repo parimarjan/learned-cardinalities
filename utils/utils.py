@@ -170,7 +170,7 @@ def adjust_learning_rate(args, optimizer, epoch):
 
 def train_nn(net, X, Y, lr=0.00001, max_iter=10000, mb_size=32,
         loss_func=None, tfboard_dir=None, adaptive_lr=False,
-        min_lr=1e-17, loss_threshold=1.0):
+        min_lr=1e-17, loss_threshold=1.0, test_size=1024, eval_iter=100):
     '''
     very simple implementation of training loop for NN.
     '''
@@ -199,12 +199,17 @@ def train_nn(net, X, Y, lr=0.00001, max_iter=10000, mb_size=32,
     Y = np.array(Y)
 
     while True:
-        if (num_iter % 100 == 0):
+        if (num_iter % eval_iter == 0):
             # test on the full train set
-            xbatch = X
+            # xbatch = X
+            idxs = np.random.choice(list(range(len(X))), test_size)
+            xbatch = X[idxs]
             xbatch = to_variable(xbatch).float()
-            ybatch = Y
+            ybatch = Y[idxs]
             ybatch = to_variable(ybatch).float()
+            # xbatch = to_variable(xbatch).float()
+            # ybatch = Y
+            # ybatch = to_variable(ybatch).float()
             pred = net(xbatch)
             pred = pred.squeeze(1)
             train_loss = loss_func(pred, ybatch).item()
