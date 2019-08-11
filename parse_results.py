@@ -171,9 +171,10 @@ def update_runtimes(query, explain, use_orig_query=False,
             try:
                 output, exec_time = benchmark_sql(sql, args.user, args.db_host,
                         args.port, args.pwd, args.db_name)
-            except:
+            except Exception as e:
                 print("{} failed to execute ".format(query.template_name))
-                continue
+                print(e)
+                exit(-1)
 
             print("iter: {}, {}: alg: {}, time: {}".format(i,
                 query.template_name, alg, exec_time))
@@ -186,14 +187,15 @@ def fix_query_structure(query):
     TODO: ideally, this structure for Query objects should be created from the
     start itself.
     '''
+    print("fix query structure")
     if not hasattr(query, "executed_sqls"):
         query.executed_sqls = defaultdict(set)
     if not hasattr(query, "costs"):
         query.costs = {}
 
     for alg in query.join_info:
-        print(query.join_info[alg]["executedSqls"].keys())
-        pdb.set_trace()
+        # print(query.join_info[alg]["executedSqls"].keys())
+        # pdb.set_trace()
         exec_sql = query.join_info[alg]["executedSqls"]["RL"]
         assert exec_sql != ""
         cost = query.join_info[alg]["costs"]["RL"]
@@ -264,8 +266,8 @@ def parse_query_objs(results_cache, trainining_queries=True):
             if OLD_QUERY:
                 fix_query_structure(q)
 
-            if "19d" not in q.template_name:
-                continue
+            # if "19d" not in q.template_name:
+                # continue
 
             # just testing stuff
             update_runtimes(q, args.use_explain,

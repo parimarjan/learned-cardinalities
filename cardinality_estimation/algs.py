@@ -878,7 +878,7 @@ class NN2(CardinalityEstimationAlg):
                 print(num_iter, end=",")
                 sys.stdout.flush()
 
-            if (num_iter % eval_iter_qerr == 0):
+            if (num_iter % eval_iter_qerr == 0 and num_iter != 0):
                 # evaluate qerr
 
                 pred = net(X)
