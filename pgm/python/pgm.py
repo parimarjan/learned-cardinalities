@@ -11,7 +11,7 @@ import math
 import itertools
 import time
 import klepto
-from utils.utils import *
+# from utils.utils import *
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -23,6 +23,9 @@ else:
     lib_file = "libpgm.dylib"
 
 pgm = CDLL(lib_file, mode=RTLD_GLOBAL)
+
+def deterministic_hash(string):
+    return int(hashlib.sha1(str(string).encode("utf-8")).hexdigest(), 16)
 
 class PGM():
     '''
@@ -167,7 +170,7 @@ class PGM():
 
         print("pgm model took {} seconds to train".format(time.time()-start))
 
-    def evaluate(self, rv_values):
+    def evaluate(self, rv_values, weights=None, weights_method=1):
         '''
         @rv_values: Each element is a list. i-th element represents the i-th
         random variable, and the assignments for that random variable which
@@ -182,7 +185,28 @@ class PGM():
         if self.backend == "ourpgm":
             sample = self._get_sample(rv_values, True)
             assert len(sample) == len(self.state_names)
-            est_val = self._eval_ourpgm(sample)
+            # TODO: update weights based on _get_sample
+            if weights is not None:
+                if weights_method == 1:
+                    rv_weights = []
+                    for cur_weights in weights:
+                        cur_rv_weight = 0.00
+                        for w in cur_weights:
+                            cur_rv_weight += w
+                        cur_rv_weight /= len(cur_weights)
+                        rv_weights.append(cur_rv_weight)
+
+                    combined_weight = np.product(np.array(rv_weights))
+                    assert combined_weight <= 1.00
+                    # print(rv_weights, combined_weight)
+                    # pdb.set_trace()
+                    est_val = self._eval_ourpgm(sample)
+                    return est_val * combined_weight
+                else:
+                    assert False
+            else:
+                est_val = self._eval_ourpgm(sample)
+
             assert est_val <= 1.00
             return est_val
 
@@ -201,7 +225,10 @@ class PGM():
                 # print("going to call pomegrante's eval")
                 est_vals = self.pom_model.probability(all_points)
                 est_val = np.sum(est_vals)
-                assert est_val <= 1.00
+                # assert est_val <= 1.00
+                if est_val > 1.00:
+                    print(est_val)
+                    pdb.set_trace()
                 return est_val
 
             elif self.alg_name == "greg":

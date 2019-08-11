@@ -40,7 +40,7 @@ def get_alg(alg):
     elif alg == "bn-exact":
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn1":
-        return NN1(max_iter = args.max_iter)
+        return NN1(max_iter = args.max_iter, lr=args.lr)
     elif alg == "nn2":
         return NN2(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,

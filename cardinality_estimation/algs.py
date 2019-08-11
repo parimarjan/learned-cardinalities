@@ -28,6 +28,15 @@ import datetime
 
 # FIXME: temporary hack
 NULL_VALUE = "-1"
+OSM_FILE = '/Users/pari/db_data/osm.bin'
+
+def _get_bin_length(bins, bin_num):
+    if bin_num == 0:
+        bin_length = 0
+    else:
+        bin_length = bins[bin_num] - bins[bin_num-1]
+
+    return bin_length
 
 def get_possible_values(sample, db, column_bins=None):
     '''
@@ -36,25 +45,37 @@ def get_possible_values(sample, db, column_bins=None):
     @column_bins: {column_name : bins}. Used if we want to discretize some of
     the columns.
 
-    @ret: RV = Random Variable / Column
+    @ret:
+        @possible_vals = Random Variable / Column
         [[RV1-1, RV1-2, ...], [RV2-1, RV2-2, ...] ...]
         Each index refers to a column in the database (or a random variable).
         The predicates in the sample query are used to get all possible values
         that the random variable will need to be evaluated on.
+
+        @weights: same dimensions as possible vals. Only really makes sense
+        when dealing with continuous random variables which are binned. For the
+        rv's which don't cover a complete bin, this will represent the weight
+        given by: (end - val) / (end-start)
     '''
     all_possible_vals = []
+    all_weights = []
     # loop over each column in db
     states = db.column_stats.keys()
+    # avoid duplicates, in range queries, unforunately, Query object stores two
+    # columns with same names
+    seen = []
     for state in states:
         # find the right column entry in sample
         # val = None
         possible_vals = []
+        weights = []
         # Note: Query.vals / Query.pred_column_names aren't sorted, and if
         # there are no predicates on a column, then it will not have an entry
         # in Query.vals
         for i, column in enumerate(sample.pred_column_names):
-            if column != state:
+            if column != state or column in seen:
                 continue
+            seen.append(column)
             cmp_op = sample.cmp_ops[i]
             val = sample.vals[i]
 
@@ -62,9 +83,8 @@ def get_possible_values(sample, db, column_bins=None):
                 # dedup
                 if hasattr(sample.vals[i], "__len__"):
                     val = set(val)
-                # FIXME: something with the osm dataset
                 possible_vals = [str(v.replace("'","")) for v in val]
-                # possible_vals = [v for v in val]
+                weights.append(1.00)
             elif cmp_op == "lt":
                 if column not in column_bins:
                     # then select everything in the given range of
@@ -72,23 +92,57 @@ def get_possible_values(sample, db, column_bins=None):
                     val = [int(v) for v in val]
                     for ival in range(val[0], val[1]):
                         possible_vals.append(str(ival))
+                        weights.append(1.00)
                 else:
                     # discretize first
                     bins = column_bins[column]
                     vals = [float(v) for v in val]
-                    vals = np.digitize(vals, bins, right=True)
-                    for bi in range(vals[0],vals[1]+1):
-                        possible_vals.append(bi)
+                    binned_vals = np.digitize(vals, bins, right=True)
 
+                    if (binned_vals[0] == binned_vals[1]):
+                        possible_vals.append(binned_vals[0])
+                        bin_length = _get_bin_length(bins, binned_vals[0])
+                        if bin_length != 0.0:
+                            weight = (vals[1] - vals[0]) / (bin_length)
+                        else:
+                            weight = 1.00
+                        weights.append(weight)
+                    else:
+                        # different bins, means the weight can be different for
+                        # the endpoints, and 1.00 for all the middle ones
+                        for bi in range(binned_vals[0],binned_vals[1]+1):
+                            possible_vals.append(bi)
+                            bin_length = _get_bin_length(bins, bi)
+                            if bin_length == 0.0:
+                                weight = 1.00
+                            elif bi == binned_vals[0]:
+                                assert bi != 0
+                                weight = (vals[0] - bins[bi-1]) / bin_length
+                            elif bi == binned_vals[1]:
+                                assert bi != 0
+                                weight = (vals[1] - bins[bi-1]) / bin_length
+                            else:
+                                weight = 1.00
+                            weights.append(weight)
+
+                    # for bi in range(binned_vals[0],binned_vals[1]+1):
+                        # possible_vals.append(bi)
+
+                    # print(bins)
                     # print(vals)
-                    # print(possible_vals)
+                    # print(binned_vals)
                     # pdb.set_trace()
+
             elif cmp_op == "eq":
                 possible_vals.append(val)
+                weights.append(1.00)
             else:
                 assert False
+
         all_possible_vals.append(possible_vals)
-    return all_possible_vals
+        all_weights.append(weights)
+
+    return all_possible_vals, all_weights
 
 class CardinalityEstimationAlg():
 
@@ -138,10 +192,10 @@ class OurPGM(CardinalityEstimationAlg):
         self.model = PGM(alg_name=self.alg_name, backend=self.backend,
                 use_svd=self.use_svd, num_singular_vals=self.num_singular_vals)
 
-        self.num_bins = 500
+        self.num_bins = 100
         self.test_cache = {}
         self.column_bins = {}
-        self.DEBUG = True
+        self.DEBUG = False
         self.param_count = -1
 
     def __str__(self):
@@ -153,7 +207,9 @@ class OurPGM(CardinalityEstimationAlg):
     def _load_osm_data(self, db):
         start = time.time()
         # load directly to numpy since should be much faster
-        data = np.fromfile('/data/pari/osm.bin',
+        # data = np.fromfile('/data/pari/osm.bin',
+                # dtype=np.int64).reshape(-1, 6)
+        data = np.fromfile(OSM_FILE,
                 dtype=np.int64).reshape(-1, 6)
         columns = list(db.column_stats.keys())
         # drop the index column
@@ -327,11 +383,20 @@ class OurPGM(CardinalityEstimationAlg):
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
                 continue
-            model_sample = get_possible_values(query, self.db,
-                    self.column_bins)
 
-            # normal method
-            est_sel = self.model.evaluate(model_sample)
+            possible_vals, weights = get_possible_values(query, self.db,
+                    self.column_bins)
+            # TODO: add assertion checks on possible_vals, weights shape etc.
+
+            # print(possible_vals)
+            # print(weights)
+            # pdb.set_trace()
+
+            # if no binning, then don't need weights
+            if len(self.column_bins) == 0:
+                est_sel = self.model.evaluate(possible_vals)
+            else:
+                est_sel = self.model.evaluate(possible_vals, weights)
 
             if self.DEBUG:
                 true_sel = query.true_sel
@@ -460,7 +525,7 @@ class BN(CardinalityEstimationAlg):
     def _load_osm_model(self, db, training_samples, **kwargs):
         # load directly to numpy since should be much faster
         print("load osm model!")
-        data = np.fromfile('/data/pari/osm.bin',
+        data = np.fromfile(OSM_FILE,
                 dtype=np.int64).reshape(-1, 6)
         columns = list(db.column_stats.keys())
         # drop the index column
@@ -751,6 +816,7 @@ class NN1(CardinalityEstimationAlg):
 
         # TODO: configure other variables
         self.max_iter = kwargs["max_iter"]
+        self.lr = kwargs["lr"]
 
     def train(self, db, training_samples, save_model=True,
             use_subqueries=False):
@@ -799,7 +865,7 @@ class NN1(CardinalityEstimationAlg):
         print("feature len: ", len(X[0]))
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
-                loss_threshold=5.0)
+                loss_threshold=2.0)
 
         self.net = net
 
