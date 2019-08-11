@@ -25,6 +25,7 @@ from collections import defaultdict
 import sys
 import klepto
 import datetime
+from sqlalchemy import create_engine
 
 # FIXME: temporary hack
 NULL_VALUE = "-1"
@@ -242,6 +243,50 @@ class OurPGM(CardinalityEstimationAlg):
 
         print("took : ", end-start)
         # pdb.set_trace()
+        return samples, weights
+
+    def _load_training_data2(self, db):
+        '''
+        Should be a general purpose function that works on all tables.
+        '''
+        start = time.time()
+        assert len(db.tables) == 1
+        table = [t for t in db.tables][0]
+        columns = list(db.column_stats.keys())
+        FROM = table
+        columns_str = ",".join(columns)
+        # just select all of these columns from the given table
+        select_all = "SELECT {COLS} FROM {TABLE};".format(COLS = columns_str,
+                                                         TABLE = table)
+        cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(db.user,
+                db.pwd, db.db_name)
+        engine = create_engine(cmd)
+        df = pd.read_sql_query(select_all, engine)
+        # now, df should contain all the raw columns. If there are continuous
+        # columns, then we will need to bin them.
+        for i, column in enumerate(columns):
+            if db.column_stats[column]["num_values"] < 1000:
+                # not continuous
+                continue
+            _, bins = pd.qcut(df.values[i], self.num_bins,
+                    retbins=True, duplicates="drop")
+            self.column_bins[column] = bins
+            df.values[i] = np.digitize(df.values[i], bins)
+            print(len(set(df.values[i])))
+            print(min(df.values[i]))
+            pdb.set_trace()
+
+        # finally, do group by and generate the distribution + counts
+        # FIXME: does this specify all columns?
+        df = df.groupby().size().\
+                sort_values(ascending=False).\
+                reset_index(name='count')
+
+        # FIXME: should not be hardcoded
+        samples = df.values[:,0:-1]
+        weights = np.array(df["count"])
+
+        print("_load_training_data took {} seconds".format(time.time()-start))
         return samples, weights
 
     def _load_training_data(self, db, continuous_cols):

@@ -213,6 +213,8 @@ def main():
         load_csv_data(args)
     elif "higgs" in args.db_name:
         load_csv_data(args)
+    elif "power" in args.db_name:
+        load_csv_data(args, 0, ";")
 
     # Steps: collect statistics, gen templates, filter out zeros and dups, gen
     # subqueries.
