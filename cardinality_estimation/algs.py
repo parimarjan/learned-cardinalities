@@ -382,8 +382,8 @@ class OurPGM(CardinalityEstimationAlg):
             samples, weights = self._load_training_data(db, False)
         elif "osm" in db.db_name:
             # samples, weights = self._load_training_data(db, True)
-            # samples, weights = self._load_osm_data(db)
-            samples, weights = self._load_training_data2(db)
+            samples, weights = self._load_osm_data(db)
+            # samples, weights = self._load_training_data2(db)
         elif "imdb" in db.db_name:
             assert False
         elif "dmv" in db.db_name:

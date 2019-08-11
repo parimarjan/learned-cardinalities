@@ -18,6 +18,31 @@ def load_csv_data(args, header=0, sep=","):
         print("going to read csv!")
         df = pd.read_csv(args.db_file_name, header=header, sep=sep,
                 low_memory=False)
+        # let's try to make each column something nicer
+        for k in df.keys():
+            print(k)
+            print(df[k].dtype)
+            if (df[k].dtype != "O"):
+                # seems fine as is
+                continue
+            # try to get objects into more meaningful types
+            # pdb.set_trace()
+            if "date" in k.lower():
+                # convert to unix timestamps
+                print("converting datetime to unix")
+                df[k] = pd.to_datetime(df[k]).astype(np.int64)
+            elif "time" in k.lower():
+                df[k] = pd.to_timedelta(df[k]).astype(np.int64)
+            else:
+                # try to see if it is a float
+                try:
+                    float(df[k][0])
+                    # convert to numbery things
+                    df[k] = pd.to_numeric(df[k], errors="coerce")
+                except:
+                    # do nothing since it is not a float!
+                    pass
+
         pdb.set_trace()
         updated_cols = []
         for k in df.keys():
