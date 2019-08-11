@@ -40,7 +40,10 @@ def get_alg(alg):
     elif alg == "bn-exact":
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn1":
-        return NN1(max_iter = args.max_iter, lr=args.lr)
+        return NN1(max_iter = args.max_iter, lr=args.lr,
+                num_hidden_layers=args.num_hidden_layers,
+                hidden_layer_multiple=args.hidden_layer_multiple,
+                eval_iter=args.eval_iter)
     elif alg == "nn2":
         return NN2(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,
@@ -469,7 +472,7 @@ def read_flags():
     parser.add_argument("--gen_bn_dist", type=int, required=False,
             default=0)
     parser.add_argument("--only_nonzero_samples", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--use_subqueries", type=int, required=False,
             default=0)
     parser.add_argument("--synth_table", type=str, required=False,
