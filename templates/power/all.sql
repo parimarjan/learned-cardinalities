@@ -9,8 +9,8 @@ AND 'Xglobal_active_power' < power.global_active_power
 AND power.global_active_power <= 'Yglobal_active_power'
 AND 'Xglobal_reactive_power' < power.global_reactive_power
 AND power.global_reactive_power <= 'Yglobal_reactive_power'
-AND 'Xglobal_voltage' < power.global_voltage
-AND power.global_voltage <= 'Yglobal_voltage'
+AND 'Xvoltage' < power.voltage
+AND power.voltage <= 'Yvoltage'
 AND 'Xglobal_intensity' < power.global_intensity
 AND power.global_intensity <= 'Yglobal_intensity'
 AND 'Xsub_metering_1' < power.sub_metering_1

@@ -109,6 +109,8 @@ def get_possible_values(sample, db, column_bins=None):
                 else:
                     # discretize first
                     bins = column_bins[column]
+                    print(val)
+                    pdb.set_trace()
                     vals = [float(v) for v in val]
                     binned_vals = np.digitize(vals, bins, right=True)
 
@@ -292,17 +294,24 @@ class OurPGM(CardinalityEstimationAlg):
 
         # now, df should contain all the raw columns. If there are continuous
         # columns, then we will need to bin them.
+        df_keys = list(df.keys())
         for i, column in enumerate(columns):
             if db.column_stats[column]["num_values"] < 1000:
                 print("{} is treated as discrete column".format(column))
                 # not continuous
                 continue
+            print("before starting to bin")
+            pdb.set_trace()
             _, bins = pd.qcut(df.values[:,i], self.num_bins,
                     retbins=True, duplicates="drop")
             self.column_bins[column] = bins
-            df.values[:,i] = np.digitize(df.values[:,i], bins, right=True)
-            print("{}, bins: {}, min value: {}".format(column,
+            print("before changing df.values")
+            pdb.set_trace()
+            # df.values[:,i] = np.digitize(df.values[:,i], bins, right=True)
+            df[df_keys[i]] = np.digitize(df[df_keys[i]].values, bins, right=True)
+            print("{}, num bins: {}, min value: {}".format(column,
                 len(set(df.values[:,i])), min(df.values[:,i])))
+            pdb.set_trace()
 
         headers = [k for k in df.keys()]
         df = df.groupby(headers).size().\
@@ -412,6 +421,8 @@ class OurPGM(CardinalityEstimationAlg):
         elif "dmv" in db.db_name:
             samples, weights = self._load_training_data(db, False)
         elif "higgs" in db.db_name:
+            samples, weights = self._load_training_data2(db)
+        elif "power" in db.db_name:
             samples, weights = self._load_training_data2(db)
         else:
             assert False

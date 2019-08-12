@@ -5,6 +5,7 @@ from utils.utils import *
 from db_utils.utils import *
 import pandas as pd
 import numpy as np
+import random
 
 def load_csv_data(args, header=0, sep=","):
     # if the table doesn't already exist, then load it in
@@ -223,8 +224,10 @@ def update_synth_templates(args, query_templates):
     column_ids = list(range(args.synth_num_columns))
     for i in range(2, args.synth_num_columns+1, 1):
         combs += (list(itertools.combinations(column_ids, i)))
+    random.shuffle(combs)
+    combs = combs[0:10]
     print(combs)
-    pdb.set_trace()
+
     for comb in combs:
         conditions = []
         column_list = []

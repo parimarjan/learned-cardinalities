@@ -10,7 +10,7 @@ else ifeq (${OS}, Linux)
   # Linux
  	CLANG ?= clang++
 	LIB = libpgm.so
-	CFLAGS = -O3 -std=c++11 -fPIC -I /data/pari/libs/
+	CFLAGS = -O3 -std=c++11 -fPIC -I /home/ubuntu/libs/
 	SHARED_FLAG = -shared
 else
   $(error Unsupported platform: ${OS})
