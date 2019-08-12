@@ -485,6 +485,54 @@ struct Graphical_Model
 		create_graph(added_edges);
 	}
 
+	void MST_sel(vector<int> edge_list)
+	{
+		vector<mst_sort> mutual_info_vec;
+		set<int> vertices_added;
+		set<int>::iterator it1,it2;
+		vector<mst_sort> added_edges;
+		int edge_list_sz=edge_list.size();
+
+		for(int i=0;i<edge_list_sz;i++)
+		{
+			for(int j=i+1;j<edge_list_sz;j++)
+			{
+				mst_sort temp;
+				temp.a=edge_list[i];
+				temp.b=edge_list[j];
+				temp.val=edge_matrix[edge_list[i]][edge_list[j]-edge_list[i]-1].cal_mutual_info();
+				mutual_info_vec.push_back(temp);
+        if (VERBOSE) {
+          cout<< temp.val <<" : mutual info "<<edge_list[i]<<" "<<edge_list[j]<<endl;
+        }
+			}
+		}
+
+		std::sort(mutual_info_vec.begin(),mutual_info_vec.end(),sortFunc);
+
+		int vec_size=mutual_info_vec.size();
+
+		for(int i=0;i<mutual_info_vec.size();i++)
+		{
+			it1=vertices_added.find(mutual_info_vec[i].a);
+			it2=vertices_added.find(mutual_info_vec[i].b);
+			if(!(it1!=vertices_added.end() && it2!=vertices_added.end()))
+			{
+				added_edges.push_back(mutual_info_vec[i]);
+				vertices_added.insert(mutual_info_vec[i].a);
+				vertices_added.insert(mutual_info_vec[i].b);
+			}
+
+			if(vertices_added.size()==edge_list_sz)
+			{
+				break;
+			}
+		}
+
+		create_graph(added_edges);
+	}
+
+
 	void train()
 	{
 		MST();
@@ -693,6 +741,22 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   if(approx!=0)
   {
     app=true;
+  }
+
+  vector<int> edge_list;
+
+  for(int i=0;i<pgm.graph_size;i++)
+  {
+  	if(pgm.node_list[i].alphabet_size!=filter[i].size())
+  	{
+  		edge_list.push_back(i);
+  	}
+  }
+
+  if(true)
+  {
+  	std::sort(edge_list.begin().edge_list.end());
+  	pgm.MST_sel(edge_list);
   }
 
   double ans = eval(filter,app,frac);
