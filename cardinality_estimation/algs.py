@@ -103,14 +103,16 @@ def get_possible_values(sample, db, column_bins=None):
 
                     for v in db.column_stats[column]["unique_values"]:
                         v = v[0]
+                        if v is None:
+                            continue
                         if v >= val[0] and v <= val[1]:
                             possible_vals.append(v)
                             weights.append(1.00)
                 else:
                     # discretize first
                     bins = column_bins[column]
-                    print(val)
-                    pdb.set_trace()
+                    # print(val)
+                    # pdb.set_trace()
                     vals = [float(v) for v in val]
                     binned_vals = np.digitize(vals, bins, right=True)
 
@@ -301,17 +303,16 @@ class OurPGM(CardinalityEstimationAlg):
                 # not continuous
                 continue
             print("before starting to bin")
-            pdb.set_trace()
-            _, bins = pd.qcut(df.values[:,i], self.num_bins,
+            # pdb.set_trace()
+            # _, bins = pd.qcut(df.values[:,i], self.num_bins,
+                    # retbins=True, duplicates="drop")
+            _, bins = pd.qcut(df[df_keys[i]].values, self.num_bins,
                     retbins=True, duplicates="drop")
             self.column_bins[column] = bins
-            print("before changing df.values")
-            pdb.set_trace()
             # df.values[:,i] = np.digitize(df.values[:,i], bins, right=True)
             df[df_keys[i]] = np.digitize(df[df_keys[i]].values, bins, right=True)
             print("{}, num bins: {}, min value: {}".format(column,
                 len(set(df.values[:,i])), min(df.values[:,i])))
-            pdb.set_trace()
 
         headers = [k for k in df.keys()]
         df = df.groupby(headers).size().\
@@ -414,8 +415,8 @@ class OurPGM(CardinalityEstimationAlg):
             samples, weights = self._load_training_data(db, False)
         elif "osm" in db.db_name:
             # samples, weights = self._load_training_data(db, True)
-            samples, weights = self._load_osm_data(db)
-            # samples, weights = self._load_training_data2(db)
+            # samples, weights = self._load_osm_data(db)
+            samples, weights = self._load_training_data2(db)
         elif "imdb" in db.db_name:
             assert False
         elif "dmv" in db.db_name:
