@@ -214,22 +214,28 @@ def update_synth_templates(args, query_templates):
     print("update synth templates!!")
     table_name = get_table_name(args)
 
-    # add a select count(*) for every combination of columns
+    # TODO: add a select count(*) for every combination of columns
     meta_tmp = "SELECT COUNT(*) FROM {TABLE} WHERE {CONDS}"
     # TEST.col2 = 'col2'
     # cond_meta_tmp = "{TABLE}.{COLUMN} IN (X{COLUMN})"
     cond_meta_tmp = "{TABLE}.{COLUMN} IN ('SELECT {COLUMN} FROM {TABLE}')"
-    column_list = []
     combs = []
-    for i in range(args.synth_num_columns):
-        column_list.append("col" + str(i))
+    column_ids = list(range(args.synth_num_columns))
+    for i in range(2, args.synth_num_columns+1, 1):
+        combs += (list(itertools.combinations(column_ids, i)))
+    print(combs)
+    pdb.set_trace()
+    for comb in combs:
+        conditions = []
+        column_list = []
+        for j in comb:
+            column_list.append("col" + str(j))
 
-    conditions = []
-    for col in column_list:
-        conditions.append(cond_meta_tmp.format(TABLE  = table_name,
-                                               COLUMN = col))
-    cond_str = " AND ".join(conditions)
-    query_tmp = meta_tmp.format(TABLE = table_name,
-                    CONDS = cond_str)
-    print(query_tmp)
-    query_templates.append(query_tmp)
+        for col in column_list:
+            conditions.append(cond_meta_tmp.format(TABLE  = table_name,
+                                                   COLUMN = col))
+        cond_str = " AND ".join(conditions)
+        query_tmp = meta_tmp.format(TABLE = table_name,
+                        CONDS = cond_str)
+        print(query_tmp)
+        query_templates.append(query_tmp)

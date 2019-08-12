@@ -241,7 +241,6 @@ def main():
             cached=True, serialized=True)
     db_key = deterministic_hash("db-" + str(args.template_dir))
     if args.template_dir is not None and db_key in misc_cache.archive:
-    # if False:
         db = misc_cache.archive[db_key]
     else:
         # either load the db object from cache, or regenerate it.

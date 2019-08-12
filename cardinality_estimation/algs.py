@@ -205,7 +205,7 @@ class OurPGM(CardinalityEstimationAlg):
         self.model = PGM(alg_name=self.alg_name, backend=self.backend,
                 use_svd=self.use_svd, num_singular_vals=self.num_singular_vals)
 
-        self.num_bins = 500
+        self.num_bins = 100
         self.test_cache = {}
         self.column_bins = {}
         self.DEBUG = False
@@ -275,8 +275,8 @@ class OurPGM(CardinalityEstimationAlg):
         data_cache = klepto.archives.dir_archive("./misc_cache",
                 cached=True, serialized=True)
         cache_key = select_all
-        # if cache_key in data_cache.archive:
-        if False:
+        if cache_key in data_cache.archive:
+        # if False:
             df = data_cache.archive[cache_key]
             # samples = df.values[:,0:-1]
             # weights = np.array(df["count"])
@@ -441,7 +441,7 @@ class OurPGM(CardinalityEstimationAlg):
                     self.param_count += len(dist)*2
 
     def num_parameters(self):
-        return self.param_count
+        return self.model.num_parameters()
 
     def load_model(self, key):
         # TODO have a system to do this

@@ -377,3 +377,5 @@ class PGM():
         # pdb.set_trace()
         return ind_prob + ind_prob*correction_term
 
+    def num_parameters(self):
+        return pgm.py_num_parameters()

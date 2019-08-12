@@ -643,6 +643,24 @@ struct Graphical_Model
 
 		}
 	}
+
+  double num_parameters()
+  {
+    double total = 0.0;
+		for(int i=0;i<node_list.size();i++)
+		{
+      Nodes *parent = &node_list[i];
+			total += parent->alphabet_size;
+      // for each child, approximate the size of the prob distribution
+	    vector<int> child_ptr = node_list[i].child_ptr;
+      for(int j=0; j < child_ptr.size();j++)
+      {
+        Nodes *child = &node_list[child_ptr[j]];
+        total += child->alphabet_size * parent->alphabet_size;
+      }
+		}
+    return total;
+  }
 };
 
 Graphical_Model pgm;
@@ -732,6 +750,11 @@ extern "C" void py_train()
   return;
 }
 
+extern "C" double py_num_parameters()
+{
+  return pgm.num_parameters();
+}
+
 extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
 {
   vector<set<int> > filter(n_ar);
@@ -752,34 +775,32 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
     app=true;
   }
 
-  vector<int> edge_list;
+  //vector<int> edge_list;
 
-  for(int i=0;i<pgm.graph_size;i++)
-  {
-  	if(pgm.node_list[i].alphabet_size!=filter[i].size())
-  	{
-  		cout<<i<<" i was added out of "<<pgm.graph_size<<" "<<filter[i].size()<<endl;
-  		edge_list.push_back(i);
-  	}
-  }
+  //for(int i=0;i<pgm.graph_size;i++)
+  //{
+    //if(pgm.node_list[i].alphabet_size!=filter[i].size())
+    //{
+      //cout<<i<<" i was added out of "<<pgm.graph_size<<" "<<filter[i].size()<<endl;
+      //edge_list.push_back(i);
+    //}
+  //}
 
-  if(edge_list.size()>=2)
-  {
-  	cout<<"MST sel being made"<<endl;
-  	std::sort(edge_list.begin(),edge_list.end());
-  	pgm.MST_clean();
-  	pgm.MST_sel(edge_list);
-  }
-  else
-  {
-  	cout<<"MST norrmal"<<endl;
-  	pgm.MST_clean();
-  	pgm.MST();
-  }
+  //if(edge_list.size()>=2)
+  //{
+    //cout<<"MST sel being made"<<endl;
+    //std::sort(edge_list.begin(),edge_list.end());
+    //pgm.MST_clean();
+    //pgm.MST_sel(edge_list);
+  //}
+  //else
+  //{
+    //cout<<"MST norrmal"<<endl;
+    //pgm.MST_clean();
+    //pgm.MST();
+  //}
 
-  cout<<"eval start"<<endl;
   double ans = eval(filter,app,frac);
-  cout<<"eval end"<<endl;
   return ans;
 }
 
