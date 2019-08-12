@@ -749,7 +749,7 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   {
   	if(pgm.node_list[i].alphabet_size!=filter[i].size())
   	{
-  		cout<<i<<" i was added "<<endl;
+  		cout<<i<<" i was added out of "<<pgm.graph_size<<" "<<filter[i].size()<<endl;
   		edge_list.push_back(i);
   	}
   }
