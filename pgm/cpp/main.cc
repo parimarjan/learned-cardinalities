@@ -439,6 +439,15 @@ struct Graphical_Model
 		}
 	}
 
+	void MST_clean()
+	{
+		for(int i=0;i<graph_size;i++)
+		{
+			node_list[i].parent_ptr=-1;
+			node_list[i].child_ptr.resize(0);
+		}
+	}
+
 	void MST()
 	{
 		vector<mst_sort> mutual_info_vec;
@@ -758,16 +767,19 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   {
   	cout<<"MST sel being made"<<endl;
   	std::sort(edge_list.begin(),edge_list.end());
+  	pgm.MST_clean();
   	pgm.MST_sel(edge_list);
   }
   else
   {
   	cout<<"MST norrmal"<<endl;
+  	pgm.MST_clean();
   	pgm.MST();
   }
 
   cout<<"eval start"<<endl;
   double ans = eval(filter,app,frac);
+  cout<<"eval end"<<endl;
   return ans;
 }
 
