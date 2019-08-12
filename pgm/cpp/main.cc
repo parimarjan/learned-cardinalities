@@ -749,17 +749,24 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   {
   	if(pgm.node_list[i].alphabet_size!=filter[i].size())
   	{
-  		// cout<<i<<" i was added "<<endl;
+  		cout<<i<<" i was added "<<endl;
   		edge_list.push_back(i);
   	}
   }
 
   if(edge_list.size()>=2)
   {
+  	cout<<"MST sel being made"<<endl;
   	std::sort(edge_list.begin(),edge_list.end());
   	pgm.MST_sel(edge_list);
   }
+  else
+  {
+  	cout<<"MST norrmal"<<endl;
+  	pgm.MST();
+  }
 
+  cout<<"eval start"<<endl;
   double ans = eval(filter,app,frac);
   return ans;
 }
