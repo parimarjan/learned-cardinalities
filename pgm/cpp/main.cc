@@ -749,13 +749,14 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   {
   	if(pgm.node_list[i].alphabet_size!=filter[i].size())
   	{
+  		// cout<<i<<" i was added "<<endl;
   		edge_list.push_back(i);
   	}
   }
 
-  if(true)
+  if(edge_list.size()>=2)
   {
-  	std::sort(edge_list.begin().edge_list.end());
+  	std::sort(edge_list.begin(),edge_list.end());
   	pgm.MST_sel(edge_list);
   }
 
