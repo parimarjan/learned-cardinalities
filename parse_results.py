@@ -193,8 +193,8 @@ def fix_query_structure(query):
         query.costs = {}
 
     for alg in query.join_info:
-        print(query.join_info[alg]["executedSqls"].keys())
-        pdb.set_trace()
+        # print(query.join_info[alg]["executedSqls"].keys())
+        # pdb.set_trace()
         exec_sql = query.join_info[alg]["executedSqls"]["RL"]
         assert exec_sql != ""
         cost = query.join_info[alg]["costs"]["RL"]
@@ -273,6 +273,7 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     use_orig_query=args.use_orig_query)
             if args.use_explain:
                 update_pg_costs(q)
+            results_cache.dump()
 
             if DEBUG:
                 cur_query = q
