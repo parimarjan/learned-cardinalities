@@ -45,7 +45,7 @@ def load_osm_data(args):
         columns = ["c0", "c1", "c2",
             "d0", "d1"]
         columns = ",".join(columns)
-        data = np.fromfile('osm.bin',
+        data = np.fromfile(args.db_file_name,
                 dtype=np.int64).reshape(-1, 6)
         # drop the index column
         data = data[:,1:6]

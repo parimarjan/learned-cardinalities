@@ -172,8 +172,9 @@ def update_runtimes(query, explain, use_orig_query=False,
             try:
                 output, exec_time = benchmark_sql(sql, args.user, args.db_host,
                         args.port, args.pwd, args.db_name)
-            except:
+            except Exception as e:
                 print("{} failed to execute ".format(query.template_name))
+                print(e)
                 exit(-1)
 
             print("iter: {}, {}: alg: {}, time: {}".format(i,
@@ -187,6 +188,7 @@ def fix_query_structure(query):
     TODO: ideally, this structure for Query objects should be created from the
     start itself.
     '''
+    print("fix query structure")
     if not hasattr(query, "executed_sqls"):
         query.executed_sqls = defaultdict(set)
     if not hasattr(query, "costs"):
