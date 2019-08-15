@@ -24,7 +24,8 @@ import klepto
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
-DEBUG = False
+DEBUG = True
+MAX_QUERY = 2
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -135,17 +136,15 @@ def update_pg_costs(query):
 
 def update_runtimes(query, explain, use_orig_query=False,
         patch_pg_cards=True):
+
     if not hasattr(query, "runtimes"):
         query.runtimes = defaultdict(list)
     if explain and not hasattr(query, "explains"):
         query.explains = defaultdict(list)
-    # print(query)
 
     for alg, sqls in query.executed_sqls.items():
         for i in range(args.runtime_reps):
-
-            if len(query.runtimes[alg]) > i:
-                continue
+            print(alg)
             if patch_pg_cards:
                 updated_cards = get_cardinalities(query, alg)
                 # pdb.set_trace()
@@ -157,21 +156,35 @@ def update_runtimes(query, explain, use_orig_query=False,
                     json.dump(updated_cards, f)
                 print("updated cardinalities")
 
+            # FIXME: all sqls should be same, ensure that?
             assert len(sqls) == 1
-
             sql = list(sqls)[0]
 
             # FIXME: this only has effect if the join collapse limit paramter
             # has not been set, ideally, that should be handled here too.
             if use_orig_query:
                 sql = query.query
+                rt_alg = "pg_" + alg
+                join_collapse_limit = 15
+            else:
+                # postgres should not be allowed to set join collapse limit
+                join_collapse_limit = 1
+                rt_alg = alg
+
+            if len(query.runtimes[rt_alg]) > i:
+                print("already have runtimes for: ", query.template_name)
+                continue
 
             if explain:
                 sql = "EXPLAIN (ANALYZE, COSTS, FORMAT JSON) " + sql
 
+            # temporary test for 3b
+            if "cast_info" in sql:
+                assert False
+
             try:
                 output, exec_time = benchmark_sql(sql, args.user, args.db_host,
-                        args.port, args.pwd, args.db_name)
+                        args.port, args.pwd, args.db_name, join_collapse_limit)
             except Exception as e:
                 print("{} failed to execute ".format(query.template_name))
                 print(e)
@@ -179,16 +192,15 @@ def update_runtimes(query, explain, use_orig_query=False,
 
             print("iter: {}, {}: alg: {}, time: {}".format(i,
                 query.template_name, alg, exec_time))
-            query.runtimes[alg].append(exec_time)
+            query.runtimes[rt_alg].append(exec_time)
             if explain:
-                query.explains[alg].append(output)
+                query.explains[rt_alg].append(output)
 
 def fix_query_structure(query):
     '''
     TODO: ideally, this structure for Query objects should be created from the
     start itself.
     '''
-    print("fix query structure")
     if not hasattr(query, "executed_sqls"):
         query.executed_sqls = defaultdict(set)
     if not hasattr(query, "costs"):
@@ -266,16 +278,15 @@ def parse_query_objs(results_cache, trainining_queries=True):
         for i, q in enumerate(queries):
             if OLD_QUERY:
                 fix_query_structure(q)
-
-            # if "19d" not in q.template_name:
-                # continue
+            if i >= MAX_QUERY:
+                break
 
             # just testing stuff
             update_runtimes(q, args.use_explain,
                     use_orig_query=args.use_orig_query)
             if args.use_explain:
                 update_pg_costs(q)
-            results_cache.dump()
+            # results_cache.dump()
 
             if DEBUG:
                 cur_query = q
@@ -333,11 +344,15 @@ def parse_query_objs(results_cache, trainining_queries=True):
             # multiple runtimes, while there is only a single loss, so treating
             # them separately for now.
             for alg, rts in q.runtimes.items():
-                cost = q.costs[alg]
+                if alg in q.costs:
+                    cost = q.costs[alg]
+                else:
+                    cost = 0.00
                 try:
                     pg_cost = q.pg_costs[alg]
                 except:
-                    pg_cost = -1.00
+                    pg_cost = 0.00
+
                 for rt in rts:
                     add_data_row(data, alg, "runtime", rt, q.template_name,
                             true_sel, optimizer_name, jl_start_iter, q,
@@ -623,9 +638,9 @@ def main():
     make_dir(args.output_dir)
 
     # take intersection of the algs below, and the algs in train_df
-    algs = ["nn", "nn-jl1", "nn-jl2", "Postgres", "ourpgm", "greg", "chow-liu",
-            "true"]
-    train_df = train_df[train_df["alg_name"].isin(algs)]
+    # algs = ["nn", "nn-jl1", "nn-jl2", "Postgres", "ourpgm", "greg", "chow-liu",
+            # "true"]
+    # train_df = train_df[train_df["alg_name"].isin(algs)]
     algs = [alg for alg in set(train_df["alg_name"])]
 
     print("going to generate summary pdf")

@@ -165,10 +165,13 @@ def explain_to_nx(explain1):
     G.join_nodes = join_nodes
     return G
 
-def benchmark_sql(sql, user, db_host, port, pwd, db_name):
+def benchmark_sql(sql, user, db_host, port, pwd, db_name,
+        join_collapse_limit):
     '''
     TODO: should we be doing anything smarter?
     '''
+    query_tmp = "SET join_collapse_limit={jcl}; {sql}"
+    sql = query_tmp.format(jcl=join_collapse_limit, sql=sql)
     # first drop cache
     # FIXME: choose the right file automatically
     drop_cache_cmd = "./drop_cache.sh"
@@ -193,7 +196,6 @@ def benchmark_sql(sql, user, db_host, port, pwd, db_name):
                 password=pwd, database=db_name)
 
     cursor = con.cursor()
-
     start = time.time()
     cursor.execute(sql)
 
