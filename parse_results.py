@@ -22,13 +22,19 @@ import klepto
 import warnings
 warnings.filterwarnings("ignore")
 
-BASELINE = "EXHAUSTIVE"
-FIX_TEMPLATE = False
+DB_ORDER = ["dmv", "synthdb", "imdb", "osm2", "higgs", "power"]
+EXP_KEYS = ["num_params", "eval_times", "train_times"]
+ALGS_ORDER = ["Postgres", "NN1", "chow-liu", "cl5", "cl-recomp"]
+COL_WRAP = 3
+DB_COLUMNS = {"dmv":"11", "osm2":"5", "higgs":"8", "power":"7", "synthdb":"0",
+        "imdb":"0"}
 
 def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--db_name", type=str, required=False,
             default="dmv")
+    parser.add_argument("--pgm", type=int, required=False,
+            default=1)
     parser.add_argument("--results_dir", type=str, required=False,
             default="./results/")
     parser.add_argument("--output_dir", type=str, required=False,
@@ -41,36 +47,6 @@ def read_flags():
             default=0)
 
     return parser.parse_args()
-
-def plot_query(q0, pdf):
-    jc = extract_join_clause(q0.query)
-    pred_columns, pred_types, _ = extract_predicates(q0.query)
-    pred_columns = [p[0:p.find(".")] for p in pred_columns]
-    jg = get_join_graph(jc)
-    other_tables = []
-    pred_tables = []
-    for table in jg.nodes():
-        if table in pred_columns:
-            pred_tables.append(table)
-        else:
-            other_tables.append(table)
-
-    pos=nx.spring_layout(jg) # positions for all nodes
-    nx.draw_networkx_nodes(jg , pos,
-                           nodelist=pred_tables,
-                           node_color='r',
-                           node_size=2500,
-                           alpha=0.3)
-    nx.draw_networkx_nodes(jg,pos,
-                           nodelist=other_tables,
-                           node_color='b',
-                           node_size=2500,
-                           alpha=0.3)
-    nx.draw_networkx_edges(jg, pos)
-    nx.draw_networkx_labels(jg, pos)
-
-    pdf.savefig()
-    plt.close()
 
 def gen_table_data(df, algs, loss_types, summary_type):
     # generate nd-array of values
@@ -90,437 +66,183 @@ def gen_table_data(df, algs, loss_types, summary_type):
 
     return vals
 
-def parse_query_objs(results_cache, trainining_queries=True):
+def parse_results(results_cache, trainining_queries=True):
     '''
     '''
-    query_data = defaultdict(list)
     data = defaultdict(list)
-    # other things we care about?
-    if FIX_TEMPLATE:
-        qmap = {}
-        fns = glob.glob("./templates/myjob/*.sql")
-        for fn in fns:
-            f = open(fn, "r")
-            query = f.read()
-            qmap[query] = os.path.basename(fn)
-            f.close()
+    exp_data = defaultdict(list)
 
     for k, results in results_cache.items():
-        if "args" in results:
-            result_args = results["args"]
-            # filter out stuff based on args
-            # if args.db_name != result_args.db_name:
-                # print("skipping: ", result_args.db_name)
-                # continue
-            if hasattr(result_args, "optimizer_name"):
-                optimizer_name = result_args.optimizer_name
-            else:
-                optimizer_name = "adam"
-
-            if hasattr(result_args, "jl_start_iter"):
-                jl_start_iter = result_args.jl_start_iter
-            else:
-                jl_start_iter = 200
-
-        # else, just parse it
+        print(k)
+        result_args = results["args"]
 
         if trainining_queries:
             queries = results["training_queries"]
         else:
             queries = results["test_queries"]
 
+        for k in EXP_KEYS:
+            # if k is not in results:
+                # continue
+            for alg, val in results[k].items():
+                if alg == "chow-liu5":
+                    alg = "cl5"
+                elif alg == "chow-liu-recomp":
+                    alg = "cl-recomp"
+
+                exp_data["alg_name"].append(alg)
+                exp_data["stat_type"].append(k)
+                exp_data["db_name"].append(result_args.db_name)
+                exp_data["val"].append(val)
+
+        # parses per query stuff
         for i, q in enumerate(queries):
             # selectivity prediction
             true_sel = q.true_sel
-            if FIX_TEMPLATE:
-                if not q.query in qmap:
-                    pdb.set_trace()
-                template = qmap[q.query]
-            else:
-                template = q.template_name
-            query_data[q.template_name].append(q)
+            template = q.template_name
 
             for alg, loss_types in q.losses.items():
                 for lt, loss in loss_types.items():
-                    #FIXME:
-                    if "postgres," in alg:
-                        alg = alg.replace("postgres,","")
+                    if alg == "chow-liu5":
+                        alg = "cl5"
+                    elif alg == "chow-liu-recomp":
+                        alg = "cl-recomp"
+
                     data["alg_name"].append(alg)
                     data["loss_type"].append(lt)
                     data["loss"].append(loss)
                     data["template"].append(template)
                     data["true_sel"].append(true_sel)
-                    data["optimizer_name"].append(optimizer_name)
-                    data["jl_start_iter"].append(jl_start_iter)
                     data["db_name"].append(result_args.db_name)
                     if hasattr(q, "subqueries"):
                         data["num_subqueries"].append(len(q.subqueries))
                     else:
                         data["num_subqueries"].append(0)
 
-                    # TODO: add the predicted selectivity by this alg
-
     df = pd.DataFrame(data)
-    return df, query_data
+    exp_df = pd.DataFrame(exp_data)
+    return df, exp_df
 
-def gen_query_bar_graphs(df, pdf, sort_by_loss_type, sort_by_alg,
-        alg_order):
-
-    # algs = ["nn", "nn-jl1", "nn-jl2", "Postgres"]
-
-    # first, only plot join losses
-    sort_df = df[df["loss_type"] == sort_by_loss_type]
-    sort_df = sort_df[sort_df["alg_name"] == sort_by_alg]
-    # assert len(sort_df) >= 110
-    # if len(sort_df) < 110:
-        # print("skipping experiment as less than 110 queries")
-        # return
-
-    # sort_df = sort_df[sort_df["loss"] > 5.00]
-    sort_df.sort_values("loss", ascending=False, inplace=True)
-    templates = sort_df["template"].drop_duplicates()
-    # templates = [t for t in templates]
-    templates = templates.values[0:15]
-
-    # if sort_by_alg == "Postgres":
-        # print(templates)
-        # # print(sort_df)
-        # pdb.set_trace()
-
-    # will also select the qerrors
-    to_plot = df[df["template"].isin(templates)]
-
-    fg = sns.catplot(x="loss_type", y="loss", hue="alg_name", col="template",
-            col_wrap=5, kind="bar", data=to_plot, estimator=np.median, ci=100,
-            legend_out=False, col_order=templates, sharex=False, order=["join",
-                "qerr"], hue_order=alg_order)
-
+def gen_data_summary(df, pdf, loss_type="qerr"):
+    fg = sns.FacetGrid(df, col="db_name", col_wrap=COL_WRAP,
+            col_order=DB_ORDER)
+    fg.map(sns.distplot, "true_sel")
 
     for i, ax in enumerate(fg.axes.flat):
-        tmp = templates[i]
-        sqs = sort_df[sort_df["template"] == tmp]["num_subqueries"].values[0]
-        title = tmp + " ,#subqueries: " + str(sqs)
+        db = DB_ORDER[i]
+        tmp_df = df[df["db_name"] == db]
+        num_queries = len(set(tmp_df["template"]))
+        num_columns = DB_COLUMNS[db]
+        # sqs = sort_df[sort_df["template"] == tmp]["num_subqueries"].values[0]
+        title = db
+        title += "\n#columns: " + str(num_columns)
+        title += "\n#queries: " + str(num_queries)
         ax.set_title(title)
 
-    # plt.subplots_adjust(top= 1 - 1/8.0)
-    # fg.fig.suptitle('Worst Queries, sorted by {}'.format(sort_by_loss_type),
-            # y= 1 - 1/16.0)
-
-    fg.fig.suptitle("Sorted by worst {} for {}".format(sort_by_loss_type,
-        sort_by_alg),
+    plt.suptitle("True Selectivity Distributions",
             x=0.5, y=.99, horizontalalignment='center',
-            verticalalignment='top', fontsize = 40)
+            verticalalignment='top', fontsize = 20)
 
-    # plt.gcf()
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
+    pdf.savefig()
+    plt.clf()
 
-    # fg.set(ylim=(0,50.0))
+def gen_exp_summary(df, pdf, stat_type):
+    '''
+    TODO: share code w/ gen_losses_summary
+    '''
+    df = df[df["stat_type"] == stat_type]
+    ylabel = "time"
+    if stat_type == "num_params":
+        df["val"] = df["val"]*4 / (1e6)
+        ylabel = "MBs"
+    elif stat_type == "eval_times":
+        ylabel = "Milliseconds"
+    elif stat_type == "train_times":
+        ylabel = "Seconds"
+
+    fg = sns.catplot(x="alg_name", y="val", hue="alg_name", col="db_name",
+            col_wrap=COL_WRAP, kind="bar", data=df, estimator=np.mean, ci="sd",
+            legend_out=False, sharex=True,sharey=True, col_order=DB_ORDER,
+            hue_order=ALGS_ORDER, order=ALGS_ORDER)
+
+    fg.set(ylabel=ylabel)
+
+    # fg.set(yscale="log")
+    fg.despine(left=True)
+
+    plt.suptitle("{}".format(stat_type),
+            x=0.5, y=.99, horizontalalignment='center',
+            verticalalignment='top', fontsize = 20)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
+    pdf.savefig()
+    plt.clf()
+
+def gen_losses_summary(df, pdf, loss_type="qerr"):
+    '''
+    Each database should get its own column.
+    '''
+    # only plot the given loss type
+    df = df[df["loss_type"] == loss_type]
+
+    # TODO: mean, median, tail info should be present
+    fg = sns.catplot(x="alg_name", y="loss", hue="alg_name", col="db_name",
+            col_wrap=COL_WRAP, kind="bar", data=df, estimator=np.mean, ci="sd",
+            legend_out=False, sharex=False, sharey=False, col_order=DB_ORDER,
+            hue_order=ALGS_ORDER, order=ALGS_ORDER)
+
+    # set individual titles for each column
+    for i, ax in enumerate(fg.axes.flat):
+        db = DB_ORDER[i]
+        tmp_df = df[df["db_name"] == db]
+        num_queries = len(set(tmp_df["template"]))
+        # sqs = sort_df[sort_df["template"] == tmp]["num_subqueries"].values[0]
+        title = db + " ,#queries: " + str(num_queries)
+        ax.set_title(title)
+
+    plt.suptitle("Losses: {}".format(loss_type),
+            x=0.5, y=.99, horizontalalignment='center',
+            verticalalignment='top', fontsize = 20)
+
     fg.set(yscale="log")
     fg.despine(left=True)
 
-    # plt.tight_layout()
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
     pdf.savefig()
     plt.clf()
 
-def gen_error_summaries_pgm(df, pdf, algs_to_plot=None,barcharts=False, tables=True):
-    # firstPage = plt.figure()
-    # firstPage.clf()
-    # txt = "Summary Results \n"
-    # txt += "Num Experiments: " + str(len(set(orig_df["train-time"]))) + "\n"
-    # txt += "DB: " + str(set(orig_df["dbname"])) + "\n"
-    # txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
-    # txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
+    # TODO: generate tables with tails etc. explicitly shown
 
-    # firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
-    # pdf.savefig()
-    # plt.close()
+def pgm_plots():
 
-    if tables:
-        FONT_SIZE = 12
-        COL_WIDTH = 0.25
-
-        # columns
-        loss_types = [l for l in set(df["loss_type"])]
-        COL_WIDTHS = [COL_WIDTH for l in loss_types]
-        all_algs = [l for l in set(df["alg_name"])]
-        algs = all_algs
-        # algs = []
-        # for alg in all_algs:
-            # if alg in algs_to_plot:
-                # algs.append(alg)
-
-        mean_vals = gen_table_data(df, algs, loss_types, "mean")
-        median_vals = gen_table_data(df, algs, loss_types, "median")
-        tail1 = gen_table_data(df, algs, loss_types, "95")
-        tail2 = gen_table_data(df, algs, loss_types, "99")
-
-        fig, axs = plt.subplots(2,2)
-        for i in range(2):
-            for j in range(2):
-                axs[i][j].axis("tight")
-                axs[i][j].axis("off")
-
-        def plot_table(vals, i, j, title):
-            table = axs[i][j].table(cellText=vals,
-                                  rowLabels=algs,
-                                  # rowColours=colors,
-                                  colLabels=loss_types,
-                                  loc='center',
-                                  fontsize=FONT_SIZE,
-                                  colWidths=COL_WIDTHS)
-            axs[i][j].set_title(title)
-            table.set_fontsize(FONT_SIZE)
-
-
-        # plot_table(mean_vals, 0,0,rowLabels, colLabels, FONT_SIZE, COL_WIDTHS)
-        plot_table(mean_vals, 0,0, "Mean Losses")
-        plot_table(median_vals, 0,1, "Median Losses")
-        plot_table(tail1, 1,0, "95th Percentile")
-        plot_table(tail2, 1,1, "99th Percentile")
-
-        tmp_df = df[df["alg_name"] == "chow-liu"]
-        tmp_df = tmp_df[tmp_df["loss_type"] == "qerr"]
-        db_name = list(tmp_df["db_name"])[0]
-        plt.suptitle("Dataset: {}, Num Queries: {}".format(db_name,
-            len(tmp_df)),
-                x=0.5, y=.99, horizontalalignment='center',
-                verticalalignment='top', fontsize = 10)
-
-        # plt.savefig("summary.png")
-        pdf.savefig()
-        plt.clf()
-
-
-def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True):
-    # firstPage = plt.figure()
-    # firstPage.clf()
-    # txt = "Summary Results \n"
-    # txt += "Num Experiments: " + str(len(set(orig_df["train-time"]))) + "\n"
-    # txt += "DB: " + str(set(orig_df["dbname"])) + "\n"
-    # txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
-    # txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
-
-    # firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
-    # pdf.savefig()
-    # plt.close()
-
-    if barcharts:
-        non_join_df = df[df["loss_type"] != "join"]
-        ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
-                data=non_join_df, estimator=np.median, ci=99)
-
-        fig = ax.get_figure()
-        plt.title(",".join(q0.table_names))
-        plt.tight_layout()
-        pdf.savefig()
-        plt.clf()
-
-        if "join" in set(df["loss_type"]):
-            join_df = df[df["loss_type"] == "join"]
-            ax = sns.barplot(x="loss_type", y="loss", hue="alg_name",
-                    data=join_df, estimator=np.median, ci=99)
-
-            fig = ax.get_figure()
-            plt.title(",".join(q0.table_names))
-            plt.tight_layout()
-            pdf.savefig()
-            plt.clf()
-
-    if tables:
-        FONT_SIZE = 12
-        COL_WIDTH = 0.25
-
-        # columns
-        loss_types = [l for l in set(df["loss_type"])]
-        COL_WIDTHS = [COL_WIDTH for l in loss_types]
-        all_algs = [l for l in set(df["alg_name"])]
-        algs = []
-        for alg in all_algs:
-            if alg in algs_to_plot:
-                algs.append(alg)
-
-        mean_vals = gen_table_data(df, algs, loss_types, "mean")
-        median_vals = gen_table_data(df, algs, loss_types, "median")
-        tail1 = gen_table_data(df, algs, loss_types, "95")
-        tail2 = gen_table_data(df, algs, loss_types, "99")
-
-        fig, axs = plt.subplots(2,2)
-        for i in range(2):
-            for j in range(2):
-                axs[i][j].axis("tight")
-                axs[i][j].axis("off")
-
-        def plot_table(vals, i, j, title):
-            table = axs[i][j].table(cellText=vals,
-                                  rowLabels=algs,
-                                  # rowColours=colors,
-                                  colLabels=loss_types,
-                                  loc='center',
-                                  fontsize=FONT_SIZE,
-                                  colWidths=COL_WIDTHS)
-            axs[i][j].set_title(title)
-            table.set_fontsize(FONT_SIZE)
-
-
-        # plot_table(mean_vals, 0,0,rowLabels, colLabels, FONT_SIZE, COL_WIDTHS)
-        plot_table(mean_vals, 0,0, "Mean Losses")
-        plot_table(median_vals, 0,1, "Median Losses")
-        plot_table(tail1, 1,0, "95th Percentile")
-        plot_table(tail2, 1,1, "99th Percentile")
-
-        tmp_df = df[df["alg_name"] == "Postgres"]
-        tmp_df = tmp_df[tmp_df["loss_type"] == "qerr"]
-        plt.suptitle("Dataset: {}, Num Queries: {}".format(args.db_name,
-            len(tmp_df)),
-                x=0.5, y=.99, horizontalalignment='center',
-                verticalalignment='top', fontsize = 10)
-
-        plt.savefig("summary.png")
-        pdf.savefig()
-        plt.clf()
-
-def plot_queries(query_data, pdf):
-    for qname, queries in query_data.items():
-        plot_single_query(qname, queries, pdf)
-
-def plot_single_query(qname, queries, pdf):
-    base_alg = [alg for alg in queries[0].join_info.keys()][0]
-    # alg name: true, postgres, random etc.
-    unique_join_orders = {}
-    for q in queries:
-        all_infos = q.join_info
-        # For true values, just add the Exhaustive orders
-        if "true" not in unique_join_orders:
-            unique_join_orders["true"] = []
-        tmp_info = all_infos[base_alg]
-        unique_join_orders["true"].append(tmp_info["joinOrders"][BASELINE]["joinStr"])
-
-        # Postgres, Random etc.
-        for alg, info in all_infos.items():
-            if alg not in unique_join_orders:
-                unique_join_orders[alg] = []
-            unique_join_orders[alg].append(info["joinOrders"]["RL"]["joinStr"])
-
-    order_data = {}
-    order_data["alg"] = []
-    order_data["order"] = []
-    order_data["order_hash"] = []
-
-    for k,v in unique_join_orders.items():
-        for o in v:
-            order_data["alg"].append(k)
-            order_data["order"].append(o)
-            order_data["order_hash"].append(hash(o) % 100)
-
-    order_df = pd.DataFrame(order_data)
-    ax = sns.countplot(x="order_hash", hue="alg",
-            data=order_df)
-    plt.title("Join Order Distribution")
-    pdf.savefig()
-    plt.clf()
-
-    # sort queries according to join-loss
-    sorted_queries = sorted(queries, key=lambda q: \
-            q.losses[base_alg]["join"], reverse=True)
-
-    for q in sorted_queries:
-        all_infos = q.join_info
-        from park.envs.query_optimizer.qopt_utils import plot_join_order
-        # write out the sql
-        ## parameters
-        firstPage = plt.figure()
-        firstPage.clf()
-
-        ## TODO: just paste all the args here?
-        # txt = "Average Results \n"
-        # txt += "Num Experiments: " + str(len(set(orig_df["train-time"]))) + "\n"
-        # txt += "DB: " + str(set(orig_df["dbname"])) + "\n"
-        # txt += "Algs: " + str(set(orig_df["alg_name"])) + "\n"
-        # txt += "Num Test Samples: " + str(set(orig_df["num_vals"])) + "\n"
-
-        txt = all_infos[base_alg]["sql"]
-        firstPage.text(0.5, 0, txt, transform=firstPage.transFigure, ha="center")
-        pdf.savefig()
-        plt.close()
-
-        for alg, info in all_infos.items():
-            alg_cards = q.subq_cards[alg]
-            true_cards = q.subq_cards["true"]
-            plot_join_order(info, pdf, single_plot=False,
-                    python_alg_name=alg, est_cards=alg_cards,
-                    true_cards=true_cards)
-
-def gen_scaling_summary(results_cache):
-    data = defaultdict(list)
-    for k, results in results_cache.items():
-        result_args = results["args"]
-        try:
-            float(results["num_params"]["chow-liu"])
-            data["num_params"].append(results["num_params"]["chow-liu"])
-        except:
-            continue
-
-        data["num_columns"].append(result_args.synth_num_columns)
-        data["period_len"].append(result_args.synth_period_len)
-        data["eval_time"].append(results["eval_times"]["chow-liu"])
-
-    df = pd.DataFrame(data)
-
-    summary_pdf = PdfPages(args.results_dir + "/scaling_summary.pdf")
-    make_dir(args.output_dir)
-
-    ax = sns.lineplot(x="num_columns", y="eval_time", hue="period_len",
-            style="period_len", data=df)
-
-    plt.title("Scaling wrt Time")
-    plt.tight_layout()
-    pdf.savefig()
-    plt.clf()
-
-    ax = sns.lineplot(x="num_columns", y="num_params", hue="period_len",
-            style="period_len",
-            data=df)
-
-    plt.title("Scaling wrt Params")
-    plt.tight_layout()
-    pdf.savefig()
-    plt.clf()
-
-def main():
     results_cache = klepto.archives.dir_archive(args.results_dir)
     results_cache.load()
     # collect all the data in a large dataframe
-    train_df, query_data = parse_query_objs(results_cache, True)
-    # test_df = parse_query_objs(results_cache, False)
-
+    train_df, exp_df = parse_results(results_cache, True)
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
-    make_dir(args.output_dir)
-    if True:
-        print(train_df.keys())
-        print(set(train_df["db_name"]))
-        for db in set(train_df["db_name"]):
-            train_df_tmp = train_df[train_df["db_name"] == db]
-            gen_error_summaries_pgm(train_df_tmp, summary_pdf)
 
-        summary_pdf.close()
-        exit(-1)
+    # TODO: potentially exclude some of the algorithms
 
-    algs = ["nn", "nn-jl1", "nn-jl2", "Postgres", "ourpgm", "greg", "chow-liu"]
-    train_df = train_df[train_df["alg_name"].isin(algs)]
-    gen_error_summaries(train_df, summary_pdf, algs_to_plot=algs)
+    # page 1: data / samples summary
+    gen_data_summary(train_df, summary_pdf)
 
-    if args.worst_query_joins:
-        for alg in algs:
-            gen_query_bar_graphs(train_df, summary_pdf, "join", alg, algs)
-            gen_query_bar_graphs(train_df, summary_pdf, "qerr", alg, algs)
+    # page 2: losses summary
+    gen_losses_summary(train_df, summary_pdf)
+
+    # aggregate summaries
+    for k in EXP_KEYS:
+        gen_exp_summary(exp_df, summary_pdf, k)
 
     summary_pdf.close()
 
-    if args.per_query:
-        queries_pdf = PdfPages(args.results_dir + "/training_queries.pdf")
-        plot_queries(query_data, queries_pdf)
-        queries_pdf.close()
+
+def main():
+    if args.pgm:
+        pgm_plots()
+    else:
+        print("need to merge with join branch")
+        exit(-1)
 
 args = read_flags()
 main()
