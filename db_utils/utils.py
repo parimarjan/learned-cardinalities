@@ -414,6 +414,10 @@ def extract_from_clause(query):
     '''
     Extracts the from statement, and the relevant joins when there are multiple
     tables.
+    @ret: froms:
+          froms: [alias1, alias2, ...] OR [table1, table2,...]
+          aliases:{alias1: table1, alias2: table2} (OR [] if no aliases present)
+          tables: [table1, table2, ...]
     '''
     def handle_table(table):
         if isinstance(table, dict):

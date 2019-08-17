@@ -12,8 +12,6 @@ def get_cardinalities(query, alg):
     tableN ", and values are the cardinality estimates
     '''
     cards = {}
-    # yhat = []
-    # totals = []
 
     for i, subq in enumerate(query.subqueries):
         if alg == "true":
@@ -24,10 +22,17 @@ def get_cardinalities(query, alg):
         # if alg == "true":
             # est_count = subq.true_count
 
-        tables = subq.table_names
+        if not hasattr(subq, "froms"):
+            subq.froms, subq.aliases, subq.table_names = extract_from_clause(subq.query)
+
+        if len(subq.aliases) >= 1:
+            tables = list(subq.aliases.keys())
+        else:
+            tables = subq.table_names
         tables.sort()
         table_key = " ".join(tables)
         cards[table_key] = int(est_count)
+
     return cards
 
 class Query():
@@ -47,7 +52,7 @@ class Query():
         self.pg_count = pg_count
 
         # FIXME: handle this better
-        _, _, self.table_names = extract_from_clause(query)
+        self.froms, self.aliases, self.table_names = extract_from_clause(query)
         self.joins = extract_join_clause(query)
 
         self.pg_marginal_sels = pg_marginal_sels
