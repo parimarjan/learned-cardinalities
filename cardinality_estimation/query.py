@@ -21,6 +21,8 @@ def get_cardinalities(query, alg):
         else:
             yhat = subq.yhats[alg]
         est_count = subq.total_count * yhat
+        # if alg == "true":
+            # est_count = subq.true_count
 
         tables = subq.table_names
         tables.sort()
