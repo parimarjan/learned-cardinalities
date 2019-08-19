@@ -59,15 +59,28 @@ def get_alg(alg):
     else:
         assert False
 
-def remove_doubles(samples):
-    new_samples = []
+def remove_doubles(query_strs):
+    print("remove_doubles")
+    newq = []
     seen_samples = set()
-    for s in samples:
-        if s.query in seen_samples:
+    for q in query_strs:
+        if q in seen_samples:
+            print(q)
+            pdb.set_trace()
             continue
-        seen_samples.add(s.query)
-        new_samples.append(s)
-    return new_samples
+        seen_samples.add(q)
+        newq.append(q)
+    return newq
+
+# def remove_doubles(samples):
+    # new_samples = []
+    # seen_samples = set()
+    # for s in samples:
+        # if s.query in seen_samples:
+            # continue
+        # seen_samples.add(s.query)
+        # new_samples.append(s)
+    # return new_samples
 
 def eval_alg(alg, losses, queries, use_subqueries):
     '''
@@ -257,6 +270,8 @@ def main():
         # generate queries
         query_strs = gen_query_strs(args, template,
                 args.num_samples_per_template, sql_str_cache)
+        # deduplicate
+        query_strs = remove_doubles(query_strs)
         cur_samples = gen_query_objs(args, query_strs, query_obj_cache)
         for sample_id, q in enumerate(cur_samples):
             q.template_name = os.path.basename(fns[i]) + str(sample_id)
@@ -303,7 +318,7 @@ def main():
 
         print("subquery generation took {} seconds".format(time.time()-start))
 
-    samples = remove_doubles(samples)
+    # samples = remove_doubles(samples)
     all_queries = samples
     print("after removing doubles, len: ", len(samples))
 
@@ -421,9 +436,9 @@ def read_flags():
     parser.add_argument("--clip_gradient", type=float,
             required=False, default=10.0)
     parser.add_argument("--rel_qerr_loss", type=int,
-            required=False, default=1)
+            required=False, default=0)
     parser.add_argument("--rel_jloss", type=int,
-            required=False, default=1)
+            required=False, default=0)
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
@@ -448,7 +463,7 @@ def read_flags():
     parser.add_argument("--compute_runtime", type=int, required=False,
             default=0)
     parser.add_argument("--only_nonzero_samples", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--use_subqueries", type=int, required=False,
             default=0)
     parser.add_argument("--synth_table", type=str, required=False,
@@ -478,7 +493,7 @@ def read_flags():
     parser.add_argument("--result_dir", type=str, required=False,
             default="./results/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,
-            default="LEFT_DEEP")
+            default="EXHAUSTIVE")
     parser.add_argument("--db_file_name", type=str, required=False,
             default=None)
     parser.add_argument("--cache_dir", type=str, required=False,

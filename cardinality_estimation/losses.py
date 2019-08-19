@@ -137,7 +137,7 @@ def update_cards(est_cards, q):
     return cards
 
 def join_loss_nn(pred, queries, alg, env,
-        baseline="LEFT_DEEP", use_pg_est=False):
+        baseline="EXHAUSTIVE", use_pg_est=False):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
@@ -230,10 +230,9 @@ def join_loss_nn(pred, queries, alg, env,
         est_card_costs.append(float(card_cost))
 
     # rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
-    rel_errors = np.array(est_card_costs)  - np.array(baseline_costs)
+    # rel_errors = np.array(est_card_costs)  - np.array(baseline_costs)
 
-    # print("join loss compute took ", time.time() - start)
-    return rel_errors
+    return est_card_costs, baseline_costs
 
 def compute_join_order_loss(alg, queries, use_subqueries,
         baseline="LEFT_DEEP", compute_runtime=False):
@@ -318,5 +317,7 @@ def compute_join_order_loss(alg, queries, use_subqueries,
         est_card_costs.append(float(card_cost))
 
     rel_errors = np.array(est_card_costs) - np.array(baseline_costs)
+    errors2 = np.array(est_card_costs) / np.array(baseline_costs)
+    print("join loss 2: est / opt ", np.mean(errors2))
     env.clean()
     return rel_errors

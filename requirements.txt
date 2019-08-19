@@ -2,7 +2,7 @@ moz-sql-parser
 sqlparse
 klepto
 psycopg2-binary
-numpy
+numpy==1.16.4
 pandas
 torch
 torchvision
@@ -13,3 +13,5 @@ matplotlib
 seaborn
 sklearn
 toml
+pyzmq
+psutil
