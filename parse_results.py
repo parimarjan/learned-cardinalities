@@ -24,8 +24,8 @@ import klepto
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
-DEBUG = True
-MAX_QUERY = 2
+DEBUG = False
+MAX_QUERY = 1000
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -176,11 +176,8 @@ def update_runtimes(query, explain, use_orig_query=False,
                 continue
 
             if explain:
-                sql = "EXPLAIN (ANALYZE, COSTS, FORMAT JSON) " + sql
-
-            # temporary test for 3b
-            if "cast_info" in sql:
-                assert False
+                sql = "EXPLAIN (ANALYZE, COSTS, TIMING, FORMAT JSON) " + sql
+                # sql = "EXPLAIN (COSTS, FORMAT JSON) " + sql
 
             try:
                 output, exec_time = benchmark_sql(sql, args.user, args.db_host,
