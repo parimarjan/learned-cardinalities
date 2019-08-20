@@ -142,6 +142,58 @@ def update_runtimes(query, explain, use_orig_query=False,
     if explain and not hasattr(query, "explains"):
         query.explains = defaultdict(list)
 
+    for i in range(args.runtime_reps):
+        for alg in query.costs:
+            print(alg)
+            if use_orig_query:
+                sql = query.query
+                rt_alg = "pg_" + alg
+                join_collapse_limit = 15
+            else:
+                sql = query.executed_sqls[alg][-1]
+                # postgres should not be allowed to set join collapse limit
+                join_collapse_limit = 1
+                rt_alg = alg
+
+            if len(query.runtimes[rt_alg]) > i:
+                print("already have runtimes for: ", query.template_name)
+                continue
+
+            if patch_pg_cards:
+                updated_cards = get_cardinalities(query, alg)
+                # update the cardinalities file in $PG_DATA_DIR
+                PG_DATA_DIR = os.environ["PG_DATA_DIR"]
+                assert PG_DATA_DIR != ""
+                fn = PG_DATA_DIR + "/cur_cardinalities.json"
+                with open(fn, 'w') as f:
+                    json.dump(updated_cards, f)
+
+            if explain:
+                sql = "EXPLAIN (ANALYZE, COSTS, TIMING, FORMAT JSON) " + sql
+                ## for debugging:
+                # sql = "EXPLAIN (COSTS, FORMAT JSON) " + sql
+            try:
+                output, exec_time = benchmark_sql(sql, args.user, args.db_host,
+                        args.port, args.pwd, args.db_name, join_collapse_limit)
+            except Exception as e:
+                print("{} failed to execute ".format(query.template_name))
+                print(e)
+                exit(-1)
+
+            print("iter: {}, {}: alg: {}, time: {}".format(i,
+                query.template_name, alg, exec_time))
+            query.runtimes[rt_alg].append(exec_time)
+            if explain:
+                query.explains[rt_alg].append(output)
+
+def update_runtimes_old(query, explain, use_orig_query=False,
+        patch_pg_cards=True):
+
+    if not hasattr(query, "runtimes"):
+        query.runtimes = defaultdict(list)
+    if explain and not hasattr(query, "explains"):
+        query.explains = defaultdict(list)
+
     for alg, sqls in query.executed_sqls.items():
         for i in range(args.runtime_reps):
             print(alg)
@@ -204,19 +256,24 @@ def fix_query_structure(query):
         query.costs = {}
 
     for alg in query.join_info:
-        # print(query.join_info[alg]["executedSqls"].keys())
-        # pdb.set_trace()
-        exec_sql = query.join_info[alg]["executedSqls"]["RL"]
-        assert exec_sql != ""
+        try:
+            exec_sql = query.join_info[alg]["executedSqls"]["RL"]
+            assert exec_sql != ""
+            query.executed_sqls[alg].add(exec_sql)
+        except:
+            pass
+
         cost = query.join_info[alg]["costs"]["RL"]
-        query.executed_sqls[alg].add(exec_sql)
         query.costs[alg] = cost
 
-        exec_sql = query.join_info[alg]["executedSqls"][BASELINE]
-        cost = query.join_info[alg]["costs"][BASELINE]
-        assert exec_sql != ""
+        try:
+            exec_sql = query.join_info[alg]["executedSqls"][BASELINE]
+            assert exec_sql != ""
+            query.executed_sqls["true"].add(exec_sql)
+        except:
+            pass
 
-        query.executed_sqls["true"].add(exec_sql)
+        cost = query.join_info[alg]["costs"][BASELINE]
         query.costs["true"] = cost
 
     # add true losses
@@ -231,6 +288,18 @@ def fix_query_structure(query):
             min_loss = 0.00
 
         query.losses["true"][lt] = min_loss
+
+def print_runtime_summary(results_cache):
+    rts = {}
+    for k, results in results_cache.items():
+        queries = results["training_queries"]
+        for i, q in enumerate(queries):
+            for alg, rts in q.runtimes.items():
+                for rt in rts:
+                    rts[alg].append(rt)
+
+    for k,v in rts.items():
+        print(k, np.mean(np.array(v)))
 
 def parse_query_objs(results_cache, trainining_queries=True):
     '''
@@ -283,11 +352,12 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     use_orig_query=args.use_orig_query)
             if args.use_explain:
                 update_pg_costs(q)
-            # results_cache.dump()
+
+            print("dumping results cache")
+            results_cache.dump()
 
             if DEBUG:
                 cur_query = q
-
                 if len(QUERY_LIST) > 0:
                     cont = True
                     for debug_query_name in QUERY_LIST:
@@ -295,9 +365,6 @@ def parse_query_objs(results_cache, trainining_queries=True):
                             cont = False
                     if cont:
                         continue
-
-                # print(q.template_name)
-                # print(cur_query.runtimes)
 
                 for k,v in q.runtimes.items():
                     v = np.array(v)
