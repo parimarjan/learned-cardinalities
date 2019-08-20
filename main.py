@@ -168,10 +168,6 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         if hsql in query_obj_cache.archive:
             curq = query_obj_cache.archive[hsql]
             # update the query structure as well if needed
-            if not hasattr(curq, "froms"):
-                update_query_structure(curq)
-                query_obj_cache.archive[hsql] = curq
-
             ret_queries.append(curq)
         else:
             unknown_query_strs.append(sql)
@@ -288,6 +284,7 @@ def main():
         query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
                 cached=True, serialized=True)
 
+
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
             hashed_key = deterministic_hash(q.query)
@@ -296,12 +293,27 @@ def main():
             else:
                 print("going to generate subqueries for query num ", i)
                 sql_subqueries = gen_all_subqueries(q.query)
-                # pdb.set_trace()
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries
 
             loaded_queries = gen_query_objs(args, sql_subqueries, query_obj_cache)
             q.subqueries = loaded_queries
+
+            # FIXME: temporary hack
+            if i > 0:
+                print(i)
+                main_query = samples[0]
+                if not hasattr(main_query, "froms"):
+                    update_query_structure(main_query)
+                for j, sq in enumerate(q.subqueries):
+                    query0 = main_query.subqueries[j]
+                    assert str(sq.table_names) == str(query0.table_names)
+                    sq.froms = query0.froms
+                    sq.aliases = query0.aliases
+                    sqlj = sql_subqueries[j]
+                    assert sqlj == sq.query
+                    hsql = deterministic_hash(sqlj)
+                    query_obj_cache.archive[hsql] = sq
 
         print("subquery generation took {} seconds".format(time.time()-start))
 

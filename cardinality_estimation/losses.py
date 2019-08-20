@@ -162,7 +162,6 @@ def update_cards(est_cards, q, fix_aliases=True):
                         # ...assuming it is sorted here...
                         if subq.cmp_ops[pred_i] == "lt":
                             val = str(subq.vals[pred_i][1])
-                            print(val)
                         else:
                             val = subq.vals[pred_i][0]
 
@@ -183,8 +182,6 @@ def update_cards(est_cards, q, fix_aliases=True):
         cards[table_key] = int(est_cards[j])
         cards[filter_table_key] = int(est_cards[j])
 
-    print(cards.keys())
-    pdb.set_trace()
     return cards
 
 def join_loss_nn(pred, queries, alg, env,
