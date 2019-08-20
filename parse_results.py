@@ -24,7 +24,7 @@ import klepto
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
-DEBUG = False
+DEBUG = True
 MAX_QUERY = 1000
 
 def read_flags():
@@ -179,6 +179,8 @@ def update_runtimes(query, explain, use_orig_query=False,
 
             if explain:
                 sql = "EXPLAIN (ANALYZE, COSTS, TIMING, FORMAT JSON) " + sql
+
+            # now execute
             try:
                 output, exec_time = benchmark_sql(sql, args.user, args.db_host,
                         args.port, args.pwd, args.db_name, join_collapse_limit)
@@ -283,7 +285,6 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     use_orig_query=args.use_orig_query)
             if args.use_explain:
                 update_pg_costs(q)
-            # results_cache.dump()
 
             if DEBUG:
                 cur_query = q
@@ -300,8 +301,10 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     v = np.array(v)
                     # print(k, np.mean(v), np.var(v))
 
-                pg_rts = q.runtimes["Postgres"]
-                true_rts = q.runtimes["true"]
+                # pg_rts = q.runtimes["Postgres"]
+                # true_rts = q.runtimes["true"]
+                pg_rts = q.runtimes["pg_Postgres"]
+                true_rts = q.runtimes["pg_true"]
                 pg_rt = np.mean(pg_rts)
                 true_rt = np.mean(true_rts)
                 if pg_rt - true_rt > RT_EPS:
@@ -312,8 +315,6 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     PG_BETTER.append(q)
 
                 for k,v in q.explains.items():
-                    if "pg" in k:
-                        continue
                     # TODO: fix this
                     explain_last = v[-1][0][0]
                     cards = get_cardinalities(cur_query, k.replace("pg_", ""))
