@@ -18,6 +18,7 @@ def read_flags():
 
 args = read_flags()
 cache_dir = args.results_dir
+
 cache = klepto.archives.dir_archive(cache_dir,
         cached=True, serialized=True)
 cache.load()

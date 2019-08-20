@@ -878,7 +878,7 @@ class NN2(CardinalityEstimationAlg):
                 print(num_iter, end=",")
                 sys.stdout.flush()
 
-            if (num_iter % eval_iter_qerr == 0 and num_iter != 0):
+            if (num_iter % eval_iter_qerr == 0 and num_iter >= jl_start_iter):
                 # evaluate qerr
 
                 pred = net(X)
@@ -894,17 +894,26 @@ class NN2(CardinalityEstimationAlg):
 
                 if (num_iter % eval_iter_jl == 0):
                     jl_eval_start = time.time()
-                    jl = join_loss_nn(pred, training_samples, self, env,
+                    est_card_costs, baseline_costs = join_loss_nn(pred, training_samples, self, env,
                             baseline=self.baseline)
-                    jl = np.mean(np.array(jl))
+
+                    est_card_costs = np.mean(est_card_costs)
+                    baseline_costs = np.mean(baseline_costs)
+                    jl1 = est_card_costs - baseline_costs
+                    jl2 = est_card_costs / baseline_costs
+
+                    # jl1 = np.array(est_card_costs)  - np.array(baseline_costs)
+                    # jl2 = np.array(est_card_costs)  / np.array(baseline_costs)
+                    # jl1 = np.mean(np.array(jl1))
+                    # jl2 = np.mean(np.array(jl2))
 
                     if jl_variant and adaptive_lr:
-                        scheduler.step(jl)
+                        scheduler.step(jl1)
 
-                    self.stats["eval"]["join-loss"][num_iter] = jl
+                    self.stats["eval"]["join-loss"][num_iter] = jl1
 
-                    print("""\nnum iter: {}, num samples: {}, loss: {},join-loss {}, time: {}""".format(
-                        num_iter, len(X), train_loss.item(), jl,
+                    print("""\nnum iter: {}, num samples: {}, loss: {}, jl1 {},jl2 {},time: {}""".format(
+                        num_iter, len(X), train_loss.item(), jl1, jl2,
                         time.time()-jl_eval_start))
 
             mb_samples = []
@@ -926,7 +935,6 @@ class NN2(CardinalityEstimationAlg):
             pred = pred.squeeze(1)
             loss = loss_func(pred, ybatch)
 
-
             if (num_iter > jl_start_iter and \
                     rel_qerr_loss):
                 # set the max qerrs for each query
@@ -935,41 +943,59 @@ class NN2(CardinalityEstimationAlg):
                 if sample_key not in max_qerr:
                     max_qerr[sample_key] = np.array(loss.item())
 
+            # how do we modify the loss variable based on different join loss
+            # variants?
             if (num_iter > jl_start_iter and jl_variant):
-                if jl_variant == 3:
-                    use_pg_est = True
-                else:
-                    use_pg_est = False
 
-                jl = join_loss_nn(pred, mb_samples, self, env,
-                        baseline=self.baseline, use_pg_est=use_pg_est)
+                if jl_variant in [1, 2]:
+                    est_card_costs, baseline_costs = join_loss_nn(pred, mb_samples, self, env,
+                            baseline=self.baseline, use_pg_est=False)
 
+                    ## TODO: first one is just too large a number to use (?)
+                    # jl = np.array(est_card_costs)  - np.array(baseline_costs)
+                    jl = np.array(est_card_costs)  / np.array(baseline_costs)
 
-                if jl_variant == 1:
-                    jl = torch.mean(to_variable(jl).float())
-                elif jl_variant == 2:
-                    jl = torch.mean(to_variable(jl).float()) - 1.00
-                elif jl_variant == 3:
-                    # using postgres values for join loss
-                    jl = torch.mean(to_variable(jl).float())
+                    # set jl, one way or another.
+                    if jl_variant == 1:
+                        jl = torch.mean(to_variable(jl).float())
+                    elif jl_variant == 2:
+                        jl = torch.mean(to_variable(jl).float()) - 1.00
+                    else:
+                        assert False
+
+                    if rel_qerr_loss:
+                        sample_key = deterministic_hash(cur_samples[0].query)
+                        loss = loss / to_variable(max_qerr[sample_key]).float()
+
+                    if rel_jloss:
+                        if sample_key not in max_jloss:
+                            max_jloss[sample_key] = np.array(max(jl.item(), 1.00))
+                        sample_key = deterministic_hash(cur_samples[0].query)
+                        jl = jl / to_variable(max_jloss[sample_key]).float()
+
+                    loss = loss*jl
+
+                elif jl_variant == 4:
+                    pred_sort, pred_idx = torch.sort(pred)
+                    ybatch_sort, y_idx = torch.sort(ybatch)
+                    diff_idx = pred_idx - y_idx
+                    jl = torch.mean(torch.abs(diff_idx.float()))
+                    loss = loss*jl
+                elif jl_variant in [3]:
+                    # print("going to do order based join loss")
+                    # order based loss, operating on pred and ybatch
+                    pred_sort, idx = torch.sort(pred)
+                    ybatch_sort, idx = torch.sort(ybatch)
+                    assert pred_sort.requires_grad
+                    assert ybatch_sort.requires_grad
+                    loss2 = 0.2*loss_func(pred_sort, ybatch_sort)
+                    assert loss2.requires_grad
+                    loss1 = loss
+                    loss = loss1 + loss2
+                    # print("loss1: {}, loss 2: {}, loss: {}".format(loss1.item(), loss2.item(),
+                                # loss.item()))
                 else:
                     assert False
-
-                if rel_qerr_loss:
-                    sample_key = deterministic_hash(cur_samples[0].query)
-                    loss = loss / to_variable(max_qerr[sample_key]).float()
-
-                # if jl_divide_constant:
-                    # jl /= jl_divide_constant
-
-                if sample_key not in max_jloss:
-                    max_jloss[sample_key] = np.array(max(jl.item(), 1.00))
-
-                if rel_jloss:
-                    sample_key = deterministic_hash(cur_samples[0].query)
-                    jl = jl / to_variable(max_jloss[sample_key]).float()
-
-                loss = loss*jl
 
             # FIXME: temporary, to try and adjust for the variable batch size.
             if self.divide_mb_len:

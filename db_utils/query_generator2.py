@@ -111,7 +111,6 @@ class QueryGenerator2():
             else:
                 assert False
 
-
         return gen_sql
 
 
@@ -131,4 +130,3 @@ class QueryGenerator2():
         print("{} took {} seconds to generate".format(len(all_query_strs),
             time.time()-start))
         return all_query_strs
-
