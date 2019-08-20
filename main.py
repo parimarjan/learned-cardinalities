@@ -1,6 +1,6 @@
 from cardinality_estimation.db import DB
 from cardinality_estimation.cardinality_sample import CardinalitySample
-from cardinality_estimation.query import Query
+from cardinality_estimation.query import *
 from cardinality_estimation.algs import *
 from cardinality_estimation.losses import *
 from cardinality_estimation.data_loader import *
@@ -71,16 +71,6 @@ def remove_doubles(query_strs):
         seen_samples.add(q)
         newq.append(q)
     return newq
-
-# def remove_doubles(samples):
-    # new_samples = []
-    # seen_samples = set()
-    # for s in samples:
-        # if s.query in seen_samples:
-            # continue
-        # seen_samples.add(s.query)
-        # new_samples.append(s)
-    # return new_samples
 
 def eval_alg(alg, losses, queries, use_subqueries):
     '''
@@ -176,7 +166,13 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     for sql in query_strs:
         hsql = deterministic_hash(sql)
         if hsql in query_obj_cache.archive:
-            ret_queries.append(query_obj_cache.archive[hsql])
+            curq = query_obj_cache.archive[hsql]
+            # update the query structure as well if needed
+            if not hasattr(curq, "froms"):
+                update_query_structure(curq)
+                query_obj_cache.archive[hsql] = curq
+
+            ret_queries.append(curq)
         else:
             unknown_query_strs.append(sql)
 
@@ -261,10 +257,8 @@ def main():
     samples = []
     query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
             cached=True, serialized=True)
-    # query_obj_cache.load()
     sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str",
             cached=True, serialized=True)
-    # sql_str_cache.load()
 
     for i, template in enumerate(query_templates):
         # generate queries
@@ -277,11 +271,7 @@ def main():
             q.template_name = os.path.basename(fns[i]) + str(sample_id)
             samples.append(q)
 
-    # TODO: clear / dump the query_obj cache
     print("len all samples: " , len(samples))
-
-    # query_obj_cache.clear()
-    # sql_str_cache.clear()
 
     if args.only_nonzero_samples:
         nonzero_samples = []
@@ -295,10 +285,8 @@ def main():
         start = time.time()
         sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_sql_str",
                 cached=True, serialized=True)
-        # sql_str_cache.load()
         query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
                 cached=True, serialized=True)
-        # query_obj_cache.load()
 
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
@@ -306,7 +294,6 @@ def main():
             if hashed_key in sql_str_cache.archive:
                 sql_subqueries = sql_str_cache.archive[hashed_key]
             else:
-                # assert False
                 print("going to generate subqueries for query num ", i)
                 sql_subqueries = gen_all_subqueries(q.query)
                 # pdb.set_trace()

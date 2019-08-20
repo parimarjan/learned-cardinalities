@@ -2,6 +2,7 @@ import numpy as np
 import pdb
 import park
 from utils.utils import *
+from cardinality_estimation.query import *
 
 EPSILON = 0.000001
 REL_LOSS_EPSILON = EPSILON
@@ -118,22 +119,72 @@ def run_all_eps(env, num_queries, fixed_agent=None):
     return queries
 
 # FIXME: make this its own function.
-def update_cards(est_cards, q):
+def update_cards(est_cards, q, fix_aliases=True):
     '''
     @est_cards: cardinalities for each of the subqueries in q.subqueries.
     @ret: cardinalities for each subquery.
+
+    HACK: because alias information is being lost in calcite, we hack table
+    name + filter value as key (ugh....)
     '''
     cards = {}
     for j, subq in enumerate(q.subqueries):
         # get all the tables in subquery
         tables = subq.table_names
+        filter_tables = []
+        assert hasattr(subq, "froms")
+
+        if fix_aliases:
+            # STUPID hack.
+            aliases = [a for a in subq.aliases]
+            for k, alias in enumerate(aliases):
+                # deal with multiple predicates ...
+                seen = set()
+                table = subq.aliases[alias]
+                # because range queries have additional entry
+                # update table[k] to also include filter, if a filter is present.
+                # alias = get_alias(subq, table)
+
+                # check each of the predicates to see if alias present
+                val = ""
+                for pred_i, pred in enumerate(subq.pred_column_names):
+                    if pred in seen:
+                        continue
+                    # yikes
+                    if alias == "it1":
+                        val = str(3)
+                        break
+                    elif alias == "it2":
+                        val = str(4)
+                        break
+                    # kill me
+                    if " " + alias + "." in " " + pred:
+                        # ...assuming it is sorted here...
+                        if subq.cmp_ops[pred_i] == "lt":
+                            val = str(subq.vals[pred_i][1])
+                            print(val)
+                        else:
+                            val = subq.vals[pred_i][0]
+
+                    seen.add(pred)
+
+                filter_tables.append(table + val)
+
         val = subq.true_count
         tables.sort()
+        filter_tables.sort()
         table_key = " ".join(tables)
+        filter_table_key = " ".join(filter_tables)
         # ugh, initial space because of the way cardinalities json was
         # generated..
-        table_key = " " + table_key
+        # table_key = " " + table_key
+
+        ## FIXME: shouldn't need both these, but need to check into calcite..
         cards[table_key] = int(est_cards[j])
+        cards[filter_table_key] = int(est_cards[j])
+
+    print(cards.keys())
+    pdb.set_trace()
     return cards
 
 def join_loss_nn(pred, queries, alg, env,

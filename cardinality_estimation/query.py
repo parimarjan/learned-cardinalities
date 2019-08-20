@@ -2,6 +2,18 @@ import pdb
 import psycopg2 as pg
 from db_utils.utils import *
 
+def get_alias(query, table):
+    if hasattr(query, "aliases"):
+        for a,v in query.aliases.items():
+            if v == table:
+                return a
+    else:
+        return None
+
+def update_query_structure(query):
+    assert not hasattr(query, "froms")
+    query.froms, query.aliases, query.table_names = extract_from_clause(query.query)
+
 def get_cardinalities(query, alg):
     '''
     @query: Query object
