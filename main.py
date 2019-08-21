@@ -299,21 +299,21 @@ def main():
             loaded_queries = gen_query_objs(args, sql_subqueries, query_obj_cache)
             q.subqueries = loaded_queries
 
-            # FIXME: temporary hack
-            if i > 0:
-                print(i)
-                main_query = samples[0]
-                if not hasattr(main_query, "froms"):
-                    update_query_structure(main_query)
-                for j, sq in enumerate(q.subqueries):
-                    query0 = main_query.subqueries[j]
-                    assert str(sq.table_names) == str(query0.table_names)
-                    sq.froms = query0.froms
-                    sq.aliases = query0.aliases
-                    sqlj = sql_subqueries[j]
-                    assert sqlj == sq.query
-                    hsql = deterministic_hash(sqlj)
-                    query_obj_cache.archive[hsql] = sq
+            # FIXME: temporary hack to update queries
+            # if i > 0:
+                # print(i)
+                # main_query = samples[0]
+                # # for j, sq in enumerate(main_query.subqueries):
+                    # # update_query_structure(sq)
+                # for j, sq in enumerate(q.subqueries):
+                    # query0 = main_query.subqueries[j]
+                    # assert str(sq.table_names) == str(query0.table_names)
+                    # sq.froms = query0.froms
+                    # sq.aliases = query0.aliases
+                    # sqlj = sql_subqueries[j]
+                    # assert sqlj == sq.query
+                    # hsql = deterministic_hash(sqlj)
+                    # query_obj_cache.archive[hsql] = sq
 
         print("subquery generation took {} seconds".format(time.time()-start))
 
