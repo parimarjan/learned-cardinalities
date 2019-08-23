@@ -59,6 +59,25 @@ def get_alg(alg):
     else:
         assert False
 
+def remove_bad_samples(queries):
+    '''
+    removes samples in which the tables for a query don't match the first query
+    objects tables
+    '''
+    new = []
+    mainq = queries[0]
+    for i, curq in enumerate(queries):
+        try:
+            if str(curq.table_names) != str(mainq.table_names):
+                print("skipping ", curq)
+                continue
+        except:
+            print(i)
+            pdb.set_trace()
+
+        new.append(curq)
+    return new
+
 def remove_doubles(query_strs):
     print("remove_doubles")
     newq = []
@@ -127,11 +146,23 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
     query_strs = []
 
     # TODO: change key to be based on file name?
-    hashed_tmp = deterministic_hash(query_template)
+    if isinstance(query_template, str):
+        hashed_tmp = deterministic_hash(query_template)
+    elif isinstance(query_template, dict):
+        hashed_tmp_old = deterministic_hash(query_template)
+        # hashed_tmp = deterministic_hash(query_template)
+        hashed_tmp = deterministic_hash(query_template["base_sql"]["sql"])
+        if hashed_tmp_old in sql_str_cache.archive:
+            # load it and put it into the new one
+            sql_str_cache.archive[hashed_tmp] = sql_str_cache.archive[hashed_tmp_old]
+    else:
+        assert False
 
     if hashed_tmp in sql_str_cache.archive:
         query_strs = sql_str_cache.archive[hashed_tmp]
         print("loaded {} query strings".format(len(query_strs)))
+    else:
+        assert False
 
     if num_samples == -1:
         # select whatever we loaded
@@ -157,7 +188,8 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
 
 def gen_query_objs(args, query_strs, query_obj_cache):
     '''
-    TODO: explain
+
+    @ret_queries: list of query objects corresponding to query_strs
     '''
     ret_queries = []
     unknown_query_strs = []
@@ -178,6 +210,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     else:
         print("need to generate {} query objects".\
                 format(len(unknown_query_strs)))
+        assert False
 
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
@@ -203,6 +236,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 
     print("generated {} samples in {} secs".format(len(ret_queries),
         time.time()-start))
+    assert len(ret_queries) == len(query_strs)
     return ret_queries
 
 def main():
@@ -263,6 +297,8 @@ def main():
         # deduplicate
         query_strs = remove_doubles(query_strs)
         cur_samples = gen_query_objs(args, query_strs, query_obj_cache)
+        # cur_samples = remove_bad_samples(cur_samples)
+
         for sample_id, q in enumerate(cur_samples):
             q.template_name = os.path.basename(fns[i]) + str(sample_id)
             samples.append(q)
@@ -277,13 +313,14 @@ def main():
         print("len nonzero samples: ", len(nonzero_samples))
         samples = nonzero_samples
 
+    updated_samples = []
     if args.use_subqueries:
+        print("USE SUBQUERIES")
         start = time.time()
         sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_sql_str",
                 cached=True, serialized=True)
         query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
                 cached=True, serialized=True)
-
 
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
@@ -300,25 +337,33 @@ def main():
             q.subqueries = loaded_queries
 
             # FIXME: temporary hack to update queries
-            # if i > 0:
-                # print(i)
-                # main_query = samples[0]
-                # # for j, sq in enumerate(main_query.subqueries):
-                    # # update_query_structure(sq)
-                # for j, sq in enumerate(q.subqueries):
-                    # query0 = main_query.subqueries[j]
+            main_query = samples[0]
+            # for j, sq in enumerate(main_query.subqueries):
+                # update_query_structure(sq)
+            updated_samples.append(main_query)
+            FIX_QUERY_CACHING = True
+            if FIX_QUERY_CACHING and i >= 5:
+                print(i)
+                for j, sq in enumerate(q.subqueries):
+                    query0 = main_query.subqueries[j]
+                    # tmp hack to avoid bad queries
+                    # if str(sq.table_names) != str(query0.table_names):
+                        # continue
                     # assert str(sq.table_names) == str(query0.table_names)
-                    # sq.froms = query0.froms
-                    # sq.aliases = query0.aliases
-                    # sqlj = sql_subqueries[j]
-                    # assert sqlj == sq.query
-                    # hsql = deterministic_hash(sqlj)
-                    # query_obj_cache.archive[hsql] = sq
+                    sq.froms = query0.froms
+                    sq.aliases = query0.aliases
+                    sqlj = sql_subqueries[j]
+                    print(j)
+                    assert sqlj == sq.query
+                    hsql = deterministic_hash(sqlj)
+                    query_obj_cache.archive[hsql] = sq
+                updated_samples.append(q)
 
         print("subquery generation took {} seconds".format(time.time()-start))
+        pdb.set_trace()
 
-    # samples = remove_doubles(samples)
-    all_queries = samples
+    # all_queries = samples
+    all_queries = updated_samples
     print("after removing doubles, len: ", len(samples))
 
     # FIXME: temporary, and slightly ugly hack -- need to initialize few fields

@@ -92,7 +92,11 @@ def save_or_update(obj_name, obj):
     save_object(obj_name, saved_obj)
 
 def deterministic_hash(string):
+    # assert isinstance(string, str)
     return int(hashlib.sha1(str(string).encode("utf-8")).hexdigest(), 16)
+
+def det_hash2(string):
+    return hashlib.sha1(str(string).encode("utf-8")).hexdigest()
 
 def cosine_similarity_vec(vec1, vec2):
     cosine_similarity = np.dot(vec1, vec2)/(np.linalg.norm(vec1)*

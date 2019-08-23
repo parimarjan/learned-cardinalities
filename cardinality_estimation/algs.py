@@ -596,7 +596,7 @@ def rel_loss_torch(pred, ytrue):
     assert len(pred) == len(ytrue)
     epsilons = to_variable([REL_LOSS_EPSILON]*len(pred)).float()
     errors = torch.abs(pred-ytrue) / (torch.max(epsilons, ytrue))
-    error = (errors.sum() * 100.00) / len(pred)
+    error = (errors.sum()) / len(pred)
     return error
 
 def qloss_torch(yhat, ytrue):
@@ -796,7 +796,9 @@ class NN2(CardinalityEstimationAlg):
         net = SimpleRegression(len(features),
                 self.hidden_layer_multiple, 1,
                 num_hidden_layers=self.num_hidden_layers)
-        loss_func = qloss_torch
+
+        # loss_func = qloss_torch
+        loss_func = rel_loss_torch
 
         self.net = net
         try:
@@ -901,11 +903,6 @@ class NN2(CardinalityEstimationAlg):
                     baseline_costs = np.mean(baseline_costs)
                     jl1 = est_card_costs - baseline_costs
                     jl2 = est_card_costs / baseline_costs
-
-                    # jl1 = np.array(est_card_costs)  - np.array(baseline_costs)
-                    # jl2 = np.array(est_card_costs)  / np.array(baseline_costs)
-                    # jl1 = np.mean(np.array(jl1))
-                    # jl2 = np.mean(np.array(jl2))
 
                     if jl_variant and adaptive_lr:
                         scheduler.step(jl1)
