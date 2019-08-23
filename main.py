@@ -127,11 +127,22 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
     query_strs = []
 
     # TODO: change key to be based on file name?
-    hashed_tmp = deterministic_hash(query_template)
+    if isinstance(query_template, str):
+        hashed_tmp = deterministic_hash(query_template)
+    elif isinstance(query_template, dict):
+        # hashed_tmp_old = deterministic_hash(query_template)
+        # hashed_tmp = deterministic_hash(query_template)
+        hashed_tmp = deterministic_hash(query_template["base_sql"]["sql"])
+        # if hashed_tmp_old in sql_str_cache.archive:
+            # # load it and put it into the new one
+            # sql_str_cache.archive[hashed_tmp] = sql_str_cache.archive[hashed_tmp_old]
+    else:
+        assert False
 
     if hashed_tmp in sql_str_cache.archive:
         query_strs = sql_str_cache.archive[hashed_tmp]
         print("loaded {} query strings".format(len(query_strs)))
+
 
     if num_samples == -1:
         # select whatever we loaded
@@ -157,20 +168,30 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
 
 def gen_query_objs(args, query_strs, query_obj_cache):
     '''
-    TODO: explain
+    Note: this must return query objects in the same order as query_strs.
     '''
     ret_queries = []
     unknown_query_strs = []
+    idx_map = {}
 
     # everything below this part is for query objects exclusively
-    for sql in query_strs:
+    for i, sql in enumerate(query_strs):
+        assert i == len(ret_queries)
         hsql = deterministic_hash(sql)
         if hsql in query_obj_cache.archive:
             curq = query_obj_cache.archive[hsql]
+            if not hasattr(curq, "froms"):
+                print("NEED TO UPDATE QUERY STRUCT")
+                update_query_structure(curq)
+                query_obj_cache.archive[hsql] = curq
+            assert hasattr(curq, "froms")
             # update the query structure as well if needed
             ret_queries.append(curq)
         else:
+            idx_map[len(unknown_query_strs)] = i
+            ret_queries.append(None)
             unknown_query_strs.append(sql)
+            # store the appropriate index
 
     # print("loaded {} query objects".format(len(ret_queries)))
     if len(unknown_query_strs) == 0:
@@ -192,7 +213,8 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         all_query_objs = pool.starmap(sql_to_query_object, args)
 
     for i, q in enumerate(all_query_objs):
-        ret_queries.append(q)
+        # ret_queries.append(q)
+        ret_queries[idx_map[i]] = q
         hsql = deterministic_hash(unknown_query_strs[i])
         # save in memory, so potential repeat queries can be found in the
         # memory cache
@@ -203,6 +225,13 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 
     print("generated {} samples in {} secs".format(len(ret_queries),
         time.time()-start))
+
+    assert len(ret_queries) == len(query_strs)
+
+    # sanity check: commented out so we don't spend time here
+    for i, query in enumerate(ret_queries):
+        assert query.query == query_strs[i]
+
     return ret_queries
 
 def main():
@@ -317,7 +346,7 @@ def main():
 
         print("subquery generation took {} seconds".format(time.time()-start))
 
-    # samples = remove_doubles(samples)
+    # pdb.set_trace()
     all_queries = samples
     print("after removing doubles, len: ", len(samples))
 
