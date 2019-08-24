@@ -198,9 +198,8 @@ class PGM():
 
                     combined_weight = np.product(np.array(rv_weights))
                     assert combined_weight <= 1.00
-                    # print(rv_weights, combined_weight)
-                    # pdb.set_trace()
                     est_val = self._eval_ourpgm(sample)
+                    print(rv_weights, combined_weight, est_val)
                     return est_val * combined_weight
                 else:
                     assert False
