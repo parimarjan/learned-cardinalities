@@ -733,7 +733,7 @@ class NN2(CardinalityEstimationAlg):
             # because we eval more frequently
             self.adaptive_lr_patience = 100
         else:
-            self.adaptive_lr_patience = 10
+            self.adaptive_lr_patience = 5
 
         self.divide_mb_len = kwargs["divide_mb_len"]
         self.lr = kwargs["lr"]

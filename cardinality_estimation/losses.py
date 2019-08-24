@@ -132,7 +132,11 @@ def update_cards(est_cards, q, fix_aliases=True):
         # get all the tables in subquery
         tables = subq.table_names
         filter_tables = []
-        assert hasattr(subq, "froms")
+        try:
+            assert hasattr(subq, "froms")
+        except:
+            print(subq)
+            pdb.set_trace()
 
         if fix_aliases:
             # STUPID hack.

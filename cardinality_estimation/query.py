@@ -11,7 +11,7 @@ def get_alias(query, table):
         return None
 
 def update_query_structure(query):
-    assert not hasattr(query, "froms")
+    # assert not hasattr(query, "froms")
     query.froms, query.aliases, query.table_names = extract_from_clause(query.query)
 
 def get_cardinalities(query, alg):
