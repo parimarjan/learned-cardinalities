@@ -40,18 +40,25 @@ for k in cache:
     print("eval iter: ", data["kwargs"]["eval_iter"])
     optimizer_name = data["kwargs"]["optimizer_name"]
     jl_variant = data["kwargs"]["jl_variant"]
+    kwargs = data["kwargs"]
+    if "loss_func" in kwargs and kwargs["loss_func"] == "rel":
+        continue
+
     for loss_type, losses in data["eval"].items():
         for num_iter, loss in losses.items():
             if jl_variant == 0:
-                opt_obj = "qerr-loss"
+                if "loss_func" in kwargs:
+                    opt_obj = "qerr-" + kwargs["loss_func"] + "-" + kwargs["sampling"]
+                else:
+                    opt_obj = "qerr"
             elif jl_variant == 1:
-                opt_obj = "join-loss-cm1"
+                opt_obj = "cm1"
             elif jl_variant == 2:
-                opt_obj = "join-loss-cm2"
+                opt_obj = "cm2"
             elif jl_variant == 3:
-                opt_obj = "join-loss-sort"
+                opt_obj = "sort1"
             elif jl_variant == 4:
-                opt_obj = "join-loss-sort-indexes"
+                opt_obj = "argsort"
             else:
                 continue
 
@@ -63,7 +70,7 @@ for k in cache:
             all_data["jl_variant"].append(jl_variant)
 
 df = pd.DataFrame(all_data)
-pdb.set_trace()
+# pdb.set_trace()
 
 # skip the first entry, since it is too large
 df = df[df["iter"] != 0]
@@ -84,13 +91,20 @@ plt.tight_layout()
 pdf.savefig()
 plt.clf()
 
+# let us set max_loss based on the qerr objective
 max_loss = max(jl_df["loss"])
+# max_loss = min(max_loss, 1000000)
+
 min_loss = min(jl_df["loss"])
+
 print("max loss df: ", max_loss)
 
 ax = sns.lineplot(x="iter", y="loss", hue="optimizer_obj", style="optimizer_obj",
         data=jl_df)
+
 ax.set_ylim(bottom=min_loss, top=max_loss)
+
+# ax.set_yscale("log")
 plt.title("Join-Loss")
 plt.tight_layout()
 pdf.savefig()

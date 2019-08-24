@@ -25,7 +25,7 @@ import klepto
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
 DEBUG = True
-MAX_QUERY = 1000
+MAX_QUERY = 1
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -354,8 +354,8 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     use_orig_query=args.use_orig_query)
             if args.use_explain:
                 update_pg_costs(q)
-            print("dumping results cache")
-            results_cache.dump()
+            # print("dumping results cache")
+            # results_cache.dump()
 
             if DEBUG:
                 cur_query = q
@@ -632,7 +632,9 @@ def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True)
 
 def plot_queries(query_data, pdf):
     for qname, queries in query_data.items():
-        plot_single_query(qname, queries, pdf)
+        plot_query(queries[0], pdf)
+        break
+        # plot_single_query(qname, queries, pdf)
 
 def plot_single_query(qname, queries, pdf):
     base_alg = [alg for alg in queries[0].join_info.keys()][0]
