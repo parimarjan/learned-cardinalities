@@ -264,7 +264,10 @@ class PGM():
             # TODO: if col_points is empty, then append every possible value into it.
             if len(col_points) == 0 and fill_empty_rv:
                 if weights is not None:
-                    assert len(weights[col]) == 0
+                    try:
+                        assert len(weights[col]) == 0
+                    except:
+                        pdb.set_trace()
                 for _, cur_val in mapper.items():
                     sample[col].append(cur_val)
                     if weights is not None:

@@ -241,6 +241,7 @@ def main():
             cached=True, serialized=True)
     db_key = deterministic_hash("db-" + str(args.template_dir))
     if args.template_dir is not None and db_key in misc_cache.archive:
+    # if False:
         db = misc_cache.archive[db_key]
     else:
         # either load the db object from cache, or regenerate it.
@@ -309,7 +310,6 @@ def main():
         for i, q in enumerate(samples):
             hashed_key = deterministic_hash(q.query)
             if hashed_key in sql_str_cache:
-            # if False:
                 sql_subqueries = sql_str_cache[hashed_key]
             else:
                 print("going to generate subqueries for query num ", i)

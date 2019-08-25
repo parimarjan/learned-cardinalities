@@ -39,7 +39,8 @@ def _get_bin_length(bins, bin_num):
 
     return bin_length
 
-def get_possible_values(sample, db, column_bins=None):
+def get_possible_values(sample, db, column_bins=None,
+        column_bin_vals=None):
     '''
     @sample: Query object.
     @db: DB class object.
@@ -90,17 +91,7 @@ def get_possible_values(sample, db, column_bins=None):
                 if column not in column_bins:
                     # then select everything in the given range of
                     # integers.
-                    # print(column)
-                    # print("was not in the binned columns")
-                    # pdb.set_trace()
                     val = [float(v) for v in val]
-
-                    # FIXME: this should only cover the discrete values in this
-                    # column which are in between val[0] and val[1]
-                    # for ival in range(val[0], val[1]):
-                        # possible_vals.append(str(ival))
-                        # weights.append(1.00)
-
                     for v in db.column_stats[column]["unique_values"]:
                         v = v[0]
                         if v is None:
@@ -109,37 +100,75 @@ def get_possible_values(sample, db, column_bins=None):
                             possible_vals.append(v)
                             weights.append(1.00)
                 else:
+                    assert column_bins is not None
+                    assert column_bin_vals is not None
                     # discretize first
                     bins = column_bins[column]
-                    # print(val)
-                    # pdb.set_trace()
+                    column_groupby = column_bin_vals[column]
                     vals = [float(v) for v in val]
                     binned_vals = np.digitize(vals, bins, right=True)
+                    groupby_key = column_groupby.keys()[0]
 
                     if (binned_vals[0] == binned_vals[1]):
+                        lower_lim = bins[binned_vals[0]-1]
+                        upper_lim = bins[binned_vals[0]]
+
+                        bin_groupby = \
+                            column_groupby[column_groupby[groupby_key] >= lower_lim]
+                        bin_groupby = \
+                                bin_groupby[bin_groupby[groupby_key] < upper_lim]
+                        # FIXME: check edge conditions
+                        total_val = bin_groupby[groupby_key].sum()
+                        bin_groupby = \
+                            bin_groupby[bin_groupby[groupby_key] > vals[0]]
+                        selected_val = bin_groupby[groupby_key].sum()
+                        weight = float(selected_val) / total_val
                         possible_vals.append(binned_vals[0])
-                        bin_length = _get_bin_length(bins, binned_vals[0])
-                        if bin_length != 0.0:
-                            weight = (vals[1] - vals[0]) / (bin_length)
-                        else:
-                            weight = 1.00
                         weights.append(weight)
                     else:
                         # different bins, means the weight can be different for
                         # the endpoints, and 1.00 for all the middle ones
+
+                        # because right=True when we use np.digitize
+                        assert binned_vals[0] != 0
                         for bi in range(binned_vals[0],binned_vals[1]+1):
                             possible_vals.append(bi)
-                            bin_length = _get_bin_length(bins, bi)
-                            if bin_length == 0.0:
-                                weight = 1.00
-                            elif bi == binned_vals[0]:
-                                assert bi != 0
-                                weight = (vals[0] - bins[bi-1]) / bin_length
+                            # if not an edge column then just add 1.00 weight
+                            lower_lim = bins[bi-1]
+                            upper_lim = bins[bi]
+                            assert lower_lim <= vals[1]
+                            assert upper_lim >= vals[0]
+                            # print(vals[0], vals[1])
+                            # print(lower_lim, upper_lim)
+                            groupby_key = column_groupby.keys()[0]
+                            # print(groupby_key)
+
+                            if bi == binned_vals[0]:
+                                assert lower_lim <= vals[0]
+                                bin_groupby = \
+                                    column_groupby[column_groupby[groupby_key] >= lower_lim]
+                                bin_groupby = \
+                                        bin_groupby[bin_groupby[groupby_key] < upper_lim]
+                                # FIXME: check edge conditions
+                                total_val = bin_groupby[groupby_key].sum()
+                                bin_groupby = \
+                                    bin_groupby[bin_groupby[groupby_key] > vals[0]]
+                                selected_val = bin_groupby[groupby_key].sum()
+                                weight = float(selected_val) / total_val
                             elif bi == binned_vals[1]:
-                                assert bi != 0
-                                weight = (vals[1] - bins[bi-1]) / bin_length
+                                bin_groupby = \
+                                    column_groupby[column_groupby[groupby_key] >= lower_lim]
+                                bin_groupby = \
+                                        bin_groupby[bin_groupby[groupby_key] < upper_lim]
+                                # FIXME: check edge conditions
+                                total_val = bin_groupby[groupby_key].sum()
+                                bin_groupby = \
+                                    bin_groupby[bin_groupby[groupby_key] < vals[1]]
+                                selected_val = bin_groupby[groupby_key].sum()
+                                weight = float(selected_val) / total_val
                             else:
                                 weight = 1.00
+
                             assert weight <= 1.00
                             weights.append(weight)
 
@@ -205,7 +234,18 @@ class OurPGM(CardinalityEstimationAlg):
         self.num_bins = 100
         self.test_cache = {}
         self.column_bins = {}
-        self.DEBUG = True
+
+        # key: column name
+        # val: dataframe, which represents a sorted (ascending, based on column
+        # values) group by on the given column name.
+        # this will store ALL the values in the given bin, so we can compute
+        # precisely which fraction of a range query that partially overlaps
+        # with the bin covers.
+        # TODO: it may be enough to assume uniformity and store each unique
+        # value / or store some other stats etc.
+        self.column_bin_vals = {}
+
+        self.DEBUG = False
         self.param_count = -1
 
     def __str__(self):
@@ -233,12 +273,10 @@ class OurPGM(CardinalityEstimationAlg):
                 continue
             d0 = data[:, i]
             _, bins = pd.qcut(d0, self.num_bins, retbins=True, duplicates="drop")
-            # _, bins = pd.qcut(d0, self.num_bins, retbins=True)
             self.column_bins[columns[i]] = bins
             data[:, i] = np.digitize(d0, bins, right=True)
             print(len(set(d0)))
             print(min(d0))
-            # pdb.set_trace()
 
         end = time.time()
         df = pd.DataFrame(data)
@@ -276,13 +314,7 @@ class OurPGM(CardinalityEstimationAlg):
                 cached=True, serialized=True)
         cache_key = select_all
         if cache_key in data_cache.archive:
-        # if False:
             df = data_cache.archive[cache_key]
-            # samples = df.values[:,0:-1]
-            # weights = np.array(df["count"])
-            # print("loading training data from cache took {} seconds".format(\
-                    # time.time() - start))
-            # return samples, weights
         else:
             cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(db.user,
                     db.pwd, db.db_name)
@@ -293,27 +325,26 @@ class OurPGM(CardinalityEstimationAlg):
         # now, df should contain all the raw columns. If there are continuous
         # columns, then we will need to bin them.
         df_keys = list(df.keys())
-        # print(df_keys)
-        # pdb.set_trace()
         for i, column in enumerate(columns):
             if db.column_stats[column]["num_values"] < 1000:
                 print("{} is treated as discrete column".format(column))
                 # not continuous
                 continue
-            # print("before starting to bin")
-            # _, bins = pd.qcut(df.values[:,i], self.num_bins,
-                    # retbins=True, duplicates="drop")
             _, bins = pd.qcut(df[df_keys[i]].values, self.num_bins,
                     retbins=True, duplicates="drop")
             self.column_bins[column] = bins
-            # df.values[:,i] = np.digitize(df.values[:,i], bins, right=True)
+            df2 = df.sort_values(df_keys[i], ascending=True)
+            df2 = df2.groupby(df_keys[i]).size().reset_index(name='count')
+            assert df2.values[-1,0] == db.column_stats[column]["max_value"]
+            assert df2.values[0,0] == db.column_stats[column]["min_value"]
+
+            self.column_bin_vals[column] = df2
+
             df[df_keys[i]] = np.digitize(df[df_keys[i]].values, bins, right=True)
             print("{}, num bins: {}, min value: {}".format(column,
                 len(set(df.values[:,i])), min(df.values[:,i])))
 
         headers = [k for k in df.keys()]
-        # print(headers)
-        # pdb.set_trace()
         df = df.groupby(headers).size().\
                 sort_values(ascending=False).\
                 reset_index(name='count')
@@ -471,13 +502,14 @@ class OurPGM(CardinalityEstimationAlg):
                 continue
 
             possible_vals, weights = get_possible_values(query, self.db,
-                    self.column_bins)
+                    self.column_bins, self.column_bin_vals)
             # TODO: add assertion checks on possible_vals, weights shape etc.
 
             # if no binning, then don't need weights
             if len(self.column_bins) == 0:
                 est_sel = self.model.evaluate(possible_vals)
             else:
+                # est_sel = self.model.evaluate(possible_vals)
                 est_sel = self.model.evaluate(possible_vals, weights)
 
             if self.DEBUG:

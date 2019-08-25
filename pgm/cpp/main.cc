@@ -547,7 +547,7 @@ struct Graphical_Model
 		MST();
 	}
 
-	map<int ,double> eval(int curr_node,vector<set<int>  > &filter,bool approx,double frac)
+	map<int ,double> pgm_eval(int curr_node,vector<set<int>  > &filter,bool approx,double frac)
 	{
 		double ans=0.0;
 		int alp_size=node_list[curr_node].alphabet_size;
@@ -569,7 +569,7 @@ struct Graphical_Model
 		for(int i=0;i<curr_child.size();i++)
 		{
 			int child_node=curr_child[i];
-			map<int,double> child_map=eval(curr_child[i],filter,approx,frac);
+			map<int,double> child_map= pgm_eval(curr_child[i],filter,approx,frac);
 
 			Edges *temp_edge;
 
@@ -590,6 +590,7 @@ struct Graphical_Model
 				for(std::map<int,double>::iterator it_kid=child_map.begin();it_kid!=child_map.end();it_kid++)
 				{
 					int child_val=it_kid->first;
+          double prob_child = node_list[child_node].prob_list[child_val];
           double joint_prob;
 
           if (child_node < curr_node) {
@@ -602,16 +603,10 @@ struct Graphical_Model
             // In this case, we were just storing the difference from the
             // independence assumption. So we just add the independence back
             // in.
-            double prob_child = node_list[child_node].prob_list[child_val];
             joint_prob += (prob_child * prob_par);
           }
 
 					ans+= (joint_prob * it_kid->second) / prob_par;
-				}
-
-				if(approx)
-				{
-					ans/=frac;
 				}
 
 				curr_vals[par_val]*=ans;
@@ -681,38 +676,11 @@ double eval(vector<set<int>  > &filter,bool approx,double frac)
 	double ans=0.0;
 	map<int,double> root_map;
 	vector<set<int> > new_filter(filter.size());
-
-	if(approx)
-	{
-		for(int i=0;i<filter.size();i++)
-		{
-			int count=frac*filter[i].size();
-			vector<int> v(filter[i].begin(),filter[i].end());
-			std::random_shuffle(v.begin(),v.end());
-
-			for(int j=0;j<count;j++)
-			{
-				new_filter[i].insert(v[j]);
-			}
-
-		}
-
-		root_map=pgm.eval(pgm.root,new_filter,approx,frac);
-	}
-	else
-	{
-		root_map=pgm.eval(pgm.root,filter,approx,frac);
-	}
-
+  root_map=pgm.pgm_eval(pgm.root,filter,approx,frac);
 
 	for(std::map<int,double>::iterator it=root_map.begin();it!=root_map.end();it++)
 	{
 		ans+=it->second*pgm.node_list[pgm.root].prob_list[it->first];
-	}
-
-	if(approx)
-	{
-		ans/=frac;
 	}
 
 	return ans;
@@ -767,13 +735,7 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   		ans++;
   	}
   }
-  //cout << "app: " << approx << endl;
   //cout << "frac: " << frac << endl;
-  bool app=false;
-  if(approx!=0)
-  {
-    app=true;
-  }
 
   //vector<int> edge_list;
 
@@ -800,7 +762,7 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
     //pgm.MST();
   //}
 
-  double ans = eval(filter,app,frac);
+  double ans = eval(filter,false,frac);
   return ans;
 }
 
