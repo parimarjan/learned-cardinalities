@@ -331,6 +331,7 @@ struct Graphical_Model
 	vector<vector<Edges> > edge_matrix;
   bool use_svd;
   int num_singular_vals;
+  bool recompute;
 
 	void fill_data(vector<vector<int> > &data_matrix, vector<int> &count_column)
 	{
@@ -547,7 +548,8 @@ struct Graphical_Model
 		MST();
 	}
 
-	map<int ,double> pgm_eval(int curr_node,vector<set<int>  > &filter,bool approx,double frac)
+	map<int ,double> pgm_eval(int curr_node,vector<set<int>> &filter,
+      bool approx,double frac, vector<map<int,double>> cur_weights)
 	{
 		double ans=0.0;
 		int alp_size=node_list[curr_node].alphabet_size;
@@ -569,7 +571,7 @@ struct Graphical_Model
 		for(int i=0;i<curr_child.size();i++)
 		{
 			int child_node=curr_child[i];
-			map<int,double> child_map= pgm_eval(curr_child[i],filter,approx,frac);
+			map<int,double> child_map= pgm_eval(curr_child[i],filter,approx,frac,cur_weights);
 
 			Edges *temp_edge;
 
@@ -606,7 +608,10 @@ struct Graphical_Model
             joint_prob += (prob_child * prob_par);
           }
 
-					ans+= (joint_prob * it_kid->second) / prob_par;
+          double weight = cur_weights[child_node][child_val];
+          //double weight = 1.00;
+          //cout << "pgm_eval: " << weight << endl;
+          ans+= ((weight*joint_prob * it_kid->second) / prob_par);
 				}
 
 				curr_vals[par_val]*=ans;
@@ -659,11 +664,13 @@ struct Graphical_Model
 };
 
 Graphical_Model pgm;
+vector<map<int,double>> cur_weights;
 
 void init(vector<vector<int> > &data_matrix,vector<int> &count_column,
-    bool use_svd, int num_singular_vals)
+    bool use_svd, int num_singular_vals, bool recompute)
 {
 	pgm.init(data_matrix,count_column, use_svd, num_singular_vals);
+  pgm.recompute = recompute;
 }
 
 void train()
@@ -671,22 +678,27 @@ void train()
 	pgm.train();
 }
 
-double eval(vector<set<int>  > &filter,bool approx,double frac)
+double eval(vector<set<int>> &filter,bool approx,double frac)
 {
 	double ans=0.0;
 	map<int,double> root_map;
-	vector<set<int> > new_filter(filter.size());
-  root_map=pgm.pgm_eval(pgm.root,filter,approx,frac);
+  double weight;
+  root_map=pgm.pgm_eval(pgm.root,filter,approx,frac,cur_weights);
 
 	for(std::map<int,double>::iterator it=root_map.begin();it!=root_map.end();it++)
 	{
-		ans+=it->second*pgm.node_list[pgm.root].prob_list[it->first];
+    weight = cur_weights[pgm.root][it->first];
+    double unweighted_val = it->second*pgm.node_list[pgm.root].prob_list[it->first];
+    // pari: weight computed based on the bucket it covers for the binning case
+    ans += weight * unweighted_val;
+    //ans += unweighted_val;
 	}
 
 	return ans;
 }
 
-extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim_col, bool use_svd, int num_singular_vals)
+extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int
+    dim_col, bool use_svd, int num_singular_vals, bool recompute)
 {
   vector<vector<int> > data_matrix(col_sz);
 
@@ -707,7 +719,7 @@ extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim
   	count_ptr++;
   }
 
-  init(data_matrix,count_column, use_svd, num_singular_vals);
+  init(data_matrix,count_column, use_svd, num_singular_vals, recompute);
   return ;
 }
 
@@ -723,7 +735,64 @@ extern "C" double py_num_parameters()
   return pgm.num_parameters();
 }
 
-extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
+extern "C" double py_eval_weighted(int **data, double **weight_data, int *lens,
+    int n_ar,int approx,double frac)
+{
+  cout << "py eval weighted" << endl;
+  vector<set<int> > filter(n_ar);
+  vector<map<int,double>> weights(n_ar);
+
+  for(int i=0;i<n_ar;i++)
+  {
+  	int *ans = data[i];
+    double *weight = weight_data[i];
+
+  	for(int j=0;j<lens[i];j++)
+  	{
+  		filter[i].insert(*ans);
+      weights[i][*ans] = *weight;
+      cout << *weight << endl;
+  		ans++;
+      weight++;
+  	}
+  }
+  cur_weights = weights;
+
+  if (pgm.recompute) {
+    vector<int> edge_list;
+
+    for(int i=0;i<pgm.graph_size;i++)
+    {
+      if(pgm.node_list[i].alphabet_size!=filter[i].size())
+      {
+        if (VERBOSE) {
+          cout<<i<<" i was added out of "<<pgm.graph_size<<" "<<filter[i].size()<<endl;
+        }
+        edge_list.push_back(i);
+      }
+    }
+
+    if(edge_list.size()>=2)
+    {
+      if (VERBOSE) cout<<"MST sel being made"<<endl;
+      std::sort(edge_list.begin(),edge_list.end());
+      pgm.MST_clean();
+      pgm.MST_sel(edge_list);
+    }
+    else
+    {
+      if (VERBOSE) cout<<"MST norrmal"<<endl;
+      pgm.MST_clean();
+      pgm.MST();
+    }
+  }
+
+  double ans = eval(filter,false,frac);
+  return ans;
+}
+
+extern "C" double py_eval(int **data, int *lens,
+    int n_ar,int approx,double frac)
 {
   vector<set<int> > filter(n_ar);
   for(int i=0;i<n_ar;i++)
@@ -735,32 +804,33 @@ extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
   		ans++;
   	}
   }
-  //cout << "frac: " << frac << endl;
 
-  //vector<int> edge_list;
+  if (pgm.recompute) {
+    vector<int> edge_list;
 
-  //for(int i=0;i<pgm.graph_size;i++)
-  //{
-    //if(pgm.node_list[i].alphabet_size!=filter[i].size())
-    //{
-      //cout<<i<<" i was added out of "<<pgm.graph_size<<" "<<filter[i].size()<<endl;
-      //edge_list.push_back(i);
-    //}
-  //}
+    for(int i=0;i<pgm.graph_size;i++)
+    {
+      if(pgm.node_list[i].alphabet_size!=filter[i].size())
+      {
+        cout<<i<<" i was added out of "<<pgm.graph_size<<" "<<filter[i].size()<<endl;
+        edge_list.push_back(i);
+      }
+    }
 
-  //if(edge_list.size()>=2)
-  //{
-    //cout<<"MST sel being made"<<endl;
-    //std::sort(edge_list.begin(),edge_list.end());
-    //pgm.MST_clean();
-    //pgm.MST_sel(edge_list);
-  //}
-  //else
-  //{
-    //cout<<"MST norrmal"<<endl;
-    //pgm.MST_clean();
-    //pgm.MST();
-  //}
+    if(edge_list.size()>=2)
+    {
+      cout<<"MST sel being made"<<endl;
+      std::sort(edge_list.begin(),edge_list.end());
+      pgm.MST_clean();
+      pgm.MST_sel(edge_list);
+    }
+    else
+    {
+      cout<<"MST norrmal"<<endl;
+      pgm.MST_clean();
+      pgm.MST();
+    }
+  }
 
   double ans = eval(filter,false,frac);
   return ans;
@@ -863,7 +933,7 @@ int main(int argc, char *argv[])
 		cout<<count_column[i]<<" ";
 	}
 
-	init(data_vec,count_column, use_svd, num_singular_vals);
+	init(data_vec,count_column, use_svd, num_singular_vals, false);
 	pgm.print();
 
 	train();

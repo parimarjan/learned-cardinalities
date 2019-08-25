@@ -107,70 +107,73 @@ def get_possible_values(sample, db, column_bins=None,
                     column_groupby = column_bin_vals[column]
                     vals = [float(v) for v in val]
                     binned_vals = np.digitize(vals, bins, right=True)
-                    groupby_key = column_groupby.keys()[0]
+                    USE_PRECISE_WEIGHTS = True
 
-                    if (binned_vals[0] == binned_vals[1]):
-                        lower_lim = bins[binned_vals[0]-1]
-                        upper_lim = bins[binned_vals[0]]
-
-                        bin_groupby = \
-                            column_groupby[column_groupby[groupby_key] >= lower_lim]
-                        bin_groupby = \
-                                bin_groupby[bin_groupby[groupby_key] < upper_lim]
-                        # FIXME: check edge conditions
-                        total_val = bin_groupby[groupby_key].sum()
-                        bin_groupby = \
-                            bin_groupby[bin_groupby[groupby_key] > vals[0]]
-                        selected_val = bin_groupby[groupby_key].sum()
-                        weight = float(selected_val) / total_val
-                        possible_vals.append(binned_vals[0])
-                        weights.append(weight)
-                    else:
-                        # different bins, means the weight can be different for
-                        # the endpoints, and 1.00 for all the middle ones
-
-                        # because right=True when we use np.digitize
-                        assert binned_vals[0] != 0
+                    if not USE_PRECISE_WEIGHTS:
                         for bi in range(binned_vals[0],binned_vals[1]+1):
                             possible_vals.append(bi)
-                            # if not an edge column then just add 1.00 weight
-                            lower_lim = bins[bi-1]
-                            upper_lim = bins[bi]
-                            assert lower_lim <= vals[1]
-                            assert upper_lim >= vals[0]
-                            # print(vals[0], vals[1])
-                            # print(lower_lim, upper_lim)
-                            groupby_key = column_groupby.keys()[0]
-                            # print(groupby_key)
+                            weights.append(1.00)
+                    else:
+                        groupby_key = column_groupby.keys()[0]
+                        if (binned_vals[0] == binned_vals[1]):
+                            lower_lim = bins[binned_vals[0]-1]
+                            upper_lim = bins[binned_vals[0]]
 
-                            if bi == binned_vals[0]:
-                                assert lower_lim <= vals[0]
-                                bin_groupby = \
-                                    column_groupby[column_groupby[groupby_key] >= lower_lim]
-                                bin_groupby = \
-                                        bin_groupby[bin_groupby[groupby_key] < upper_lim]
-                                # FIXME: check edge conditions
-                                total_val = bin_groupby[groupby_key].sum()
-                                bin_groupby = \
-                                    bin_groupby[bin_groupby[groupby_key] > vals[0]]
-                                selected_val = bin_groupby[groupby_key].sum()
-                                weight = float(selected_val) / total_val
-                            elif bi == binned_vals[1]:
-                                bin_groupby = \
-                                    column_groupby[column_groupby[groupby_key] >= lower_lim]
-                                bin_groupby = \
-                                        bin_groupby[bin_groupby[groupby_key] < upper_lim]
-                                # FIXME: check edge conditions
-                                total_val = bin_groupby[groupby_key].sum()
-                                bin_groupby = \
-                                    bin_groupby[bin_groupby[groupby_key] < vals[1]]
-                                selected_val = bin_groupby[groupby_key].sum()
-                                weight = float(selected_val) / total_val
-                            else:
-                                weight = 1.00
-
-                            assert weight <= 1.00
+                            bin_groupby = \
+                                column_groupby[column_groupby[groupby_key] >= lower_lim]
+                            bin_groupby = \
+                                    bin_groupby[bin_groupby[groupby_key] < upper_lim]
+                            # FIXME: check edge conditions
+                            total_val = bin_groupby[groupby_key].sum()
+                            bin_groupby = \
+                                bin_groupby[bin_groupby[groupby_key] > vals[0]]
+                            selected_val = bin_groupby[groupby_key].sum()
+                            weight = float(selected_val) / total_val
+                            possible_vals.append(binned_vals[0])
                             weights.append(weight)
+                        else:
+                            # different bins, means the weight can be different for
+                            # the endpoints, and 1.00 for all the middle ones
+
+                            # because right=True when we use np.digitize
+                            assert binned_vals[0] != 0
+                            for bi in range(binned_vals[0],binned_vals[1]+1):
+                                possible_vals.append(bi)
+                                # if not an edge column then just add 1.00 weight
+                                lower_lim = bins[bi-1]
+                                upper_lim = bins[bi]
+                                assert lower_lim <= vals[1]
+                                assert upper_lim >= vals[0]
+                                groupby_key = column_groupby.keys()[0]
+
+                                if bi == binned_vals[0]:
+                                    assert lower_lim <= vals[0]
+                                    bin_groupby = \
+                                        column_groupby[column_groupby[groupby_key] >= lower_lim]
+                                    bin_groupby = \
+                                            bin_groupby[bin_groupby[groupby_key] < upper_lim]
+                                    # FIXME: check edge conditions
+                                    total_val = bin_groupby[groupby_key].sum()
+                                    bin_groupby = \
+                                        bin_groupby[bin_groupby[groupby_key] > vals[0]]
+                                    selected_val = bin_groupby[groupby_key].sum()
+                                    weight = float(selected_val) / total_val
+                                elif bi == binned_vals[1]:
+                                    bin_groupby = \
+                                        column_groupby[column_groupby[groupby_key] >= lower_lim]
+                                    bin_groupby = \
+                                            bin_groupby[bin_groupby[groupby_key] < upper_lim]
+                                    # FIXME: check edge conditions
+                                    total_val = bin_groupby[groupby_key].sum()
+                                    bin_groupby = \
+                                        bin_groupby[bin_groupby[groupby_key] < vals[1]]
+                                    selected_val = bin_groupby[groupby_key].sum()
+                                    weight = float(selected_val) / total_val
+                                else:
+                                    weight = 1.00
+
+                                assert weight <= 1.00
+                                weights.append(weight)
 
             elif cmp_op == "eq":
                 possible_vals.append(val)
@@ -228,10 +231,9 @@ class OurPGM(CardinalityEstimationAlg):
         self.alg_name = kwargs["alg_name"]
         self.use_svd = kwargs["use_svd"]
         self.num_singular_vals = kwargs["num_singular_vals"]
-        self.model = PGM(alg_name=self.alg_name, backend=self.backend,
-                use_svd=self.use_svd, num_singular_vals=self.num_singular_vals)
 
-        self.num_bins = 100
+        self.num_bins = kwargs["num_bins"]
+        self.recompute = kwargs["recompute"]
         self.test_cache = {}
         self.column_bins = {}
 
@@ -247,6 +249,10 @@ class OurPGM(CardinalityEstimationAlg):
 
         self.DEBUG = False
         self.param_count = -1
+
+        self.model = PGM(alg_name=self.alg_name, backend=self.backend,
+                use_svd=self.use_svd, num_singular_vals=self.num_singular_vals,
+                recompute=self.recompute)
 
     def __str__(self):
         name = self.alg_name
@@ -509,7 +515,6 @@ class OurPGM(CardinalityEstimationAlg):
             if len(self.column_bins) == 0:
                 est_sel = self.model.evaluate(possible_vals)
             else:
-                # est_sel = self.model.evaluate(possible_vals)
                 est_sel = self.model.evaluate(possible_vals, weights)
 
             if self.DEBUG:

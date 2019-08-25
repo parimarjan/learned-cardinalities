@@ -32,7 +32,7 @@ class PGM():
     Serves as a wrapper class for the libpgm.so backend.
     '''
     def __init__(self, alg_name="chow-liu", backend="ourpgm", use_svd=True,
-            num_singular_vals=10):
+            num_singular_vals=10, recompute=False):
         # index = random variable. For each random variable, map it to integers
         # 0...n-1 (where n is the size of that random variable)
         self.word2index = []
@@ -44,6 +44,7 @@ class PGM():
         self.alg_name = alg_name
         self.use_svd = use_svd
         self.num_singular_vals = num_singular_vals
+        self.recompute = recompute
         print(self.backend, self.alg_name)
 
     def train(self, samples, weights, state_names=None):
@@ -75,9 +76,12 @@ class PGM():
 
         if self.backend == "ourpgm":
             pgm.py_init(mapped_samples.ctypes.data_as(c_void_p),
-                    c_long(mapped_samples.shape[0]), c_long(mapped_samples.shape[1]),
-                    weights.ctypes.data_as(c_void_p), c_long(weights.shape[0]),
-                    self.use_svd, c_long(self.num_singular_vals))
+                    c_long(mapped_samples.shape[0]),
+                    c_long(mapped_samples.shape[1]),
+                    weights.ctypes.data_as(c_void_p),
+                    c_long(weights.shape[0]),
+                    self.use_svd,
+                    c_long(self.num_singular_vals), self.recompute)
             pgm.py_train()
         elif self.backend == "pomegranate":
             # TODO: cache the trained model, based on hash of mapped samples?
@@ -170,7 +174,7 @@ class PGM():
 
         print("pgm model took {} seconds to train".format(time.time()-start))
 
-    def evaluate(self, rv_values, weights=None, weights_method=1):
+    def evaluate(self, rv_values, weights=None, weights_method=2):
         '''
         @rv_values: Each element is a list. i-th element represents the i-th
         random variable, and the assignments for that random variable which
@@ -199,8 +203,10 @@ class PGM():
                     combined_weight = np.product(np.array(rv_weights))
                     assert combined_weight <= 1.00
                     est_val = self._eval_ourpgm(sample)
-                    print(rv_weights, combined_weight, est_val)
+                    # print(rv_weights, combined_weight, est_val)
                     return est_val * combined_weight
+                elif weights_method == 2:
+                    est_val = self._eval_ourpgm(sample, weights=weights)
                 else:
                     assert False
             else:
@@ -294,7 +300,7 @@ class PGM():
                     pdb.set_trace()
         return sample
 
-    def _eval_ourpgm(self, sample):
+    def _eval_ourpgm(self, sample, weights=None):
         if self.save_csv:
             sample_points = []
             for pts in sample:
@@ -304,20 +310,38 @@ class PGM():
                 writer = csv.writer(f)
                 writer.writerow(sample_points)
 
-        entrylist = []
+        data_list = []
+        weight_list = []
         lengths = []
-        for sub_l in sample:
-            entrylist.append((c_int*len(sub_l))(*sub_l))
-            lengths.append(c_int(len(sub_l)))
+        if weights is not None:
+            for i, sub_l in enumerate(sample):
+                weight_l = weights[i]
+                data_list.append((c_int*len(sub_l))(*sub_l))
+                weight_list.append((c_double*len(weight_l))(*weight_l))
+                lengths.append(c_int(len(sub_l)))
 
-        c_l = (POINTER(c_int) * len(entrylist))(*entrylist)
-        c_lengths = (c_int * len(sample))(*lengths)
-        pgm.py_eval.restype = c_double
-        est = pgm.py_eval(c_l, c_lengths, len(sample), 0, c_double(1.00))
+            c_w = (POINTER(c_double) * len(weight_list))(*weight_list)
+            c_l = (POINTER(c_int) * len(data_list))(*data_list)
+            c_lengths = (c_int * len(sample))(*lengths)
+
+            pgm.py_eval_weighted.restype = c_double
+            est = pgm.py_eval_weighted(c_l, c_w,
+                    c_lengths, len(sample), 0, c_double(1.00))
+        else:
+            for i, sub_l in enumerate(sample):
+                data_list.append((c_int*len(sub_l))(*sub_l))
+                lengths.append(c_int(len(sub_l)))
+
+            c_l = (POINTER(c_int) * len(data_list))(*data_list)
+            c_lengths = (c_int * len(sample))(*lengths)
+            pgm.py_eval.restype = c_double
+            est = pgm.py_eval(c_l, c_lengths, len(sample), 0, c_double(1.00))
+
         if self.save_csv:
             with open("results.csv", "a") as f:
                 writer = csv.writer(f)
                 writer.writerow([est])
+
         return est
 
     def _eval_greg_pointwise(self, cond_nodes, margs, point):

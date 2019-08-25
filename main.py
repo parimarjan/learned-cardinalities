@@ -58,7 +58,8 @@ def get_alg(alg):
                     divide_mb_len = args.divide_mb_len)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend,
-                use_svd=args.use_svd, num_singular_vals=args.num_singular_vals)
+                use_svd=args.use_svd, num_singular_vals=args.num_singular_vals,
+                num_bins = args.num_bins, recompute = args.cl_recompute)
     else:
         assert False
 
@@ -135,7 +136,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
 
     if hashed_tmp in sql_str_cache:
         query_strs = sql_str_cache[hashed_tmp]
-        print("loaded {} query strings".format(len(query_strs)))
+        # print("loaded {} query strings".format(len(query_strs)))
 
     if num_samples == -1:
         # select whatever we loaded
@@ -156,7 +157,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
         query_strs += gen_sqls
         # save on the disk
         sql_str_cache.archive[hashed_tmp] = query_strs
-    print("returning {} query strs".format(len(query_strs)))
+
     return query_strs
 
 def gen_query_objs(args, query_strs, query_obj_cache):
@@ -490,6 +491,8 @@ def read_flags():
             default=1)
     parser.add_argument("--num_bins", type=int, required=False,
             default=10)
+    parser.add_argument("--cl_recompute", type=int, required=False,
+            default=0)
     parser.add_argument("--avg_factor", type=int, required=False,
             default=1)
     parser.add_argument("--test_size", type=float, required=False,
