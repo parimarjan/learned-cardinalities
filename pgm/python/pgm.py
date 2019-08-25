@@ -75,14 +75,17 @@ class PGM():
             np.savetxt("counts.csv", weights, delimiter=",")
 
         if self.backend == "ourpgm":
-            pgm.py_init(mapped_samples.ctypes.data_as(c_void_p),
+            pgm.py_init.restype = c_void_p
+            print("before py_init")
+            self.ourpgm_model = pgm.py_init(mapped_samples.ctypes.data_as(c_void_p),
                     c_long(mapped_samples.shape[0]),
                     c_long(mapped_samples.shape[1]),
                     weights.ctypes.data_as(c_void_p),
                     c_long(weights.shape[0]),
                     self.use_svd,
                     c_long(self.num_singular_vals), self.recompute)
-            pgm.py_train()
+            print("py init returned")
+            pgm.py_train(c_void_p(self.ourpgm_model))
         elif self.backend == "pomegranate":
             # TODO: cache the trained model, based on hash of mapped samples?
             # TODO: mapped samples should be extended to include all 0's.
@@ -325,8 +328,9 @@ class PGM():
             c_lengths = (c_int * len(sample))(*lengths)
 
             pgm.py_eval_weighted.restype = c_double
-            est = pgm.py_eval_weighted(c_l, c_w,
-                    c_lengths, len(sample), 0, c_double(1.00))
+            est = pgm.py_eval_weighted(c_void_p(self.ourpgm_model),
+                    c_l, c_w, c_lengths, len(sample),
+                    0, c_double(1.00))
         else:
             for i, sub_l in enumerate(sample):
                 data_list.append((c_int*len(sub_l))(*sub_l))
@@ -335,7 +339,10 @@ class PGM():
             c_l = (POINTER(c_int) * len(data_list))(*data_list)
             c_lengths = (c_int * len(sample))(*lengths)
             pgm.py_eval.restype = c_double
-            est = pgm.py_eval(c_l, c_lengths, len(sample), 0, c_double(1.00))
+
+            est = pgm.py_eval(c_void_p(self.ourpgm_model),
+                    c_l, c_lengths, len(sample), 0,
+                    c_double(1.00))
 
         if self.save_csv:
             with open("results.csv", "a") as f:

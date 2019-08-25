@@ -8,7 +8,7 @@ import pandas as pd
 import pdb
 import random
 
-SEEDS = [123]
+SEEDS = [123, 453]
 NUM_COLUMNS = [5]
 PERIOD_LEN = [1000]
 NUM_DATA_SAMPLES = 1000000
@@ -108,19 +108,19 @@ def test_simple():
         for s in test_samples:
             our_ests.append(model.evaluate(s))
 
-        model = PGM(alg_name="chow-liu", backend="pomegranate", use_svd=False)
-        model.train(samples, weights, state_names)
-        for s in test_samples:
-            pom_ests.append(model.evaluate(s))
+        # model = PGM(alg_name="chow-liu", backend="pomegranate", use_svd=False)
+        # model.train(samples, weights, state_names)
+        # for s in test_samples:
+            # pom_ests.append(model.evaluate(s))
 
-        our_ests = np.array(our_ests)
-        pom_ests = np.array(pom_ests)
-        diff = pom_ests - our_ests
-        print("abs diff: ", np.sum(abs(diff)))
-        # assert np.allclose(pom_ests, our_ests)
-        our_avg = np.average(our_ests)
-        pom_avg = np.average(pom_ests)
-        if abs(our_avg - pom_avg) > EPSILON:
-            assert False
+        # our_ests = np.array(our_ests)
+        # pom_ests = np.array(pom_ests)
+        # diff = pom_ests - our_ests
+        # print("abs diff: ", np.sum(abs(diff)))
+        # # assert np.allclose(pom_ests, our_ests)
+        # our_avg = np.average(our_ests)
+        # pom_avg = np.average(pom_ests)
+        # if abs(our_avg - pom_avg) > EPSILON:
+            # assert False
 
 test_simple()

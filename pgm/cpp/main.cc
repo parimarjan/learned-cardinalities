@@ -18,7 +18,7 @@
 using namespace std::chrono;
 using namespace std;
 
-bool VERBOSE = false;
+bool VERBOSE = true;
 
 // in the future, we may want to experiment with other stuff here
 // 1 ==> store just the joint probability in the SVD matrix
@@ -161,9 +161,7 @@ struct Edges
       for (int i = 0; i < prob_matrix.size(); i++) {
         for (int j = 0; j < prob_matrix[0].size(); j++) {
           // storing only the difference from the independence assumption
-          cout << "orig: " << prob_matrix[i][j] << endl;
           this->prob_matrix[i][j] = prob_matrix[i][j] - (prob1[i]*prob2[j]);
-          cout << "updated: " << prob_matrix[i][j] << endl;
         }
       }
     }
@@ -608,9 +606,8 @@ struct Graphical_Model
             joint_prob += (prob_child * prob_par);
           }
 
-          double weight = cur_weights[child_node][child_val];
-          //double weight = 1.00;
-          //cout << "pgm_eval: " << weight << endl;
+          //double weight = cur_weights[child_node][child_val];
+          double weight = 1.00;
           ans+= ((weight*joint_prob * it_kid->second) / prob_par);
 				}
 
@@ -663,22 +660,24 @@ struct Graphical_Model
   }
 };
 
-Graphical_Model pgm;
+//Graphical_Model pgm;
 vector<map<int,double>> cur_weights;
 
-void init(vector<vector<int> > &data_matrix,vector<int> &count_column,
+Graphical_Model * init(vector<vector<int> > &data_matrix,vector<int> &count_column,
     bool use_svd, int num_singular_vals, bool recompute)
 {
-	pgm.init(data_matrix,count_column, use_svd, num_singular_vals);
-  pgm.recompute = recompute;
+  Graphical_Model *pgm = new Graphical_Model();
+	pgm->init(data_matrix,count_column, use_svd, num_singular_vals);
+  pgm->recompute = recompute;
+  return pgm;
 }
 
-void train()
-{
-	pgm.train();
-}
+//void train()
+//{
+	//pgm.train();
+//}
 
-double eval(vector<set<int>> &filter,bool approx,double frac)
+double eval(Graphical_Model &pgm, vector<set<int>> &filter,bool approx,double frac)
 {
 	double ans=0.0;
 	map<int,double> root_map;
@@ -687,17 +686,17 @@ double eval(vector<set<int>> &filter,bool approx,double frac)
 
 	for(std::map<int,double>::iterator it=root_map.begin();it!=root_map.end();it++)
 	{
-    weight = cur_weights[pgm.root][it->first];
+    //weight = cur_weights[pgm.root][it->first];
     double unweighted_val = it->second*pgm.node_list[pgm.root].prob_list[it->first];
     // pari: weight computed based on the bucket it covers for the binning case
-    ans += weight * unweighted_val;
-    //ans += unweighted_val;
+    //ans += weight * unweighted_val;
+    ans += unweighted_val;
 	}
 
 	return ans;
 }
 
-extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int
+extern "C" void *py_init(int *data, int row_sz, int col_sz,int *count_ptr,int
     dim_col, bool use_svd, int num_singular_vals, bool recompute)
 {
   vector<vector<int> > data_matrix(col_sz);
@@ -719,23 +718,27 @@ extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int
   	count_ptr++;
   }
 
-  init(data_matrix,count_column, use_svd, num_singular_vals, recompute);
-  return ;
+  Graphical_Model *pgm = init(data_matrix,count_column, use_svd,
+      num_singular_vals, recompute);
+  cout << "returning from py init!" << endl;
+  return pgm;
 }
 
-extern "C" void py_train()
+extern "C" void py_train(Graphical_Model &pgm)
 {
-  train();
+  cout << "py train!" << endl;
+  pgm.train();
   pgm.print();
   return;
 }
 
-extern "C" double py_num_parameters()
+extern "C" double py_num_parameters(Graphical_Model &pgm)
 {
   return pgm.num_parameters();
 }
 
-extern "C" double py_eval_weighted(int **data, double **weight_data, int *lens,
+extern "C" double py_eval_weighted(Graphical_Model &pgm,
+    int **data, double **weight_data, int *lens,
     int n_ar,int approx,double frac)
 {
   cout << "py eval weighted" << endl;
@@ -744,17 +747,17 @@ extern "C" double py_eval_weighted(int **data, double **weight_data, int *lens,
 
   for(int i=0;i<n_ar;i++)
   {
-  	int *ans = data[i];
+    int *ans = data[i];
     double *weight = weight_data[i];
 
-  	for(int j=0;j<lens[i];j++)
-  	{
-  		filter[i].insert(*ans);
+    for(int j=0;j<lens[i];j++)
+    {
+      filter[i].insert(*ans);
       weights[i][*ans] = *weight;
       cout << *weight << endl;
-  		ans++;
+      ans++;
       weight++;
-  	}
+    }
   }
   cur_weights = weights;
 
@@ -787,22 +790,22 @@ extern "C" double py_eval_weighted(int **data, double **weight_data, int *lens,
     }
   }
 
-  double ans = eval(filter,false,frac);
+  double ans = eval(pgm,filter,false,frac);
   return ans;
 }
 
-extern "C" double py_eval(int **data, int *lens,
-    int n_ar,int approx,double frac)
+extern "C" double py_eval(Graphical_Model &pgm, int **data,
+    int *lens, int n_ar,int approx,double frac)
 {
   vector<set<int> > filter(n_ar);
   for(int i=0;i<n_ar;i++)
   {
-  	int *ans=data[i];
-  	for(int j=0;j<lens[i];j++)
-  	{
-  		filter[i].insert(*ans);
-  		ans++;
-  	}
+    int *ans=data[i];
+    for(int j=0;j<lens[i];j++)
+    {
+      filter[i].insert(*ans);
+      ans++;
+    }
   }
 
   if (pgm.recompute) {
@@ -832,7 +835,7 @@ extern "C" double py_eval(int **data, int *lens,
     }
   }
 
-  double ans = eval(filter,false,frac);
+  double ans = eval(pgm,filter,false,frac);
   return ans;
 }
 
@@ -919,34 +922,34 @@ int main(int argc, char *argv[])
 	// 	vec_set[2].insert(i%5000);
 	// }
 
-	for(int i=0;i<data_vec.size();i++)
-	{
-		for(int j=0;j<data_vec[i].size();j++)
-		{
-			cout<<data_vec[i][j]<<" ";
-		}
-		cout<<endl;
-	}
+	//for(int i=0;i<data_vec.size();i++)
+	//{
+		//for(int j=0;j<data_vec[i].size();j++)
+		//{
+			//cout<<data_vec[i][j]<<" ";
+		//}
+		//cout<<endl;
+	//}
 
-	for(int i=0;i<count_column.size();i++)
-	{
-		cout<<count_column[i]<<" ";
-	}
+	//for(int i=0;i<count_column.size();i++)
+	//{
+		//cout<<count_column[i]<<" ";
+	//}
 
-	init(data_vec,count_column, use_svd, num_singular_vals, false);
-	pgm.print();
+	//init(data_vec,count_column, use_svd, num_singular_vals, false);
+	//pgm.print();
 
-	train();
-	pgm.print();
+	//train();
+	//pgm.print();
 
-	high_resolution_clock::time_point start_time, end_time;
+	//high_resolution_clock::time_point start_time, end_time;
 
-	start_time = high_resolution_clock::now();
+	//start_time = high_resolution_clock::now();
 
-	cout<<eval(vec_set,false,1.0)<<" : is the probablity"<<endl;
+	//cout<<eval(vec_set,false,1.0)<<" : is the probablity"<<endl;
 
-	end_time = high_resolution_clock::now();
-    cout<<duration_cast < duration < float > > (end_time - start_time).count()<<" eval time  "<<endl<<endl;
+	//end_time = high_resolution_clock::now();
+    //cout<<duration_cast < duration < float > > (end_time - start_time).count()<<" eval time  "<<endl<<endl;
 
 	return 0;
 }
