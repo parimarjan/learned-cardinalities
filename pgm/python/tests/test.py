@@ -147,4 +147,4 @@ def test_discrete():
         if abs(our_avg - pom_avg) > EPSILON:
             assert False
 
-test_simple()
+test_discrete()
