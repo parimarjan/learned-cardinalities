@@ -107,8 +107,9 @@ def get_possible_values(sample, db, column_bins=None,
                     column_groupby = column_bin_vals[column]
                     vals = [float(v) for v in val]
                     binned_vals = np.digitize(vals, bins, right=True)
-                    USE_PRECISE_WEIGHTS = True
-
+                    # FIXME: do something in between (collect stats like #rvs
+                    # per bin etc.)
+                    USE_PRECISE_WEIGHTS = False
                     if not USE_PRECISE_WEIGHTS:
                         for bi in range(binned_vals[0],binned_vals[1]+1):
                             possible_vals.append(bi)

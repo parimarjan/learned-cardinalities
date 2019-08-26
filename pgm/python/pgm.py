@@ -185,6 +185,9 @@ class PGM():
         placed on that random variable. The assignments are in the original
         alphabet of the random variable, and need to be converted to the int
         representation specified in self.word2index.
+        @weights_method: 1 --> multiply from outside in the python function
+        (TODO: explain) 2 --> weigh each random variable and use it in the C++
+        implementation.
         '''
         # print(self.backend, self.alg_name)
         assert len(rv_values) == len(self.state_names)
@@ -233,10 +236,7 @@ class PGM():
                 # print("going to call pomegrante's eval")
                 est_vals = self.pom_model.probability(all_points)
                 est_val = np.sum(est_vals)
-                # assert est_val <= 1.00
-                if est_val > 1.00:
-                    print(est_val)
-                    pdb.set_trace()
+                assert est_val <= 1.00
                 return est_val
 
             elif self.alg_name == "greg":
@@ -327,8 +327,8 @@ class PGM():
             c_l = (POINTER(c_int) * len(data_list))(*data_list)
             c_lengths = (c_int * len(sample))(*lengths)
 
-            pgm.py_eval_weighted.restype = c_double
-            est = pgm.py_eval_weighted(c_void_p(self.ourpgm_model),
+            pgm.py_eval.restype = c_double
+            est = pgm.py_eval(c_void_p(self.ourpgm_model),
                     c_l, c_w, c_lengths, len(sample),
                     0, c_double(1.00))
         else:
@@ -339,10 +339,9 @@ class PGM():
             c_l = (POINTER(c_int) * len(data_list))(*data_list)
             c_lengths = (c_int * len(sample))(*lengths)
             pgm.py_eval.restype = c_double
-
             est = pgm.py_eval(c_void_p(self.ourpgm_model),
-                    c_l, c_lengths, len(sample), 0,
-                    c_double(1.00))
+                    c_l, c_void_p(0), c_lengths, len(sample),
+                    0, c_double(1.00))
 
         if self.save_csv:
             with open("results.csv", "a") as f:

@@ -9,16 +9,16 @@ import pdb
 import random
 
 SEEDS = [123, 453]
-NUM_COLUMNS = [5]
-PERIOD_LEN = [1000]
-NUM_DATA_SAMPLES = 1000000
+NUM_COLUMNS = [5, 7]
+PERIOD_LEN = [100]
+NUM_DATA_SAMPLES = 100000
 NUM_TEST_SAMPLES = 100
 NUM_RVS = 5
 EPSILON = 0.01
 
 # Generalized from:
 #https://stackoverflow.com/questions/18683821/generating-random-correlated-x-and-y-points-using-numpy
-def gen_gaussian_data(means, covs, num):
+def gen_gaussian_data_discrete(means, covs, num):
     vals = np.random.multivariate_normal(means, covs, num).T
     for i, v in enumerate(vals):
         vals[i] = [int(x) for x in v]
@@ -84,11 +84,35 @@ def test_simple():
     '''
     Just tests that things don't crash
     '''
+    means, covs = get_gaussian_data_params(1234, 5, 10)
+    data = gen_gaussian_data_discrete(means, covs, 10000)
+
+    df = pd.DataFrame(data)
+    column_list = list(range(num_columns))
+    df = df.groupby(column_list).size().\
+            sort_values(ascending=False).\
+            reset_index(name='count')
+
+    samples = df.values[:,0:num_columns]
+    weights = np.array(df["count"])
+    state_names = [str(s) for s in column_list]
+    # create pgm model, and train it
+    model = PGM(alg_name="chow-liu", backend="ourpgm", use_svd=False)
+    model.train(samples, weights, state_names)
+    test_samples = get_samples(data, NUM_TEST_SAMPLES)
+    our_ests = []
+    pom_ests = []
+    for s in test_samples:
+        our_ests.append(model.evaluate(s))
+
+def test_discrete():
+    '''
+    '''
     cases = [SEEDS, NUM_COLUMNS, PERIOD_LEN]
     for (seed, num_columns, period_len) in itertools.product(*cases):
         print(seed, num_columns, period_len)
         means, covs = get_gaussian_data_params(seed, num_columns, period_len)
-        data = gen_gaussian_data(means, covs, NUM_DATA_SAMPLES)
+        data = gen_gaussian_data_discrete(means, covs, NUM_DATA_SAMPLES)
 
         df = pd.DataFrame(data)
         column_list = list(range(num_columns))
@@ -108,19 +132,19 @@ def test_simple():
         for s in test_samples:
             our_ests.append(model.evaluate(s))
 
-        # model = PGM(alg_name="chow-liu", backend="pomegranate", use_svd=False)
-        # model.train(samples, weights, state_names)
-        # for s in test_samples:
-            # pom_ests.append(model.evaluate(s))
+        model = PGM(alg_name="chow-liu", backend="pomegranate", use_svd=False)
+        model.train(samples, weights, state_names)
+        for s in test_samples:
+            pom_ests.append(model.evaluate(s))
 
-        # our_ests = np.array(our_ests)
-        # pom_ests = np.array(pom_ests)
-        # diff = pom_ests - our_ests
-        # print("abs diff: ", np.sum(abs(diff)))
-        # # assert np.allclose(pom_ests, our_ests)
-        # our_avg = np.average(our_ests)
-        # pom_avg = np.average(pom_ests)
-        # if abs(our_avg - pom_avg) > EPSILON:
-            # assert False
+        our_ests = np.array(our_ests)
+        pom_ests = np.array(pom_ests)
+        diff = pom_ests - our_ests
+        print("abs diff: ", np.sum(abs(diff)))
+        # assert np.allclose(pom_ests, our_ests)
+        our_avg = np.average(our_ests)
+        pom_avg = np.average(pom_ests)
+        if abs(our_avg - pom_avg) > EPSILON:
+            assert False
 
 test_simple()
