@@ -24,8 +24,8 @@ import klepto
 
 BASELINE = "EXHAUSTIVE"
 OLD_QUERY = True
-DEBUG = False
-MAX_QUERY = 1000
+DEBUG = True
+MAX_QUERY = 1
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -131,7 +131,8 @@ def update_pg_costs(query):
         # ugh ugly structure
         explain = v[0][0][0][0]
         vals = extract_values(explain, "Total Cost")
-        total_cost = vals[-1]
+        # FIXME: is max the correct assumption?
+        total_cost = max(vals)
         query.pg_costs[alg_name] = total_cost
 
 def update_runtimes(query, explain, use_orig_query=False,
@@ -201,12 +202,13 @@ def update_runtimes_old(query, explain, use_orig_query=False,
                 updated_cards = get_cardinalities(query, alg)
                 # pdb.set_trace()
                 # update the cardinalities file in $PG_DATA_DIR
-                PG_DATA_DIR = os.environ["PG_DATA_DIR"]
-                assert PG_DATA_DIR != ""
-                fn = PG_DATA_DIR + "/cur_cardinalities.json"
-                with open(fn, 'w') as f:
-                    json.dump(updated_cards, f)
-                print("updated cardinalities")
+                if "PG_DATA_DIR" in os.environ:
+                    PG_DATA_DIR = os.environ["PG_DATA_DIR"]
+                    assert PG_DATA_DIR != ""
+                    fn = PG_DATA_DIR + "/cur_cardinalities.json"
+                    with open(fn, 'w') as f:
+                        json.dump(updated_cards, f)
+                    print("updated cardinalities")
 
             # FIXME: all sqls should be same, ensure that?
             assert len(sqls) == 1
@@ -229,8 +231,8 @@ def update_runtimes_old(query, explain, use_orig_query=False,
 
             if explain:
                 sql = "EXPLAIN (ANALYZE, COSTS, TIMING, FORMAT JSON) " + sql
-                # sql = "EXPLAIN (COSTS, FORMAT JSON) " + sql
 
+            # now execute
             try:
                 output, exec_time = benchmark_sql(sql, args.user, args.db_host,
                         args.port, args.pwd, args.db_name, join_collapse_limit)
@@ -352,9 +354,8 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     use_orig_query=args.use_orig_query)
             if args.use_explain:
                 update_pg_costs(q)
-
-            print("dumping results cache")
-            results_cache.dump()
+            # print("dumping results cache")
+            # results_cache.dump()
 
             if DEBUG:
                 cur_query = q
@@ -370,8 +371,10 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     v = np.array(v)
                     # print(k, np.mean(v), np.var(v))
 
-                pg_rts = q.runtimes["Postgres"]
-                true_rts = q.runtimes["true"]
+                # pg_rts = q.runtimes["Postgres"]
+                # true_rts = q.runtimes["true"]
+                pg_rts = q.runtimes["pg_Postgres"]
+                true_rts = q.runtimes["pg_true"]
                 pg_rt = np.mean(pg_rts)
                 true_rt = np.mean(true_rts)
                 if pg_rt - true_rt > RT_EPS:
@@ -382,23 +385,29 @@ def parse_query_objs(results_cache, trainining_queries=True):
                     PG_BETTER.append(q)
 
                 for k,v in q.explains.items():
-                    explain1 = v[0][0][0]
                     # TODO: fix this
-                    G = explain_to_nx(explain1)
+                    explain_last = v[-1][0][0]
+                    cards = get_cardinalities(cur_query, k.replace("pg_", ""))
+                    pg_cost = q.pg_costs[k]
 
-                    fn = "./explains/" + q.template_name[0:3] + str(k)
+                    G = explain_to_nx(explain_last)
+                    # pdb.set_trace()
+
+                    fn = "./explains/" + q.template_name + str(k)
                     plot_graph_explain(G, G.base_table_nodes, G.join_nodes,
                             fn+".png", q.template_name[0:3] + str(k))
                     # save analyze plan:
-                    explain_str = json.dumps(explain1)
+                    explain_str = json.dumps(explain_last)
                     with open(fn + ".json", "w") as f:
                         f.write(explain_str)
 
                     with open(fn + ".sql", "w") as f:
                         execs = [val for val in q.executed_sqls[k]]
-                        assert len(execs) == 1
-                        f.write(execs[0])
-
+                        # assert len(execs) == 1
+                        if len(execs) >= 1:
+                            f.write(execs[0])
+                        else:
+                            f.write(q.query)
 
             # add runtime data to same df
             # selectivity prediction
@@ -496,13 +505,14 @@ def gen_runtime_plots(df, pdf):
     '''
     Plot: x-axis: cost, y-axis = runtime, color = alg name
     '''
-    def _gen_plot(x_axis, plot_type, style, hue):
+    def _gen_plot(df, x_axis, plot_type, style, hue):
         if plot_type == "scatter":
             ax = sns.scatterplot(x=x_axis, y="loss", hue=hue, style=style,
                     data=df, estimator=np.mean, ci=99)
+
         if plot_type == "reg":
             fg = sns.lmplot(x=x_axis, y="loss", hue=hue,
-                    data=df, ci=5)
+                    data=df, ci=100)
             # fg.set(yscale="log")
 
         elif plot_type == "line":
@@ -522,9 +532,12 @@ def gen_runtime_plots(df, pdf):
 
     # select only runtime rows
     df = df[df["loss_type"] == "runtime"]
-    _gen_plot("cost", "reg", "alg_name", "alg_name")
+    df_pg = df[df["alg_name"].str.contains("pg")]
+    df_cm = df[~df["alg_name"].str.contains("pg")]
 
-    # _gen_plot("pg_cost", "scatter")
+    _gen_plot(df_cm, "cost", "scatter", "alg_name", "alg_name")
+    _gen_plot(df_pg, "pg_cost", "scatter", "alg_name", "alg_name")
+
     # _gen_plot("cost", "line")
     # _gen_plot("pg_cost", "scatter")
     # _gen_plot("pg_cost", "line")
@@ -619,7 +632,9 @@ def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True)
 
 def plot_queries(query_data, pdf):
     for qname, queries in query_data.items():
-        plot_single_query(qname, queries, pdf)
+        plot_query(queries[0], pdf)
+        break
+        # plot_single_query(qname, queries, pdf)
 
 def plot_single_query(qname, queries, pdf):
     base_alg = [alg for alg in queries[0].join_info.keys()][0]

@@ -31,6 +31,8 @@ def get_cardinalities(query, alg):
         else:
             yhat = subq.yhats[alg]
         est_count = subq.total_count * yhat
+        # if alg == "true":
+            # est_count = subq.true_count
 
         if not hasattr(subq, "froms"):
             subq.froms, subq.aliases, subq.table_names = extract_from_clause(subq.query)
