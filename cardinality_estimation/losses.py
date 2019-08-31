@@ -188,16 +188,78 @@ def update_cards(est_cards, q, fix_aliases=True):
 
     return cards
 
-def join_loss_nn(pred, queries, alg, env,
+def join_loss_nn2(pred, queries, alg, old_env,
         baseline="EXHAUSTIVE", use_pg_est=False):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
     '''
-    assert env is not None
+    print("join_loss_nn2")
     assert not use_pg_est
-    # if env is None:
-        # env = park.make('query_optimizer')
+    if old_env is None:
+        env = park.make('query_optimizer')
+    else:
+        env = old_env
+
+    start = time.time()
+    assert len(queries[0].subqueries) > 0
+    # Set queries
+    query_dict = {}
+
+    # each queries index is set to its name
+    for i, q in enumerate(queries):
+        query_dict[str(i)] = q.query
+
+    # env.initialize_queries(query_dict)
+    print("initialized queries")
+    cardinalities = {}
+    # Set estimated cardinalities. For estimated cardinalities, we need to
+    # add ONLY the subquery cardinalities
+    pred_start = 0
+    for i, q in enumerate(queries):
+        # skip the first query, since that is not a subquery
+        pred_start += 1
+        yhat = []
+        # this loop depends on the fact that pred[0],
+        # pred[0+len(q[0].subqueries)]], etc would be the cardinalities for the
+        # full query objects
+        for j in range(pred_start, pred_start+len(q.subqueries), 1):
+            yhat.append(pred[j])
+        yhat = np.array(yhat, dtype=np.float32)
+        assert len(yhat) == len(q.subqueries)
+        totals = np.array([q.total_count for q in q.subqueries],
+                        dtype=np.float32)
+        est_cards = np.multiply(yhat, totals)
+        cardinalities[str(i)] = update_cards(est_cards, q)
+        pred_start += len(q.subqueries)
+
+    # Set true cardinalities
+    true_cardinalities = {}
+    for i, q in enumerate(queries):
+        est_cards = np.array([q.true_count for q in q.subqueries])
+        true_cardinalities[str(i)] = update_cards(est_cards, q)
+
+    print("both true cardinalities, and estimated cardinalities calculated")
+    est_card_costs, baseline_costs = \
+                env.compute_join_order_loss(query_dict, true_cardinalities, cardinalities,
+                        baseline)
+
+    if old_env is None:
+        env.clean()
+    exit(-1)
+    return est_card_costs, baseline_costs
+
+def join_loss_nn(pred, queries, alg, old_env,
+        baseline="EXHAUSTIVE", use_pg_est=False):
+    '''
+    TODO: also updates each query object with the relevant stats that we want
+    to plot.
+    '''
+    assert not use_pg_est
+    if old_env is None:
+        env = park.make('query_optimizer')
+    else:
+        env = old_env
 
     start = time.time()
     assert len(queries[0].subqueries) > 0
@@ -248,9 +310,8 @@ def join_loss_nn(pred, queries, alg, env,
     agents.append(fixed_agent)
     # print("created fixed agent")
 
-    cardinalities = {}
-
     # Set true cardinalities
+    cardinalities = {}
     for i, q in enumerate(queries):
         if use_pg_est:
             est_cards = np.array([q.pg_count for q in q.subqueries])
@@ -281,8 +342,8 @@ def join_loss_nn(pred, queries, alg, env,
         baseline_costs.append(float(bcost))
         est_card_costs.append(float(card_cost))
 
-    # rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
-    # rel_errors = np.array(est_card_costs)  - np.array(baseline_costs)
+    if old_env is None:
+        env.clean()
 
     return est_card_costs, baseline_costs
 
@@ -292,9 +353,11 @@ def compute_join_order_loss(alg, queries, use_subqueries,
     TODO: also updates each query object with the relevant stats that we want
     to plot.
     '''
+    start = time.time()
     assert len(queries[0].subqueries) > 0
     # create a new park env, and close at the end.
     env = park.make('query_optimizer')
+    print("making env took: ", time.time() - start)
     # don't execute when computing optimal plans for estimated cardinalities
     env.set("execOnDB", False)
     # Set queries
@@ -334,6 +397,8 @@ def compute_join_order_loss(alg, queries, use_subqueries,
     assert len(fixed_agent) == len(cardinalities) == len(queries)
     agents.append(fixed_agent)
 
+    print("finished first run_all_eps: ", time.time() - start)
+
     cardinalities = {}
     # Set true cardinalities
     for i, q in enumerate(queries):
@@ -370,6 +435,9 @@ def compute_join_order_loss(alg, queries, use_subqueries,
 
     rel_errors = np.array(est_card_costs) - np.array(baseline_costs)
     errors2 = np.array(est_card_costs) / np.array(baseline_costs)
-    print("join loss 2: est / opt ", np.mean(errors2))
+
+    print("finished second run_all_eps: ", time.time() - start)
     env.clean()
+    print("finished env.clean: ", time.time() - start)
+
     return rel_errors

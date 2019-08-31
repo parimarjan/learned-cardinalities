@@ -34,7 +34,7 @@ class PGM():
         # string names for each of the random variables corresponding to
         # elements in word2index
         self.state_names = []
-        self.save_csv = True
+        self.save_csv = False
         self.backend = backend
         self.alg_name = alg_name
 
