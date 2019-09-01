@@ -53,7 +53,12 @@ def get_alg(alg):
                     baseline=args.baseline_join_alg,
                     nn_cache_dir = args.nn_cache_dir,
                     divide_mb_len = args.divide_mb_len,
-                    rel_jloss=args.rel_jloss)
+                    rel_jloss=args.rel_jloss,
+                    loss_func = args.loss_func,
+                    sampling=args.sampling,
+                    sampling_priority_method=args.sampling_priority_method,
+                    sampling_priority_alpha = args.sampling_priority_alpha,
+                    adaptive_priority_alpha = args.adaptive_priority_alpha)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
@@ -178,7 +183,16 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     for i, sql in enumerate(query_strs):
         assert i == len(ret_queries)
         hsql = deterministic_hash(sql)
-        if hsql in query_obj_cache.archive:
+        if hsql in query_obj_cache:
+            curq = query_obj_cache[hsql]
+            if not hasattr(curq, "froms"):
+                print("NEED TO UPDATE QUERY STRUCT")
+                update_query_structure(curq)
+                query_obj_cache.archive[hsql] = curq
+            assert hasattr(curq, "froms")
+            # update the query structure as well if needed
+            ret_queries.append(curq)
+        elif hsql in query_obj_cache.archive:
             curq = query_obj_cache.archive[hsql]
             if not hasattr(curq, "froms"):
                 print("NEED TO UPDATE QUERY STRUCT")
@@ -322,9 +336,10 @@ def main():
 
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
-            print(i)
             hashed_key = deterministic_hash(q.query)
-            if hashed_key in sql_str_cache.archive:
+            if hashed_key in sql_str_cache:
+                sql_subqueries = sql_str_cache[hashed_key]
+            elif hashed_key in sql_str_cache.archive:
                 sql_subqueries = sql_str_cache.archive[hashed_key]
             else:
                 s1 = time.time()
@@ -334,10 +349,9 @@ def main():
                 sql_str_cache.archive[hashed_key] = sql_subqueries
                 print("generating + saving subqueries: ", time.time() - s1)
 
-            sload = time.time()
             loaded_queries = gen_query_objs(args, sql_subqueries, query_obj_cache)
-
             q.subqueries = loaded_queries
+            print("loaded {} subqueries".format(len(loaded_queries)))
 
             # FIXME: temporary hack to update queries
             # if i > 0:
@@ -380,7 +394,7 @@ def main():
         test_queries = []
 
     if len(train_queries) == 0:
-        # debugging
+        # debugging, so doesn't crash
         train_queries = test_queries
 
     result = defaultdict(list)
@@ -403,7 +417,12 @@ def main():
 
     for alg in algorithms:
         start = time.time()
-        alg.train(db, train_queries, use_subqueries=args.use_subqueries)
+        if args.eval_test_while_training:
+            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                    test_samples=test_queries)
+        else:
+            alg.train(db, train_queries, use_subqueries=args.use_subqueries)
+
         train_times[alg.__str__()] = round(time.time() - start, 2)
 
         start = time.time()
@@ -478,6 +497,8 @@ def read_flags():
             required=False, default=0)
     parser.add_argument("--rel_jloss", type=int,
             required=False, default=0)
+    parser.add_argument("--eval_test_while_training", type=int,
+            required=False, default=0)
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
@@ -541,6 +562,17 @@ def read_flags():
             default=20)
     parser.add_argument("--jl_variant", type=int, required=False,
             default=0)
+    parser.add_argument("--sampling", type=str, required=False,
+            default="query")
+    parser.add_argument("--sampling_priority_method", type=str, required=False,
+            default="jl_ratio", help="jl_ratio OR jl_diff or jl_rank")
+    parser.add_argument("--sampling_priority_alpha", type=float, required=False,
+            default=1.00, help="")
+    parser.add_argument("--adaptive_priority_alpha", type=int, required=False,
+            default=0)
+
+    parser.add_argument("--loss_func", type=str, required=False,
+            default="qloss")
 
     return parser.parse_args()
 

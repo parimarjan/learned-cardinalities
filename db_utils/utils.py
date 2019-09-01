@@ -106,7 +106,7 @@ def plot_graph_explain(G, base_table_nodes, join_nodes, fn, title="test"):
     plt.savefig(fn)
     plt.close()
 
-def explain_to_nx(explain1):
+def explain_to_nx(explain):
     '''
     '''
     # JOIN_KEYS = ["Hash Join", "Nested Loop", "Join"]
@@ -116,7 +116,7 @@ def explain_to_nx(explain1):
     def _get_node_name(tables):
         name = ""
         if len(tables) > 1:
-            name = str(deterministic_hash(str(tables)))[0:3]
+            name = str(deterministic_hash(str(tables)))[0:5]
             join_nodes.append(name)
         else:
             name = tables[0]
@@ -133,8 +133,6 @@ def explain_to_nx(explain1):
             if "Plans" in obj:
                 if len(obj["Plans"]) == 2:
                     # these are all the joins
-                    # print(obj.keys())
-                    # print(obj["Node Type"])
                     left_tables = _find_all_tables(obj["Plans"][0])
                     right_tables = _find_all_tables(obj["Plans"][1])
                     all_tables = left_tables + right_tables
@@ -144,6 +142,28 @@ def explain_to_nx(explain1):
                     node0 = _get_node_name(left_tables)
                     node1 = _get_node_name(right_tables)
                     node_new = _get_node_name(all_tables)
+                    # print(left_tables)
+                    # print(right_tables)
+                    # print(obj.keys())
+                    # print(obj["Node Type"])
+                    # print("cost: ", obj["Total Cost"])
+                    # # print("time: ", obj["Actual Total Time"])
+                    # # print("actual rows: ", obj["Actual Rows"])
+                    # print("plan rows: ", obj["Plan Rows"])
+                    # print("width: ", obj["Plan Width"])
+                    # # print("Actual Loops: ", obj["Actual Loops"])
+                    # print("parallel: ", obj["Parallel Aware"])
+                    # if left_tables[0] == "movie_info" and right_tables[0] == "title":
+                        # print("movie info and title")
+                        # pdb.set_trace()
+                    # print("left plan rows: ", obj["Plans"][0]["Plan Rows"])
+                    # print("right plan rows: ", obj["Plans"][1]["Plan Rows"])
+                    # print("left parallel: ", obj["Plans"][0]["Parallel Aware"])
+                    # print("right plan rows: ", obj["Plans"][1]["Parallel Aware"])
+                    # assert not obj["Plans"][0]["Parallel Aware"]
+                    # assert not obj["Plans"][1]["Parallel Aware"]
+
+                    # pdb.set_trace()
 
                     # update graph
                     # G.add_edge(node0, node1)
@@ -164,7 +184,7 @@ def explain_to_nx(explain1):
                 traverse(item)
 
     G = nx.DiGraph()
-    traverse(explain1)
+    traverse(explain)
     G.base_table_nodes = base_table_nodes
     G.join_nodes = join_nodes
     return G
