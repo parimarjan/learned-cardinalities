@@ -586,6 +586,11 @@ class BN(CardinalityEstimationAlg):
         # name += "avg:" + str(self.avg_factor)
         return name
 
+def weighted_loss(yhat, ytrue):
+    loss1 = rel_loss_torch(yhat, ytrue)
+    loss2 = qloss_torch(yhat, ytrue)
+    return loss1 + loss2
+
 def rel_loss_torch(pred, ytrue):
     '''
     Loss function for neural network training. Should use the
@@ -596,7 +601,7 @@ def rel_loss_torch(pred, ytrue):
     assert len(pred) == len(ytrue)
     epsilons = to_variable([REL_LOSS_EPSILON]*len(pred)).float()
     errors = torch.abs(pred-ytrue) / (torch.max(epsilons, ytrue))
-    error = (errors.sum() * 100.00) / len(pred)
+    error = (errors.sum()) / len(pred)
     return error
 
 def qloss_torch(yhat, ytrue):
@@ -608,12 +613,6 @@ def qloss_torch(yhat, ytrue):
     # TODO: check this
     errors = torch.max( (ytrue / yhat), (yhat / ytrue))
     error = errors.sum() / len(yhat)
-
-    # tmp testing.
-    # if random.random() < 0.5:
-        # error * 3.0
-    # else:
-        # error * 0.1
 
     return error
 
@@ -676,8 +675,9 @@ class NN1(CardinalityEstimationAlg):
                 net.load_state_dict(torch.load(model_path))
                 print("loaded trained model!")
 
-        loss_func = qloss_torch
+        # loss_func = qloss_torch
         # loss_func = rel_loss_torch
+        loss_func = weighted_loss
         print("feature len: ", len(X[0]))
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
@@ -741,6 +741,7 @@ class NN2(CardinalityEstimationAlg):
         self.num_hidden_layers = kwargs["num_hidden_layers"]
         self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
         self.eval_iter = kwargs["eval_iter"]
+        self.eval_iter_jl = self.eval_iter
         self.optimizer_name = kwargs["optimizer_name"]
 
         self.clip_gradient = kwargs["clip_gradient"]
@@ -748,7 +749,14 @@ class NN2(CardinalityEstimationAlg):
         self.rel_jloss = kwargs["rel_jloss"]
         self.adaptive_lr = kwargs["adaptive_lr"]
         self.baseline = kwargs["baseline"]
+        self.loss_func = kwargs["loss_func"]
+        self.sampling = kwargs["sampling"]
+        self.sampling_priority_method = kwargs["sampling_priority_method"]
+        self.adaptive_priority_alpha = kwargs["adaptive_priority_alpha"]
+        self.sampling_priority_alpha = kwargs["sampling_priority_alpha"]
+
         nn_cache_dir = kwargs["nn_cache_dir"]
+
         # caching related stuff
         self.training_cache = klepto.archives.dir_archive(nn_cache_dir,
                 cached=True, serialized=True)
@@ -756,8 +764,8 @@ class NN2(CardinalityEstimationAlg):
         # dump it at the end
         # self.key = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         dt = datetime.datetime.now()
-        # self.key = str(dt.day) + str(dt.hour) + str(dt.minute) + str(dt.second)
         self.key = "{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
+        self.key += "-" + str(deterministic_hash(str(kwargs)))[0:6]
 
         self.stats = {}
         self.training_cache[self.key] = self.stats
@@ -773,16 +781,25 @@ class NN2(CardinalityEstimationAlg):
         self.stats["mb-loss"] = {}
 
         # iteration: qerr: val, jloss: val
-        self.stats["eval"] = {}
-        self.stats["eval"]["qerr"] = {}
-        self.stats["eval"]["join-loss"] = {}
+        self.stats["train"] = {}
+        self.stats["test"] = {}
+
+        self.stats["train"]["eval"] = {}
+        self.stats["train"]["eval"]["qerr"] = {}
+        self.stats["train"]["eval"]["join-loss"] = {}
+
+        self.stats["test"]["eval"] = {}
+        self.stats["test"]["eval"]["qerr"] = {}
+        self.stats["test"]["eval"]["join-loss"] = {}
 
         self.stats["model_params"] = {}
 
-    def train(self, db, training_samples, use_subqueries=False):
+    def train(self, db, training_samples, use_subqueries=False,
+            test_samples=None):
         self.db = db
         db.init_featurizer()
 
+        ## FIXME: don't store features in query objects
         # initialize samples
         for sample in training_samples:
             features = db.get_features(sample)
@@ -790,21 +807,39 @@ class NN2(CardinalityEstimationAlg):
             for subq in sample.subqueries:
                 subq_features = db.get_features(subq)
                 subq.features = subq_features
+
+        if test_samples:
+            for sample in test_samples:
+                features = db.get_features(sample)
+                sample.features = features
+                for subq in sample.subqueries:
+                    subq_features = db.get_features(subq)
+                    subq.features = subq_features
+
         print("feature len: ", len(features))
 
         # do training
         net = SimpleRegression(len(features),
                 self.hidden_layer_multiple, 1,
                 num_hidden_layers=self.num_hidden_layers)
-        loss_func = qloss_torch
+
+        if self.loss_func == "qloss":
+            loss_func = qloss_torch
+        elif self.loss_func == "rel":
+            loss_func = rel_loss_torch
+        elif self.loss_func == "weighted":
+            loss_func = weighted_loss
+        else:
+            assert False
 
         self.net = net
         try:
-            self._train_nn_join_loss(self.net, training_samples, self.lr,
-                    self.jl_start_iter,
-                    loss_func=loss_func, max_iter=self.max_iter, tfboard_dir=None,
+            self._train_nn_join_loss(self.net, training_samples, test_samples,
+                    self.lr, self.jl_start_iter, loss_func=loss_func,
+                    max_iter=self.max_iter, tfboard_dir=None,
                     loss_threshold=2.0, jl_variant=self.jl_variant,
-                    eval_iter_jl=self.eval_iter, clip_gradient=self.clip_gradient,
+                    eval_iter_jl=self.eval_iter,
+                    clip_gradient=self.clip_gradient,
                     rel_qerr_loss=self.rel_qerr_loss,
                     adaptive_lr=self.adaptive_lr, rel_jloss=self.rel_jloss)
         except KeyboardInterrupt:
@@ -815,21 +850,85 @@ class NN2(CardinalityEstimationAlg):
         self.training_cache.dump()
         # just continue as normal, go on to evaluate algorithm etc.
 
-    def _train_nn_join_loss(self, net, training_samples,
+    def _periodic_eval(self, net, samples, X, Y, env, key, loss_func, num_iter,
+            scheduler):
+        # evaluate qerr
+        pred = net(X)
+        pred = pred.squeeze(1)
+        train_loss = loss_func(pred, Y)
+        self.stats[key]["eval"]["qerr"][num_iter] = train_loss.item()
+
+        # FIXME: add scheduler loss ONLY for training cases
+        if not self.jl_variant and self.adaptive_lr and key == "train":
+            # FIXME: should we do this for minibatch / or for train loss?
+            scheduler.step(train_loss)
+
+        if (num_iter % self.eval_iter_jl == 0):
+            jl_eval_start = time.time()
+            est_card_costs, baseline_costs = join_loss(pred, samples, env,
+                    baseline=self.baseline)
+
+            join_losses = np.array(est_card_costs) - np.array(baseline_costs)
+            join_losses2 = np.array(est_card_costs) / np.array(baseline_costs)
+
+            for ji, jl in enumerate(join_losses):
+                # FIXME: bad things happenned
+                if jl < 0:
+                    print(ji, jl)
+                    # print(est_card_costs[ji], baseline_costs[ji])
+                    # pdb.set_trace()
+
+            jl1 = np.mean(join_losses)
+            jl2 = np.mean(join_losses2)
+
+            # FIXME: remove all negative values, so weighted_prob can work
+            # fine. But there really shouldn't be any negative values here.
+            join_losses = np.maximum(join_losses, 0.00)
+
+            # est_card_costs = np.mean(est_card_costs)
+            # baseline_costs = np.mean(baseline_costs)
+            # jl1 = est_card_costs - baseline_costs
+            # jl2 = est_card_costs / baseline_costs
+
+            if self.jl_variant and self.adaptive_lr and key == "train":
+                scheduler.step(jl1)
+
+            self.stats[key]["eval"]["join-loss"][num_iter] = jl1
+
+            # TODO: add color to key values.
+            print("""\n{}: {}, num samples: {}, loss: {}, jl1 {},jl2 {},time: {}""".format(
+                key, num_iter, len(X), train_loss.item(), jl1, jl2,
+                time.time()-jl_eval_start))
+
+            return join_losses, join_losses2
+
+        return None
+
+    def update_sampling_weights(self, priorities):
+        '''
+        refer to prioritized action replay
+        '''
+        priorities = np.power(priorities, self.sampling_priority_alpha)
+        total = np.sum(priorities)
+        query_sampling_weights = np.zeros(len(priorities))
+        for i, priority in enumerate(priorities):
+            query_sampling_weights[i] = priority / total
+
+        return query_sampling_weights
+
+    def _train_nn_join_loss(self, net, training_samples, test_samples,
             lr, jl_start_iter, max_iter=10000, eval_iter_jl=500,
             eval_iter_qerr=1000, mb_size=1,
             loss_func=None, tfboard_dir=None, adaptive_lr=True,
             min_lr=1e-17, loss_threshold=1.0, jl_variant=False,
-            clip_gradient=10.00, rel_qerr_loss=True,
-            jl_divide_constant=1, rel_jloss=True):
+            clip_gradient=10.00, rel_qerr_loss=False,
+            jl_divide_constant=1, rel_jloss=False, reuse_env=True):
         '''
         TODO: explain and generalize.
         '''
         if loss_func is None:
             assert False
             loss_func = torch.nn.MSELoss()
-
-        # results = defaultdict(list)
 
         if self.optimizer_name == "ams":
             optimizer = torch.optim.Adam(net.parameters(), lr=lr,
@@ -849,10 +948,11 @@ class NN2(CardinalityEstimationAlg):
                             verbose=True, factor=0.1, eps=min_lr)
 
         num_iter = 0
+
         # create a new park env, and close at the end.
         env = park.make('query_optimizer')
 
-        # TODO: figure out how to put everything on the gpu before starting
+        # FIXME: decompose
 
         X_all = []
         Y_all = []
@@ -865,91 +965,143 @@ class NN2(CardinalityEstimationAlg):
         X = to_variable(X_all).float()
         Y = to_variable(Y_all).float()
 
+        if test_samples:
+            Xtest = []
+            Ytest = []
+            for si, sample in enumerate(test_samples):
+                Xtest.append(sample.features)
+                Ytest.append(sample.true_sel)
+                for sq in sample.subqueries:
+                    Xtest.append(sq.features)
+                    Ytest.append(sq.true_sel)
+            Xtest = to_variable(Xtest).float()
+            Ytest = to_variable(Ytest).float()
+
         min_qerr = {}
         max_qerr = {}
         max_jloss = {}
 
         file_name = "./training-" + self.__str__() + ".dict"
         start = time.time()
-        while True:
+        if self.sampling == "weighted_query":
+            query_sampling_weights = [1 / len(training_samples)]*len(training_samples)
+            # FIXME: decompose
+            subquery_sampling_weights = []
+            for si, sample in enumerate(training_samples):
+                sq_weight = query_sampling_weights[si]
+                sq_weight /= (len(sample.subqueries)+1)
+                wts = [sq_weight]*(len(sample.subqueries)+1)
+                # add lists
+                subquery_sampling_weights += wts
+        else:
+            query_sampling_weights = None
 
+        while True:
             if (num_iter % 100 == 0):
                 # progress stuff
                 print(num_iter, end=",")
                 sys.stdout.flush()
 
-            if (num_iter % eval_iter_qerr == 0 and num_iter >= jl_start_iter):
-                # evaluate qerr
+            if (num_iter % self.eval_iter_jl == 0):
+                join_losses, join_losses_ratio = self._periodic_eval(net, training_samples, X, Y,
+                        env, "train", loss_func, num_iter, scheduler)
+                if test_samples:
+                    self._periodic_eval(net, test_samples, Xtest, Ytest,
+                            env,"test", loss_func, num_iter, scheduler)
 
-                pred = net(X)
-                pred = pred.squeeze(1)
-                train_loss = loss_func(pred, Y)
-                self.stats["eval"]["qerr"][num_iter] = train_loss.item()
-                # print("\nnum iter: {}, num samples: {}, loss: {}".format(
-                    # num_iter, len(X), train_loss.item()))
+                if not reuse_env:
+                    env.clean()
+                    env = park.make('query_optimizer')
 
-                if not jl_variant and adaptive_lr:
-                    # FIXME: should we do this for minibatch / or for train loss?
-                    scheduler.step(train_loss)
+                # update query_sampling_wieghts if needed
+                if query_sampling_weights is not None:
+                    if self.adaptive_priority_alpha:
+                        # temporary:
+                        self.sampling_priority_alpha = num_iter / 4000
+                        print("new priority alpha: ", self.sampling_priority_alpha)
 
-                if (num_iter % eval_iter_jl == 0):
-                    jl_eval_start = time.time()
-                    est_card_costs, baseline_costs = join_loss_nn(pred, training_samples, self, env,
-                            baseline=self.baseline)
+                    if self.sampling_priority_method == "jl_ratio":
+                        print("max: ", np.max(join_losses_ratio))
+                        print("min: ", np.min(join_losses_ratio))
+                        print("std: ", np.std(join_losses_ratio))
+                        # total_join_loss = np.sum(np.array(join_losses_ratio))
+                        # for wi, _ in enumerate(query_sampling_weights):
+                            # wt = join_losses_ratio[wi] / total_join_loss
+                            # query_sampling_weights[wi] = wt
 
-                    est_card_costs = np.mean(est_card_costs)
-                    baseline_costs = np.mean(baseline_costs)
-                    jl1 = est_card_costs - baseline_costs
-                    jl2 = est_card_costs / baseline_costs
+                        query_sampling_weights = self.update_sampling_weights(join_losses_ratio)
+                    elif self.sampling_priority_method == "jl_rank":
+                        jl_ranks = np.argsort(join_losses_ratio)
+                        jl_ranks += 1
+                        jl_priorities = np.zeros(len(jl_ranks))
+                        for ri, rank in enumerate(jl_ranks):
+                            jl_priorities[ri] = 1.00 / float(rank)
+                        query_sampling_weights = self.update_sampling_weights(jl_priorities)
 
-                    # jl1 = np.array(est_card_costs)  - np.array(baseline_costs)
-                    # jl2 = np.array(est_card_costs)  / np.array(baseline_costs)
-                    # jl1 = np.mean(np.array(jl1))
-                    # jl2 = np.mean(np.array(jl2))
+                    elif self.sampling_priority_method == "jl_diff":
+                        # total_join_loss = np.sum(np.array(join_losses))
+                        # for wi, _ in enumerate(query_sampling_weights):
+                            # wt = join_losses[wi] / total_join_loss
+                            # query_sampling_weights[wi] = wt
+                        query_sampling_weights = self.update_sampling_weights(join_losses)
 
-                    if jl_variant and adaptive_lr:
-                        scheduler.step(jl1)
+                    else:
+                        print("sampling method: ", self.sampling_priority_method)
+                        assert False
 
-                    self.stats["eval"]["join-loss"][num_iter] = jl1
+                    # print(query_sampling_weights)
+                    assert (np.array(query_sampling_weights) >= 0).all()
 
-                    print("""\nnum iter: {}, num samples: {}, loss: {}, jl1 {},jl2 {},time: {}""".format(
-                        num_iter, len(X), train_loss.item(), jl1, jl2,
-                        time.time()-jl_eval_start))
+                    assert query_sampling_weights is not None
+                    subquery_sampling_weights = []
+                    for si, sample in enumerate(training_samples):
+                        sq_weight = query_sampling_weights[si]
+                        sq_weight /= (len(sample.subqueries)+1)
+                        wts = [sq_weight]*(len(sample.subqueries)+1)
+                        # add lists
+                        subquery_sampling_weights += wts
 
-            mb_samples = []
-            xbatch = []
-            ybatch = []
-            cur_samples = random.sample(training_samples, mb_size)
-            for si, sample in enumerate(cur_samples):
-                mb_samples.append(sample)
-                xbatch.append(sample.features)
-                ybatch.append(sample.true_sel)
-                for sq in sample.subqueries:
-                    xbatch.append(sq.features)
-                    ybatch.append(sq.true_sel)
+            # sampling function: do it at the granularity of Query or treat
+            # all SubQueries the same?
 
-            xbatch = to_variable(xbatch).float()
-            ybatch = to_variable(ybatch).float()
+            if self.sampling == "query":
+                mb_samples = []
+                xbatch = []
+                ybatch = []
+                cur_samples = random.sample(training_samples, mb_size)
+                for si, sample in enumerate(cur_samples):
+                    mb_samples.append(sample)
+                    xbatch.append(sample.features)
+                    ybatch.append(sample.true_sel)
+                    for sq in sample.subqueries:
+                        xbatch.append(sq.features)
+                        ybatch.append(sq.true_sel)
+
+                xbatch = to_variable(xbatch).float()
+                ybatch = to_variable(ybatch).float()
+            elif self.sampling == "subquery":
+                MB_SIZE = 128
+                idxs = np.random.choice(list(range(len(X))), MB_SIZE)
+                xbatch = X[idxs]
+                ybatch = Y[idxs]
+            elif self.sampling == "weighted_query":
+                MB_SIZE = 128
+                idxs = np.random.choice(list(range(len(X))), MB_SIZE,
+                        p=subquery_sampling_weights)
+                xbatch = X[idxs]
+                ybatch = Y[idxs]
 
             pred = net(xbatch)
             pred = pred.squeeze(1)
             loss = loss_func(pred, ybatch)
-
-            if (num_iter > jl_start_iter and \
-                    rel_qerr_loss):
-                # set the max qerrs for each query
-                assert len(cur_samples) == 1
-                sample_key = deterministic_hash(cur_samples[0].query)
-                if sample_key not in max_qerr:
-                    max_qerr[sample_key] = np.array(loss.item())
 
             # how do we modify the loss variable based on different join loss
             # variants?
             if (num_iter > jl_start_iter and jl_variant):
 
                 if jl_variant in [1, 2]:
-                    est_card_costs, baseline_costs = join_loss_nn(pred, mb_samples, self, env,
-                            baseline=self.baseline, use_pg_est=False)
+                    est_card_costs, baseline_costs = join_loss(pred, mb_samples, self, env,
+                            baseline=self.baseline)
 
                     ## TODO: first one is just too large a number to use (?)
                     # jl = np.array(est_card_costs)  - np.array(baseline_costs)
@@ -982,7 +1134,6 @@ class NN2(CardinalityEstimationAlg):
                     jl = torch.mean(torch.abs(diff_idx.float()))
                     loss = loss*jl
                 elif jl_variant in [3]:
-                    # print("going to do order based join loss")
                     # order based loss, operating on pred and ybatch
                     pred_sort, idx = torch.sort(pred)
                     ybatch_sort, idx = torch.sort(ybatch)
