@@ -865,9 +865,7 @@ class NN2(CardinalityEstimationAlg):
 
         if (num_iter % self.eval_iter_jl == 0):
             jl_eval_start = time.time()
-            # est_card_costs, baseline_costs = join_loss_nn(pred, samples, self, env,
-                    # baseline=self.baseline)
-            est_card_costs, baseline_costs = join_loss_nn2(pred, samples, self, env,
+            est_card_costs, baseline_costs = join_loss(pred, samples, env,
                     baseline=self.baseline)
 
             join_losses = np.array(est_card_costs) - np.array(baseline_costs)
@@ -1102,8 +1100,8 @@ class NN2(CardinalityEstimationAlg):
             if (num_iter > jl_start_iter and jl_variant):
 
                 if jl_variant in [1, 2]:
-                    est_card_costs, baseline_costs = join_loss_nn(pred, mb_samples, self, env,
-                            baseline=self.baseline, use_pg_est=False)
+                    est_card_costs, baseline_costs = join_loss(pred, mb_samples, self, env,
+                            baseline=self.baseline)
 
                     ## TODO: first one is just too large a number to use (?)
                     # jl = np.array(est_card_costs)  - np.array(baseline_costs)
