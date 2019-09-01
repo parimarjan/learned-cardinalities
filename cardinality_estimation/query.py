@@ -50,7 +50,6 @@ class Query():
     '''
     def __init__(self, query, pred_column_names, vals, cmp_ops, count,
             total_count, pg_count, pg_marginal_sels=None, marginal_sels=None):
-
         self.query = query
         # TODO: all this could be extracted just from the query str maybe?
         self.pred_column_names = pred_column_names
@@ -62,6 +61,7 @@ class Query():
         self.pg_count = pg_count
 
         # FIXME: handle this better
+        start = time.time()
         self.froms, self.aliases, self.table_names = extract_from_clause(query)
         self.joins = extract_join_clause(query)
 

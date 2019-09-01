@@ -105,7 +105,12 @@ class DB():
             print("returning arbitrary large value for now")
             return [[1000000]]
             # return None
-        exp_output = cursor.fetchall()
+        try:
+            exp_output = cursor.fetchall()
+        except Exception as e:
+            print(e)
+            exp_output = None
+
         cursor.close()
         con.close()
         end = time.time()
@@ -330,7 +335,8 @@ class DB():
         self.sql_cache.dump()
         return queries
 
-    def update_db_stats(self, query_template):
+    def update_db_stats(self, query_template,
+            create_indexes=False):
         '''
         '''
         if "SELECT COUNT" not in query_template:
@@ -343,6 +349,22 @@ class DB():
         from_clauses, aliases, tables = extract_from_clause(query_template)
         self.aliases.update(aliases)
         self.tables.update(tables)
+
+        if create_indexes:
+            for alias, table_name in self.aliases.items():
+                print(alias, table_name)
+                for pred_column in pred_columns:
+                    if " " + alias in " " + pred_column:
+                        print(pred_column)
+                        column_name = pred_column.split(".")[1]
+                        index_cmd = CREATE_INDEX_TMP.format(COLUMN =
+                                column_name, TABLE = table_name,
+                                INDEX_NAME = table_name + "_" + column_name)
+                        print(index_cmd)
+                        self.execute(index_cmd)
+                        # pdb.set_trace()
+
+            pdb.set_trace()
 
         # TODO: load sql cache in memory?
         DEBUG = True

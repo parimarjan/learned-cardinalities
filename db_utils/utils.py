@@ -15,6 +15,8 @@ import getpass
 import os
 import subprocess as sp
 import time
+from sqlparse.sql import IdentifierList, Identifier
+from sqlparse.tokens import Keyword, DML
 
 import networkx as nx
 from networkx.drawing.nx_agraph import write_dot,graphviz_layout
@@ -60,6 +62,8 @@ order by
 
 
 RANGE_PREDS = ["gt", "gte", "lt", "lte"]
+
+CREATE_INDEX_TMP = '''CREATE INDEX IF NOT EXISTS {INDEX_NAME} ON {TABLE} ({COLUMN});'''
 
 def _find_all_tables(plan):
     '''
@@ -245,7 +249,8 @@ def pg_est_from_explain(output):
     pdb.set_trace()
     return 1.00
 
-def extract_join_clause(query):
+def extract_join_clause_old(query):
+    start = time.time()
     parsed_query = parse(query)
     pred_vals = get_all_wheres(parsed_query)
     join_clauses = []
@@ -262,6 +267,40 @@ def extract_join_clause(query):
 
         join_clauses.append(columns[0] + " = " + columns[1])
 
+    return join_clauses
+
+def extract_join_clause(query):
+    '''
+    FIXME: this can be optimized further / or made to handle more cases
+    '''
+    parsed = sqlparse.parse(query)[0]
+    # let us go over all the where clauses
+    start = time.time()
+    where_clauses = None
+    for token in parsed.tokens:
+        if (type(token) == sqlparse.sql.Where):
+            where_clauses = token
+    if where_clauses is None:
+        return []
+    join_clauses = []
+
+    froms, aliases, table_names = extract_from_clause(query)
+    if len(aliases) > 0:
+        tables = [k for k in aliases]
+    else:
+        tables = table_names
+    matches = find_all_clauses(tables, where_clauses)
+    for match in matches:
+        if "=" not in match:
+            continue
+        match = match.replace(";", "")
+        left, right = match.split("=")
+        # ugh dumb hack
+        if "." in right:
+            # must be a join, so add it.
+            join_clauses.append(left.strip() + " = " + right.strip())
+
+    # print("extract join clauses took ", time.time() - start)
     return join_clauses
 
 def get_all_wheres(parsed_query):
@@ -375,6 +414,7 @@ def extract_predicates(query):
             return None
             # assert False, "unsupported predicate type"
 
+    start = time.time()
     predicate_cols = []
     predicate_types = []
     predicate_vals = []
@@ -388,10 +428,69 @@ def extract_predicates(query):
         _parse_predicate(pred, pred_type)
 
     # print("extract predicate cols done!")
+    # print("extract predicates took ", time.time() - start)
     return predicate_cols, predicate_types, predicate_vals
 
 def extract_from_clause(query):
     '''
+    Optimized version using sqlparse.
+    Extracts the from statement, and the relevant joins when there are multiple
+    tables.
+    @ret: froms:
+          froms: [alias1, alias2, ...] OR [table1, table2,...]
+          aliases:{alias1: table1, alias2: table2} (OR [] if no aliases present)
+          tables: [table1, table2, ...]
+    '''
+    def handle_table(identifier):
+        table_name = identifier.get_real_name()
+        alias = identifier.get_alias()
+        tables.append(table_name)
+        if alias is not None:
+            from_clause = ALIAS_FORMAT.format(TABLE = table_name,
+                                ALIAS = alias)
+            froms.append(from_clause)
+            aliases[alias] = table_name
+        else:
+            froms.append(table_name)
+
+    start = time.time()
+    froms = []
+    # key: alias, val: table name
+    aliases = {}
+    # just table names
+    tables = []
+
+    start = time.time()
+    parsed = sqlparse.parse(query)[0]
+    # let us go over all the where clauses
+    from_token = None
+    from_seen = False
+    for token in parsed.tokens:
+        # print(type(token))
+        # print(token)
+        if from_seen:
+            if isinstance(token, IdentifierList) or isinstance(token,
+                    Identifier):
+                from_token = token
+        if token.ttype is Keyword and token.value.upper() == 'FROM':
+            from_seen = True
+
+    assert from_token is not None
+    if isinstance(from_token, IdentifierList):
+        for identifier in from_token.get_identifiers():
+            handle_table(identifier)
+    elif isinstance(from_token, Identifier):
+        handle_table(from_token)
+    else:
+        assert False
+
+    # print("extract froms parse took: ", time.time() - start)
+
+    return froms, aliases, tables
+
+def extract_from_clause_old(query):
+    '''
+    SLOW AS FUCK
     Extracts the from statement, and the relevant joins when there are multiple
     tables.
     @ret: froms:
@@ -416,7 +515,9 @@ def extract_from_clause(query):
     # just table names
     tables = []
 
+    start = time.time()
     parsed_query = parse(query)
+    print("extract froms parse took: ", time.time() - start)
     from_clause = parsed_query["from"]
     if isinstance(from_clause, list):
         for i, table in enumerate(from_clause):
@@ -552,20 +653,6 @@ def find_all_clauses(tables, wheres):
             matched.append(match)
         if index is None:
             break
-
-    # print("tables: ", tables)
-    # print("matched: ", matched)
-    # print("all possible matches: " )
-    # for w in str(wheres).split("\n"):
-        # for t in tables:
-            # if t in w:
-                # print(w)
-    # print("where: ", wheres)
-    # pdb.set_trace()
-    # if len(tables) == 2:
-        # if (tables[0] == "ct" and tables[1] == "mc"):
-            # print(matched)
-            # pdb.set_trace()
 
     return matched
 
@@ -953,6 +1040,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     # need to extract predicate columns, predicate operators, and predicate
     # values now.
     pred_columns, pred_types, pred_vals = extract_predicates(sql)
+    # pred_columns, pred_types, pred_vals = None, None, None
 
     from cardinality_estimation.query import Query
     query = Query(sql, pred_columns, pred_vals, pred_types,

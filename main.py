@@ -212,6 +212,13 @@ def gen_query_objs(args, query_strs, query_obj_cache):
             cur_query in unknown_query_strs]
         all_query_objs = pool.starmap(sql_to_query_object, args)
 
+    # all_query_objs = []
+    # for cur_query in unknown_query_strs:
+        # obj = sql_to_query_object(cur_query, args.user, args.db_host, args.port,
+                # args.pwd, args.db_name, None, args.execution_cache_threshold,
+                # None)
+        # all_query_objs.append(obj)
+
     for i, q in enumerate(all_query_objs):
         # ret_queries.append(q)
         ret_queries[idx_map[i]] = q
@@ -313,19 +320,23 @@ def main():
         query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
                 cached=True, serialized=True)
 
-
         # TODO: parallelize the generation of subqueries
         for i, q in enumerate(samples):
+            print(i)
             hashed_key = deterministic_hash(q.query)
             if hashed_key in sql_str_cache.archive:
                 sql_subqueries = sql_str_cache.archive[hashed_key]
             else:
+                s1 = time.time()
                 print("going to generate subqueries for query num ", i)
                 sql_subqueries = gen_all_subqueries(q.query)
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries
+                print("generating + saving subqueries: ", time.time() - s1)
 
+            sload = time.time()
             loaded_queries = gen_query_objs(args, sql_subqueries, query_obj_cache)
+
             q.subqueries = loaded_queries
 
             # FIXME: temporary hack to update queries
