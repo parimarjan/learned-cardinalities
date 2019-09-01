@@ -871,12 +871,9 @@ class NN2(CardinalityEstimationAlg):
             join_losses = np.array(est_card_costs) - np.array(baseline_costs)
             join_losses2 = np.array(est_card_costs) / np.array(baseline_costs)
 
-            for ji, jl in enumerate(join_losses):
-                # FIXME: bad things happenned
-                if jl < 0:
-                    print(ji, jl)
-                    # print(est_card_costs[ji], baseline_costs[ji])
-                    # pdb.set_trace()
+            # for ji, jl in enumerate(join_losses):
+                # if jl < 0:
+                    # print(ji, jl)
 
             jl1 = np.mean(join_losses)
             jl2 = np.mean(join_losses2)
@@ -884,11 +881,6 @@ class NN2(CardinalityEstimationAlg):
             # FIXME: remove all negative values, so weighted_prob can work
             # fine. But there really shouldn't be any negative values here.
             join_losses = np.maximum(join_losses, 0.00)
-
-            # est_card_costs = np.mean(est_card_costs)
-            # baseline_costs = np.mean(baseline_costs)
-            # jl1 = est_card_costs - baseline_costs
-            # jl2 = est_card_costs / baseline_costs
 
             if self.jl_variant and self.adaptive_lr and key == "train":
                 scheduler.step(jl1)

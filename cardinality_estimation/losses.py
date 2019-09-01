@@ -206,10 +206,12 @@ def join_loss(pred, queries, old_env,
 
     # each queries index is set to its name
     for i, q in enumerate(queries):
+        key = str(deterministic_hash(q.query))
+        # if key == "1062510563782308795454436663573014615259135596985":
+            # print(q)
+            # pdb.set_trace()
         query_dict[str(deterministic_hash(q.query))] = q.query
 
-    # env.initialize_queries(query_dict)
-    print("initialized queries")
     cardinalities = {}
     # Set estimated cardinalities. For estimated cardinalities, we need to
     # add ONLY the subquery cardinalities
@@ -239,7 +241,6 @@ def join_loss(pred, queries, old_env,
         # true_cardinalities[str(i)] = update_cards(est_cards, q)
         true_cardinalities[str(deterministic_hash(q.query))] = update_cards(est_cards, q)
 
-    print("both true cardinalities, and estimated cardinalities calculated")
     est_card_costs_dict, baseline_costs_dict = \
                 env.compute_join_order_loss(query_dict, true_cardinalities, cardinalities,
                         baseline)
