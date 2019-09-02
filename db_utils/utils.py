@@ -1010,14 +1010,14 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         return None
     # from query string, to Query object
     true_val = output[0][0]
-    print("true_val: ", true_val)
+    # print("true_val: ", true_val)
     exp_query = "EXPLAIN " + sql
     exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
     if exp_output is None:
         return None
     pg_est = pg_est_from_explain(exp_output)
-    print("pg_est: ", pg_est)
+    # print("pg_est: ", pg_est)
 
     # FIXME: start caching the true total count values
     if total_count is None:
@@ -1031,7 +1031,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
             exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
                     execution_cache_threshold, sql_cache, total_timeout)
             if exp_output is None:
-                print("total count query timed out")
+                # print("total count query timed out")
                 # print(total_count_query)
                 # execute it with explain
                 exp_query = "EXPLAIN " + total_count_query
@@ -1045,7 +1045,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
                 print("pg total count est: ", total_count)
             else:
                 total_count = exp_output[0][0]
-                print("total count: ", total_count)
+                # print("total count: ", total_count)
         else:
             exp_query = "EXPLAIN " + total_count_query
             exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
@@ -1055,7 +1055,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
                 print(exp_query)
                 pdb.set_trace()
             total_count = pg_est_from_explain(exp_output)
-            print("pg total count est: ", total_count)
+            # print("pg total count est: ", total_count)
 
     # need to extract predicate columns, predicate operators, and predicate
     # values now.
