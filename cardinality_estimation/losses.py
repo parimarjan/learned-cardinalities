@@ -118,7 +118,6 @@ def run_all_eps(env, num_queries, fixed_agent=None):
         queries[query] = info
     return queries
 
-# FIXME: make this its own function.
 def update_cards(est_cards, q, fix_aliases=True):
     '''
     @est_cards: cardinalities for each of the subqueries in q.subqueries.
@@ -155,19 +154,24 @@ def update_cards(est_cards, q, fix_aliases=True):
                     if pred in seen:
                         continue
                     # yikes
-                    if alias == "it1":
-                        val = str(3)
-                        break
-                    elif alias == "it2":
-                        val = str(4)
-                        break
+                    # if alias == "it1":
+                        # pdb.set_trace()
+                        # val = str(3)
+                        # break
+                    # elif alias == "it2":
+                        # val = str(4)
+                        # break
                     # kill me
                     if " " + alias + "." in " " + pred:
                         # ...assuming it is sorted here...
                         if subq.cmp_ops[pred_i] == "lt":
                             val = str(subq.vals[pred_i][1])
                         else:
-                            val = subq.vals[pred_i][0]
+                            val = subq.vals[pred_i]
+                            if isinstance(val, dict):
+                                val = val["literal"]
+                            elif isinstance(val, list):
+                                val = val[0]
 
                     seen.add(pred)
 

@@ -213,6 +213,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     else:
         print("need to generate {} query objects".\
                 format(len(unknown_query_strs)))
+        # assert False
 
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
@@ -225,13 +226,6 @@ def gen_query_objs(args, query_strs, query_obj_cache):
             args.execution_cache_threshold, sql_result_cache) for
             cur_query in unknown_query_strs]
         all_query_objs = pool.starmap(sql_to_query_object, args)
-
-    # all_query_objs = []
-    # for cur_query in unknown_query_strs:
-        # obj = sql_to_query_object(cur_query, args.user, args.db_host, args.port,
-                # args.pwd, args.db_name, None, args.execution_cache_threshold,
-                # None)
-        # all_query_objs.append(obj)
 
     for i, q in enumerate(all_query_objs):
         # ret_queries.append(q)
@@ -351,7 +345,7 @@ def main():
 
             loaded_queries = gen_query_objs(args, sql_subqueries, query_obj_cache)
             q.subqueries = loaded_queries
-            print("loaded {} subqueries".format(len(loaded_queries)))
+            # print("loaded {} subqueries".format(len(loaded_queries)))
 
             # FIXME: temporary hack to update queries
             # if i > 0:
