@@ -256,7 +256,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         # the cache
         query_obj_cache.archive[hsql] = q
 
-    print("generated {} samples in {} secs".format(len(ret_queries),
+    print("generated {} samples in {} secs".format(len(unknown_query_strs),
         time.time()-start))
 
     assert len(ret_queries) == len(query_strs)
