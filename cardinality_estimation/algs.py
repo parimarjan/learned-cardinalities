@@ -270,7 +270,6 @@ class OurPGM(CardinalityEstimationAlg):
                 # dtype=np.int64).reshape(-1, 6)
         columns = list(db.column_stats.keys())
         # drop the index column
-        # data = data[0:100000,1:6]
         data = data[:,1:6]
         self.column_bins = {}
         for i in range(data.shape[1]):

@@ -490,7 +490,7 @@ def read_flags():
     parser.add_argument("--test", type=int, required=False,
             default=1)
     parser.add_argument("--num_bins", type=int, required=False,
-            default=10)
+            default=100)
     parser.add_argument("--cl_recompute", type=int, required=False,
             default=0)
     parser.add_argument("--avg_factor", type=int, required=False,
