@@ -15,6 +15,7 @@ NUM_DATA_SAMPLES = 100000
 NUM_TEST_SAMPLES = 10
 NUM_RVS = 5
 EPSILON = 0.01
+QERR_MIN_EPS = 0.000001
 
 # Generalized from:
 #https://stackoverflow.com/questions/18683821/generating-random-correlated-x-and-y-points-using-numpy
@@ -60,10 +61,16 @@ def get_gaussian_data_params(seed, num_columns, period_len):
 
 def get_samples(data, num_test_samples):
     '''
-    generates num_test_samples cases from df, and returns error of the passed
-    in model.
+    Generates num_test_samples cases from data, and returns samples + true
+    selectivity values. samples is in the format accepted by OurPGm class.
+
+    @ret:
+        samples:
+        tre_sel:
     '''
     samples = []
+    true_sels = []
+    df = pd.DataFrame(data)
     for i in range(num_test_samples):
         # generate a list of options from each column
         sample = []
@@ -73,12 +80,22 @@ def get_samples(data, num_test_samples):
             # get rid of doubles
             rvs = np.unique(rvs)
             sample.append(rvs)
-
+        total = float(len(data))
+        # find true selectivity value
+        cur_df = df
+        for si, s in enumerate(sample):
+            cur_df = cur_df[cur_df[si].isin(s)]
+        true_sels.append(len(cur_df) / total)
         samples.append(sample)
-    return samples
 
-def get_true_sel(df, samples):
-    true_sels = []
+    return samples, np.array(true_sels)
+
+def compute_qerror(yhat, ytrue):
+    epsilons = np.array([QERR_MIN_EPS]*len(yhat))
+    ytrue = np.maximum(ytrue, epsilons)
+    yhat = np.maximum(yhat, epsilons)
+    errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
+    return errors
 
 def test_simple():
     '''
@@ -99,7 +116,7 @@ def test_simple():
     # create pgm model, and train it
     model = PGM(alg_name="chow-liu", backend="ourpgm", use_svd=False)
     model.train(samples, weights, state_names)
-    test_samples = get_samples(data, NUM_TEST_SAMPLES)
+    test_samples, _ = get_samples(data, NUM_TEST_SAMPLES)
     our_ests = []
     pom_ests = []
     for s in test_samples:
@@ -126,13 +143,12 @@ def test_discrete():
         # create pgm model, and train it
         model = PGM(alg_name="chow-liu", backend="ourpgm", use_svd=False)
         model.train(samples, weights, state_names)
-        test_samples = get_samples(data, NUM_TEST_SAMPLES)
+        test_samples, true_sels = get_samples(data, NUM_TEST_SAMPLES)
         our_ests = []
         pom_ests = []
         for s in test_samples:
             temp=model.evaluate(s)
             our_ests.append(temp)
-
 
         model = PGM(alg_name="chow-liu", backend="pomegranate", use_svd=False)
         model.train(samples, weights, state_names)
@@ -142,17 +158,21 @@ def test_discrete():
 
         for i in range(0,len(pom_ests)):
             print("Query "+str(i)+": our pred -> "+str(our_ests[i])+" pom pred -> "+str(pom_ests[i]))
-            
-
 
         our_ests = np.array(our_ests)
         pom_ests = np.array(pom_ests)
         diff = pom_ests - our_ests
-        print("abs diff: ", np.sum(abs(diff)))
-        # assert np.allclose(pom_ests, our_ests)
-        our_avg = np.average(our_ests)
-        pom_avg = np.average(pom_ests)
-        if abs(our_avg - pom_avg) > EPSILON:
-            assert False
+        print("our & pomm abs diff: ", np.sum(abs(diff)))
+        our_qerr = compute_qerror(our_ests, true_sels)
+        pom_qerr = compute_qerror(pom_ests, true_sels)
+
+        print("our qerr: {}, pom qerr: {}".format(np.mean(our_qerr),
+            np.mean(pom_qerr)))
+
+        # TODO: better check condition
+        # our_avg = np.average(our_ests)
+        # pom_avg = np.average(pom_ests)
+        # if abs(our_avg - pom_avg) > EPSILON:
+            # assert False
 
 test_discrete()
