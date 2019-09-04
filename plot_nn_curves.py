@@ -9,6 +9,19 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 import argparse
+from collections import defaultdict
+
+OPT_OBJS = ["cm2", "qerr-qloss-subquery", "qerr-qloss-weighted_query"]
+LOSS_FUNCS = ["qloss"]
+JL_VARIANTS = [0]
+SAMPLES_TYPE = ["train", "test"]
+SAMPLING_METHODS = ["jl_ratio", "jl_diff", "jl_rank"]
+LOSS_TYPES = ["qerr", "join-loss"]
+MAX_ERRS = {"qerr": 100.00, "join-loss":1000000}
+HIDDEN_LAYERS = [1, 2, 3, 4]
+# LRS = [0.0001, 0.001, 0.01]
+LRS = [0.001]
+OPTIMIZERS = ["sgd", "adam", "ams"]
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -16,109 +29,185 @@ def read_flags():
             default="./nn_training_cache")
     return parser.parse_args()
 
-args = read_flags()
-cache_dir = args.results_dir
+def parse_results():
+    '''
+    type of the neural network is specified by:
+        - optimizer_name
+        - model_name (fully connnected v/s others)
+        - lr
+        - sampling_alpha
+        - priority
+    '''
 
-cache = klepto.archives.dir_archive(cache_dir,
-        cached=True, serialized=True)
-cache.load()
+    cache_dir = args.results_dir
+    cache = klepto.archives.dir_archive(cache_dir,
+            cached=True, serialized=True)
+    cache.load()
+    print("results cache loaded")
 
-# df = pd.DataFrame()
-all_data = {}
-all_data["iter"] = []
-# all_data["qerr"] = []
-# all_data["join-loss"] = []
-all_data["loss_type"] = []
-all_data["loss"] = []
-all_data["jl_variant"] = []
-all_data["optimizer_name"] = []
-all_data["optimizer_obj"] = []
+    all_data = defaultdict(list)
 
-for k in cache:
-    print(k)
-    data = cache[k]
-    print("eval iter: ", data["kwargs"]["eval_iter"])
-    optimizer_name = data["kwargs"]["optimizer_name"]
-    jl_variant = data["kwargs"]["jl_variant"]
-    kwargs = data["kwargs"]
-    if "loss_func" in kwargs and kwargs["loss_func"] == "rel":
-        continue
+    for exp_name in cache:
+        print(exp_name)
+        data = cache[exp_name]
+        kwargs = data["kwargs"]
+        eval_iter = kwargs["eval_iter"]
+        optimizer_name = data["kwargs"]["optimizer_name"]
+        jl_variant = data["kwargs"]["jl_variant"]
+        loss_func = kwargs["loss_func"]
+        lr = kwargs["lr"]
+        alpha = kwargs["sampling_priority_alpha"]
+        sampling_method = kwargs["sampling_priority_method"]
 
-    for loss_type, losses in data["eval"].items():
-        for num_iter, loss in losses.items():
-            if jl_variant == 0:
-                if "loss_func" in kwargs:
-                    opt_obj = "qerr-" + kwargs["loss_func"] + "-" + kwargs["sampling"]
-                else:
-                    opt_obj = "qerr"
-            elif jl_variant == 1:
-                opt_obj = "cm1"
-            elif jl_variant == 2:
-                opt_obj = "cm2"
-            elif jl_variant == 3:
-                opt_obj = "sort1"
-            elif jl_variant == 4:
-                opt_obj = "argsort"
-            else:
+        if lr not in LRS:
+            print("Skipping {} because lr: {}".format(exp_name, lr))
+            continue
+
+        if eval_iter < 1000:
+            print("Skipping {} because eval_iter: {}".format(exp_name, eval_iter))
+            continue
+
+        if loss_func not in LOSS_FUNCS:
+            print("Skipping {} because loss_func: {}".format(exp_name,
+                loss_func))
+            continue
+
+        if kwargs["sampling"] != "weighted_query":
+            print("Skipping {} because sampling != {}".format(exp_name,
+                "weighted_query"))
+            continue
+
+        if sampling_method not in SAMPLING_METHODS:
+            print("Skipping {} because sampling_method != {}".format(exp_name,
+                SAMPLING_METHODS))
+            continue
+
+        # FIXME: temporary hack
+        if sampling_method == "jl_rank":
+            if alpha != 0.00:
+                print("Skipping jl_rank because alpha not 0.00")
                 continue
+            else:
+                sampling_method = "jl_ratio"
 
-            all_data["iter"].append(num_iter)
-            all_data["loss"].append(loss)
-            all_data["loss_type"].append(loss_type)
-            all_data["optimizer_name"].append(optimizer_name)
-            all_data["optimizer_obj"].append(opt_obj)
-            all_data["jl_variant"].append(jl_variant)
+        if jl_variant not in JL_VARIANTS:
+            print("Skipping {} because jl_variant: {}".format(exp_name,
+                jl_variant))
+            continue
 
-df = pd.DataFrame(all_data)
-# pdb.set_trace()
+        opt_obj = sampling_method + str(alpha)
+
+        if kwargs["hidden_layer_multiple"] != 0.5:
+            print("Skipping {} because hidden layer multiple not 0.5".format(exp_name))
+            continue
+        hidden_layers = kwargs["num_hidden_layers"]
+
+        if hidden_layers not in HIDDEN_LAYERS:
+            print("Skipping {} because hidden_layers: {}".format(exp_name,
+                hidden_layers))
+            continue
+
+        for samples_type in SAMPLES_TYPE:
+            exp_eval = data[samples_type]["eval"]
+            for loss_type, losses in exp_eval.items():
+                for num_iter, loss in losses.items():
+                    all_data["iter"].append(num_iter)
+                    all_data["loss"].append(loss)
+                    all_data["loss_type"].append(loss_type)
+                    all_data["optimizer_name"].append(optimizer_name)
+                    all_data["optimizer_obj"].append(opt_obj)
+                    all_data["jl_variant"].append(jl_variant)
+                    all_data["lr"].append(lr)
+                    all_data["samples_type"].append(samples_type)
+                    all_data["alpha"].append(alpha)
+                    all_data["hidden_layers"].append(hidden_layers)
+
+    df = pd.DataFrame(all_data)
+    return df
+
+args = read_flags()
+df = parse_results()
 
 # skip the first entry, since it is too large
-df = df[df["iter"] != 0]
+# print(df[df["iter"] == 0])
+# df = df[df["iter"] != 0]
 
-pdf = PdfPages("test.pdf")
+pdf = PdfPages("training_curves.pdf")
 
-# fig, axs = plt.subplots(1,2)
-jl_df = df[df["loss_type"] == "join-loss"]
-qerr_df = df[df["loss_type"] == "qerr"]
-max_loss = max(qerr_df["loss"])
-ax = sns.lineplot(x="iter", y="loss", hue="optimizer_obj",
-        style="optimizer_obj",
-        data=qerr_df)
+def plot_overfit_figures(df, hidden_layers):
+    lrs = set(df["lr"])
+    loss_types = LOSS_TYPES
+    for lr in lrs:
+        for loss_type in loss_types:
+            df2 = df[df["lr"] == lr]
+            df2 = df2[df2["loss_type"] == loss_type]
+            if len(df2) == 0:
+                print("No data for: {} {} combination".format(lr, loss_type))
+                continue
+            ax = sns.lineplot(x="iter", y="loss", hue="optimizer_obj",
+                    style="optimizer_obj",
+                    data=df2)
+            max_loss = min(MAX_ERRS[loss_type], max(df2["loss"]))
+            ax.set_ylim(bottom=0, top=max_loss)
+            plt.title("Exp Type: Overfit, {}, lr: {}, layers: {}".\
+                    format(loss_type, lr, hidden_layers))
+            plt.tight_layout()
+            pdf.savefig()
+            plt.clf()
 
-ax.set_ylim(bottom=0, top=max_loss)
-plt.title("Q-Error")
-plt.tight_layout()
-pdf.savefig()
-plt.clf()
+hidden_layers = [hl for hl in set(df["hidden_layers"])]
+hidden_layers.sort()
 
-# let us set max_loss based on the qerr objective
-max_loss = max(jl_df["loss"])
-# max_loss = min(max_loss, 1000000)
+# for hl in hidden_layers:
+    # df2 = df[df["hidden_layers"] == hl]
+    # plot_overfit_figures(df2, hl)
 
-min_loss = min(jl_df["loss"])
+lrs = set(df["lr"])
 
-print("max loss df: ", max_loss)
+def plot_subplot(ax, df, loss_type, samples_type):
+    # filter out stuff
+    df_lt = df[df["loss_type"] == loss_type]
+    df_lt = df_lt[df_lt["samples_type"] == samples_type]
+    print(loss_type, samples_type)
+    print(max(df_lt["loss"]))
+    # pdb.set_trace()
+    ax = sns.lineplot(x="iter", y="loss", hue="optimizer_obj",
+            style="optimizer_obj",
+            data=df_lt)
+    max_loss = min(MAX_ERRS[loss_type], max(df_lt["loss"]))
+    ax.set_ylim(bottom=0, top=max_loss)
+    plt.title("{}: {}, lr: {}".\
+            format(samples_type, loss_type, lr))
+    plt.tight_layout()
 
-ax = sns.lineplot(x="iter", y="loss", hue="optimizer_obj", style="optimizer_obj",
-        data=jl_df)
+print(set(df["optimizer_name"]))
+# pdb.set_trace()
+for lr in lrs:
+    df_lr = df[df["lr"] == lr]
+    fig = plt.figure()
+    fig.subplots_adjust(hspace=0.04, wspace=0.04)
+    ax = fig.add_subplot(2, 2, 1)
+    plot_subplot(ax, df_lr, "qerr", "train")
+    ax.get_legend().remove()
 
-ax.set_ylim(bottom=min_loss, top=max_loss)
+    ax = fig.add_subplot(2, 2, 2)
+    plot_subplot(ax, df_lr, "qerr", "test")
+    ax.get_legend().remove()
 
-# ax.set_yscale("log")
-plt.title("Join-Loss")
-plt.tight_layout()
-pdf.savefig()
-plt.clf()
+    ax = fig.add_subplot(2, 2, 3)
+    plot_subplot(ax, df_lr, "join-loss", "train")
+    ax.get_legend().remove()
 
-opt_df = jl_df[jl_df["jl_variant"] != 0]
-# going to do ams v/s adam plot
-ax = sns.lineplot(x="iter", y="loss", hue="optimizer_name",
-        style="optimizer_name",
-        data=opt_df)
-ax.set_ylim(bottom=min_loss, top=max_loss)
-plt.title("Adam v/s AMSGrad")
-plt.tight_layout()
-pdf.savefig()
-plt.clf()
+    ax = fig.add_subplot(2, 2, 4)
+    plot_subplot(ax, df_lr, "join-loss", "test")
+
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper left')
+    ax.get_legend().remove()
+
+    pdf.savefig()
+
+# Plot figures for model capacity
+
 pdf.close()
 
