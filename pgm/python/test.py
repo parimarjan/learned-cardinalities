@@ -8,11 +8,11 @@ import pandas as pd
 import pdb
 import random
 
-SEEDS = [123, 453]
-NUM_COLUMNS = [5, 7]
+SEEDS = [123]
+NUM_COLUMNS = [5]
 PERIOD_LEN = [100]
 NUM_DATA_SAMPLES = 100000
-NUM_TEST_SAMPLES = 100
+NUM_TEST_SAMPLES = 10
 NUM_RVS = 5
 EPSILON = 0.01
 
@@ -130,12 +130,20 @@ def test_discrete():
         our_ests = []
         pom_ests = []
         for s in test_samples:
-            our_ests.append(model.evaluate(s))
+            temp=model.evaluate(s)
+            our_ests.append(temp)
+
 
         model = PGM(alg_name="chow-liu", backend="pomegranate", use_svd=False)
         model.train(samples, weights, state_names)
         for s in test_samples:
-            pom_ests.append(model.evaluate(s))
+            temp=model.evaluate(s)
+            pom_ests.append(temp)
+
+        for i in range(0,len(pom_ests)):
+            print("Query "+str(i)+": our pred -> "+str(our_ests[i])+" pom pred -> "+str(pom_ests[i]))
+            
+
 
         our_ests = np.array(our_ests)
         pom_ests = np.array(pom_ests)
