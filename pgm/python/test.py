@@ -8,8 +8,8 @@ import pandas as pd
 import pdb
 import random
 
-SEEDS = [123]
-NUM_COLUMNS = [5]
+SEEDS = [25]
+NUM_COLUMNS = [6]
 PERIOD_LEN = [100]
 NUM_DATA_SAMPLES = 100000
 NUM_TEST_SAMPLES = 10

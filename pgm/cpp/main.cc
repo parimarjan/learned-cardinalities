@@ -321,6 +321,58 @@ bool sortFunc(mst_sort &a,mst_sort &b)
 	return a.val>b.val;
 }
 
+struct DisjointSets 
+{ 
+    int *parent, *rnk; 
+    int n; 
+  
+    // Constructor. 
+    DisjointSets(int n) 
+    { 
+        // Allocate memory 
+        this->n = n; 
+        parent = new int[n+1]; 
+        rnk = new int[n+1]; 
+  
+        // Initially, all vertices are in 
+        // different sets and have rank 0. 
+        for (int i = 0; i <= n; i++) 
+        { 
+            rnk[i] = 0; 
+  
+            //every element is parent of itself 
+            parent[i] = i; 
+        } 
+    } 
+  
+    // Find the parent of a node 'u' 
+    // Path Compression 
+    int find(int u) 
+    { 
+        /* Make the parent of the nodes in the path 
+           from u--> parent[u] point to parent[u] */
+        if (u != parent[u]) 
+            parent[u] = find(parent[u]); 
+        return parent[u]; 
+    } 
+  
+    // Union by rank 
+    void merge(int x, int y) 
+    { 
+        x = find(x), y = find(y); 
+  
+        /* Make tree with smaller height 
+           a subtree of the other tree  */
+        if (rnk[x] > rnk[y]) 
+            parent[y] = x; 
+        else // If rnk[x] <= rnk[y] 
+            parent[x] = y; 
+  
+        if (rnk[x] == rnk[y]) 
+            rnk[y]++; 
+    } 
+}; 
+
 struct Graphical_Model
 {
 	int root;
@@ -469,32 +521,46 @@ struct Graphical_Model
 				temp.b=j;
 				temp.val=edge_matrix[i][j-i-1].cal_mutual_info();
 				mutual_info_vec.push_back(temp);
-        if (VERBOSE) {
-          cout<< temp.val <<" : mutual info "<<i<<" "<<j<<endl;
-        }
+		        if (VERBOSE) 
+		        {
+		          cout<< temp.val <<" : mutual info "<<i<<" "<<j<<endl;
+		        }
 			}
 		}
 
 		std::sort(mutual_info_vec.begin(),mutual_info_vec.end(),sortFunc);
 
 		int vec_size=mutual_info_vec.size();
+		
+		DisjointSets ds(graph_size);
 
-		for(int i=0;i<mutual_info_vec.size();i++)
-		{
-			it1=vertices_added.find(mutual_info_vec[i].a);
-			it2=vertices_added.find(mutual_info_vec[i].b);
-			if(!(it1!=vertices_added.end() && it2!=vertices_added.end()))
-			{
-				added_edges.push_back(mutual_info_vec[i]);
-				vertices_added.insert(mutual_info_vec[i].a);
-				vertices_added.insert(mutual_info_vec[i].b);
-			}
+		for (int i=0;i<mutual_info_vec.size();i++) 
+	    { 
+	        int u = mutual_info_vec[i].a; 
+	        int v = mutual_info_vec[i].b; 
+	  
+	        int set_u = ds.find(u); 
+	        int set_v = ds.find(v); 
 
-			if(vertices_added.size()==graph_size)
-			{
-				break;
-			}
-		}
+	        // Check if the selected edge is creating 
+	        // a cycle or not (Cycle is created if u 
+	        // and v belong to same set) 
+	        if (set_u != set_v) 
+	        { 
+	            // Current edge will be in the MST 
+	            // so print it 
+	            if (VERBOSE) 
+		        {
+		          cout<<" edge added: "<<mutual_info_vec[i].a<<" "<<mutual_info_vec[i].b<<endl;
+		        }
+	            added_edges.push_back(mutual_info_vec[i]);
+	  
+	  
+	            // Merge two sets 
+	            ds.merge(set_u, set_v); 
+	        } 
+	    } 
+
 
 		create_graph(added_edges);
 	}
@@ -526,24 +592,56 @@ struct Graphical_Model
 
 		int vec_size=mutual_info_vec.size();
 
-		for(int i=0;i<mutual_info_vec.size();i++)
-		{
-			it1=vertices_added.find(mutual_info_vec[i].a);
-			it2=vertices_added.find(mutual_info_vec[i].b);
-			if(!(it1!=vertices_added.end() && it2!=vertices_added.end()))
-			{
-				added_edges.push_back(mutual_info_vec[i]);
-				vertices_added.insert(mutual_info_vec[i].a);
-				vertices_added.insert(mutual_info_vec[i].b);
-			}
+		DisjointSets ds(graph_size);
 
-			if(vertices_added.size()==edge_list_sz)
-			{
-				break;
-			}
-		}
+		for (int i=0;i<mutual_info_vec.size();i++) 
+	    { 
+	        int u = mutual_info_vec[i].a; 
+	        int v = mutual_info_vec[i].b; 
+	  
+	        int set_u = ds.find(u); 
+	        int set_v = ds.find(v); 
+
+	        // Check if the selected edge is creating 
+	        // a cycle or not (Cycle is created if u 
+	        // and v belong to same set) 
+	        if (set_u != set_v) 
+	        { 
+	            // Current edge will be in the MST 
+	            // so print it 
+	            if (VERBOSE) 
+		        {
+		          cout<<" edge added: "<<mutual_info_vec[i].a<<" "<<mutual_info_vec[i].b<<endl;
+		        }
+	            added_edges.push_back(mutual_info_vec[i]);
+	  
+	  
+	            // Merge two sets 
+	            ds.merge(set_u, set_v); 
+	        } 
+	    } 
+
 
 		create_graph(added_edges);
+
+		// for(int i=0;i<mutual_info_vec.size();i++)
+		// {
+		// 	it1=vertices_added.find(mutual_info_vec[i].a);
+		// 	it2=vertices_added.find(mutual_info_vec[i].b);
+		// 	if(!(it1!=vertices_added.end() && it2!=vertices_added.end()))
+		// 	{
+		// 		added_edges.push_back(mutual_info_vec[i]);
+		// 		vertices_added.insert(mutual_info_vec[i].a);
+		// 		vertices_added.insert(mutual_info_vec[i].b);
+		// 	}
+
+		// 	if(vertices_added.size()==edge_list_sz)
+		// 	{
+		// 		break;
+		// 	}
+		// }
+
+		// create_graph(added_edges);
 	}
 
 
