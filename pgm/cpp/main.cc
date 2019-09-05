@@ -18,7 +18,7 @@
 using namespace std::chrono;
 using namespace std;
 
-bool VERBOSE = false;
+bool VERBOSE = true;
 
 // in the future, we may want to experiment with other stuff here
 // 1 ==> store just the joint probability in the SVD matrix
@@ -653,6 +653,7 @@ struct Graphical_Model
   map<int ,double> pgm_eval(int curr_node,vector<set<int>> &filter, bool
       approx,double frac)
 	{
+    cout << "pgm_eval" << endl;
 		double ans=0.0;
 		int alp_size=node_list[curr_node].alphabet_size;
 
@@ -672,6 +673,7 @@ struct Graphical_Model
 
 		for(int i=0;i<curr_child.size();i++)
 		{
+      cout << "child: " << i << endl;
 			int child_node=curr_child[i];
 			map<int,double> child_map= pgm_eval(curr_child[i],filter,approx,frac);
 
@@ -688,6 +690,7 @@ struct Graphical_Model
 
 			for(std::map<int,double>::iterator it_par=curr_vals.begin();it_par!=curr_vals.end();it_par++)
 			{
+        cout << "curr_vals it: " << it_par->first << endl;
 				double ans=0.0;
 				int par_val=it_par->first;
 				double prob_par=node_list[curr_node].prob_list[par_val];
@@ -780,13 +783,16 @@ Graphical_Model * init(vector<vector<int> > &data_matrix,vector<int> &count_colu
 
 double eval(Graphical_Model &pgm, vector<set<int>> &filter,bool approx,double frac)
 {
+  cout << "eval!" << endl;
 	double ans=0.0;
 	map<int,double> root_map;
   root_map=pgm.pgm_eval(pgm.root,filter,approx,frac);
 
 	for(std::map<int,double>::iterator it=root_map.begin();it!=root_map.end();it++)
 	{
+    cout << "node: " << it->first << endl;
     double unweighted_val = it->second*pgm.node_list[pgm.root].prob_list[it->first];
+    cout << "unweighted_val: " << unweighted_val << endl;
     if (pgm.cur_weights != NULL) {
       double weight = (*pgm.cur_weights)[pgm.root][it->first];
       ans += weight * unweighted_val;
@@ -846,7 +852,9 @@ extern "C" double py_eval(Graphical_Model &pgm,
     int n_ar,int approx,double frac)
 {
   vector<set<int> > filter(n_ar);
+  cout << "py_eval" << endl;
   if (weight_data != NULL) {
+    cout << "weight_data!! " << endl;
     vector<map<int,double>> weights(n_ar);
     for(int i=0;i<n_ar;i++)
     {
@@ -866,6 +874,7 @@ extern "C" double py_eval(Graphical_Model &pgm,
     pgm.cur_weights = NULL;
   }
 
+  cout << "before lens" << endl;
   for(int i=0;i<n_ar;i++)
   {
     int *ans = data[i];
@@ -877,6 +886,7 @@ extern "C" double py_eval(Graphical_Model &pgm,
   }
 
   if (pgm.recompute) {
+    cout << "pgm.recompute" << endl;
     vector<int> edge_list;
 
     for(int i=0;i<pgm.graph_size;i++)
@@ -904,6 +914,7 @@ extern "C" double py_eval(Graphical_Model &pgm,
       pgm.MST();
     }
   }
+  cout << "going to eval!! " << endl;
 
   double ans = eval(pgm,filter,false,frac);
   return ans;

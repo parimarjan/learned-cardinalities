@@ -136,7 +136,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
 
     if hashed_tmp in sql_str_cache:
         query_strs = sql_str_cache[hashed_tmp]
-        # print("loaded {} query strings".format(len(query_strs)))
+        print("loaded {} query strings".format(len(query_strs)))
 
     if num_samples == -1:
         # select whatever we loaded
@@ -175,7 +175,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         else:
             unknown_query_strs.append(sql)
 
-    # print("loaded {} query objects".format(len(ret_queries)))
+    print("loaded {} query objects".format(len(ret_queries)))
     if len(unknown_query_strs) == 0:
         return ret_queries
     else:
