@@ -71,7 +71,7 @@ def remove_doubles(query_strs):
     for q in query_strs:
         if q in seen_samples:
             print(q)
-            pdb.set_trace()
+            # pdb.set_trace()
             continue
         seen_samples.add(q)
         newq.append(q)
@@ -123,7 +123,8 @@ def eval_alg(alg, losses, queries, use_subqueries):
 
     print("evaluating alg took: {} seconds".format(eval_time))
 
-def gen_query_strs(args, query_template, num_samples, sql_str_cache):
+def gen_query_strs(args, query_template, num_samples,
+        sql_str_cache, save_cur_cache_dir=None):
     '''
     @query_template: str OR dict.
 
@@ -148,7 +149,6 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
         query_strs = sql_str_cache.archive[hashed_tmp]
         print("loaded {} query strings".format(len(query_strs)))
 
-
     if num_samples == -1:
         # select whatever we loaded
         query_strs = query_strs
@@ -169,6 +169,7 @@ def gen_query_strs(args, query_template, num_samples, sql_str_cache):
         # save on the disk
         sql_str_cache.archive[hashed_tmp] = query_strs
     # print("returning {} query strs".format(len(query_strs)))
+
     return query_strs
 
 def gen_query_objs(args, query_strs, query_obj_cache):
@@ -306,10 +307,27 @@ def main():
                 args.num_samples_per_template, sql_str_cache)
         # deduplicate
         query_strs = remove_doubles(query_strs)
+
         cur_samples = gen_query_objs(args, query_strs, query_obj_cache)
         for sample_id, q in enumerate(cur_samples):
             q.template_name = os.path.basename(fns[i]) + str(sample_id)
             samples.append(q)
+
+        if args.save_cur_cache_dir:
+            backup_cache = klepto.archives.dir_archive(args.save_cur_cache_dir + "/sql_str",
+                    cached=True, serialized=True)
+            if isinstance(template, str):
+                hashed_tmp = deterministic_hash(template)
+            elif isinstance(template, dict):
+                hashed_tmp = deterministic_hash(template["base_sql"]["sql"])
+            backup_cache.archive[hashed_tmp] = query_strs
+
+            backup_query_obj_cache = \
+                        klepto.archives.dir_archive(args.save_cur_cache_dir + "/query_obj",
+                    cached=True, serialized=True)
+            for qi, sql in enumerate(query_strs):
+                hsql = deterministic_hash(sql)
+                backup_query_obj_cache.archive[hsql] = cur_samples[qi]
 
     print("len all samples: " , len(samples))
 
@@ -347,27 +365,24 @@ def main():
             q.subqueries = loaded_queries
             # print("loaded {} subqueries".format(len(loaded_queries)))
 
-            # FIXME: temporary hack to update queries
-            # if i > 0:
-                # print(i)
-                # main_query = samples[0]
-                # # for j, sq in enumerate(main_query.subqueries):
-                    # # update_query_structure(sq)
-                # for j, sq in enumerate(q.subqueries):
-                    # query0 = main_query.subqueries[j]
-                    # assert str(sq.table_names) == str(query0.table_names)
-                    # sq.froms = query0.froms
-                    # sq.aliases = query0.aliases
-                    # sqlj = sql_subqueries[j]
-                    # assert sqlj == sq.query
-                    # hsql = deterministic_hash(sqlj)
-                    # query_obj_cache.archive[hsql] = sq
+            if args.save_cur_cache_dir:
+                backup_cache = \
+                        klepto.archives.dir_archive(args.save_cur_cache_dir +
+                        "/subq_sql_str", cached=True, serialized=True)
+                backup_cache.archive[hashed_key] = sql_subqueries
+
+                backup_query_obj_cache = \
+                            klepto.archives.dir_archive(args.save_cur_cache_dir + "/subq_query_obj",
+                        cached=True, serialized=True)
+                for qi, sql in enumerate(sql_subqueries):
+                    hsql = deterministic_hash(sql)
+                    backup_query_obj_cache.archive[hsql] = loaded_queries[qi]
 
         print("subquery generation took {} seconds".format(time.time()-start))
 
-    # pdb.set_trace()
     all_queries = samples
-    print("after removing doubles, len: ", len(samples))
+
+    # pdb.set_trace()
 
     # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
     # in all of the queries
@@ -552,6 +567,8 @@ def read_flags():
             default=None)
     parser.add_argument("--cache_dir", type=str, required=False,
             default="./caches/")
+    parser.add_argument("--save_cur_cache_dir", type=str, required=False,
+            default=None)
     parser.add_argument("--execution_cache_threshold", type=int, required=False,
             default=20)
     parser.add_argument("--jl_variant", type=int, required=False,
