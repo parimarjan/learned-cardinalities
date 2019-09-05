@@ -1141,8 +1141,8 @@ class NN2(CardinalityEstimationAlg):
                     assert False
 
             # FIXME: temporary, to try and adjust for the variable batch size.
-            if self.divide_mb_len:
-                loss /= len(pred)
+            # if self.divide_mb_len:
+                # loss /= len(pred)
 
             if (num_iter > max_iter):
                 print("breaking because max iter done")
@@ -1178,3 +1178,257 @@ class NN2(CardinalityEstimationAlg):
 
         return name
 
+class NumTablesNN(CardinalityEstimationAlg):
+    '''
+    Will divide the queries AND subqueries based on the number of tables in it,
+    and train a new neural network for each of those.
+
+    TODO: computing join-loss for each subquery.
+    '''
+
+    # FIXME: common stuff b/w all neural network models should be decomposed
+    def __init__(self, *args, **kwargs):
+
+        self.nets = {}
+        self.optimizers = {}
+        self.samples = {}
+        # for all Xs, Ys from subqueries
+        self.Xtrains = {}
+        self.Ytrains = {}
+
+        if kwargs["loss_func"] == "qloss":
+            self.loss_func = qloss_torch
+        else:
+            assert False
+
+        # TODO: remove redundant crap.
+        self.feature_len = None
+        self.feat_type = "dict_encoding"
+
+        # TODO: configure other variables
+        self.max_iter = kwargs["max_iter"]
+        self.jl_variant = kwargs["jl_variant"]
+        if not self.jl_variant:
+            # because we eval more frequently
+            self.adaptive_lr_patience = 100
+        else:
+            self.adaptive_lr_patience = 5
+
+        self.divide_mb_len = kwargs["divide_mb_len"]
+        self.lr = kwargs["lr"]
+        self.jl_start_iter = kwargs["jl_start_iter"]
+        self.num_hidden_layers = kwargs["num_hidden_layers"]
+        self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
+        self.eval_iter = kwargs["eval_iter"]
+        self.eval_iter_jl = self.eval_iter
+        self.optimizer_name = kwargs["optimizer_name"]
+
+        self.clip_gradient = kwargs["clip_gradient"]
+        self.rel_qerr_loss = kwargs["rel_qerr_loss"]
+        self.rel_jloss = kwargs["rel_jloss"]
+        self.adaptive_lr = kwargs["adaptive_lr"]
+        self.baseline = kwargs["baseline"]
+        # self.loss_func = kwargs["loss_func"]
+        self.sampling = kwargs["sampling"]
+        self.sampling_priority_method = kwargs["sampling_priority_method"]
+        self.adaptive_priority_alpha = kwargs["adaptive_priority_alpha"]
+        self.sampling_priority_alpha = kwargs["sampling_priority_alpha"]
+
+        nn_cache_dir = kwargs["nn_cache_dir"]
+
+        # caching related stuff
+        self.training_cache = klepto.archives.dir_archive(nn_cache_dir,
+                cached=True, serialized=True)
+        # will keep storing all the training information in the cache / and
+        # dump it at the end
+        # self.key = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        dt = datetime.datetime.now()
+        self.key = "{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
+        self.key += "-" + str(deterministic_hash(str(kwargs)))[0:6]
+
+        self.stats = {}
+        self.training_cache[self.key] = self.stats
+
+        # all the configuration parameters are specified here
+        self.stats["kwargs"] = kwargs
+
+        # iteration : value
+        self.stats["gradients"] = {}
+        self.stats["lr"] = {}
+
+        # iteration : value + additional stuff, like query-string : sql
+        self.stats["mb-loss"] = {}
+
+        # iteration: qerr: val, jloss: val
+        self.stats["train"] = {}
+        self.stats["test"] = {}
+
+        self.stats["train"]["eval"] = {}
+        self.stats["train"]["eval"]["qerr"] = {}
+        self.stats["train"]["eval"]["join-loss"] = {}
+
+        self.stats["test"]["eval"] = {}
+        self.stats["test"]["eval"]["qerr"] = {}
+        self.stats["test"]["eval"]["join-loss"] = {}
+
+        self.stats["model_params"] = {}
+
+    def train(self, db, training_samples, **kwargs):
+        '''
+        '''
+        self.db = db
+        db.init_featurizer()
+        test_samples = kwargs["test_samples"]
+
+        ## FIXME: don't store features in query objects
+        # initialize samples
+        for sample in training_samples:
+            features = db.get_features(sample)
+            sample.features = features
+            for subq in sample.subqueries:
+                subq_features = db.get_features(subq)
+                subq.features = subq_features
+
+        if test_samples:
+            for sample in test_samples:
+                features = db.get_features(sample)
+                sample.features = features
+                for subq in sample.subqueries:
+                    subq_features = db.get_features(subq)
+                    subq.features = subq_features
+
+        print("feature len: ", len(features))
+
+        ## FIXME: decompose.
+        # divide samples based on queries.
+        for sample in training_samples:
+            features = db.get_features(sample)
+            sample.features = features
+            num_tables = len(sample.froms)
+            if num_tables not in self.samples:
+                self.samples[num_tables] = []
+                self.Xtrains[num_tables] = []
+                self.Ytrains[num_tables] = []
+
+            self.samples[num_tables].append(sample)
+            self.Xtrains[num_tables].append(features)
+            self.Ytrains[num_tables].append(sample.true_sel)
+
+            for subq in sample.subqueries:
+                num_tables = len(subq.froms)
+                assert num_tables == len(subq.aliases)
+                if num_tables not in self.samples:
+                    self.samples[num_tables] = []
+                    self.Xtrains[num_tables] = []
+                    self.Ytrains[num_tables] = []
+
+                self.samples[num_tables].append(subq)
+                subq_features = db.get_features(subq)
+                subq.features = subq_features
+                self.Xtrains[num_tables].append(subq_features)
+                self.Ytrains[num_tables].append(subq.true_sel)
+
+        if test_samples:
+            for sample in test_samples:
+                features = db.get_features(sample)
+                sample.features = features
+                for subq in sample.subqueries:
+                    subq_features = db.get_features(subq)
+                    subq.features = subq_features
+
+        for num_tables in self.samples:
+            X = self.Xtrains[num_tables]
+            Y = self.Ytrains[num_tables]
+            X = to_variable(X).float()
+            Y = to_variable(Y).float()
+            self.Xtrains[num_tables] = X
+            self.Ytrains[num_tables] = Y
+
+        for num_tables in self.samples:
+            sample = self.samples[num_tables][0]
+            features = db.get_features(sample)
+            net = SimpleRegression(len(features),
+                    self.hidden_layer_multiple, 1,
+                    num_hidden_layers=self.num_hidden_layers)
+            self.nets[num_tables] = net
+
+            if self.optimizer_name == "ams":
+                optimizer = torch.optim.Adam(net.parameters(), lr=self.lr,
+                        amsgrad=True)
+            elif self.optimizer_name == "adam":
+                optimizer = torch.optim.Adam(net.parameters(), lr=self.lr,
+                        amsgrad=False)
+            elif self.optimizer_name == "sgd":
+                optimizer = torch.optim.SGD(net.parameters(), lr=self.lr,
+                        momentum=0.9)
+            else:
+                assert False
+            self.optimizers[num_tables] = optimizer
+
+        num_iter = 0
+        # create a new park env, and close at the end.
+        env = park.make('query_optimizer')
+
+        # now let us just train each of these separately. After every training
+        # iteration, we will evaluate the join-loss, using ALL of them.
+        # Train each net for N iterations, and then evaluate.
+        while True:
+            if (num_iter % 100 == 0):
+                # progress stuff
+                print(num_iter, end=",")
+                sys.stdout.flush()
+
+            if (num_iter % self.eval_iter_jl == 0):
+                # evaluation code
+                pass
+
+            for num_tables, cur_samples in self.samples.items():
+                optimizer = self.optimizers[num_tables]
+                net = self.nets[num_tables]
+                X = self.Xtrains[num_tables]
+                Y = self.Ytrains[num_tables]
+                MB_SIZE = 128
+                idxs = np.random.choice(list(range(len(X))), MB_SIZE)
+                xbatch = X[idxs]
+                ybatch = Y[idxs]
+
+                pred = net(xbatch)
+                pred = pred.squeeze(1)
+                loss = self.loss_func(pred, ybatch)
+
+                optimizer.zero_grad()
+                loss.backward()
+                if self.clip_gradient is not None:
+                    clip_grad_norm_(net.parameters(), self.clip_gradient)
+
+                optimizer.step()
+
+            if (num_iter > self.max_iter):
+                print("breaking because max iter done")
+                break
+
+            num_iter += 1
+
+
+    def test(self, test_samples, **kwargs):
+        pass
+        # X = []
+        # for sample in test_samples:
+            # X.append(self.db.get_features(sample))
+
+        # # just pass each sample through net and done!
+        # X = to_variable(X).float()
+        # pred = self.net(X)
+        # pred = pred.squeeze(1)
+        # return pred.cpu().detach().numpy()
+
+    def size(self):
+        '''
+        size of the parameters needed so we can compare across different algorithms.
+        '''
+        pass
+
+    def __str__(self):
+        return self.__class__.__name__
+    def save_model(self, save_dir="./", suffix_name=""):
+        pass

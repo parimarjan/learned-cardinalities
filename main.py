@@ -59,6 +59,24 @@ def get_alg(alg):
                     sampling_priority_method=args.sampling_priority_method,
                     sampling_priority_alpha = args.sampling_priority_alpha,
                     adaptive_priority_alpha = args.adaptive_priority_alpha)
+    elif alg == "nn3":
+        return NumTablesNN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
+                num_hidden_layers=args.num_hidden_layers,
+                hidden_layer_multiple=args.hidden_layer_multiple,
+                    jl_start_iter=args.jl_start_iter, eval_iter =
+                    args.eval_iter, optimizer_name=args.optimizer_name,
+                    adaptive_lr=args.adaptive_lr,
+                    rel_qerr_loss=args.rel_qerr_loss,
+                    clip_gradient=args.clip_gradient,
+                    baseline=args.baseline_join_alg,
+                    nn_cache_dir = args.nn_cache_dir,
+                    divide_mb_len = args.divide_mb_len,
+                    rel_jloss=args.rel_jloss,
+                    loss_func = args.loss_func,
+                    sampling=args.sampling,
+                    sampling_priority_method=args.sampling_priority_method,
+                    sampling_priority_alpha = args.sampling_priority_alpha,
+                    adaptive_priority_alpha = args.adaptive_priority_alpha)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
@@ -507,14 +525,14 @@ def read_flags():
     parser.add_argument("--rel_jloss", type=int,
             required=False, default=0)
     parser.add_argument("--eval_test_while_training", type=int,
-            required=False, default=0)
+            required=False, default=1)
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
     parser.add_argument("--nn_cache_dir", type=str, required=False,
             default="./nn_training_cache")
     parser.add_argument("--divide_mb_len", type=int, required=False,
-            default=1)
+            default=0)
 
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="adam")
