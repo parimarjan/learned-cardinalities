@@ -26,14 +26,31 @@ import sys
 import klepto
 import datetime
 import multiprocessing
-# from torch.multiprocessing import set_start_method
-# try:
-    # set_start_method('spawn')
-# except RuntimeError:
-    # pass
+import xgboost as xgb
+from sklearn.ensemble import RandomForestRegressor
+from .custom_linear import CustomLinearModel
+# import CustomLinearModel
 
 # FIXME: temporary hack
 NULL_VALUE = "-1"
+
+def get_all_features(samples, db):
+    '''
+    @samples: Query objects, with subqueries.
+    @ret:
+        X:
+        Y:
+    '''
+    X = []
+    Y = []
+    for sample in samples:
+        X.append(db.get_features(sample))
+        Y.append(sample.true_sel)
+        for subq in sample.subqueries:
+            X.append(db.get_features(subq))
+            Y.append(subq.true_sel)
+
+    return np.array(X),np.array(Y)
 
 def get_possible_values(sample, db, column_bins=None):
     '''
@@ -610,6 +627,19 @@ def rel_loss_torch(pred, ytrue):
     error = (errors.sum()) / len(pred)
     return error
 
+def qloss(yhat, ytrue):
+
+    epsilons = np.array([QERR_MIN_EPS]*len(yhat))
+    ytrue = np.maximum(ytrue, epsilons)
+    yhat = np.maximum(yhat, epsilons)
+
+    # TODO: check this
+    errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
+    error = np.sum(errors) / len(yhat)
+
+    return error
+
+
 def qloss_torch(yhat, ytrue):
 
     epsilons = to_variable([QERR_MIN_EPS]*len(yhat)).float()
@@ -681,9 +711,9 @@ class NN1(CardinalityEstimationAlg):
                 net.load_state_dict(torch.load(model_path))
                 print("loaded trained model!")
 
-        # loss_func = qloss_torch
+        loss_func = qloss_torch
         # loss_func = rel_loss_torch
-        loss_func = weighted_loss
+        # loss_func = weighted_loss
         print("feature len: ", len(X[0]))
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
@@ -1218,12 +1248,14 @@ class NumTablesNN(CardinalityEstimationAlg):
     # FIXME: common stuff b/w all neural network models should be decomposed
     def __init__(self, *args, **kwargs):
 
-        self.nets = {}
+        self.models = {}
         self.optimizers = {}
         self.samples = {}
         # for all Xs, Ys from subqueries
         self.Xtrains = {}
         self.Ytrains = {}
+        self.model_name = kwargs["num_tables_model"]
+        self.num_trees = kwargs["num_trees"]
 
         if kwargs["loss_func"] == "qloss":
             self.loss_func = qloss_torch
@@ -1314,11 +1346,11 @@ class NumTablesNN(CardinalityEstimationAlg):
         for sample in samples:
             Y.append(sample.true_sel)
             num_tables = len(sample.froms)
-            pred.append(self.nets[num_tables](sample.features).item())
+            pred.append(self.models[num_tables](sample.features).item())
             for subq in sample.subqueries:
                 Y.append(subq.true_sel)
                 num_tables = len(subq.froms)
-                pred.append(self.nets[num_tables](subq.features).item())
+                pred.append(self.models[num_tables](subq.features).item())
 
         pred = to_variable(pred).float()
         Y = to_variable(Y).float()
@@ -1354,17 +1386,8 @@ class NumTablesNN(CardinalityEstimationAlg):
 
         return None, None
 
-    def train(self, db, training_samples, **kwargs):
-        '''
-        NN3.
-        '''
-        self.db = db
-        db.init_featurizer()
+    def _train_nn(self, db, training_samples, **kwargs):
         test_samples = kwargs["test_samples"]
-
-        ## FIXME: don't store features in query objects
-        ## FIXME: decompose.
-        # divide samples based on queries.
         for sample in training_samples:
             features = db.get_features(sample)
             num_tables = len(sample.froms)
@@ -1427,7 +1450,7 @@ class NumTablesNN(CardinalityEstimationAlg):
                 net = LinearRegression(len(features),
                         1)
 
-            self.nets[num_tables] = net
+            self.models[num_tables] = net
             print("created net {} for {} tables".format(net, num_tables))
 
             if self.optimizer_name == "ams":
@@ -1451,81 +1474,126 @@ class NumTablesNN(CardinalityEstimationAlg):
         # iteration, we will evaluate the join-loss, using ALL of them.
         # Train each net for N iterations, and then evaluate.
         start = time.time()
-        while True:
-            if (num_iter % 100 == 0):
-                # progress stuff
-                print(num_iter, end=",")
-                sys.stdout.flush()
+        try:
+            while True:
+                if (num_iter % 100 == 0):
+                    # progress stuff
+                    print(num_iter, end=",")
+                    sys.stdout.flush()
 
-            if (num_iter % self.eval_iter == 0 and num_iter != 0):
-                # evaluation code
-                join_losses, join_losses_ratio = self._periodic_eval(training_samples,
-                        env, "train", self.loss_func, num_iter)
-                if test_samples:
-                    self._periodic_eval(test_samples,
-                            env,"test", self.loss_func, num_iter)
+                if (num_iter % self.eval_iter == 0 and num_iter != 0):
+                    # evaluation code
+                    join_losses, join_losses_ratio = self._periodic_eval(training_samples,
+                            env, "train", self.loss_func, num_iter)
+                    if test_samples:
+                        self._periodic_eval(test_samples,
+                                env,"test", self.loss_func, num_iter)
 
-            for num_tables, _ in self.samples.items():
-                # for train_it in range(self.eval_iter):
-                for train_it in range(1):
-                    optimizer = self.optimizers[num_tables]
-                    net = self.nets[num_tables]
-                    X = self.Xtrains[num_tables]
-                    Y = self.Ytrains[num_tables]
+                for num_tables, _ in self.samples.items():
+                    # for train_it in range(self.eval_iter):
+                        # if (train_it % 100 == 0):
+                            # print(num_tables, train_it, end=",")
+                    for train_it in range(1):
+                        optimizer = self.optimizers[num_tables]
+                        net = self.models[num_tables]
+                        X = self.Xtrains[num_tables]
+                        Y = self.Ytrains[num_tables]
 
-                    MB_SIZE = 128
-                    idxs = np.random.choice(list(range(len(X))), MB_SIZE)
-                    xbatch = X[idxs]
-                    ybatch = Y[idxs]
+                        MB_SIZE = 128
+                        idxs = np.random.choice(list(range(len(X))), MB_SIZE)
+                        xbatch = X[idxs]
+                        ybatch = Y[idxs]
 
-                    pred = net(xbatch)
-                    pred = pred.squeeze(1)
-                    loss = self.loss_func(pred, ybatch)
+                        pred = net(xbatch)
+                        pred = pred.squeeze(1)
+                        loss = self.loss_func(pred, ybatch)
 
-                    optimizer.zero_grad()
-                    loss.backward()
+                        optimizer.zero_grad()
+                        loss.backward()
 
-                    if self.clip_gradient is not None:
-                        clip_grad_norm_(net.parameters(), self.clip_gradient)
+                        if self.clip_gradient is not None:
+                            clip_grad_norm_(net.parameters(), self.clip_gradient)
 
-                    optimizer.step()
+                        optimizer.step()
 
-            # num_iter += self.eval_iter
-            num_iter += 1
-            if (num_iter > self.max_iter):
-                print("max iter done in: ", time.time() - start)
-                break
+                num_iter += 1
+                if (num_iter > self.max_iter):
+                    print("max iter done in: ", time.time() - start)
+                    break
 
-            # FIXME: failed attempt
-            # TODO: parallelize this loop, and can run it in parallel for
-            # eval_iter iterations
-            # print(num_iter)
-            # num_processes = 2
-            # with torch.multiprocessing.Pool(processes=num_processes) as pool:
-                # args = [(self.nets[num_tables],
-                         # self.optimizers[num_tables],
-                         # self.Xtrains[num_tables],
-                         # self.Ytrains[num_tables],
-                         # self.loss_func,
-                         # self.clip_gradient,
-                         # self.eval_iter) for num_tables in self.samples]
-                # pool.starmap(train_nn_par, args)
-            # num_iter += self.eval_iter
-            # if (num_iter > self.max_iter):
-                # print("max iter done in: ", time.time() - start)
-                # break
+        except KeyboardInterrupt:
+            print("keyboard interrupt")
+        except park.envs.query_optimizer.query_optimizer.QueryOptError:
+            print("park exception")
+
+        self.training_cache.dump()
+
+    def _train_rf(self):
+
+        for num_tables in self.Xtrains:
+            X = self.Xtrains[num_tables]
+            Y = self.Ytrains[num_tables]
+            # fit the model
+            model = RandomForestRegressor(n_estimators=self.num_trees).fit(X, Y)
+
+            self.models[num_tables] = model
+
+            print("training random forest classifier done for ", num_tables)
+            yhat = model.predict(X)
+            train_loss = qloss(yhat, Y)
+
+            # yhat = model.predict(Xtest)
+            # test_loss = qloss(yhat, Ytest)
+            print("train loss: ", train_loss)
+
+    def train(self, db, training_samples, **kwargs):
+        '''
+        '''
+        self.db = db
+        db.init_featurizer()
+        # do common pre-processing part here
+        test_samples = kwargs["test_samples"]
+        for sample in training_samples:
+            features = db.get_features(sample)
+            num_tables = len(sample.froms)
+            if num_tables not in self.samples:
+                self.samples[num_tables] = []
+                self.Xtrains[num_tables] = []
+                self.Ytrains[num_tables] = []
+
+            self.Xtrains[num_tables].append(features)
+            self.Ytrains[num_tables].append(sample.true_sel)
+            for subq in sample.subqueries:
+                num_tables = len(subq.froms)
+                assert num_tables == len(subq.aliases)
+                if num_tables not in self.samples:
+                    self.samples[num_tables] = []
+                    self.Xtrains[num_tables] = []
+                    self.Ytrains[num_tables] = []
+
+                self.samples[num_tables].append(subq)
+                subq_features = db.get_features(subq)
+                self.Xtrains[num_tables].append(subq_features)
+                self.Ytrains[num_tables].append(subq.true_sel)
+
+        if self.model_name == "nn":
+            self._train_nn(db, training_samples, **kwargs)
+        elif self.model_name == "rf":
+            self._train_rf()
+        elif self.model_name == "linear":
+            pdb.set_trace()
 
     def test(self, test_samples, **kwargs):
-        pass
-        # X = []
-        # for sample in test_samples:
-            # X.append(self.db.get_features(sample))
-
-        # # just pass each sample through net and done!
-        # X = to_variable(X).float()
-        # pred = self.net(X)
-        # pred = pred.squeeze(1)
-        # return pred.cpu().detach().numpy()
+        '''
+        @test_samples: already includes subqueries, we just need to predict
+        value for each.
+        '''
+        pred = []
+        for sample in test_samples:
+            num_tables = len(sample.froms)
+            model = self.models[num_tables]
+            pred.append(model.predict([self.db.get_features(sample)]))
+        return pred
 
     def size(self):
         '''
@@ -1533,6 +1601,110 @@ class NumTablesNN(CardinalityEstimationAlg):
         '''
         pass
 
+    def __str__(self):
+        return self.__class__.__name__
+    def save_model(self, save_dir="./", suffix_name=""):
+        pass
+
+class XGBoost(CardinalityEstimationAlg):
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def train(self, db, training_samples, **kwargs):
+        test_samples = kwargs["test_samples"]
+        X, Y = get_all_features(training_samples, db)
+        Xtest, Ytest = get_all_features(test_samples, db)
+
+        print("before training xgboost")
+        gbm = xgb.XGBRegressor(max_depth=16, n_estimators=20,
+                learning_rate=0.05, objective='reg:squarederror').fit(X, Y)
+        print("training xgboost done!")
+        yhat = gbm.predict(X)
+        train_loss = qloss(yhat, Y)
+
+        yhat = gbm.predict(Xtest)
+        test_loss = qloss(yhat, Ytest)
+        print("train loss: {}, test loss: {}".format(train_loss, test_loss))
+
+        pdb.set_trace()
+
+    def test(self, test_samples, **kwargs):
+        pass
+    def size(self):
+        '''
+        size of the parameters needed so we can compare across different algorithms.
+        '''
+        pass
+    def __str__(self):
+        return self.__class__.__name__
+    def save_model(self, save_dir="./", suffix_name=""):
+        pass
+
+class RandomForest(CardinalityEstimationAlg):
+
+    def __init__(self, *args, **kwargs):
+        # self.num_trees
+        pass
+
+    def train(self, db, training_samples, **kwargs):
+        test_samples = kwargs["test_samples"]
+        X, Y = get_all_features(training_samples, db)
+        Xtest, Ytest = get_all_features(test_samples, db)
+
+        model = RandomForestRegressor(n_estimators=128).fit(X, Y)
+        print("training random forest classifier done")
+        yhat = model.predict(X)
+        train_loss = qloss(yhat, Y)
+
+        yhat = model.predict(Xtest)
+        test_loss = qloss(yhat, Ytest)
+        print("train loss: {}, test loss: {}".format(train_loss, test_loss))
+
+        pdb.set_trace()
+
+    def test(self, test_samples, **kwargs):
+        pass
+    def size(self):
+        '''
+        size of the parameters needed so we can compare across different algorithms.
+        '''
+        pass
+    def __str__(self):
+        return self.__class__.__name__
+    def save_model(self, save_dir="./", suffix_name=""):
+        pass
+
+class Linear(CardinalityEstimationAlg):
+
+    def __init__(self, *args, **kwargs):
+        # self.num_trees
+        pass
+
+    def train(self, db, training_samples, **kwargs):
+        test_samples = kwargs["test_samples"]
+        X, Y = get_all_features(training_samples, db)
+        Xtest, Ytest = get_all_features(test_samples, db)
+        print("going to train custom linear model")
+        model = CustomLinearModel(qloss, X=X, Y=Y)
+        model.fit()
+        print("training linear model done!")
+        yhat = model.predict(X)
+        train_loss = qloss(yhat, Y)
+
+        yhat = model.predict(Xtest)
+        test_loss = qloss(yhat, Ytest)
+        print("train loss: {}, test loss: {}".format(train_loss, test_loss))
+
+        pdb.set_trace()
+
+    def test(self, test_samples, **kwargs):
+        pass
+    def size(self):
+        '''
+        size of the parameters needed so we can compare across different algorithms.
+        '''
+        pass
     def __str__(self):
         return self.__class__.__name__
     def save_model(self, save_dir="./", suffix_name=""):

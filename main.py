@@ -1,5 +1,5 @@
 from cardinality_estimation.db import DB
-from cardinality_estimation.cardinality_sample import CardinalitySample
+# from cardinality_estimation.cardinality_sample import CardinalitySample
 from cardinality_estimation.query import *
 from cardinality_estimation.algs import *
 from cardinality_estimation.losses import *
@@ -29,6 +29,12 @@ import toml
 def get_alg(alg):
     if alg == "independent":
         return Independent()
+    elif alg == "xgboost":
+        return XGBoost()
+    elif alg == "randomforest":
+        return RandomForest()
+    elif alg == "linear":
+        return Linear()
     elif alg == "postgres":
         return Postgres()
     elif alg == "random":
@@ -80,7 +86,9 @@ def get_alg(alg):
                     sampling_priority_alpha = args.sampling_priority_alpha,
                     adaptive_priority_alpha = args.adaptive_priority_alpha,
                     net_name = args.net_name,
-                    eval_iter_jl = args.eval_iter_jl)
+                    eval_iter_jl = args.eval_iter_jl,
+                    num_tables_model = args.num_tables_model,
+                    num_trees = args.rf_trees)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
@@ -477,6 +485,10 @@ def read_flags():
     # parser = argparse.ArgumentParser()
     parser.add_argument("--results_cache", type=str, required=False,
             default="./results")
+    parser.add_argument("--num_tables_model", type=str, required=False,
+            default="nn")
+    parser.add_argument("--rf_trees", type=int, required=False,
+            default=128)
     parser.add_argument("--exp_name", type=str, required=False,
             default="card_exp")
     parser.add_argument("--pgm_backend", type=str, required=False,
