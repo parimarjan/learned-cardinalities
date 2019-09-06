@@ -180,7 +180,7 @@ class PGM():
 
         print("pgm model took {} seconds to train".format(time.time()-start))
 
-    def evaluate(self, rv_values, weights=None, weights_method=2):
+    def evaluate(self, rv_values, weights=None, weights_method=1):
         '''
         @rv_values: Each element is a list. i-th element represents the i-th
         random variable, and the assignments for that random variable which

@@ -515,8 +515,8 @@ class OurPGM(CardinalityEstimationAlg):
             if len(self.column_bins) == 0:
                 est_sel = self.model.evaluate(possible_vals)
             else:
-                # est_sel = self.model.evaluate(possible_vals, weights)
-                est_sel = self.model.evaluate(possible_vals)
+                est_sel = self.model.evaluate(possible_vals, weights)
+                # est_sel = self.model.evaluate(possible_vals)
 
             if self.DEBUG:
                 true_sel = query.true_sel

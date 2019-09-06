@@ -381,7 +381,8 @@ def main():
         if args.test:
             eval_alg(alg, losses, test_queries, args.use_subqueries)
         eval_times[alg.__str__()] = round(time.time() - start, 2)
-        num_params[alg.__str__()] = alg.num_parameters()
+        # print("going to call num parameters")
+        # num_params[alg.__str__()] = alg.num_parameters()
 
     results = {}
     results["training_queries"] = train_queries
