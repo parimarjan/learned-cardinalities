@@ -8,11 +8,11 @@ from utils.utils import *
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from utils.net import SimpleRegression
+from utils.net import *
 from cardinality_estimation.losses import *
 import pandas as pd
 import json
-from multiprocessing import Pool
+# from multiprocessing import Pool
 from pgm import PGM
 import park
 
@@ -25,6 +25,12 @@ from collections import defaultdict
 import sys
 import klepto
 import datetime
+import multiprocessing
+# from torch.multiprocessing import set_start_method
+# try:
+    # set_start_method('spawn')
+# except RuntimeError:
+    # pass
 
 # FIXME: temporary hack
 NULL_VALUE = "-1"
@@ -158,7 +164,7 @@ class OurPGM(CardinalityEstimationAlg):
         self.num_bins = 100
         self.test_cache = {}
         self.column_bins = {}
-        self.DEBUG = False
+        self.DEBUG = True
 
     def __str__(self):
         name = self.alg_name
@@ -741,7 +747,7 @@ class NN2(CardinalityEstimationAlg):
         self.num_hidden_layers = kwargs["num_hidden_layers"]
         self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
         self.eval_iter = kwargs["eval_iter"]
-        self.eval_iter_jl = self.eval_iter
+        self.eval_iter_jl = kwargs["eval_iter_jl"]
         self.optimizer_name = kwargs["optimizer_name"]
 
         self.clip_gradient = kwargs["clip_gradient"]
@@ -754,6 +760,7 @@ class NN2(CardinalityEstimationAlg):
         self.sampling_priority_method = kwargs["sampling_priority_method"]
         self.adaptive_priority_alpha = kwargs["adaptive_priority_alpha"]
         self.sampling_priority_alpha = kwargs["sampling_priority_alpha"]
+        self.net_name = kwargs["net_name"]
 
         nn_cache_dir = kwargs["nn_cache_dir"]
 
@@ -818,10 +825,14 @@ class NN2(CardinalityEstimationAlg):
 
         print("feature len: ", len(features))
 
-        # do training
-        net = SimpleRegression(len(features),
-                self.hidden_layer_multiple, 1,
-                num_hidden_layers=self.num_hidden_layers)
+        if self.net_name == "FCNN":
+            # do training
+            net = SimpleRegression(len(features),
+                    self.hidden_layer_multiple, 1,
+                    num_hidden_layers=self.num_hidden_layers)
+        elif self.net_name == "LinearRegression":
+            net = LinearRegression(len(features),
+                    1)
 
         if self.loss_func == "qloss":
             loss_func = qloss_torch
@@ -838,7 +849,7 @@ class NN2(CardinalityEstimationAlg):
                     self.lr, self.jl_start_iter, loss_func=loss_func,
                     max_iter=self.max_iter, tfboard_dir=None,
                     loss_threshold=2.0, jl_variant=self.jl_variant,
-                    eval_iter_jl=self.eval_iter,
+                    eval_iter_jl=self.eval_iter_jl,
                     clip_gradient=self.clip_gradient,
                     rel_qerr_loss=self.rel_qerr_loss,
                     adaptive_lr=self.adaptive_lr, rel_jloss=self.rel_jloss)
@@ -848,7 +859,6 @@ class NN2(CardinalityEstimationAlg):
             print("park exception")
 
         self.training_cache.dump()
-        # just continue as normal, go on to evaluate algorithm etc.
 
     def _periodic_eval(self, net, samples, X, Y, env, key, loss_func, num_iter,
             scheduler):
@@ -857,23 +867,22 @@ class NN2(CardinalityEstimationAlg):
         pred = pred.squeeze(1)
         train_loss = loss_func(pred, Y)
         self.stats[key]["eval"]["qerr"][num_iter] = train_loss.item()
+        print("""\n{}: {}, num samples: {}, qerr: {}""".format(
+            key, num_iter, len(X), train_loss.item()))
 
         # FIXME: add scheduler loss ONLY for training cases
         if not self.jl_variant and self.adaptive_lr and key == "train":
             # FIXME: should we do this for minibatch / or for train loss?
             scheduler.step(train_loss)
 
-        if (num_iter % self.eval_iter_jl == 0):
+        if (num_iter % self.eval_iter_jl == 0 \
+                and num_iter != 0):
             jl_eval_start = time.time()
             est_card_costs, baseline_costs = join_loss(pred, samples, env,
                     baseline=self.baseline)
 
             join_losses = np.array(est_card_costs) - np.array(baseline_costs)
             join_losses2 = np.array(est_card_costs) / np.array(baseline_costs)
-
-            # for ji, jl in enumerate(join_losses):
-                # if jl < 0:
-                    # print(ji, jl)
 
             jl1 = np.mean(join_losses)
             jl2 = np.mean(join_losses2)
@@ -894,7 +903,7 @@ class NN2(CardinalityEstimationAlg):
 
             return join_losses, join_losses2
 
-        return None
+        return None, None
 
     def update_sampling_weights(self, priorities):
         '''
@@ -994,7 +1003,7 @@ class NN2(CardinalityEstimationAlg):
                 print(num_iter, end=",")
                 sys.stdout.flush()
 
-            if (num_iter % self.eval_iter_jl == 0):
+            if (num_iter % self.eval_iter == 0):
                 join_losses, join_losses_ratio = self._periodic_eval(net, training_samples, X, Y,
                         env, "train", loss_func, num_iter, scheduler)
                 if test_samples:
@@ -1006,7 +1015,8 @@ class NN2(CardinalityEstimationAlg):
                     env = park.make('query_optimizer')
 
                 # update query_sampling_wieghts if needed
-                if query_sampling_weights is not None:
+                if query_sampling_weights is not None \
+                        and join_losses is not None:
                     if self.adaptive_priority_alpha:
                         # temporary:
                         self.sampling_priority_alpha = num_iter / 4000
@@ -1031,10 +1041,6 @@ class NN2(CardinalityEstimationAlg):
                         query_sampling_weights = self.update_sampling_weights(jl_priorities)
 
                     elif self.sampling_priority_method == "jl_diff":
-                        # total_join_loss = np.sum(np.array(join_losses))
-                        # for wi, _ in enumerate(query_sampling_weights):
-                            # wt = join_losses[wi] / total_join_loss
-                            # query_sampling_weights[wi] = wt
                         query_sampling_weights = self.update_sampling_weights(join_losses)
 
                     else:
@@ -1178,6 +1184,29 @@ class NN2(CardinalityEstimationAlg):
 
         return name
 
+def train_nn_par(net, optimizer, X, Y, loss_func, clip_gradient,
+        num_iter):
+
+    MB_SIZE = 128
+    idxs = np.random.choice(list(range(len(X))), MB_SIZE)
+    X = to_variable(X).float()
+    Y = to_variable(Y).float()
+    xbatch = X[idxs]
+    ybatch = Y[idxs]
+
+    pred = net(xbatch)
+    pred = pred.squeeze(1)
+    loss = loss_func(pred, ybatch)
+
+    optimizer.zero_grad()
+    loss.backward()
+    print("loss: {}".format(loss.item()))
+
+    if clip_gradient is not None:
+        clip_grad_norm_(net.parameters(), clip_gradient)
+
+    optimizer.step()
+
 class NumTablesNN(CardinalityEstimationAlg):
     '''
     Will divide the queries AND subqueries based on the number of tables in it,
@@ -1220,7 +1249,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.num_hidden_layers = kwargs["num_hidden_layers"]
         self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
         self.eval_iter = kwargs["eval_iter"]
-        self.eval_iter_jl = self.eval_iter
+        self.eval_iter_jl = kwargs["eval_iter_jl"]
         self.optimizer_name = kwargs["optimizer_name"]
 
         self.clip_gradient = kwargs["clip_gradient"]
@@ -1233,6 +1262,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.sampling_priority_method = kwargs["sampling_priority_method"]
         self.adaptive_priority_alpha = kwargs["adaptive_priority_alpha"]
         self.sampling_priority_alpha = kwargs["sampling_priority_alpha"]
+        self.net_name = kwargs["net_name"]
 
         nn_cache_dir = kwargs["nn_cache_dir"]
 
@@ -1273,46 +1303,84 @@ class NumTablesNN(CardinalityEstimationAlg):
 
         self.stats["model_params"] = {}
 
+    def _periodic_eval(self, samples, env, key, loss_func,
+            num_iter):
+
+        assert (num_iter % self.eval_iter == 0)
+        Y = []
+        pred = []
+        # it is important to maintain the same order of traversal for the
+        # join_loss compute function to work (ugh...)
+        for sample in samples:
+            Y.append(sample.true_sel)
+            num_tables = len(sample.froms)
+            pred.append(self.nets[num_tables](sample.features).item())
+            for subq in sample.subqueries:
+                Y.append(subq.true_sel)
+                num_tables = len(subq.froms)
+                pred.append(self.nets[num_tables](subq.features).item())
+
+        pred = to_variable(pred).float()
+        Y = to_variable(Y).float()
+        train_loss = loss_func(pred, Y)
+        self.stats[key]["eval"]["qerr"][num_iter] = train_loss.item()
+
+        print("""\n{}: {}, num samples: {}, loss: {}""".format(
+            key, num_iter, len(Y), train_loss.item()))
+
+        if (num_iter % self.eval_iter_jl == 0):
+            jl_eval_start = time.time()
+            est_card_costs, baseline_costs = join_loss(pred, samples, env,
+                    baseline=self.baseline)
+
+            join_losses = np.array(est_card_costs) - np.array(baseline_costs)
+            join_losses2 = np.array(est_card_costs) / np.array(baseline_costs)
+
+            jl1 = np.mean(join_losses)
+            jl2 = np.mean(join_losses2)
+
+            # FIXME: remove all negative values, so weighted_prob can work
+            # fine. But there really shouldn't be any negative values here.
+            join_losses = np.maximum(join_losses, 0.00)
+
+            self.stats[key]["eval"]["join-loss"][num_iter] = jl1
+
+            # TODO: add color to key values.
+            print("""\n{}: {}, num samples: {}, loss: {}, jl1 {},jl2 {},time: {}""".format(
+                key, num_iter, len(Y), train_loss.item(), jl1, jl2,
+                time.time()-jl_eval_start))
+
+            return join_losses, join_losses2
+
+        return None, None
+
     def train(self, db, training_samples, **kwargs):
         '''
+        NN3.
         '''
         self.db = db
         db.init_featurizer()
         test_samples = kwargs["test_samples"]
 
         ## FIXME: don't store features in query objects
-        # initialize samples
-        for sample in training_samples:
-            features = db.get_features(sample)
-            sample.features = features
-            for subq in sample.subqueries:
-                subq_features = db.get_features(subq)
-                subq.features = subq_features
-
-        if test_samples:
-            for sample in test_samples:
-                features = db.get_features(sample)
-                sample.features = features
-                for subq in sample.subqueries:
-                    subq_features = db.get_features(subq)
-                    subq.features = subq_features
-
-        print("feature len: ", len(features))
-
         ## FIXME: decompose.
         # divide samples based on queries.
         for sample in training_samples:
             features = db.get_features(sample)
-            sample.features = features
             num_tables = len(sample.froms)
             if num_tables not in self.samples:
                 self.samples[num_tables] = []
                 self.Xtrains[num_tables] = []
                 self.Ytrains[num_tables] = []
 
-            self.samples[num_tables].append(sample)
             self.Xtrains[num_tables].append(features)
             self.Ytrains[num_tables].append(sample.true_sel)
+
+            ## why convert to torch here and not there...
+            features = to_variable(features).float()
+            sample.features = features
+
+            self.samples[num_tables].append(sample)
 
             for subq in sample.subqueries:
                 num_tables = len(subq.froms)
@@ -1324,33 +1392,43 @@ class NumTablesNN(CardinalityEstimationAlg):
 
                 self.samples[num_tables].append(subq)
                 subq_features = db.get_features(subq)
-                subq.features = subq_features
+
                 self.Xtrains[num_tables].append(subq_features)
                 self.Ytrains[num_tables].append(subq.true_sel)
 
-        if test_samples:
-            for sample in test_samples:
-                features = db.get_features(sample)
-                sample.features = features
-                for subq in sample.subqueries:
-                    subq_features = db.get_features(subq)
-                    subq.features = subq_features
+                subq_features = to_variable(subq_features).float()
+                subq.features = subq_features
 
         for num_tables in self.samples:
             X = self.Xtrains[num_tables]
             Y = self.Ytrains[num_tables]
-            X = to_variable(X).float()
-            Y = to_variable(Y).float()
-            self.Xtrains[num_tables] = X
-            self.Ytrains[num_tables] = Y
+            self.Xtrains[num_tables] = to_variable(X).float()
+            self.Ytrains[num_tables] = to_variable(Y).float()
+
+        if test_samples:
+            for sample in test_samples:
+                features = db.get_features(sample)
+                features = to_variable(features).float()
+                sample.features = features
+                for subq in sample.subqueries:
+                    subq_features = db.get_features(subq)
+                    subq_features = to_variable(subq_features).float()
+                    subq.features = subq_features
 
         for num_tables in self.samples:
             sample = self.samples[num_tables][0]
             features = db.get_features(sample)
-            net = SimpleRegression(len(features),
-                    self.hidden_layer_multiple, 1,
-                    num_hidden_layers=self.num_hidden_layers)
+            if self.net_name == "FCNN":
+                # do training
+                net = SimpleRegression(len(features),
+                        self.hidden_layer_multiple, 1,
+                        num_hidden_layers=self.num_hidden_layers)
+            elif self.net_name == "LinearRegression":
+                net = LinearRegression(len(features),
+                        1)
+
             self.nets[num_tables] = net
+            print("created net {} for {} tables".format(net, num_tables))
 
             if self.optimizer_name == "ams":
                 optimizer = torch.optim.Adam(net.parameters(), lr=self.lr,
@@ -1372,43 +1450,70 @@ class NumTablesNN(CardinalityEstimationAlg):
         # now let us just train each of these separately. After every training
         # iteration, we will evaluate the join-loss, using ALL of them.
         # Train each net for N iterations, and then evaluate.
+        start = time.time()
         while True:
             if (num_iter % 100 == 0):
                 # progress stuff
                 print(num_iter, end=",")
                 sys.stdout.flush()
 
-            if (num_iter % self.eval_iter_jl == 0):
+            if (num_iter % self.eval_iter == 0 and num_iter != 0):
                 # evaluation code
-                pass
+                join_losses, join_losses_ratio = self._periodic_eval(training_samples,
+                        env, "train", self.loss_func, num_iter)
+                if test_samples:
+                    self._periodic_eval(test_samples,
+                            env,"test", self.loss_func, num_iter)
 
-            for num_tables, cur_samples in self.samples.items():
-                optimizer = self.optimizers[num_tables]
-                net = self.nets[num_tables]
-                X = self.Xtrains[num_tables]
-                Y = self.Ytrains[num_tables]
-                MB_SIZE = 128
-                idxs = np.random.choice(list(range(len(X))), MB_SIZE)
-                xbatch = X[idxs]
-                ybatch = Y[idxs]
+            for num_tables, _ in self.samples.items():
+                # for train_it in range(self.eval_iter):
+                for train_it in range(1):
+                    optimizer = self.optimizers[num_tables]
+                    net = self.nets[num_tables]
+                    X = self.Xtrains[num_tables]
+                    Y = self.Ytrains[num_tables]
 
-                pred = net(xbatch)
-                pred = pred.squeeze(1)
-                loss = self.loss_func(pred, ybatch)
+                    MB_SIZE = 128
+                    idxs = np.random.choice(list(range(len(X))), MB_SIZE)
+                    xbatch = X[idxs]
+                    ybatch = Y[idxs]
 
-                optimizer.zero_grad()
-                loss.backward()
-                if self.clip_gradient is not None:
-                    clip_grad_norm_(net.parameters(), self.clip_gradient)
+                    pred = net(xbatch)
+                    pred = pred.squeeze(1)
+                    loss = self.loss_func(pred, ybatch)
 
-                optimizer.step()
+                    optimizer.zero_grad()
+                    loss.backward()
 
+                    if self.clip_gradient is not None:
+                        clip_grad_norm_(net.parameters(), self.clip_gradient)
+
+                    optimizer.step()
+
+            # num_iter += self.eval_iter
+            num_iter += 1
             if (num_iter > self.max_iter):
-                print("breaking because max iter done")
+                print("max iter done in: ", time.time() - start)
                 break
 
-            num_iter += 1
-
+            # FIXME: failed attempt
+            # TODO: parallelize this loop, and can run it in parallel for
+            # eval_iter iterations
+            # print(num_iter)
+            # num_processes = 2
+            # with torch.multiprocessing.Pool(processes=num_processes) as pool:
+                # args = [(self.nets[num_tables],
+                         # self.optimizers[num_tables],
+                         # self.Xtrains[num_tables],
+                         # self.Ytrains[num_tables],
+                         # self.loss_func,
+                         # self.clip_gradient,
+                         # self.eval_iter) for num_tables in self.samples]
+                # pool.starmap(train_nn_par, args)
+            # num_iter += self.eval_iter
+            # if (num_iter > self.max_iter):
+                # print("max iter done in: ", time.time() - start)
+                # break
 
     def test(self, test_samples, **kwargs):
         pass

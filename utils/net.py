@@ -4,6 +4,22 @@ import torch.nn.functional as F
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+class LinearRegression(torch.nn.Module):
+    # TODO: add more stuff?
+    def __init__(self, input_width,
+            n_output):
+        super(LinearRegression, self).__init__()
+
+        self.final_layer = nn.Sequential(
+            nn.Linear(input_width, n_output, bias=True),
+            nn.Sigmoid()
+        ).to(device)
+
+    def forward(self, x):
+        output = x
+        output = self.final_layer(output)
+        return output
+
 class SimpleRegression(torch.nn.Module):
     # TODO: add more stuff?
     def __init__(self, input_width, hidden_width_multiple,

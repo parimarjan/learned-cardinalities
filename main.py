@@ -58,7 +58,9 @@ def get_alg(alg):
                     sampling=args.sampling,
                     sampling_priority_method=args.sampling_priority_method,
                     sampling_priority_alpha = args.sampling_priority_alpha,
-                    adaptive_priority_alpha = args.adaptive_priority_alpha)
+                    adaptive_priority_alpha = args.adaptive_priority_alpha,
+                    net_name = args.net_name,
+                    eval_iter_jl = args.eval_iter_jl)
     elif alg == "nn3":
         return NumTablesNN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,
@@ -76,7 +78,9 @@ def get_alg(alg):
                     sampling=args.sampling,
                     sampling_priority_method=args.sampling_priority_method,
                     sampling_priority_alpha = args.sampling_priority_alpha,
-                    adaptive_priority_alpha = args.adaptive_priority_alpha)
+                    adaptive_priority_alpha = args.adaptive_priority_alpha,
+                    net_name = args.net_name,
+                    eval_iter_jl = args.eval_iter_jl)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
@@ -320,6 +324,7 @@ def main():
 
     for i, template in enumerate(query_templates):
         # generate queries
+        print(os.path.basename(fns[i]))
         query_strs = gen_query_strs(args, template,
                 args.num_samples_per_template, sql_str_cache)
         # deduplicate
@@ -500,7 +505,9 @@ def read_flags():
     parser.add_argument("--jl_start_iter", type=int,
             required=False, default=200)
     parser.add_argument("--eval_iter", type=int,
-            required=False, default=200)
+            required=False, default=1000)
+    parser.add_argument("--eval_iter_jl", type=int,
+            required=False, default=5000)
     parser.add_argument("--lr", type=float,
             required=False, default=0.001)
     parser.add_argument("--clip_gradient", type=float,
@@ -520,7 +527,9 @@ def read_flags():
             default=0)
 
     parser.add_argument("--optimizer_name", type=str, required=False,
-            default="adam")
+            default="sgd")
+    parser.add_argument("--net_name", type=str, required=False,
+            default="FCNN")
 
     parser.add_argument("--num_hidden_layers", type=int,
             required=False, default=1)
@@ -553,7 +562,7 @@ def read_flags():
     parser.add_argument("--test", type=int, required=False,
             default=1)
     parser.add_argument("--num_bins", type=int, required=False,
-            default=10)
+            default=100)
     parser.add_argument("--avg_factor", type=int, required=False,
             default=1)
     parser.add_argument("--test_size", type=float, required=False,
