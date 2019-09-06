@@ -303,6 +303,12 @@ def print_runtime_summary(results_cache):
     for k,v in rts.items():
         print(k, np.mean(np.array(v)))
 
+def skip_experiment(result_args):
+    '''
+    @ret: True, if conditions to skip experiment are met.
+    '''
+    pass
+
 def parse_query_objs(results_cache, trainining_queries=True):
     '''
     '''
@@ -318,15 +324,10 @@ def parse_query_objs(results_cache, trainining_queries=True):
             if args.db_name != result_args.db_name:
                 print("skipping: ", result_args.db_name)
                 continue
-            if hasattr(result_args, "optimizer_name"):
-                optimizer_name = result_args.optimizer_name
-            else:
-                optimizer_name = "unknown"
+            optimizer_name = result_args.optimizer_name
+            jl_start_iter = result_args.jl_start_iter
 
-            if hasattr(result_args, "jl_start_iter"):
-                jl_start_iter = result_args.jl_start_iter
-            else:
-                jl_start_iter = -1
+        # if skip_experiment(
 
         # else, just parse it
 
@@ -633,8 +634,7 @@ def gen_error_summaries(df, pdf, algs_to_plot=None,barcharts=False, tables=True)
 def plot_queries(query_data, pdf):
     for qname, queries in query_data.items():
         plot_query(queries[0], pdf)
-        break
-        # plot_single_query(qname, queries, pdf)
+        plot_single_query(qname, queries, pdf)
 
 def plot_single_query(qname, queries, pdf):
     base_alg = [alg for alg in queries[0].join_info.keys()][0]
