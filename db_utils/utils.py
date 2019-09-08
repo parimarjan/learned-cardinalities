@@ -11,6 +11,19 @@ import psycopg2 as pg
 from utils.utils import *
 import networkx as nx
 import klepto
+import getpass
+import os
+import subprocess as sp
+import time
+from sqlparse.sql import IdentifierList, Identifier
+from sqlparse.tokens import Keyword, DML
+
+import networkx as nx
+from networkx.drawing.nx_agraph import write_dot,graphviz_layout
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
@@ -26,7 +39,217 @@ MAX_TEMPLATE = "SELECT {COL} FROM {TABLE} WHERE {COL} IS NOT NULL ORDER BY {COL}
 UNIQUE_VALS_TEMPLATE = "SELECT DISTINCT {COL} FROM {FROM_CLAUSE}"
 UNIQUE_COUNT_TEMPLATE = "SELECT COUNT(*) FROM (SELECT DISTINCT {COL} from {FROM_CLAUSE}) AS t"
 
+INDEX_LIST_CMD = """
+select
+    t.relname as table_name,
+    a.attname as column_name,
+    i.relname as index_name
+from
+    pg_class t,
+    pg_class i,
+    pg_index ix,
+    pg_attribute a
+where
+    t.oid = ix.indrelid
+    and i.oid = ix.indexrelid
+    and a.attrelid = t.oid
+    and a.attnum = ANY(ix.indkey)
+    and t.relkind = 'r'
+   -- and t.relname like 'mytable'
+order by
+    t.relname,
+    i.relname;"""
+
+
 RANGE_PREDS = ["gt", "gte", "lt", "lte"]
+
+CREATE_INDEX_TMP = '''CREATE INDEX IF NOT EXISTS {INDEX_NAME} ON {TABLE} ({COLUMN});'''
+
+def _find_all_tables(plan):
+    '''
+    '''
+    # find all the scan nodes under the current level, and return those
+    table_names = extract_values(plan, "Relation Name")
+    table_names.sort()
+    return table_names
+
+def plot_graph_explain(G, base_table_nodes, join_nodes, fn, title="test"):
+    NODE_SIZE = 300
+    plt.title(title)
+    pos = graphviz_layout(G, prog='dot')
+    # first draw just the base tables
+    nx.draw_networkx_nodes(G, pos,
+               nodelist=base_table_nodes,
+               node_color='b',
+               node_size=NODE_SIZE,
+               alpha=0.2)
+
+    nx.draw_networkx_nodes(G, pos,
+               nodelist=join_nodes,
+               node_color='r',
+               node_size=NODE_SIZE,
+               alpha=0.2)
+
+
+    node_labels = {}
+    for n in G.nodes():
+        if len(G.nodes[n]["tables"]) == 1:
+            node_labels[n] = n
+        else:
+            node_labels[n] = n
+
+        nx.draw_networkx_labels(G, pos, node_labels, font_size=8)
+
+    nx.draw_networkx_edges(G,pos,width=1.0,
+            alpha=0.5,with_labels=False)
+    plt.tight_layout()
+    plt.savefig(fn)
+    plt.close()
+
+def explain_to_nx(explain):
+    '''
+    '''
+    # JOIN_KEYS = ["Hash Join", "Nested Loop", "Join"]
+    base_table_nodes = []
+    join_nodes = []
+
+    def _get_node_name(tables):
+        name = ""
+        if len(tables) > 1:
+            name = str(deterministic_hash(str(tables)))[0:5]
+            join_nodes.append(name)
+        else:
+            name = tables[0]
+            # shorten it
+            name = "".join([n[0] for n in name.split("_")])
+            if name in base_table_nodes:
+                name = name + "2"
+            base_table_nodes.append(name)
+        return name
+
+    def traverse(obj):
+        """Return all matching values in an object."""
+        if isinstance(obj, dict):
+            if "Plans" in obj:
+                if len(obj["Plans"]) == 2:
+                    # these are all the joins
+                    left_tables = _find_all_tables(obj["Plans"][0])
+                    right_tables = _find_all_tables(obj["Plans"][1])
+                    all_tables = left_tables + right_tables
+                    node_type = obj["Node Type"]
+                    all_tables.sort()
+
+                    node0 = _get_node_name(left_tables)
+                    node1 = _get_node_name(right_tables)
+                    node_new = _get_node_name(all_tables)
+                    # print(left_tables)
+                    # print(right_tables)
+                    # print(obj.keys())
+                    # print(obj["Node Type"])
+                    # print("cost: ", obj["Total Cost"])
+                    # # print("time: ", obj["Actual Total Time"])
+                    # # print("actual rows: ", obj["Actual Rows"])
+                    # print("plan rows: ", obj["Plan Rows"])
+                    # print("width: ", obj["Plan Width"])
+                    # # print("Actual Loops: ", obj["Actual Loops"])
+                    # print("parallel: ", obj["Parallel Aware"])
+                    # if left_tables[0] == "movie_info" and right_tables[0] == "title":
+                        # print("movie info and title")
+                        # pdb.set_trace()
+                    # print("left plan rows: ", obj["Plans"][0]["Plan Rows"])
+                    # print("right plan rows: ", obj["Plans"][1]["Plan Rows"])
+                    # print("left parallel: ", obj["Plans"][0]["Parallel Aware"])
+                    # print("right plan rows: ", obj["Plans"][1]["Parallel Aware"])
+                    # assert not obj["Plans"][0]["Parallel Aware"]
+                    # assert not obj["Plans"][1]["Parallel Aware"]
+
+                    # pdb.set_trace()
+
+                    # update graph
+                    # G.add_edge(node0, node1)
+                    G.add_edge(node0, node_new)
+                    G.add_edge(node1, node_new)
+                    # add other parameters on the nodes
+                    G.nodes[node0]["tables"] = left_tables
+                    G.nodes[node1]["tables"] = right_tables
+                    G.nodes[node_new]["tables"] = all_tables
+
+            for k, v in obj.items():
+                if isinstance(v, (dict, list)):
+                    traverse(v)
+                # print(k)
+
+        elif isinstance(obj, list):
+            for item in obj:
+                traverse(item)
+
+    G = nx.DiGraph()
+    traverse(explain)
+    G.base_table_nodes = base_table_nodes
+    G.join_nodes = join_nodes
+    return G
+
+def benchmark_sql(sql, user, db_host, port, pwd, db_name,
+        join_collapse_limit):
+    '''
+    TODO: should we be doing anything smarter?
+    '''
+    query_tmp = "SET join_collapse_limit={jcl}; {sql}"
+    sql = query_tmp.format(jcl=join_collapse_limit, sql=sql)
+    # first drop cache
+    # FIXME: choose the right file automatically
+    drop_cache_cmd = "./drop_cache.sh"
+    p = sp.Popen(drop_cache_cmd, shell=True)
+    p.wait()
+    time.sleep(2)
+
+    os_user = getpass.getuser()
+    # con = pg.connect(user=user, port=port,
+            # password=pwd, database=db_name, host=db_host)
+
+    if os_user == "ubuntu":
+        # for aws
+        # con = pg.connect(user=user, port=port,
+                # password=pwd, database=db_name)
+        print(user, db_host, port, pwd, db_name)
+        con = pg.connect(user=user, host=db_host, port=port,
+                password=pwd, database=db_name)
+    else:
+        # for chunky
+        con = pg.connect(user=user, host=db_host, port=port,
+                password=pwd, database=db_name)
+
+    cursor = con.cursor()
+    start = time.time()
+    cursor.execute(sql)
+
+    exec_time = time.time() - start
+
+    output = cursor.fetchall()
+    cursor.close()
+    con.close()
+
+    return output, exec_time
+
+def visualize_query_plan(sql, db_name, out_name_suffix):
+    '''
+    '''
+    if "EXPLAIN" not in sql:
+        sql = "EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT JSON) " + sql
+    # first drop cache
+    drop_cache_cmd = "./drop_cache.sh"
+    p = sp.Popen(drop_cache_cmd, shell=True)
+    p.wait()
+    time.sleep(2)
+
+    tmp_fn = "./explain/test_" + out_name_suffix + ".sql"
+    with open(tmp_fn, "w") as f:
+        f.write(sql)
+    json_out = "./explain/analyze_" + out_name_suffix + ".json"
+    psql_cmd = "psql -d {} -qAt -f {} > {}".format(db_name, tmp_fn, json_out)
+
+    p = sp.Popen(psql_cmd, shell=True)
+    p.wait()
 
 def pg_est_from_explain(output):
     '''
@@ -46,7 +269,8 @@ def pg_est_from_explain(output):
     pdb.set_trace()
     return 1.00
 
-def extract_join_clause(query):
+def extract_join_clause_old(query):
+    start = time.time()
     parsed_query = parse(query)
     pred_vals = get_all_wheres(parsed_query)
     join_clauses = []
@@ -63,6 +287,42 @@ def extract_join_clause(query):
 
         join_clauses.append(columns[0] + " = " + columns[1])
 
+    return join_clauses
+
+def extract_join_clause(query):
+    '''
+    FIXME: this can be optimized further / or made to handle more cases
+    '''
+    parsed = sqlparse.parse(query)[0]
+    # let us go over all the where clauses
+    start = time.time()
+    where_clauses = None
+    for token in parsed.tokens:
+        if (type(token) == sqlparse.sql.Where):
+            where_clauses = token
+    if where_clauses is None:
+        return []
+    join_clauses = []
+
+    froms, aliases, table_names = extract_from_clause(query)
+    if len(aliases) > 0:
+        tables = [k for k in aliases]
+    else:
+        tables = table_names
+    matches = find_all_clauses(tables, where_clauses)
+    for match in matches:
+        if "=" not in match:
+            continue
+        if "<=" or ">=" in match:
+            continue
+        match = match.replace(";", "")
+        left, right = match.split("=")
+        # ugh dumb hack
+        if "." in right:
+            # must be a join, so add it.
+            join_clauses.append(left.strip() + " = " + right.strip())
+
+    # print("extract join clauses took ", time.time() - start)
     return join_clauses
 
 def get_all_wheres(parsed_query):
@@ -176,6 +436,7 @@ def extract_predicates(query):
             return None
             # assert False, "unsupported predicate type"
 
+    start = time.time()
     predicate_cols = []
     predicate_types = []
     predicate_vals = []
@@ -189,12 +450,75 @@ def extract_predicates(query):
         _parse_predicate(pred, pred_type)
 
     # print("extract predicate cols done!")
+    # print("extract predicates took ", time.time() - start)
     return predicate_cols, predicate_types, predicate_vals
 
 def extract_from_clause(query):
     '''
+    Optimized version using sqlparse.
     Extracts the from statement, and the relevant joins when there are multiple
     tables.
+    @ret: froms:
+          froms: [alias1, alias2, ...] OR [table1, table2,...]
+          aliases:{alias1: table1, alias2: table2} (OR [] if no aliases present)
+          tables: [table1, table2, ...]
+    '''
+    def handle_table(identifier):
+        table_name = identifier.get_real_name()
+        alias = identifier.get_alias()
+        tables.append(table_name)
+        if alias is not None:
+            from_clause = ALIAS_FORMAT.format(TABLE = table_name,
+                                ALIAS = alias)
+            froms.append(from_clause)
+            aliases[alias] = table_name
+        else:
+            froms.append(table_name)
+
+    start = time.time()
+    froms = []
+    # key: alias, val: table name
+    aliases = {}
+    # just table names
+    tables = []
+
+    start = time.time()
+    parsed = sqlparse.parse(query)[0]
+    # let us go over all the where clauses
+    from_token = None
+    from_seen = False
+    for token in parsed.tokens:
+        # print(type(token))
+        # print(token)
+        if from_seen:
+            if isinstance(token, IdentifierList) or isinstance(token,
+                    Identifier):
+                from_token = token
+        if token.ttype is Keyword and token.value.upper() == 'FROM':
+            from_seen = True
+
+    assert from_token is not None
+    if isinstance(from_token, IdentifierList):
+        for identifier in from_token.get_identifiers():
+            handle_table(identifier)
+    elif isinstance(from_token, Identifier):
+        handle_table(from_token)
+    else:
+        assert False
+
+    # print("extract froms parse took: ", time.time() - start)
+
+    return froms, aliases, tables
+
+def extract_from_clause_old(query):
+    '''
+    SLOW AS FUCK
+    Extracts the from statement, and the relevant joins when there are multiple
+    tables.
+    @ret: froms:
+          froms: [alias1, alias2, ...] OR [table1, table2,...]
+          aliases:{alias1: table1, alias2: table2} (OR [] if no aliases present)
+          tables: [table1, table2, ...]
     '''
     def handle_table(table):
         if isinstance(table, dict):
@@ -213,7 +537,9 @@ def extract_from_clause(query):
     # just table names
     tables = []
 
+    start = time.time()
     parsed_query = parse(query)
+    print("extract froms parse took: ", time.time() - start)
     from_clause = parsed_query["from"]
     if isinstance(from_clause, list):
         for i, table in enumerate(from_clause):
@@ -349,20 +675,6 @@ def find_all_clauses(tables, wheres):
             matched.append(match)
         if index is None:
             break
-
-    # print("tables: ", tables)
-    # print("matched: ", matched)
-    # print("all possible matches: " )
-    # for w in str(wheres).split("\n"):
-        # for t in tables:
-            # if t in w:
-                # print(w)
-    # print("where: ", wheres)
-    # pdb.set_trace()
-    # if len(tables) == 2:
-        # if (tables[0] == "ct" and tables[1] == "mc"):
-            # print(matched)
-            # pdb.set_trace()
 
     return matched
 
@@ -572,18 +884,18 @@ def gen_all_subqueries(query):
 
     ### old slow stuff
     # print("gen all subqueries!")
-    _,aliases,tables = extract_from_clause(query)
-    parsed = sqlparse.parse(query)[0]
-    # let us go over all the where clauses
-    where_clauses = None
-    for token in parsed.tokens:
-        if (type(token) == sqlparse.sql.Where):
-            where_clauses = token
-    assert where_clauses is not None
-    all_subqueries = _gen_subqueries(tables, where_clauses, aliases)
-    print("generated {} sql subqueries in {}: ".format(len(all_subqueries),
-        time.time()-start))
-    return all_subqueries
+    # _,aliases,tables = extract_from_clause(query)
+    # parsed = sqlparse.parse(query)[0]
+    # # let us go over all the where clauses
+    # where_clauses = None
+    # for token in parsed.tokens:
+        # if (type(token) == sqlparse.sql.Where):
+            # where_clauses = token
+    # assert where_clauses is not None
+    # all_subqueries = _gen_subqueries(tables, where_clauses, aliases)
+    # print("generated {} sql subqueries in {}: ".format(len(all_subqueries),
+        # time.time()-start))
+    # return all_subqueries
 
 def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         execution_cache_threshold, sql_cache_dir=None, timeout=120000):
@@ -609,22 +921,26 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
 
     start = time.time()
 
-    ## for chunky
-    con = pg.connect(user=user, host=db_host, port=port,
-            password=pwd, database=db_name)
-
-    ## for aws
-    # con = pg.connect(user=user, port=port,
-            # password=pwd, database=db_name)
+    os_user = getpass.getuser()
+    if os_user == "ubuntu":
+        # for aws
+        con = pg.connect(user=user, port=port,
+                password=pwd, database=db_name)
+    else:
+        # for chunky
+        con = pg.connect(user=user, host=db_host, port=port,
+                password=pwd, database=db_name)
 
     cursor = con.cursor()
+
+    # FIXME:
     if timeout is not None:
         cursor.execute("SET statement_timeout = {}".format(timeout))
+
     try:
+        print("before cursor.execute: ", sql)
         cursor.execute(sql)
     except Exception as e:
-        # print("query failed to execute: ", sql)
-        # FIXME: better way to do this.
         cursor.execute("ROLLBACK")
         con.commit()
         cursor.close()
@@ -690,6 +1006,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         print("no SELECT COUNT in sql!")
         exit(-1)
 
+    print(sql)
     output = cached_execute_query(sql, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
 
@@ -710,6 +1027,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     # FIXME: start caching the true total count values
     if total_count is None:
         total_count_query = get_total_count_query(sql)
+        print("total count query: ", total_count_query)
 
         # if we should just update value based on pg' estimate for total count
         # v/s finding true count
@@ -719,7 +1037,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
             exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
                     execution_cache_threshold, sql_cache, total_timeout)
             if exp_output is None:
-                print("total count query timed out")
+                # print("total count query timed out")
                 # print(total_count_query)
                 # execute it with explain
                 exp_query = "EXPLAIN " + total_count_query
@@ -733,7 +1051,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
                 print("pg total count est: ", total_count)
             else:
                 total_count = exp_output[0][0]
-                print("total count: ", total_count)
+                # print("total count: ", total_count)
         else:
             exp_query = "EXPLAIN " + total_count_query
             exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
@@ -743,11 +1061,12 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
                 print(exp_query)
                 pdb.set_trace()
             total_count = pg_est_from_explain(exp_output)
-            print("pg total count est: ", total_count)
+            # print("pg total count est: ", total_count)
 
     # need to extract predicate columns, predicate operators, and predicate
     # values now.
     pred_columns, pred_types, pred_vals = extract_predicates(sql)
+    # pred_columns, pred_types, pred_vals = None, None, None
 
     from cardinality_estimation.query import Query
     query = Query(sql, pred_columns, pred_vals, pred_types,

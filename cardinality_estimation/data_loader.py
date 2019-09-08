@@ -48,7 +48,7 @@ def load_csv_data(args, header=0, sep=","):
                     # do nothing since it is not a float!
                     pass
 
-        pdb.set_trace()
+        # pdb.set_trace()
         updated_cols = []
         for k in df.keys():
             try:
