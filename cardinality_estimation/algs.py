@@ -1248,6 +1248,7 @@ class NumTablesNN(CardinalityEstimationAlg):
     # FIXME: common stuff b/w all neural network models should be decomposed
     def __init__(self, *args, **kwargs):
 
+        self.reuse_env = True
         self.models = {}
         self.optimizers = {}
         self.samples = {}
@@ -1488,6 +1489,12 @@ class NumTablesNN(CardinalityEstimationAlg):
                     if test_samples:
                         self._periodic_eval(test_samples,
                                 env,"test", self.loss_func, num_iter)
+
+                    if (num_iter % self.eval_iter_jl == 0 \
+                            and num_iter != 0):
+                        if not self.reuse_env:
+                            env.clean()
+                            env = park.make('query_optimizer')
 
                 for num_tables, _ in self.samples.items():
                     # for train_it in range(self.eval_iter):
