@@ -938,7 +938,6 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         cursor.execute("SET statement_timeout = {}".format(timeout))
 
     try:
-        print("before cursor.execute: ", sql)
         cursor.execute(sql)
     except Exception as e:
         cursor.execute("ROLLBACK")
@@ -1006,7 +1005,6 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         print("no SELECT COUNT in sql!")
         exit(-1)
 
-    print(sql)
     output = cached_execute_query(sql, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
 
@@ -1027,7 +1025,6 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     # FIXME: start caching the true total count values
     if total_count is None:
         total_count_query = get_total_count_query(sql)
-        print("total count query: ", total_count_query)
 
         # if we should just update value based on pg' estimate for total count
         # v/s finding true count
