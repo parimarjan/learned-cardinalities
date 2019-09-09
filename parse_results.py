@@ -171,11 +171,13 @@ def gen_exp_summary(df, pdf, stat_type):
     '''
     df = df[df["stat_type"] == stat_type]
     ylabel = "time"
+    ymax = None
     if stat_type == "num_params":
         df["val"] = df["val"]*4 / (1e6)
         ylabel = "MBs"
     elif stat_type == "eval_times":
         ylabel = "Milliseconds"
+        ymax = 10
     elif stat_type == "train_times":
         ylabel = "Seconds"
 
@@ -185,6 +187,8 @@ def gen_exp_summary(df, pdf, stat_type):
             hue_order=ALGS_ORDER, order=ALGS_ORDER, palette=PALETTE)
 
     fg.set(ylabel=ylabel)
+    # if ymax is not None:
+        # fg.set(ylim=ymax)
 
     # fg.set(yscale="log")
     fg.despine(left=True)
