@@ -1489,12 +1489,11 @@ class NumTablesNN(CardinalityEstimationAlg):
                     print(num_iter, end=",")
                     sys.stdout.flush()
 
-                if (num_iter % self.eval_iter == 0 and num_iter != 0):
+                if (num_iter % self.eval_iter == 0):
                     # evaluation code
                     if (num_iter % self.eval_iter_jl == 0 \
-                            and env is None):
-                        if not self.reuse_env:
-                            env = park.make('query_optimizer')
+                            and not self.reuse_env):
+                        env = park.make('query_optimizer')
 
                     join_losses, join_losses_ratio = self._periodic_eval(training_samples,
                             env, "train", self.loss_func, num_iter)
@@ -1502,7 +1501,7 @@ class NumTablesNN(CardinalityEstimationAlg):
                         self._periodic_eval(test_samples,
                                 env,"test", self.loss_func, num_iter)
 
-                    if not self.reuse_env:
+                    if not self.reuse_env and env is not None:
                         env.clean()
                         env = None
 
