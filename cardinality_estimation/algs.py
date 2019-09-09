@@ -809,6 +809,7 @@ class NN2(CardinalityEstimationAlg):
 
         # all the configuration parameters are specified here
         self.stats["kwargs"] = kwargs
+        self.stats["name"] = self.__str__()
 
         # iteration : value
         self.stats["gradients"] = {}
@@ -1248,7 +1249,7 @@ class NumTablesNN(CardinalityEstimationAlg):
     # FIXME: common stuff b/w all neural network models should be decomposed
     def __init__(self, *args, **kwargs):
 
-        self.reuse_env = False
+        self.reuse_env = kwargs["reuse_env"]
         self.models = {}
         self.optimizers = {}
         self.samples = {}
@@ -1314,6 +1315,7 @@ class NumTablesNN(CardinalityEstimationAlg):
 
         # all the configuration parameters are specified here
         self.stats["kwargs"] = kwargs
+        self.stats["name"] = self.__str__()
 
         # iteration : value
         self.stats["gradients"] = {}

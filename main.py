@@ -88,7 +88,8 @@ def get_alg(alg):
                     net_name = args.net_name,
                     eval_iter_jl = args.eval_iter_jl,
                     num_tables_model = args.num_tables_model,
-                    num_trees = args.rf_trees)
+                    num_trees = args.rf_trees,
+                    reuse_env = args.reuse_env)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
@@ -502,6 +503,8 @@ def read_flags():
             default="./results")
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
+    parser.add_argument("--reuse_env", type=int, required=False,
+            default=1)
     parser.add_argument("--rf_trees", type=int, required=False,
             default=128)
     parser.add_argument("--exp_name", type=str, required=False,
