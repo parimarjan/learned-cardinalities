@@ -284,8 +284,8 @@ class Sampling(CardinalityEstimationAlg):
                 if cmp_op == "in":
                     cur_df = cur_df[cur_df[pred].isin(vals)]
                 elif cmp_op == "lt":
-                    lb = int(vals[0])
-                    ub = int(vals[1])
+                    lb = float(vals[0])
+                    ub = float(vals[1])
                     assert lb <= ub
                     cur_df = cur_df[cur_df[pred] >= lb]
                     cur_df = cur_df[cur_df[pred] < ub]
