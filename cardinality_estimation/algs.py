@@ -1469,8 +1469,10 @@ class NumTablesNN(CardinalityEstimationAlg):
 
         num_iter = 0
         # create a new park env, and close at the end.
-        # env = park.make('query_optimizer')
-        env = None
+        if self.reuse_env:
+            env = park.make('query_optimizer')
+        else:
+            env = None
 
         # now let us just train each of these separately. After every training
         # iteration, we will evaluate the join-loss, using ALL of them.
