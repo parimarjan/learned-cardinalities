@@ -1248,7 +1248,7 @@ class NumTablesNN(CardinalityEstimationAlg):
     # FIXME: common stuff b/w all neural network models should be decomposed
     def __init__(self, *args, **kwargs):
 
-        self.reuse_env = True
+        self.reuse_env = False
         self.models = {}
         self.optimizers = {}
         self.samples = {}
@@ -1469,7 +1469,8 @@ class NumTablesNN(CardinalityEstimationAlg):
 
         num_iter = 0
         # create a new park env, and close at the end.
-        env = park.make('query_optimizer')
+        # env = park.make('query_optimizer')
+        env = None
 
         # now let us just train each of these separately. After every training
         # iteration, we will evaluate the join-loss, using ALL of them.
@@ -1484,17 +1485,21 @@ class NumTablesNN(CardinalityEstimationAlg):
 
                 if (num_iter % self.eval_iter == 0 and num_iter != 0):
                     # evaluation code
+                    if (num_iter % self.eval_iter_jl == 0 \
+                            and env is None):
+                        if not self.reuse_env:
+                            env = park.make('query_optimizer')
+
                     join_losses, join_losses_ratio = self._periodic_eval(training_samples,
                             env, "train", self.loss_func, num_iter)
                     if test_samples:
                         self._periodic_eval(test_samples,
                                 env,"test", self.loss_func, num_iter)
 
-                    if (num_iter % self.eval_iter_jl == 0 \
-                            and num_iter != 0):
-                        if not self.reuse_env:
-                            env.clean()
-                            env = park.make('query_optimizer')
+                    if not self.reuse_env:
+                        env.clean()
+                        env = None
+
 
                 for num_tables, _ in self.samples.items():
                     # for train_it in range(self.eval_iter):

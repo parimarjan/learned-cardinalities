@@ -536,7 +536,7 @@ def read_flags():
     parser.add_argument("--eval_iter_jl", type=int,
             required=False, default=5000)
     parser.add_argument("--lr", type=float,
-            required=False, default=0.001)
+            required=False, default=0.0001)
     parser.add_argument("--clip_gradient", type=float,
             required=False, default=10.0)
     parser.add_argument("--rel_qerr_loss", type=int,
