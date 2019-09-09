@@ -1023,12 +1023,17 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     print("pg_est: ", pg_est)
 
     # FIXME: start caching the true total count values
+
     if total_count is None:
         total_count_query = get_total_count_query(sql)
 
         # if we should just update value based on pg' estimate for total count
         # v/s finding true count
         TRUE_TOTAL_COUNT = True
+
+        # FIXME: do we want this?
+        if true_val == 0:
+            TRUE_TOTAL_COUNT = False
         total_timeout = 180000
         if TRUE_TOTAL_COUNT:
             exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,

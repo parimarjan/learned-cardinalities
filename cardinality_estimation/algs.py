@@ -223,6 +223,99 @@ class Independent(CardinalityEstimationAlg):
         return np.array([np.prod(np.array(s.marginal_sels)) \
                 for s in test_samples])
 
+class Sampling(CardinalityEstimationAlg):
+
+    def __init__(self, *args, **kwargs):
+        self.sampling_percentage = kwargs["sampling_percentage"]
+
+    def train(self, db, training_samples, **kwargs):
+        # FIXME: this should be a utility function, also used in
+        # _load_training_data2
+        table = [t for t in db.tables][0]
+        print(table)
+        columns = list(db.column_stats.keys())
+        FROM = table
+        columns_str = ",".join(columns)
+        # just select all of these columns from the given table
+        select_all = "SELECT {COLS} FROM {TABLE} WHERE random() < {PERC}".format(
+                COLS = columns_str,
+                TABLE = table,
+                PERC = str(self.sampling_percentage / 100.00))
+        print(select_all)
+
+        # TODO: add cache here.
+        data_cache = klepto.archives.dir_archive("./misc_cache",
+                cached=True, serialized=True)
+        cache_key = select_all
+        if cache_key in data_cache.archive:
+            df = data_cache.archive[cache_key]
+        else:
+            cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(db.user,
+                    db.pwd, db.db_name)
+            engine = create_engine(cmd)
+            df = pd.read_sql_query(select_all, engine)
+            data_cache.archive[cache_key] = df
+
+        print(df.keys())
+        self.df = df
+        print("len samples: ", len(self.df))
+        print("training done!")
+        # pdb.set_trace()
+        self.test_cache = {}
+
+    def test(self, test_samples, **kwargs):
+        predictions = []
+        total = len(self.df)
+        for si, sample in enumerate(test_samples):
+            if si % 100 == 0:
+                print(si)
+
+            hashed_query = deterministic_hash(sample.query)
+            if hashed_query in self.test_cache:
+                predictions.append(self.test_cache[hashed_query])
+                continue
+
+            cur_df = self.df
+            # go over every predicate in sample
+            for i, pred in enumerate(sample.pred_column_names):
+                pred = pred[pred.find(".")+1:]
+                cmp_op = sample.cmp_ops[i]
+                vals = sample.vals[i]
+                if cmp_op == "in":
+                    cur_df = cur_df[cur_df[pred].isin(vals)]
+                elif cmp_op == "lt":
+                    lb = int(vals[0])
+                    ub = int(vals[1])
+                    assert lb <= ub
+                    cur_df = cur_df[cur_df[pred] >= lb]
+                    cur_df = cur_df[cur_df[pred] < ub]
+                else:
+                    print(cmp_op)
+                    assert False
+
+            true_sel = (len(cur_df) / total)
+            predictions.append(true_sel)
+            self.test_cache[hashed_query] = true_sel
+
+        return np.array(predictions)
+
+    def num_parameters(self):
+        '''
+        size of the parameters needed so we can compare across different algorithms.
+        '''
+        return 0
+
+    def __str__(self):
+        if self.sampling_percentage >= 1.00:
+            sp = int(self.sampling_percentage)
+        else:
+            sp = self.sampling_percentage
+        return self.__class__.__name__ + str(sp)
+
+    def save_model(self, save_dir="./", suffix_name=""):
+        pass
+
+
 class OurPGM(CardinalityEstimationAlg):
 
     def __init__(self, *args, **kwargs):
@@ -257,6 +350,8 @@ class OurPGM(CardinalityEstimationAlg):
 
     def __str__(self):
         name = self.alg_name
+        if self.recompute:
+            name += "-recomp"
         if self.use_svd:
             name += str(self.num_singular_vals)
         return name
@@ -307,8 +402,9 @@ class OurPGM(CardinalityEstimationAlg):
         things.
         '''
         start = time.time()
-        assert len(db.tables) == 1
+        # assert len(db.tables) == 1
         table = [t for t in db.tables][0]
+        print(table)
         columns = list(db.column_stats.keys())
         FROM = table
         columns_str = ",".join(columns)

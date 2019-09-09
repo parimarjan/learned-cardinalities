@@ -24,7 +24,16 @@ warnings.filterwarnings("ignore")
 
 DB_ORDER = ["dmv", "synthdb", "imdb", "osm2", "higgs", "power"]
 EXP_KEYS = ["num_params", "eval_times", "train_times"]
-ALGS_ORDER = ["Postgres", "NN1", "chow-liu", "cl5", "cl-recomp"]
+ALGS_ORDER = ["Postgres", "NN1", "Sampling",
+        "cl", "cl5", "clr","clr5"]
+PALETTE ={"Postgres":"red",
+        "NN1":"green",
+        "Sampling": "yellow",
+        "cl":"blue",
+        "cl5":"blue",
+        "clr":"blue",
+        "clr5":"blue"}
+
 COL_WRAP = 3
 DB_COLUMNS = {"dmv":"11", "osm2":"5", "higgs":"8", "power":"7", "synthdb":"0",
         "imdb":"0"}
@@ -85,10 +94,15 @@ def parse_results(results_cache, trainining_queries=True):
             # if k is not in results:
                 # continue
             for alg, val in results[k].items():
+                print(alg)
                 if alg == "chow-liu5":
                     alg = "cl5"
                 elif alg == "chow-liu-recomp":
-                    alg = "cl-recomp"
+                    alg = "clr"
+                elif alg == "chow-liu-recomp5":
+                    alg = "clr5"
+                elif alg == "chow-liu":
+                    alg = "cl"
 
                 exp_data["alg_name"].append(alg)
                 exp_data["stat_type"].append(k)
@@ -106,7 +120,11 @@ def parse_results(results_cache, trainining_queries=True):
                     if alg == "chow-liu5":
                         alg = "cl5"
                     elif alg == "chow-liu-recomp":
-                        alg = "cl-recomp"
+                        alg = "clr"
+                    elif alg == "chow-liu-recomp5":
+                        alg = "clr5"
+                    elif alg == "chow-liu":
+                        alg = "cl"
 
                     data["alg_name"].append(alg)
                     data["loss_type"].append(lt)
@@ -164,7 +182,7 @@ def gen_exp_summary(df, pdf, stat_type):
     fg = sns.catplot(x="alg_name", y="val", hue="alg_name", col="db_name",
             col_wrap=COL_WRAP, kind="bar", data=df, estimator=np.mean, ci="sd",
             legend_out=False, sharex=True,sharey=True, col_order=DB_ORDER,
-            hue_order=ALGS_ORDER, order=ALGS_ORDER)
+            hue_order=ALGS_ORDER, order=ALGS_ORDER, palette=PALETTE)
 
     fg.set(ylabel=ylabel)
 
@@ -190,7 +208,7 @@ def gen_losses_summary(df, pdf, loss_type="qerr"):
     fg = sns.catplot(x="alg_name", y="loss", hue="alg_name", col="db_name",
             col_wrap=COL_WRAP, kind="bar", data=df, estimator=np.mean, ci="sd",
             legend_out=False, sharex=False, sharey=False, col_order=DB_ORDER,
-            hue_order=ALGS_ORDER, order=ALGS_ORDER)
+            hue_order=ALGS_ORDER, order=ALGS_ORDER, palette=PALETTE)
 
     # set individual titles for each column
     for i, ax in enumerate(fg.axes.flat):
@@ -235,7 +253,6 @@ def pgm_plots():
         gen_exp_summary(exp_df, summary_pdf, k)
 
     summary_pdf.close()
-
 
 def main():
     if args.pgm:

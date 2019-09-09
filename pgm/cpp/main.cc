@@ -18,7 +18,7 @@
 using namespace std::chrono;
 using namespace std;
 
-bool VERBOSE = true;
+bool VERBOSE = false;
 
 // in the future, we may want to experiment with other stuff here
 // 1 ==> store just the joint probability in the SVD matrix
@@ -321,57 +321,57 @@ bool sortFunc(mst_sort &a,mst_sort &b)
 	return a.val>b.val;
 }
 
-struct DisjointSets 
-{ 
-    int *parent, *rnk; 
-    int n; 
-  
-    // Constructor. 
-    DisjointSets(int n) 
-    { 
-        // Allocate memory 
-        this->n = n; 
-        parent = new int[n+1]; 
-        rnk = new int[n+1]; 
-  
-        // Initially, all vertices are in 
-        // different sets and have rank 0. 
-        for (int i = 0; i <= n; i++) 
-        { 
-            rnk[i] = 0; 
-  
-            //every element is parent of itself 
-            parent[i] = i; 
-        } 
-    } 
-  
-    // Find the parent of a node 'u' 
-    // Path Compression 
-    int find(int u) 
-    { 
-        /* Make the parent of the nodes in the path 
+struct DisjointSets
+{
+    int *parent, *rnk;
+    int n;
+
+    // Constructor.
+    DisjointSets(int n)
+    {
+        // Allocate memory
+        this->n = n;
+        parent = new int[n+1];
+        rnk = new int[n+1];
+
+        // Initially, all vertices are in
+        // different sets and have rank 0.
+        for (int i = 0; i <= n; i++)
+        {
+            rnk[i] = 0;
+
+            //every element is parent of itself
+            parent[i] = i;
+        }
+    }
+
+    // Find the parent of a node 'u'
+    // Path Compression
+    int find(int u)
+    {
+        /* Make the parent of the nodes in the path
            from u--> parent[u] point to parent[u] */
-        if (u != parent[u]) 
-            parent[u] = find(parent[u]); 
-        return parent[u]; 
-    } 
-  
-    // Union by rank 
-    void merge(int x, int y) 
-    { 
-        x = find(x), y = find(y); 
-  
-        /* Make tree with smaller height 
+        if (u != parent[u])
+            parent[u] = find(parent[u]);
+        return parent[u];
+    }
+
+    // Union by rank
+    void merge(int x, int y)
+    {
+        x = find(x), y = find(y);
+
+        /* Make tree with smaller height
            a subtree of the other tree  */
-        if (rnk[x] > rnk[y]) 
-            parent[y] = x; 
-        else // If rnk[x] <= rnk[y] 
-            parent[x] = y; 
-  
-        if (rnk[x] == rnk[y]) 
-            rnk[y]++; 
-    } 
-}; 
+        if (rnk[x] > rnk[y])
+            parent[y] = x;
+        else // If rnk[x] <= rnk[y]
+            parent[x] = y;
+
+        if (rnk[x] == rnk[y])
+            rnk[y]++;
+    }
+};
 
 struct Graphical_Model
 {
@@ -521,7 +521,7 @@ struct Graphical_Model
 				temp.b=j;
 				temp.val=edge_matrix[i][j-i-1].cal_mutual_info();
 				mutual_info_vec.push_back(temp);
-		        if (VERBOSE) 
+		        if (VERBOSE)
 		        {
 		          cout<< temp.val <<" : mutual info "<<i<<" "<<j<<endl;
 		        }
@@ -531,35 +531,35 @@ struct Graphical_Model
 		std::sort(mutual_info_vec.begin(),mutual_info_vec.end(),sortFunc);
 
 		int vec_size=mutual_info_vec.size();
-		
+
 		DisjointSets ds(graph_size);
 
-		for (int i=0;i<mutual_info_vec.size();i++) 
-	    { 
-	        int u = mutual_info_vec[i].a; 
-	        int v = mutual_info_vec[i].b; 
-	  
-	        int set_u = ds.find(u); 
-	        int set_v = ds.find(v); 
+		for (int i=0;i<mutual_info_vec.size();i++)
+	    {
+	        int u = mutual_info_vec[i].a;
+	        int v = mutual_info_vec[i].b;
 
-	        // Check if the selected edge is creating 
-	        // a cycle or not (Cycle is created if u 
-	        // and v belong to same set) 
-	        if (set_u != set_v) 
-	        { 
-	            // Current edge will be in the MST 
-	            // so print it 
-	            if (VERBOSE) 
+	        int set_u = ds.find(u);
+	        int set_v = ds.find(v);
+
+	        // Check if the selected edge is creating
+	        // a cycle or not (Cycle is created if u
+	        // and v belong to same set)
+	        if (set_u != set_v)
+	        {
+	            // Current edge will be in the MST
+	            // so print it
+	            if (VERBOSE)
 		        {
 		          cout<<" edge added: "<<mutual_info_vec[i].a<<" "<<mutual_info_vec[i].b<<endl;
 		        }
 	            added_edges.push_back(mutual_info_vec[i]);
-	  
-	  
-	            // Merge two sets 
-	            ds.merge(set_u, set_v); 
-	        } 
-	    } 
+
+
+	            // Merge two sets
+	            ds.merge(set_u, set_v);
+	        }
+	    }
 
 
 		create_graph(added_edges);
@@ -594,32 +594,32 @@ struct Graphical_Model
 
 		DisjointSets ds(graph_size);
 
-		for (int i=0;i<mutual_info_vec.size();i++) 
-	    { 
-	        int u = mutual_info_vec[i].a; 
-	        int v = mutual_info_vec[i].b; 
-	  
-	        int set_u = ds.find(u); 
-	        int set_v = ds.find(v); 
+		for (int i=0;i<mutual_info_vec.size();i++)
+	    {
+	        int u = mutual_info_vec[i].a;
+	        int v = mutual_info_vec[i].b;
 
-	        // Check if the selected edge is creating 
-	        // a cycle or not (Cycle is created if u 
-	        // and v belong to same set) 
-	        if (set_u != set_v) 
-	        { 
-	            // Current edge will be in the MST 
-	            // so print it 
-	            if (VERBOSE) 
+	        int set_u = ds.find(u);
+	        int set_v = ds.find(v);
+
+	        // Check if the selected edge is creating
+	        // a cycle or not (Cycle is created if u
+	        // and v belong to same set)
+	        if (set_u != set_v)
+	        {
+	            // Current edge will be in the MST
+	            // so print it
+	            if (VERBOSE)
 		        {
 		          cout<<" edge added: "<<mutual_info_vec[i].a<<" "<<mutual_info_vec[i].b<<endl;
 		        }
 	            added_edges.push_back(mutual_info_vec[i]);
-	  
-	  
-	            // Merge two sets 
-	            ds.merge(set_u, set_v); 
-	        } 
-	    } 
+
+
+	            // Merge two sets
+	            ds.merge(set_u, set_v);
+	        }
+	    }
 
 
 		create_graph(added_edges);
@@ -752,14 +752,15 @@ struct Graphical_Model
     double total = 0.0;
 		for(int i=0;i<node_list.size();i++)
 		{
-      Nodes *parent = &node_list[i];
-			total += parent->alphabet_size;
+      cout << i << endl;
+      //Nodes *parent = &node_list[i];
+			//total += parent->alphabet_size;
       // for each child, approximate the size of the prob distribution
 	    vector<int> child_ptr = node_list[i].child_ptr;
       for(int j=0; j < child_ptr.size();j++)
       {
-        Nodes *child = &node_list[child_ptr[j]];
-        total += child->alphabet_size * parent->alphabet_size;
+        //Nodes *child = &node_list[child_ptr[j]];
+        //total += child->alphabet_size * parent->alphabet_size;
       }
 		}
     return total;
@@ -846,9 +847,7 @@ extern "C" double py_eval(Graphical_Model &pgm,
     int n_ar,int approx,double frac)
 {
   vector<set<int> > filter(n_ar);
-  cout << "py_eval" << endl;
   if (weight_data != NULL) {
-    cout << "weight_data!! " << endl;
     vector<map<int,double>> weights(n_ar);
     for(int i=0;i<n_ar;i++)
     {
@@ -879,7 +878,6 @@ extern "C" double py_eval(Graphical_Model &pgm,
   }
 
   if (pgm.recompute) {
-    cout << "pgm.recompute" << endl;
     vector<int> edge_list;
 
     for(int i=0;i<pgm.graph_size;i++)
@@ -941,8 +939,6 @@ int main(int argc, char *argv[])
     data_vec[0].push_back(p);
     data_vec[1].push_back(q);
     data_vec[2].push_back(r);
-
-    // cout<<p<<","<<q<<","<<r<<endl;
 
 	}
 

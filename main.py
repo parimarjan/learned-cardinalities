@@ -39,6 +39,8 @@ def get_alg(alg):
                         gen_bn_dist=args.gen_bn_dist)
     elif alg == "bn-exact":
         return BN(alg="exact-dp", num_bins=args.num_bins)
+    elif alg == "sampling":
+        return Sampling(sampling_percentage=args.sampling_percentage)
     elif alg == "nn1":
         return NN1(max_iter = args.max_iter, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,
@@ -420,6 +422,8 @@ def read_flags():
             default="ourpgm")
     parser.add_argument("--pgm_alg_name", type=str, required=False,
             default="chow-liu")
+    parser.add_argument("--sampling_percentage", type=float, required=False,
+            default=1.0)
 
     parser.add_argument("--db_name", type=str, required=False,
             default="card_est")
@@ -458,7 +462,7 @@ def read_flags():
     parser.add_argument("--use_svd", type=int, required=False,
             default=0)
     parser.add_argument("--num_singular_vals", type=int, required=False,
-            default=-1, help="-1 means all")
+            default=5, help="-1 means all")
 
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="ams")
