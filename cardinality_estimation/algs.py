@@ -978,6 +978,8 @@ class NN2(CardinalityEstimationAlg):
             scheduler = ReduceLROnPlateau(optimizer, 'min',
                     patience=self.adaptive_lr_patience,
                             verbose=True, factor=0.1, eps=min_lr)
+        else:
+            scheduler = None
 
         num_iter = 0
 
