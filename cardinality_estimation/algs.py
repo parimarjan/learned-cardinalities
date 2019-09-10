@@ -750,7 +750,8 @@ class NN1(CardinalityEstimationAlg):
         if self.log_transform:
             pred = self.net(X)
             pred = pred.squeeze(1)
-            pred = pred.detach().numpy()
+            # pred = pred.detach().numpy()
+            pred = pred.cpu().detach().numpy()
             for i, p in enumerate(pred):
                 pred[i] = (p*(self.maxy-self.miny)) + self.miny
                 pred[i] = math.pow(10, -pred[i])
