@@ -29,10 +29,24 @@ import multiprocessing
 import xgboost as xgb
 from sklearn.ensemble import RandomForestRegressor
 from .custom_linear import CustomLinearModel
-# import CustomLinearModel
 
-# FIXME: temporary hack
+# sentinel value for NULLS
 NULL_VALUE = "-1"
+
+def get_all_num_table_queries(samples, num):
+    '''
+    @ret: all Query objects having @num tables
+    '''
+    ret = []
+    for sample in samples:
+        num_tables = len(sample.froms)
+        if num_tables == num:
+            ret.append(sample)
+        for subq in sample.subqueries:
+            num_tables = len(subq.froms)
+            if num_tables == num:
+                ret.append(subq)
+    return ret
 
 def get_all_features(samples, db):
     '''
@@ -778,6 +792,7 @@ class NN2(CardinalityEstimationAlg):
         self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
         self.eval_iter = kwargs["eval_iter"]
         self.eval_iter_jl = kwargs["eval_iter_jl"]
+        self.eval_num_tables = kwargs["eval_num_tables"]
         self.optimizer_name = kwargs["optimizer_name"]
 
         self.clip_gradient = kwargs["clip_gradient"]
@@ -791,6 +806,7 @@ class NN2(CardinalityEstimationAlg):
         self.adaptive_priority_alpha = kwargs["adaptive_priority_alpha"]
         self.sampling_priority_alpha = kwargs["sampling_priority_alpha"]
         self.net_name = kwargs["net_name"]
+        self.reuse_env = kwargs["reuse_env"]
 
         nn_cache_dir = kwargs["nn_cache_dir"]
 
@@ -830,12 +846,48 @@ class NN2(CardinalityEstimationAlg):
         self.stats["test"]["eval"]["qerr"] = {}
         self.stats["test"]["eval"]["join-loss"] = {}
 
+        self.stats["train"]["tables_eval"] = {}
+        # key will be int: num_table, and val: qerror
+        self.stats["train"]["tables_eval"]["qerr"] = defaultdict(float)
+
+        self.stats["test"]["tables_eval"] = {}
+        # key will be int: num_table, and val: qerror
+        self.stats["test"]["tables_eval"]["qerr"] = defaultdict(float)
+
+        # TODO: store these
         self.stats["model_params"] = {}
 
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
         self.db = db
         db.init_featurizer()
+
+        if self.eval_num_tables:
+            self.table_x_train = defaultdict(list)
+            self.table_x_test = defaultdict(list)
+            self.table_y_train = defaultdict(list)
+            self.table_y_test = defaultdict(list)
+            num_tables = len(db.tables)
+            print("num tables: ", num_tables)
+            for i in range(1,num_tables+1):
+                queries = get_all_num_table_queries(training_samples, i)
+                for q in queries:
+                    self.table_x_train[i].append(db.get_features(q))
+                    self.table_y_train[i].append(q.true_sel)
+
+                self.table_x_train[i] = \
+                    to_variable(self.table_x_train[i]).float()
+                self.table_y_train[i] = \
+                    to_variable(self.table_y_train[i]).float()
+                if test_samples:
+                    queries = get_all_num_table_queries(test_samples, i)
+                    for q in queries:
+                        self.table_x_test[i].append(db.get_features(q))
+                        self.table_y_test[i].append(q.true_sel)
+                    self.table_x_test[i] = \
+                        to_variable(self.table_x_test[i]).float()
+                    self.table_y_test[i] = \
+                        to_variable(self.table_y_test[i]).float()
 
         ## FIXME: don't store features in query objects
         # initialize samples
@@ -877,7 +929,8 @@ class NN2(CardinalityEstimationAlg):
         self.net = net
         try:
             self._train_nn_join_loss(self.net, training_samples, test_samples,
-                    self.lr, self.jl_start_iter, loss_func=loss_func,
+                    self.lr, self.jl_start_iter, self.reuse_env,
+                    loss_func=loss_func,
                     max_iter=self.max_iter, tfboard_dir=None,
                     loss_threshold=2.0, jl_variant=self.jl_variant,
                     eval_iter_jl=self.eval_iter_jl,
@@ -891,8 +944,34 @@ class NN2(CardinalityEstimationAlg):
 
         self.training_cache.dump()
 
+    # same function for all the nns
+    def _periodic_num_table_eval(self, loss_func, net, num_iter):
+        for num_table in self.table_x_train:
+            x_table = self.table_x_train[num_table]
+            y_table = self.table_y_train[num_table]
+            if len(x_table) == 0:
+                continue
+            pred_table = net(x_table)
+            pred_table = pred_table.squeeze(1)
+            loss_train = loss_func(pred_table, y_table)
+            self.stats["train"]["tables_eval"]["qerr"][num_iter] = loss_train.item()
+
+            # do for test as well
+            if num_table not in self.table_x_test:
+                continue
+            x_table = self.table_x_test[num_table]
+            y_table = self.table_y_test[num_table]
+            pred_table = net(x_table)
+            pred_table = pred_table.squeeze(1)
+            loss_test = loss_func(pred_table, y_table)
+            self.stats["test"]["tables_eval"]["qerr"][num_iter] = loss_test.item()
+
+            print("num_tables: {}, train_qerr: {}, test_qerr: {}".format(\
+                    num_table, loss_train, loss_test))
+
     def _periodic_eval(self, net, samples, X, Y, env, key, loss_func, num_iter,
             scheduler):
+
         # evaluate qerr
         pred = net(X)
         pred = pred.squeeze(1)
@@ -904,6 +983,7 @@ class NN2(CardinalityEstimationAlg):
         # FIXME: add scheduler loss ONLY for training cases
         if not self.jl_variant and self.adaptive_lr and key == "train":
             # FIXME: should we do this for minibatch / or for train loss?
+            print("going to use scheduler.step")
             scheduler.step(train_loss)
 
         if (num_iter % self.eval_iter_jl == 0 \
@@ -949,12 +1029,13 @@ class NN2(CardinalityEstimationAlg):
         return query_sampling_weights
 
     def _train_nn_join_loss(self, net, training_samples, test_samples,
-            lr, jl_start_iter, max_iter=10000, eval_iter_jl=500,
+            lr, jl_start_iter, reuse_env,
+            max_iter=10000, eval_iter_jl=500,
             eval_iter_qerr=1000, mb_size=1,
             loss_func=None, tfboard_dir=None, adaptive_lr=True,
             min_lr=1e-17, loss_threshold=1.0, jl_variant=False,
             clip_gradient=10.00, rel_qerr_loss=False,
-            jl_divide_constant=1, rel_jloss=False, reuse_env=True):
+            jl_divide_constant=1, rel_jloss=False):
         '''
         TODO: explain and generalize.
         '''
@@ -1035,6 +1116,10 @@ class NN2(CardinalityEstimationAlg):
                 sys.stdout.flush()
 
             if (num_iter % self.eval_iter == 0):
+
+                if self.eval_num_tables:
+                    self._periodic_num_table_eval(loss_func, net, num_iter)
+
                 join_losses, join_losses_ratio = self._periodic_eval(net, training_samples, X, Y,
                         env, "train", loss_func, num_iter, scheduler)
                 if test_samples:
@@ -1258,6 +1343,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.Ytrains = {}
         self.model_name = kwargs["num_tables_model"]
         self.num_trees = kwargs["num_trees"]
+        self.eval_num_tables = kwargs["eval_num_tables"]
 
         if kwargs["loss_func"] == "qloss":
             self.loss_func = qloss_torch
@@ -1336,7 +1422,41 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.stats["test"]["eval"]["qerr"] = {}
         self.stats["test"]["eval"]["join-loss"] = {}
 
+        self.stats["train"]["tables_eval"] = {}
+        # key will be int: num_table, and val: qerror
+        self.stats["train"]["tables_eval"]["qerr"] = defaultdict(float)
+
+        self.stats["test"]["tables_eval"] = {}
+        # key will be int: num_table, and val: qerror
+        self.stats["test"]["tables_eval"]["qerr"] = defaultdict(float)
+
         self.stats["model_params"] = {}
+
+    # same function for all the nns
+    def _periodic_num_table_eval_nets(self, loss_func, num_iter):
+        for num_table in self.table_x_train:
+            x_table = self.table_x_train[num_table]
+            y_table = self.table_y_train[num_table]
+            if len(x_table) == 0:
+                continue
+            net = self.models[num_table]
+            pred_table = net(x_table)
+            pred_table = pred_table.squeeze(1)
+            loss_train = loss_func(pred_table, y_table)
+            self.stats["train"]["tables_eval"]["qerr"][num_iter] = loss_train.item()
+
+            # do for test as well
+            if num_table not in self.table_x_test:
+                continue
+            x_table = self.table_x_test[num_table]
+            y_table = self.table_y_test[num_table]
+            pred_table = net(x_table)
+            pred_table = pred_table.squeeze(1)
+            loss_test = loss_func(pred_table, y_table)
+            self.stats["test"]["tables_eval"]["qerr"][num_iter] = loss_test.item()
+
+            print("num_tables: {}, train_qerr: {}, test_qerr: {}".format(\
+                    num_table, loss_train, loss_test))
 
     def _periodic_eval(self, samples, env, key, loss_func,
             num_iter):
@@ -1344,12 +1464,15 @@ class NumTablesNN(CardinalityEstimationAlg):
         assert (num_iter % self.eval_iter == 0)
         Y = []
         pred = []
+
+        # FIXME: optimize this
         # it is important to maintain the same order of traversal for the
         # join_loss compute function to work (ugh...)
         for sample in samples:
             Y.append(sample.true_sel)
             num_tables = len(sample.froms)
             pred.append(self.models[num_tables](sample.features).item())
+
             for subq in sample.subqueries:
                 Y.append(subq.true_sel)
                 num_tables = len(subq.froms)
@@ -1358,6 +1481,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         pred = to_variable(pred).float()
         Y = to_variable(Y).float()
         train_loss = loss_func(pred, Y)
+
         self.stats[key]["eval"]["qerr"][num_iter] = train_loss.item()
 
         print("""\n{}: {}, num samples: {}, loss: {}""".format(
@@ -1487,7 +1611,12 @@ class NumTablesNN(CardinalityEstimationAlg):
                     print(num_iter, end=",")
                     sys.stdout.flush()
 
-                if (num_iter % self.eval_iter == 0):
+                if (num_iter % self.eval_iter == 0
+                        and num_iter != 0):
+
+                    if self.eval_num_tables:
+                        self._periodic_num_table_eval_nets(self.loss_func, num_iter)
+
                     # evaluation code
                     if (num_iter % self.eval_iter_jl == 0 \
                             and not self.reuse_env):
@@ -1556,9 +1685,6 @@ class NumTablesNN(CardinalityEstimationAlg):
             print("training random forest classifier done for ", num_tables)
             yhat = model.predict(X)
             train_loss = qloss(yhat, Y)
-
-            # yhat = model.predict(Xtest)
-            # test_loss = qloss(yhat, Ytest)
             print("train loss: ", train_loss)
 
     def train(self, db, training_samples, **kwargs):
@@ -1566,8 +1692,37 @@ class NumTablesNN(CardinalityEstimationAlg):
         '''
         self.db = db
         db.init_featurizer()
-        # do common pre-processing part here
         test_samples = kwargs["test_samples"]
+
+        # do common pre-processing part here
+        # FIXME: decompose
+        if self.eval_num_tables:
+            self.table_x_train = defaultdict(list)
+            self.table_x_test = defaultdict(list)
+            self.table_y_train = defaultdict(list)
+            self.table_y_test = defaultdict(list)
+            num_tables = len(db.tables)
+            print("num tables: ", num_tables)
+            for i in range(1,num_tables+1):
+                queries = get_all_num_table_queries(training_samples, i)
+                for q in queries:
+                    self.table_x_train[i].append(db.get_features(q))
+                    self.table_y_train[i].append(q.true_sel)
+
+                self.table_x_train[i] = \
+                    to_variable(self.table_x_train[i]).float()
+                self.table_y_train[i] = \
+                    to_variable(self.table_y_train[i]).float()
+                if test_samples:
+                    queries = get_all_num_table_queries(test_samples, i)
+                    for q in queries:
+                        self.table_x_test[i].append(db.get_features(q))
+                        self.table_y_test[i].append(q.true_sel)
+                    self.table_x_test[i] = \
+                        to_variable(self.table_x_test[i]).float()
+                    self.table_y_test[i] = \
+                        to_variable(self.table_y_test[i]).float()
+
         for sample in training_samples:
             features = db.get_features(sample)
             num_tables = len(sample.froms)
