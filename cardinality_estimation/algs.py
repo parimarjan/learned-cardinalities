@@ -1134,7 +1134,7 @@ class NN2(CardinalityEstimationAlg):
                     self._periodic_eval(net, test_samples, Xtest, Ytest,
                             env,"test", loss_func, num_iter, scheduler)
 
-                if not reuse_env:
+                if not reuse_env and (num_iter % self.eval_iter_jl == 0):
                     env.clean()
                     env = park.make('query_optimizer')
 
