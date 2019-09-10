@@ -24,15 +24,23 @@ warnings.filterwarnings("ignore")
 
 DB_ORDER = ["dmv", "synthdb", "imdb", "osm2", "higgs", "power"]
 EXP_KEYS = ["num_params", "eval_times", "train_times"]
-ALGS_ORDER = ["Postgres", "NN1", "Sampling",
+# ALGS_ORDER = ["pg", "NN1", "S0.1", "S1",
+        # "cl", "cl5", "clr","clr5"]
+ALGS_ORDER = ["pg", "S0.1", "S1",
         "cl", "cl5", "clr","clr5"]
-PALETTE ={"Postgres":"red",
+
+PALETTE ={"pg":"blue",
         "NN1":"green",
-        "Sampling": "yellow",
-        "cl":"blue",
-        "cl5":"blue",
-        "clr":"blue",
-        "clr5":"blue"}
+        "S0.1":"#FF8C00",
+        "S1": "#FFA500",
+        "cl":"#FF0000",
+        "cl5":"#8B0000",
+        "clr":"#800000",
+        "clr5":"#FF6347"}
+        # "cl":"blue",
+        # "cl5":"blue",
+        # "clr":"blue",
+        # "clr5":"blue"}
 
 COL_WRAP = 3
 DB_COLUMNS = {"dmv":"11", "osm2":"5", "higgs":"8", "power":"7", "synthdb":"0",
@@ -103,6 +111,12 @@ def parse_results(results_cache, trainining_queries=True):
                     alg = "clr5"
                 elif alg == "chow-liu":
                     alg = "cl"
+                elif alg == "Sampling1":
+                    alg = "S1"
+                elif alg == "Sampling0.1":
+                    alg = "S0.1"
+                elif alg == "Postgres":
+                    alg = "pg"
 
                 exp_data["alg_name"].append(alg)
                 exp_data["stat_type"].append(k)
@@ -125,6 +139,12 @@ def parse_results(results_cache, trainining_queries=True):
                         alg = "clr5"
                     elif alg == "chow-liu":
                         alg = "cl"
+                    elif alg == "Sampling1":
+                        alg = "S1"
+                    elif alg == "Sampling0.1":
+                        alg = "S0.1"
+                    elif alg == "Postgres":
+                        alg = "pg"
 
                     data["alg_name"].append(alg)
                     data["loss_type"].append(lt)
@@ -179,6 +199,7 @@ def gen_exp_summary(df, pdf, stat_type):
     elif stat_type == "train_times":
         ylabel = "Seconds"
 
+    # sns.set(style="ticks", rc={"lines.linewidth": 10.0})
     fg = sns.catplot(x="alg_name", y="val", hue="alg_name", col="db_name",
             col_wrap=COL_WRAP, kind="bar", data=df, estimator=np.mean, ci="sd",
             legend_out=False, sharex=True,sharey=True, col_order=DB_ORDER,
