@@ -509,7 +509,7 @@ def read_flags():
     parser.add_argument("--reuse_env", type=int, required=False,
             default=1)
     parser.add_argument("--eval_num_tables", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--rf_trees", type=int, required=False,
             default=128)
     parser.add_argument("--exp_name", type=str, required=False,
