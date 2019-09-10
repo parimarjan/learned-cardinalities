@@ -66,7 +66,9 @@ def get_alg(alg):
                     sampling_priority_alpha = args.sampling_priority_alpha,
                     adaptive_priority_alpha = args.adaptive_priority_alpha,
                     net_name = args.net_name,
-                    eval_iter_jl = args.eval_iter_jl)
+                    reuse_env = args.reuse_env,
+                    eval_iter_jl = args.eval_iter_jl,
+                    eval_num_tables = args.eval_num_tables)
     elif alg == "nn3":
         return NumTablesNN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,
@@ -89,7 +91,8 @@ def get_alg(alg):
                     eval_iter_jl = args.eval_iter_jl,
                     num_tables_model = args.num_tables_model,
                     num_trees = args.rf_trees,
-                    reuse_env = args.reuse_env)
+                    reuse_env = args.reuse_env,
+                    eval_num_tables = args.eval_num_tables)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
@@ -504,6 +507,8 @@ def read_flags():
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
     parser.add_argument("--reuse_env", type=int, required=False,
+            default=1)
+    parser.add_argument("--eval_num_tables", type=int, required=False,
             default=1)
     parser.add_argument("--rf_trees", type=int, required=False,
             default=128)
