@@ -848,11 +848,11 @@ class NN2(CardinalityEstimationAlg):
 
         self.stats["train"]["tables_eval"] = {}
         # key will be int: num_table, and val: qerror
-        self.stats["train"]["tables_eval"]["qerr"] = defaultdict(float)
+        self.stats["train"]["tables_eval"]["qerr"] = {}
 
         self.stats["test"]["tables_eval"] = {}
         # key will be int: num_table, and val: qerror
-        self.stats["test"]["tables_eval"]["qerr"] = defaultdict(float)
+        self.stats["test"]["tables_eval"]["qerr"] = {}
 
         # TODO: store these
         self.stats["model_params"] = {}
@@ -954,7 +954,12 @@ class NN2(CardinalityEstimationAlg):
             pred_table = net(x_table)
             pred_table = pred_table.squeeze(1)
             loss_train = loss_func(pred_table, y_table)
-            self.stats["train"]["tables_eval"]["qerr"][num_iter] = loss_train.item()
+            if num_table not in self.stats["train"]["tables_eval"]["qerr"]:
+                self.stats["train"]["tables_eval"]["qerr"][num_table] = {}
+
+            self.stats["train"]["tables_eval"]["qerr"][num_table][num_iter] = loss_train.item()
+
+            # self.stats["train"]["tables_eval"]["qerr"][num_iter] = loss_train.item()
 
             # do for test as well
             if num_table not in self.table_x_test:
@@ -964,7 +969,11 @@ class NN2(CardinalityEstimationAlg):
             pred_table = net(x_table)
             pred_table = pred_table.squeeze(1)
             loss_test = loss_func(pred_table, y_table)
-            self.stats["test"]["tables_eval"]["qerr"][num_iter] = loss_test.item()
+
+            if num_table not in self.stats["test"]["tables_eval"]["qerr"]:
+                self.stats["test"]["tables_eval"]["qerr"][num_table] = {}
+
+            self.stats["test"]["tables_eval"]["qerr"][num_table][num_iter] = loss_test.item()
 
             print("num_tables: {}, train_qerr: {}, test_qerr: {}".format(\
                     num_table, loss_train, loss_test))
@@ -983,7 +992,6 @@ class NN2(CardinalityEstimationAlg):
         # FIXME: add scheduler loss ONLY for training cases
         if not self.jl_variant and self.adaptive_lr and key == "train":
             # FIXME: should we do this for minibatch / or for train loss?
-            print("going to use scheduler.step")
             scheduler.step(train_loss)
 
         if (num_iter % self.eval_iter_jl == 0 \
@@ -1059,6 +1067,8 @@ class NN2(CardinalityEstimationAlg):
             scheduler = ReduceLROnPlateau(optimizer, 'min',
                     patience=self.adaptive_lr_patience,
                             verbose=True, factor=0.1, eps=min_lr)
+        else:
+            scheduler = None
 
         num_iter = 0
 
@@ -1126,7 +1136,7 @@ class NN2(CardinalityEstimationAlg):
                     self._periodic_eval(net, test_samples, Xtest, Ytest,
                             env,"test", loss_func, num_iter, scheduler)
 
-                if not reuse_env:
+                if not reuse_env and (num_iter % self.eval_iter_jl == 0):
                     env.clean()
                     env = park.make('query_optimizer')
 
@@ -1424,11 +1434,11 @@ class NumTablesNN(CardinalityEstimationAlg):
 
         self.stats["train"]["tables_eval"] = {}
         # key will be int: num_table, and val: qerror
-        self.stats["train"]["tables_eval"]["qerr"] = defaultdict(float)
+        self.stats["train"]["tables_eval"]["qerr"] = {}
 
         self.stats["test"]["tables_eval"] = {}
         # key will be int: num_table, and val: qerror
-        self.stats["test"]["tables_eval"]["qerr"] = defaultdict(float)
+        self.stats["test"]["tables_eval"]["qerr"] = {}
 
         self.stats["model_params"] = {}
 
@@ -1443,7 +1453,10 @@ class NumTablesNN(CardinalityEstimationAlg):
             pred_table = net(x_table)
             pred_table = pred_table.squeeze(1)
             loss_train = loss_func(pred_table, y_table)
-            self.stats["train"]["tables_eval"]["qerr"][num_iter] = loss_train.item()
+            if num_table not in self.stats["train"]["tables_eval"]["qerr"]:
+                self.stats["train"]["tables_eval"]["qerr"][num_table] = {}
+
+            self.stats["train"]["tables_eval"]["qerr"][num_table][num_iter] = loss_train.item()
 
             # do for test as well
             if num_table not in self.table_x_test:
@@ -1453,7 +1466,10 @@ class NumTablesNN(CardinalityEstimationAlg):
             pred_table = net(x_table)
             pred_table = pred_table.squeeze(1)
             loss_test = loss_func(pred_table, y_table)
-            self.stats["test"]["tables_eval"]["qerr"][num_iter] = loss_test.item()
+            if num_table not in self.stats["test"]["tables_eval"]["qerr"]:
+                self.stats["test"]["tables_eval"]["qerr"][num_table] = {}
+
+            self.stats["test"]["tables_eval"]["qerr"][num_table][num_iter] = loss_test.item()
 
             print("num_tables: {}, train_qerr: {}, test_qerr: {}".format(\
                     num_table, loss_train, loss_test))
