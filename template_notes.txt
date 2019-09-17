@@ -29,6 +29,31 @@ predicate keys:
       - height
       - trivia
       - mini biography
+      - magazine covers
+      - portrayed in
+      - biographical movies
+      - other works
+      - birth name
+
+ mini biography                  |  19
+ height                          |  22
+ other works                     |  25
+ birth name                      |  26
+ biographical movies             |  31
+ portrayed in                    |  32
+ trade mark                      |  34
+ magazine cover photo            |  37
+
+Regex based ones:
+ interviews                      |  35
+ article                         |  36
+ salary history                  |  27
+ books                           |  29
+ pictorial                       |  38
+  - e.g., %playboy%
+ where now                       |  33
+
+
 
 interesting sub-components: name, an, char_name(?) JOIN cast_info, role_type
 	idea: make all these conditional ON the gender.
@@ -39,7 +64,7 @@ interesting sub-components: name, an, char_name(?) JOIN cast_info, role_type
   (max values W/O NULL ~70K)
 
   INCLUDE character_name condition that changes things a lot:
-  - SELECT :n.name_pcode_nf, :an.name_pcode_nf, :chn.name_pcode_nf, COUNT(*)
+  SELECT :n.name_pcode_nf, :an.name_pcode_nf, :chn.name_pcode_nf, COUNT(*)
   FROM :ci, :an, :n, :chn WHERE :n.id = :ci.person_id AND :an.person_id =
   :ci.person_id AND :chn.id = :ci.person_role_id GROUP BY :n.name_pcode_nf,
   :an.name_pcode_nf, :chn.name_pcode_nf HAVING COUNT(*) > 1000 ORDER BY

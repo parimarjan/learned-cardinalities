@@ -31,11 +31,6 @@ class QueryGenerator2():
                     vals.append("'{}'".format(val.replace("'","")))
                 else:
                     assert False
-                    # print(samples)
-                    # print(val)
-                    # pdb.set_trace()
-                    # handle this as a special case
-                    # assert False
             vals = [s for s in set(vals)]
             vals.sort()
             new_pred_str = ",".join(vals)
@@ -43,7 +38,6 @@ class QueryGenerator2():
             pred_vals[key] = new_pred_str
 
         return sql
-
 
     def _gen_query_str(self, templated_preds):
         '''
@@ -95,19 +89,29 @@ class QueryGenerator2():
                     gen_sql = self._update_sql_in(gen_sql, samples,
                             pred_group["keys"], pred_vals)
 
-                total_count = sum([int(s[-1]) for s in samples])
-                print("count: ", total_count)
+                # total_count = sum([int(s[-1]) for s in samples])
+                # print("count: ", total_count)
 
             elif pred_group["type"] == "list":
                 if pred_group["sampling_method"] == "uniform":
-                    assert pred_group["pred_type"] == "range"
-                    assert len(pred_group["keys"]) == 2
-                    options = pred_group["options"]
-                    pred_choice = random.choice(options)
-                    for idx, val in enumerate(pred_choice):
-                        key = pred_group["keys"][idx]
-                        gen_sql = gen_sql.replace(key, str(val))
-                        pred_vals[key] = str(val)
+                    if pred_group["pred_type"] == "range":
+                        assert len(pred_group["keys"]) == 2
+                        options = pred_group["options"]
+                        pred_choice = random.choice(options)
+                        for idx, val in enumerate(pred_choice):
+                            key = pred_group["keys"][idx]
+                            gen_sql = gen_sql.replace(key, str(val))
+                            pred_vals[key] = str(val)
+                    else:
+                        assert len(pred_group["keys"]) == 1
+                        options = pred_group["options"]
+                        pred_choice = random.choice(options)
+                        # print(pred_choice)
+                        # print(gen_sql)
+                        gen_sql = self._update_sql_in(gen_sql, [[pred_choice]],
+                                pred_group["keys"], pred_vals)
+                        # print(gen_sql)
+                        # pdb.set_trace()
             else:
                 assert False
 
