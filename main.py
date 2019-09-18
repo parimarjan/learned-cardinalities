@@ -253,9 +253,8 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
     start = time.time()
-    # num_processes = int(min(len(unknown_query_strs),
-        # multiprocessing.cpu_count()))
-    num_processes = 1
+    num_processes = int(min(len(unknown_query_strs),
+        multiprocessing.cpu_count()))
 
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
@@ -283,6 +282,9 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     # sanity check: commented out so we don't spend time here
     for i, query in enumerate(ret_queries):
         assert query.query == query_strs[i]
+
+    for q in ret_queries:
+        print(q.true_count)
 
     return ret_queries
 

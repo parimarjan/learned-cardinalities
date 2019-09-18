@@ -6,24 +6,25 @@ title = "Template 5"
 [base_sql]
 sql = '''SELECT COUNT(*)
 FROM
-cast_info as ci,
-name as n,
 aka_name as an,
+name as n,
+cast_info as ci,
 person_info as pi1,
 info_type as it1,
 role_type as rt,
 char_name as chn
 WHERE
 n.id = ci.person_id
+AND ci.person_id = pi1.person_id
 AND it1.id = pi1.info_type_id
 AND n.id = pi1.person_id
 AND n.id = an.person_id
+AND ci.person_id = an.person_id
+AND an.person_id = pi1.person_id
 AND rt.id = ci.role_id
 AND chn.id = ci.person_role_id
 AND n.gender IN (Xgender)
-AND n.surname_pcode IN (Xname_pcode)
-AND an.surname_pcode IN (Xan_name_pcode)
-AND chn.surname_pcode IN (Xchn_name_pcode)
+AND n.name IN (Xname)
 AND ci.note IN (Xcast_note)
 AND rt.role IN (Xrole)
 AND it1.id IN (Xit1)
@@ -40,36 +41,53 @@ AND pi1.info IN (Xpi1)
   columns = ["it1.id"]
   keys = ["Xit1"]
   dependencies = 0
-  options = ["19", "22", "25", "26", "31", "32", "34", "37"]
+  #options = ["25", "26", "31", "32", "34", "37"]
+  options = ["34"]
+  #options = ["19", "25", "26", "31", "32", "34", "37"]
   sampling_method = "uniform"
   pred_type = "in"
   min_samples = 1
   max_samples = 1
 
   [[templates.predicates]]
+
   type = "sql"
-  columns = ["pi1.info"]
-  keys = ["Xpi1"]
+  columns = ["n.gender"]
+  keys = ["Xgender"]
+  dependencies = 0
+  sampling_method = "uniform"
+  sql = '''SELECT DISTINCT n.gender FROM name as n WHERE n.gender IS NOT NULL'''
+  pred_type = "in"
+  min_samples = 1
+  max_samples = 2
+
+  [[templates.predicates]]
+  type = "sql"
+  columns = ["pi1.info", "n.name"]
+  keys = ["Xpi1", "Xname"]
   dependencies = 1
 
   # we want to sample this based on the ALREADY selected value for company name /
   # company type
   sql = '''
-  SELECT pi1.info, count(*)
+  SELECT pi1.info, n.name, count(*)
   FROM person_info as pi1,
   info_type as it1,
-  cast_info as ci
+  cast_info as ci,
+  name as n
   WHERE pi1.info_type_id = it1.id
   AND pi1.person_id = ci.person_id
   AND it1.id = Xit1
-  GROUP BY pi1.info
+  AND n.id = pi1.person_id
+  AND n.gender IN (Xgender)
+  GROUP BY pi1.info, n.name
   HAVING count(*) > 500
   ORDER BY count(*) desc
   '''
 
   sampling_method = "quantile"
   num_quantiles = 2
-  min_samples = 2
+  min_samples = 5
   max_samples = 15
 
   #--> highly correlated columns.
@@ -93,45 +111,4 @@ AND pi1.info IN (Xpi1)
   '''
 
   min_samples = 3
-  max_samples = 15
-
-  [[templates.predicates]]
-
-  type = "sql"
-  columns = ["n.gender"]
-  keys = ["Xgender"]
-  dependencies = 0
-  sampling_method = "uniform"
-  sql = '''SELECT DISTINCT n.gender FROM name as n WHERE n.gender IS NOT NULL'''
-  pred_type = "in"
-  min_samples = 1
-  max_samples = 2
-
-  [[templates.predicates]]
-  type = "sql"
-  columns = ["n.surname_pcode", "an.surname_pcode", "chn.surname_pcode"]
-  keys = ["Xname_pcode", "Xan_name_pcode", "Xchn_name_pcode"]
-  dependencies = 1
-
-  # we want to sample this based on the ALREADY selected value for company name /
-  # company type
-  sql = '''
-  SELECT n.surname_pcode, an.surname_pcode, chn.surname_pcode, COUNT(*)
-  FROM cast_info as ci, aka_name as an, name as n, char_name as chn
-  WHERE n.id = ci.person_id
-  AND an.person_id = ci.person_id
-  AND chn.id = ci.person_role_id
-  AND n.gender IN (Xgender)
-  AND n.surname_pcode IS NOT NULL
-  AND an.surname_pcode IS NOT NULL
-  AND chn.surname_pcode IS NOT NULL
-  GROUP BY n.surname_pcode,
-  an.surname_pcode, chn.surname_pcode
-  HAVING COUNT(*) > 500
-  ORDER BY COUNT(*) DESC;
-  '''
-
-  sampling_method = "quantile"
-  num_quantiles = 2
-  min_samples = 2
   max_samples = 15

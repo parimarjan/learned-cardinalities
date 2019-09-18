@@ -89,8 +89,12 @@ class QueryGenerator2():
                     gen_sql = self._update_sql_in(gen_sql, samples,
                             pred_group["keys"], pred_vals)
 
-                # total_count = sum([int(s[-1]) for s in samples])
-                # print("count: ", total_count)
+                try:
+                    print(samples)
+                    total_count = sum([int(s[-1]) for s in samples])
+                    print("total count: ", total_count)
+                except:
+                    pass
 
             elif pred_group["type"] == "list":
                 if pred_group["sampling_method"] == "uniform":
@@ -106,17 +110,12 @@ class QueryGenerator2():
                         assert len(pred_group["keys"]) == 1
                         options = pred_group["options"]
                         pred_choice = random.choice(options)
-                        # print(pred_choice)
-                        # print(gen_sql)
                         gen_sql = self._update_sql_in(gen_sql, [[pred_choice]],
                                 pred_group["keys"], pred_vals)
-                        # print(gen_sql)
-                        # pdb.set_trace()
             else:
                 assert False
 
         return gen_sql
-
 
     def gen_queries(self, num_samples, column_stats=None):
         '''
@@ -129,6 +128,9 @@ class QueryGenerator2():
             for template in self.templates:
                 query_str = self._gen_query_str(template["predicates"])
                 if query_str is not None:
+                    print("generated query str: ")
+                    print(query_str)
+                    pdb.set_trace()
                     all_query_strs.append(query_str)
 
         print("{} took {} seconds to generate".format(len(all_query_strs),
