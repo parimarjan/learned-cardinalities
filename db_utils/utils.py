@@ -980,10 +980,6 @@ def get_total_count_query(sql):
         from_clause += " WHERE " + join_clause
     count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
     return count_query
-    # total_count = self.execute(count_query, timeout=SUBQUERY_TIMEOUT)
-    # if total_count is None:
-        # return total_count
-    # return total_count[0][0]
 
 def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         total_count=None,execution_cache_threshold=None,

@@ -25,6 +25,7 @@ import numpy as np
 from db_utils.query_generator import QueryGenerator
 from db_utils.query_generator2 import QueryGenerator2
 import toml
+from db_utils.query_storage import load_all_queries
 
 def get_alg(alg):
     if alg == "independent":
@@ -157,132 +158,132 @@ def eval_alg(alg, losses, queries, use_subqueries):
 
     print("evaluating alg took: {} seconds".format(eval_time))
 
-def gen_query_strs(args, query_template, num_samples,
-        sql_str_cache, save_cur_cache_dir=None):
-    '''
-    @query_template: str OR dict.
+# def gen_query_strs(args, query_template, num_samples,
+        # sql_str_cache, save_cur_cache_dir=None):
+    # '''
+    # @query_template: str OR dict.
 
-    @ret: [Query, Query, ...]
-    '''
-    query_strs = []
+    # @ret: [Query, Query, ...]
+    # '''
+    # query_strs = []
 
-    # TODO: change key to be based on file name?
-    if isinstance(query_template, str):
-        hashed_tmp = deterministic_hash(query_template)
-    elif isinstance(query_template, dict):
-        # hashed_tmp_old = deterministic_hash(query_template)
+    # # TODO: change key to be based on file name?
+    # if isinstance(query_template, str):
         # hashed_tmp = deterministic_hash(query_template)
-        hashed_tmp = deterministic_hash(query_template["base_sql"]["sql"])
-        # if hashed_tmp_old in sql_str_cache.archive:
-            # # load it and put it into the new one
-            # sql_str_cache.archive[hashed_tmp] = sql_str_cache.archive[hashed_tmp_old]
-    else:
-        assert False
-
-    if hashed_tmp in sql_str_cache.archive:
-        query_strs = sql_str_cache.archive[hashed_tmp]
-        print("loaded {} query strings".format(len(query_strs)))
-
-    if num_samples == -1:
-        # select whatever we loaded
-        query_strs = query_strs
-    elif len(query_strs) > num_samples:
-        query_strs = query_strs[0:num_samples]
-    elif len(query_strs) < num_samples:
-        # need to generate additional queries
-        req_samples = num_samples - len(query_strs)
-        if isinstance(query_template, dict):
-            qg = QueryGenerator2(query_template, args.user, args.db_host, args.port,
-                    args.pwd, args.db_name)
-        elif isinstance(query_template, str):
-            qg = QueryGenerator(query_template, args.user, args.db_host, args.port,
-                    args.pwd, args.db_name)
-
-        gen_sqls = qg.gen_queries(req_samples)
-        query_strs += gen_sqls
-        # save on the disk
-        sql_str_cache.archive[hashed_tmp] = query_strs
-    # print("returning {} query strs".format(len(query_strs)))
-
-    return query_strs
-
-def gen_query_objs(args, query_strs, query_obj_cache):
-    '''
-    Note: this must return query objects in the same order as query_strs.
-    '''
-    ret_queries = []
-    unknown_query_strs = []
-    idx_map = {}
-
-    # everything below this part is for query objects exclusively
-    for i, sql in enumerate(query_strs):
-        assert i == len(ret_queries)
-        hsql = deterministic_hash(sql)
-        if hsql in query_obj_cache:
-            curq = query_obj_cache[hsql]
-            if not hasattr(curq, "froms"):
-                print("NEED TO UPDATE QUERY STRUCT")
-                update_query_structure(curq)
-                query_obj_cache.archive[hsql] = curq
-            assert hasattr(curq, "froms")
-            # update the query structure as well if needed
-            ret_queries.append(curq)
-        elif hsql in query_obj_cache.archive:
-            curq = query_obj_cache.archive[hsql]
-            if not hasattr(curq, "froms"):
-                print("NEED TO UPDATE QUERY STRUCT")
-                update_query_structure(curq)
-                query_obj_cache.archive[hsql] = curq
-            assert hasattr(curq, "froms")
-            # update the query structure as well if needed
-            ret_queries.append(curq)
-        else:
-            idx_map[len(unknown_query_strs)] = i
-            ret_queries.append(None)
-            unknown_query_strs.append(sql)
-            # store the appropriate index
-
-    # print("loaded {} query objects".format(len(ret_queries)))
-    if len(unknown_query_strs) == 0:
-        return ret_queries
-    else:
-        print("need to generate {} query objects".\
-                format(len(unknown_query_strs)))
+    # elif isinstance(query_template, dict):
+        # # hashed_tmp_old = deterministic_hash(query_template)
+        # # hashed_tmp = deterministic_hash(query_template)
+        # hashed_tmp = deterministic_hash(query_template["base_sql"]["sql"])
+        # # if hashed_tmp_old in sql_str_cache.archive:
+            # # # load it and put it into the new one
+            # # sql_str_cache.archive[hashed_tmp] = sql_str_cache.archive[hashed_tmp_old]
+    # else:
         # assert False
 
-    sql_result_cache = args.cache_dir + "/sql_result"
-    all_query_objs = []
-    start = time.time()
-    num_processes = int(min(len(unknown_query_strs),
-        multiprocessing.cpu_count()))
-    with Pool(processes=num_processes) as pool:
-        args = [(cur_query, args.user, args.db_host, args.port,
-            args.pwd, args.db_name, None,
-            args.execution_cache_threshold, sql_result_cache) for
-            cur_query in unknown_query_strs]
-        all_query_objs = pool.starmap(sql_to_query_object, args)
+    # if hashed_tmp in sql_str_cache.archive:
+        # query_strs = sql_str_cache.archive[hashed_tmp]
+        # print("loaded {} query strings".format(len(query_strs)))
 
-    for i, q in enumerate(all_query_objs):
-        # ret_queries.append(q)
-        ret_queries[idx_map[i]] = q
-        hsql = deterministic_hash(unknown_query_strs[i])
-        # save in memory, so potential repeat queries can be found in the
-        # memory cache
-        query_obj_cache[hsql] = q
-        # save at the disk backend as well, without needing to dump all of
-        # the cache
-        query_obj_cache.archive[hsql] = q
+    # if num_samples == -1:
+        # # select whatever we loaded
+        # query_strs = query_strs
+    # elif len(query_strs) > num_samples:
+        # query_strs = query_strs[0:num_samples]
+    # elif len(query_strs) < num_samples:
+        # # need to generate additional queries
+        # req_samples = num_samples - len(query_strs)
+        # if isinstance(query_template, dict):
+            # qg = QueryGenerator2(query_template, args.user, args.db_host, args.port,
+                    # args.pwd, args.db_name)
+        # elif isinstance(query_template, str):
+            # qg = QueryGenerator(query_template, args.user, args.db_host, args.port,
+                    # args.pwd, args.db_name)
 
-    print("generated {} samples in {} secs".format(len(unknown_query_strs),
-        time.time()-start))
+        # gen_sqls = qg.gen_queries(req_samples)
+        # query_strs += gen_sqls
+        # # save on the disk
+        # sql_str_cache.archive[hashed_tmp] = query_strs
+    # # print("returning {} query strs".format(len(query_strs)))
 
-    assert len(ret_queries) == len(query_strs)
+    # return query_strs
 
-    # sanity check: commented out so we don't spend time here
-    for i, query in enumerate(ret_queries):
-        assert query.query == query_strs[i]
+# def gen_query_objs(args, query_strs, query_obj_cache):
+    # '''
+    # Note: this must return query objects in the same order as query_strs.
+    # '''
+    # ret_queries = []
+    # unknown_query_strs = []
+    # idx_map = {}
 
-    return ret_queries
+    # # everything below this part is for query objects exclusively
+    # for i, sql in enumerate(query_strs):
+        # assert i == len(ret_queries)
+        # hsql = deterministic_hash(sql)
+        # if hsql in query_obj_cache:
+            # curq = query_obj_cache[hsql]
+            # if not hasattr(curq, "froms"):
+                # print("NEED TO UPDATE QUERY STRUCT")
+                # update_query_structure(curq)
+                # query_obj_cache.archive[hsql] = curq
+            # assert hasattr(curq, "froms")
+            # # update the query structure as well if needed
+            # ret_queries.append(curq)
+        # elif hsql in query_obj_cache.archive:
+            # curq = query_obj_cache.archive[hsql]
+            # if not hasattr(curq, "froms"):
+                # print("NEED TO UPDATE QUERY STRUCT")
+                # update_query_structure(curq)
+                # query_obj_cache.archive[hsql] = curq
+            # assert hasattr(curq, "froms")
+            # # update the query structure as well if needed
+            # ret_queries.append(curq)
+        # else:
+            # idx_map[len(unknown_query_strs)] = i
+            # ret_queries.append(None)
+            # unknown_query_strs.append(sql)
+            # # store the appropriate index
+
+    # # print("loaded {} query objects".format(len(ret_queries)))
+    # if len(unknown_query_strs) == 0:
+        # return ret_queries
+    # else:
+        # print("need to generate {} query objects".\
+                # format(len(unknown_query_strs)))
+        # # assert False
+
+    # sql_result_cache = args.cache_dir + "/sql_result"
+    # all_query_objs = []
+    # start = time.time()
+    # num_processes = int(min(len(unknown_query_strs),
+        # multiprocessing.cpu_count()))
+    # with Pool(processes=num_processes) as pool:
+        # args = [(cur_query, args.user, args.db_host, args.port,
+            # args.pwd, args.db_name, None,
+            # args.execution_cache_threshold, sql_result_cache) for
+            # cur_query in unknown_query_strs]
+        # all_query_objs = pool.starmap(sql_to_query_object, args)
+
+    # for i, q in enumerate(all_query_objs):
+        # # ret_queries.append(q)
+        # ret_queries[idx_map[i]] = q
+        # hsql = deterministic_hash(unknown_query_strs[i])
+        # # save in memory, so potential repeat queries can be found in the
+        # # memory cache
+        # query_obj_cache[hsql] = q
+        # # save at the disk backend as well, without needing to dump all of
+        # # the cache
+        # query_obj_cache.archive[hsql] = q
+
+    # print("generated {} samples in {} secs".format(len(unknown_query_strs),
+        # time.time()-start))
+
+    # assert len(ret_queries) == len(query_strs)
+
+    # # sanity check: commented out so we don't spend time here
+    # for i, query in enumerate(ret_queries):
+        # assert query.query == query_strs[i]
+
+    # return ret_queries
 
 def main():
     if args.gen_synth_data:
@@ -292,27 +293,23 @@ def main():
     elif "dmv" in args.db_name:
         load_dmv_data(args)
 
+    # if True:
+        # update_all_queries(args)
+        # exit(-1)
+
     # Steps: collect statistics, gen templates, filter out zeros and dups, gen
     # subqueries.
-    query_templates = []
-    assert args.template_dir is not None
-    fns = list(glob.glob(args.template_dir+"/*"))
-    for fn in fns:
-        if ".sql" in fn:
-            with open(fn, "r") as f:
-                template = f.read()
-        elif ".toml" in fn:
-            template = toml.load(fn)
-        else:
-            assert False
-        query_templates.append(template)
+
+    samples, subqueries = load_all_queries(args, subqueries=True)
+    for i, query in enumerate(samples):
+        query.subqueries = subqueries[i]
 
     start = time.time()
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
+
     db_key = deterministic_hash("db-" + args.template_dir)
     if db_key in misc_cache.archive:
-    # if False:
         db = misc_cache.archive[db_key]
     else:
         # either load the db object from cache, or regenerate it.
@@ -328,102 +325,10 @@ def main():
     print("generating db object took {} seconds".format(\
             time.time() - start))
 
-    # TODO: not sure if loading it into memory is a good idea or not.
-    samples = []
-    query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/query_obj",
-            cached=True, serialized=True)
-    sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/sql_str",
-            cached=True, serialized=True)
-
-    for i, template in enumerate(query_templates):
-        # generate queries
-        print(os.path.basename(fns[i]))
-        query_strs = gen_query_strs(args, template,
-                args.num_samples_per_template, sql_str_cache)
-        # deduplicate
-        query_strs = remove_doubles(query_strs)
-
-        cur_samples = gen_query_objs(args, query_strs, query_obj_cache)
-        for sample_id, q in enumerate(cur_samples):
-            q.template_name = os.path.basename(fns[i]) + str(sample_id)
-            samples.append(q)
-
-        if args.save_cur_cache_dir:
-            backup_cache = klepto.archives.dir_archive(args.save_cur_cache_dir + "/sql_str",
-                    cached=True, serialized=True)
-            if isinstance(template, str):
-                hashed_tmp = deterministic_hash(template)
-            elif isinstance(template, dict):
-                hashed_tmp = deterministic_hash(template["base_sql"]["sql"])
-            backup_cache.archive[hashed_tmp] = query_strs
-
-            backup_query_obj_cache = \
-                        klepto.archives.dir_archive(args.save_cur_cache_dir + "/query_obj",
-                    cached=True, serialized=True)
-            for qi, sql in enumerate(query_strs):
-                hsql = deterministic_hash(sql)
-                backup_query_obj_cache.archive[hsql] = cur_samples[qi]
-
-    print("len all samples: " , len(samples))
-
-    if args.only_nonzero_samples:
-        nonzero_samples = []
-        for s in samples:
-            if s.true_sel != 0.00:
-                nonzero_samples.append(s)
-        print("len nonzero samples: ", len(nonzero_samples))
-        samples = nonzero_samples
-
-    if args.use_subqueries:
-        start = time.time()
-        sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_sql_str",
-                cached=True, serialized=True)
-        query_obj_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_query_obj",
-                cached=True, serialized=True)
-
-        # TODO: parallelize the generation of subqueries
-        for i, q in enumerate(samples):
-            hashed_key = deterministic_hash(q.query)
-            if hashed_key in sql_str_cache:
-                sql_subqueries = sql_str_cache[hashed_key]
-            elif hashed_key in sql_str_cache.archive:
-                sql_subqueries = sql_str_cache.archive[hashed_key]
-            else:
-                s1 = time.time()
-                print("going to generate subqueries for query num ", i)
-                sql_subqueries = gen_all_subqueries(q.query)
-                # save it for the future!
-                sql_str_cache.archive[hashed_key] = sql_subqueries
-                print("generating + saving subqueries: ", time.time() - s1)
-
-            loaded_queries = gen_query_objs(args, sql_subqueries, query_obj_cache)
-            q.subqueries = loaded_queries
-            # print("loaded {} subqueries".format(len(loaded_queries)))
-
-            if args.save_cur_cache_dir:
-                backup_cache = \
-                        klepto.archives.dir_archive(args.save_cur_cache_dir +
-                        "/subq_sql_str", cached=True, serialized=True)
-                backup_cache.archive[hashed_key] = sql_subqueries
-
-                backup_query_obj_cache = \
-                            klepto.archives.dir_archive(args.save_cur_cache_dir + "/subq_query_obj",
-                        cached=True, serialized=True)
-                for qi, sql in enumerate(sql_subqueries):
-                    hsql = deterministic_hash(sql)
-                    backup_query_obj_cache.archive[hsql] = loaded_queries[qi]
-
-        print("subquery generation took {} seconds".format(time.time()-start))
-
-    all_queries = samples
-
-    # pdb.set_trace()
-
     # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
     # in all of the queries
     if args.use_subqueries:
         all_queries = get_all_subqueries(samples)
-
     for q in all_queries:
         q.yhats = {}
         q.losses = defaultdict(dict)
