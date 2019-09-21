@@ -1,0 +1,88 @@
+# trying to be as complicated as possible without including title et. al tables
+
+title = "Template 5"
+
+# potentially we don't need all those join cycles
+[base_sql]
+sql = '''SELECT COUNT(*)
+FROM
+aka_name as an,
+name as n,
+info_type as it1,
+person_info as pi1,
+cast_info as ci,
+role_type as rt
+WHERE
+n.id = ci.person_id
+AND ci.person_id = pi1.person_id
+AND it1.id = pi1.info_type_id
+AND n.id = pi1.person_id
+AND n.id = an.person_id
+AND ci.person_id = an.person_id
+AND an.person_id = pi1.person_id
+AND rt.id = ci.role_id
+AND (Xgender)
+AND (Xname)
+AND (Xcast_note)
+AND (Xrole)
+AND (Xit1)
+'''
+
+# template 1
+[[templates]]
+
+  name = "5a"
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+  type = "list"
+  columns = ["it1.id"]
+  keys = ["Xit1"]
+  dependencies = 0
+  # 22: height, 34: trademark
+  options = ["22", "19", "25", "26", "31", "32", "34", "37"]
+  sampling_method = "uniform"
+  pred_type = "in"
+  min_samples = 1
+  max_samples = 4
+
+  [[templates.predicates]]
+
+  type = "sql"
+  columns = ["n.gender"]
+  keys = ["Xgender"]
+  dependencies = 0
+  sampling_method = "uniform"
+  sql = '''select distinct name.gender from name'''
+  pred_type = "in"
+  min_samples = 1
+  max_samples = 3
+
+  #--> highly correlated columns.
+  [[templates.predicates]]
+  type = "sql"
+  columns = ["ci.note", "rt.role", "n.name_pcode_nf"]
+  keys = ["Xcast_note", "Xrole", "Xname"]
+  pred_type = "in"
+  dependencies = 1
+  sampling_method = "quantile"
+  num_quantiles = 2
+
+  # note: HAVING COUNT threshold is arbitrary, but chosen so most `interesting'
+  # cases are over that threshold
+  sql = '''
+  SELECT ci.note, rt.role, n.name_pcode_nf, COUNT(*)
+  FROM role_type as rt, cast_info as ci,
+  name as n
+  WHERE rt.id = ci.role_id
+  AND n.id = ci.person_id
+  AND (Xgender)
+  GROUP BY
+  ci.note, rt.role, n.name_pcode_nf
+  HAVING COUNT(*) > 2000
+  ORDER BY
+  COUNT(*) DESC;
+  '''
+
+  min_samples = 5
+  max_samples = 15

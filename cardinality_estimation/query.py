@@ -62,8 +62,14 @@ class Query():
         self.true_sel = float(self.true_count) / self.total_count
         self.pg_count = pg_count
 
+        # FIXME: handle this better
+        start = time.time()
         self.froms, self.aliases, self.table_names = extract_from_clause(query)
         self.joins = extract_join_clause(query)
 
         self.pg_marginal_sels = pg_marginal_sels
         self.marginal_sels = marginal_sels
+
+    def __str__(self):
+        # TODO: print more informative summary
+        return self.query

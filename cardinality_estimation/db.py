@@ -190,6 +190,8 @@ class DB():
             idx, _, _ = self.featurizer[table]
             feature_vector[idx] = 1.00
 
+        # TODO: add joins
+
         for i, col in enumerate(query.pred_column_names):
             cmp_op = query.cmp_ops[i]
             # turn the element corresponding to the comparison operator as 1
@@ -344,6 +346,9 @@ class DB():
             assert False
 
         pred_columns, pred_types, pred_vals = extract_predicates(query_template)
+        print("update db stats!")
+        print(pred_columns)
+        pdb.set_trace()
         for cmp_op in pred_types:
             self.cmp_ops.add(cmp_op)
         from_clauses, aliases, tables = extract_from_clause(query_template)

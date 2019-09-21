@@ -154,13 +154,6 @@ def update_cards(est_cards, q, fix_aliases=True):
                     if pred in seen:
                         continue
                     # yikes
-                    # if alias == "it1":
-                        # pdb.set_trace()
-                        # val = str(3)
-                        # break
-                    # elif alias == "it2":
-                        # val = str(4)
-                        # break
                     # kill me
                     if " " + alias + "." in " " + pred:
                         # ...assuming it is sorted here...
@@ -176,6 +169,7 @@ def update_cards(est_cards, q, fix_aliases=True):
                     seen.add(pred)
 
                 filter_tables.append(table + val)
+                # filter_tables.append(table)
 
         val = subq.true_count
         tables.sort()
@@ -190,6 +184,8 @@ def update_cards(est_cards, q, fix_aliases=True):
         cards[table_key] = int(est_cards[j])
         cards[filter_table_key] = int(est_cards[j])
 
+    # print(cards.keys())
+    # pdb.set_trace()
     return cards
 
 def join_loss(pred, queries, old_env,

@@ -429,7 +429,13 @@ def extract_predicates(query):
             predicate_types.append(pred_type)
             predicate_cols.append(column)
             predicate_vals.append(vals)
+        elif pred_type == "or":
+            # _parse_predicate(pred, pred_type)
+            for pred2 in pred[pred_type]:
+                pdb.set_trace()
+
         else:
+            assert False
             # TODO: need to support "OR" statements
             return None
             # assert False, "unsupported predicate type"
@@ -438,13 +444,31 @@ def extract_predicates(query):
     predicate_cols = []
     predicate_types = []
     predicate_vals = []
-    parsed_query = parse(query)
+    if "::float" in query:
+        query = query.replace("::float", "")
+    elif "::int" in query:
+        query = query.replace("::int", "")
+
+    try:
+        parsed_query = parse(query)
+    except:
+        print(query)
+        print("moz sql parser failed to parse this!")
+        pdb.set_trace()
     pred_vals = get_all_wheres(parsed_query)
 
-    # print("starting extract predicate cols!")
+    print("starting extract predicate cols!")
+
+    print(pred_vals)
     for i, pred in enumerate(pred_vals):
-        assert len(pred.keys()) == 1
+        try:
+            assert len(pred.keys()) == 1
+        except:
+            print(pred)
+            pdb.set_trace()
         pred_type = list(pred.keys())[0]
+        # print(pred_type)
+        # pdb.set_trace()
         _parse_predicate(pred, pred_type)
 
     # print("extract predicate cols done!")

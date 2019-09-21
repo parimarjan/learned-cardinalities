@@ -1,0 +1,106 @@
+TODO:
+  - are we handling NULLs correctly? As long as it gets featurized, it should
+be fine, right? calcite stuff may break?
+  - rather than quantile based sampling, also add uniform sampling options?
+
+join subgraph:
+  - cast_info, name, person_info, info_type, role_type, char_name, aka_name
+  - Question: what controls the size of this subgraph?
+
+join Keys:
+  AND n.id = ci.person_id
+  AND rt.id = ci.role_id
+  AND n.id = an.person_id
+  AND ci.person_id = an.person_id
+  AND chn.id = ci.person_role_id
+  AND n.id = pi.person_id
+  AND ci.person_id = pi.person_id
+  AND it3.id = pi.info_type_id
+
+predicate keys:
+  - n.name_pcode_nf, an.name_pcode_nf, chn.name_pcode_nf
+  - OTHER name columns
+  - pi.info IS NOT NULL / IS NULL
+  - ci.note <-> :rt.role
+  -
+
+  person_info, info_type:
+    it keys:
+      - height
+      - trivia
+      - mini biography
+      - magazine covers
+      - portrayed in
+      - biographical movies
+      - other works
+      - birth name
+
+ mini biography                  |  19
+ height                          |  22
+ other works                     |  25
+ birth name                      |  26
+ biographical movies             |  31
+ portrayed in                    |  32
+ trade mark                      |  34
+ magazine cover photo            |  37
+
+Regex based ones:
+ interviews                      |  35
+ article                         |  36
+ salary history                  |  27
+ books                           |  29
+ pictorial                       |  38
+  - e.g., %playboy%
+ where now                       |  33
+
+
+
+interesting sub-components: name, an, char_name(?) JOIN cast_info, role_type
+	idea: make all these conditional ON the gender.
+  (name_pcodes):
+  - SELECT :n.name_pcode_nf, :an.name_pcode_nf, COUNT(*) FROM :ci, :an, :n
+  WHERE :n.id = :ci.person_id AND :an.person_id = :ci.person_id GROUP BY
+  :n.name_pcode_nf, :an.name_pcode_nf HAVING COUNT(*) > 1000 ORDER BY COUNT(*);
+  (max values W/O NULL ~70K)
+
+  INCLUDE character_name condition that changes things a lot:
+  SELECT :n.name_pcode_nf, :an.name_pcode_nf, :chn.name_pcode_nf, COUNT(*)
+  FROM :ci, :an, :n, :chn WHERE :n.id = :ci.person_id AND :an.person_id =
+  :ci.person_id AND :chn.id = :ci.person_role_id GROUP BY :n.name_pcode_nf,
+  :an.name_pcode_nf, :chn.name_pcode_nf HAVING COUNT(*) > 1000 ORDER BY
+  COUNT(*) DESC;
+    (max values W/O NULL ~30K)
+
+  (name and gender):
+		TODO: mix name_pcode_nf in aka_name, name, char_name
+  - SELECT :n.gender, :an.name_pcode_nf, COUNT(*) FROM :ci, :an, :n WHERE :n.id = :ci.person_id AND :an.person_id = :ci.person_id GROUP BY :n.gender, :an.name_pcode_nf HAVING COUNT(*) > 100 ORDER BY COUNT(*) DESC;
+		- fun query, consider only female names:
+			- SELECT :n.gender, :an.name_pcode_nf, COUNT(*) FROM :ci, :an, :n WHERE :n.id = :ci.person_id AND :an.person_id = :ci.person_id AND :an.name_pcode_nf = 'E4213' GROUP BY :n.gender, :an.name_pcode_nf HAVING COUNT(*) > 100 ORDER BY COUNT(*) DESC;
+
+  - SELECT :ci.note, :rt.role, COUNT(*) FROM :rt, :ci WHERE :rt.id =
+  :ci.role_id GROUP BY :ci.note, :rt.role HAVING COUNT(*) > 1000 ORDER BY
+  COUNT(*) DESC;
+    --> highly correlated columns.
+
+
+  person_info ideas:
+    - SELECT :pi.note, count(*) FROM :pi, :it WHERE :it.id = '19' AND :it.id =
+    :pi.info_type_id GROUP BY :pi.note ORDER BY COUNT(*) DESC;
+
+    if we wanna do regexes:
+    - SELECT :pi.info, count(*) FROM :pi, :it WHERE :it.info ILIKE '%spouse%' AND
+  :it.id = :pi.info_type_id GROUP BY :pi.info ORDER BY COUNT(*) DESC;
+
+  CHOOSE info type from [........] THEN CONDITIONED ON THAT:
+    People portrayed in successful shows SHOW UP in a lot more movies:
+    - SELECT :pi.info, count(*) FROM :pi, :it, :ci WHERE :ci.person_id =
+    :pi.person_id AND :it.info ILIKE '%portrayed%' AND :it.id =
+    :pi.info_type_id GROUP BY :pi.info ORDER BY COUNT(*) DESC;
+
+    - SELECT count(*) FROM :pi, :it, :ci WHERE :ci.person_id = :pi.person_id
+    AND :it.info ILIKE '%interviews%' AND :it.id = :pi.info_type_id GROUP BY
+    :pi.info ORDER BY COUNT(*) DESC;
+
+    - SELECT :pi.info, count(*) FROM :pi, :it, :ci WHERE :ci.person_id =
+    :pi.person_id AND :it.info ILIKE '%magazine%' AND :it.id = :pi.info_type_id
+    GROUP BY :pi.info ORDER BY COUNT(*) DESC;
