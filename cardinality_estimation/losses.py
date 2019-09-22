@@ -188,12 +188,33 @@ def update_cards(est_cards, q, fix_aliases=True):
     # pdb.set_trace()
     return cards
 
+def _fix_query(query):
+    # FIXME: make this shit not be so dumb.
+
+    # for calcite rules etc.
+    bad_str1 = "mii2.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    bad_str2 = "mii1.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    if bad_str1 in query:
+        query = query.replace(bad_str1, "")
+
+    if bad_str2 in query:
+        query = query.replace(bad_str2, "")
+
+    if "::float" in query:
+        query = query.replace("::float", "")
+
+    if "::int" in query:
+        query = query.replace("::int", "")
+
+    return query
+
 def join_loss(pred, queries, old_env,
         baseline="EXHAUSTIVE"):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
     '''
+
     if old_env is None:
         env = park.make('query_optimizer')
     else:
@@ -207,10 +228,8 @@ def join_loss(pred, queries, old_env,
     # each queries index is set to its name
     for i, q in enumerate(queries):
         key = str(deterministic_hash(q.query))
-        # if key == "1062510563782308795454436663573014615259135596985":
-            # print(q)
-            # pdb.set_trace()
-        query_dict[str(deterministic_hash(q.query))] = q.query
+        fixed_query = _fix_query(q.query)
+        query_dict[str(deterministic_hash(q.query))] = fixed_query
 
     cardinalities = {}
     # Set estimated cardinalities. For estimated cardinalities, we need to
