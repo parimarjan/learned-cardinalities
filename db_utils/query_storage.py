@@ -245,7 +245,7 @@ def load_all_queries(args, subqueries=True):
             else:
                 print(s)
                 print("ZERO QUERY!")
-                pdb.set_trace()
+                # pdb.set_trace()
 
             # if "NULL" in str(s):
                 # print(q)

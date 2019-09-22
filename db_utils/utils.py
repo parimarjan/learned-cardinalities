@@ -432,13 +432,13 @@ def extract_predicates(query):
             predicate_types.append(pred_type)
             predicate_cols.append(column)
             predicate_vals.append(vals)
-        elif pred_type == "or":
+        # elif pred_type == "or":
             # _parse_predicate(pred, pred_type)
-            for pred2 in pred[pred_type]:
-                pdb.set_trace()
+            # for pred2 in pred[pred_type]:
+                # pdb.set_trace()
 
         else:
-            assert False
+            # assert False
             # TODO: need to support "OR" statements
             return None
             # assert False, "unsupported predicate type"
@@ -477,6 +477,8 @@ def extract_predicates(query):
         pred_type = list(pred.keys())[0]
         # print(pred_type)
         # pdb.set_trace()
+        if pred == "or" or pred == "OR":
+            continue
         _parse_predicate(pred, pred_type)
 
     # print("extract predicate cols done!")

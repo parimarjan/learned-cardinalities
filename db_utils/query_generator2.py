@@ -49,36 +49,6 @@ class QueryGenerator2():
         sql = sql.replace(key, pred_val)
         return sql
 
-    def _update_preds_in(self, sql, column, key, pred_vals):
-        '''
-        @sql: that we will be modifying and updating.
-        @column: table.column_name / alias.column_name whose predicate will be
-        changed.
-        @key: Xgender etc. --> thing that should be replaced.
-        @pred_vals: [string_1, string_2,... ] to plug into vals. string = `None`
-        needs to be handled as a special case.
-
-        @ret: updated sql.
-        '''
-        print(pred_vals)
-        if "None" in pred_vals:
-            assert False
-            print("None in vals")
-            new_cond = "OR " + column + " IS NULL"
-            pred_vals.remove("None")
-            sql = _add_new_predicate_cond(sql, new_cond)
-
-        if len(pred_vals) == 0:
-            # remove the line containing key
-            to_remove = "AND " + column + " IN " + "("+key+")"
-            assert to_remove in sql
-            sql = sql.replace(to_remove, "")
-        else:
-            new_pred_str = ",".join(pred_vals)
-            sql = sql.replace(key, new_pred_str)
-
-        return sql
-
     def _generate_sql(self, pred_vals):
         '''
         @sql: string.
@@ -119,8 +89,9 @@ class QueryGenerator2():
             vals = []
             # can have multiple values for IN statements, including None / NULL
             for s in samples:
-                val = str(s[i])
+                val = s[i]
                 if val:
+                    val = str(val)
                     vals.append("'{}'".format(val.replace("'","")))
                 else:
                     # None value
@@ -196,8 +167,12 @@ class QueryGenerator2():
                         # really shouldn't be happenning right?
                         return None
 
-                    samples = [random.choice(tmp_output) for _ in
-                            range(num_samples)]
+                    if len(tmp_output) <= num_samples:
+                        samples = [random.choice(tmp_output) for _ in
+                                range(num_samples)]
+                    else:
+                        samples = random.sample(tmp_output, num_samples)
+
                     self._update_sql_in(samples,
                             pred_group, pred_vals)
 
