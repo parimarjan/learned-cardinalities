@@ -5,15 +5,15 @@ title = "Template 6"
 [base_sql]
 sql = '''SELECT COUNT(*)
 FROM title as t,
-kind_type as kt,
 movie_info as mi1,
-info_type as it1,
+kind_type as kt,
 movie_info as mi2,
+info_type as it1,
 info_type as it2,
-movie_info_idx as mii1,
 info_type as it3,
-movie_info_idx as mii2,
 info_type as it4,
+movie_info_idx as mii1,
+movie_info_idx as mii2,
 movie_keyword as mk,
 keyword as k
 WHERE
@@ -75,6 +75,7 @@ AND (Xvotes_down)
   AND (Xprod_year_up)
   AND (Xprod_year_low)
   GROUP BY kt.kind
+  HAVING COUNT(*) > 10000
   ORDER BY count(*) desc
   '''
 
@@ -86,11 +87,12 @@ AND (Xvotes_down)
   [[templates.predicates]]
   # votes
   type = "list"
-  columns = ["mii1.info::float"]
+  columns = ["mii1.info"]
+  numeric_col_type = "float"
   keys = ["Xvotes_down", "Xvotes_up"]
   pred_type = "range"
 
-  options = [[0.0, 1000.00], [1000.00, 10000.0], [5000.00, 50000.0]]
+  options = [[0.0, 10000.00], [1000.00, 10000.0], [100.00, 50000.0]]
   sampling_method = "uniform"
   min_samples = 1
   max_samples = 1
@@ -98,12 +100,14 @@ AND (Xvotes_down)
   [[templates.predicates]]
   # ratings
   type = "list"
-  columns = ["mii2.info::float"]
+  columns = ["mii2.info"]
+  numeric_col_type = "float"
   keys = ["Xrating_up", "Xrating_down"]
   pred_type = "range"
 
   # TODO: add more.
-  options = [[0.0, 4.0], [3.0, 7.0], [7.0,11.0]]
+  # options = [[0.0, 4.0], [3.0, 7.0], [7.0,11.0]]
+  options = [[0.0, 11.0]]
   sampling_method = "uniform"
   min_samples = 1
   max_samples = 1
@@ -143,11 +147,13 @@ AND (Xvotes_down)
   sql = '''
   SELECT mi1.info, count(*)
   FROM movie_info as mi1,
-  info_type as it1,
+  info_type as it1, kind_type as kt,
   title as t
   WHERE t.id = mi1.movie_id
   AND mi1.info_type_id = it1.id
+  AND t.kind_id = kt.id
   AND (Xit1)
+  AND (Xmovie_kind)
   AND (Xprod_year_up)
   AND (Xprod_year_low)
   GROUP BY mi1.info

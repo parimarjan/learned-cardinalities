@@ -224,17 +224,42 @@ class QueryGenerator2():
                         assert len(pred_group["keys"]) == 2
                         options = pred_group["options"]
                         pred_choice = random.choice(options)
-                        # for idx, val in enumerate(pred_choice):
-
                         assert len(pred_choice) == 2
                         lower_key = pred_group["keys"][0]
                         upper_key = pred_group["keys"][1]
                         lower_val = pred_choice[0]
                         upper_val = pred_choice[1]
-                        lower_cond = "{} >= {}".format(col, lower_val)
-                        upper_cond = "{} <= {}".format(col, upper_val)
+
+                        assert len(pred_choice) == 2
+                        if "numeric_col_type" in pred_group:
+                            col_type = pred_group["numeric_col_type"]
+                            # add a chec for both conditions
+                            float_regex = '^(?:[1-9]\d*|0)?(?:\.\d+)?$'
+                            num_check_cond_tmp = "{col} ~ '{regex}' AND {cond}"
+
+                            upper_cond = "{val} <= {col}::{col_type}".format(col=col,
+                                                                val=lower_val,
+                                                                col_type=col_type)
+                            lower_cond = "{col}::{col_type} <= {val}".format(col=col,
+                                                                val=upper_val,
+                                                                col_type=col_type)
+                            lower_cond = num_check_cond_tmp.format(col=col,
+                                                        cond = lower_cond,
+                                                        regex = float_regex)
+                            upper_cond = num_check_cond_tmp.format(col=col,
+                                                    cond = upper_cond, regex =
+                                                    float_regex)
+                        else:
+                            lower_key = pred_group["keys"][0]
+                            upper_key = pred_group["keys"][1]
+                            lower_val = pred_choice[0]
+                            upper_val = pred_choice[1]
+                            lower_cond = "{} >= {}".format(col, lower_val)
+                            upper_cond = "{} <= {}".format(col, upper_val)
+
                         pred_vals[lower_key] = lower_cond
                         pred_vals[upper_key] = upper_cond
+
                     else:
                         # probably only deals with `=` ?
                         assert len(pred_group["keys"]) == 1

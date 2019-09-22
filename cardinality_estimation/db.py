@@ -346,9 +346,6 @@ class DB():
             assert False
 
         pred_columns, pred_types, pred_vals = extract_predicates(query_template)
-        print("update db stats!")
-        print(pred_columns)
-        pdb.set_trace()
         for cmp_op in pred_types:
             self.cmp_ops.add(cmp_op)
         from_clauses, aliases, tables = extract_from_clause(query_template)

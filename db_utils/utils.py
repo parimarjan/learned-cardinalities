@@ -313,6 +313,9 @@ def extract_join_clause(query):
     for match in matches:
         if "=" not in match:
             continue
+        if "<=" in match or ">=" in match:
+            continue
+
         match = match.replace(";", "")
         left, right = match.split("=")
         # ugh dumb hack
@@ -448,6 +451,14 @@ def extract_predicates(query):
         query = query.replace("::float", "")
     elif "::int" in query:
         query = query.replace("::int", "")
+    # really fucking dumb
+    bad_str1 = "mii2.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    bad_str2 = "mii1.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    if bad_str1 in query:
+        query = query.replace(bad_str1, "")
+
+    if bad_str2 in query:
+        query = query.replace(bad_str2, "")
 
     try:
         parsed_query = parse(query)
@@ -457,9 +468,6 @@ def extract_predicates(query):
         pdb.set_trace()
     pred_vals = get_all_wheres(parsed_query)
 
-    print("starting extract predicate cols!")
-
-    print(pred_vals)
     for i, pred in enumerate(pred_vals):
         try:
             assert len(pred.keys()) == 1
@@ -969,6 +977,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         if not "timeout" in str(e):
             print("failed to execute for reason other than timeout")
             print(e)
+            print(sql)
             pdb.set_trace()
 
         return None
@@ -1003,6 +1012,8 @@ def get_total_count_query(sql):
     if len(join_clause) > 0:
         from_clause += " WHERE " + join_clause
     count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
+    # print("COUNT QUERY:\n", count_query)
+    # pdb.set_trace()
     return count_query
 
 def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
