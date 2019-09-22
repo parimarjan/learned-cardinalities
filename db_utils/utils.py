@@ -948,7 +948,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
     # archive only considers the stuff stored in disk
     if sql_cache is not None and hashed_sql in sql_cache.archive:
         # load it and return
-        print("loaded {} from cache".format(hashed_sql))
+        # print("loaded {} from cache".format(hashed_sql))
         return sql_cache.archive[hashed_sql]
 
     start = time.time()
