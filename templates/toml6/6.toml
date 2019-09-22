@@ -22,6 +22,10 @@ AND t.id = mi2.movie_id
 AND t.id = mii1.movie_id
 AND t.id = mii2.movie_id
 AND t.id = mk.movie_id
+AND mi2.movie_id = mk.movie_id
+AND mii2.movie_id = mii1.movie_id
+AND mi1.movie_id = mi2.movie_id
+AND mi1.movie_id = mii1.movie_id
 AND mk.keyword_id = k.id
 AND mi1.info_type_id = it1.id
 AND mi2.info_type_id = it2.id
@@ -92,7 +96,8 @@ AND (Xvotes_down)
   keys = ["Xvotes_down", "Xvotes_up"]
   pred_type = "range"
 
-  options = [[0.0, 10000.00], [1000.00, 10000.0], [100.00, 50000.0]]
+  options = [[0.0, 1000.00], [1000.00, 10000.0], [5000.00, 50000.0],
+      [10000.00, 20000.00]]
   sampling_method = "uniform"
   min_samples = 1
   max_samples = 1
@@ -106,8 +111,7 @@ AND (Xvotes_down)
   pred_type = "range"
 
   # TODO: add more.
-  # options = [[0.0, 4.0], [3.0, 7.0], [7.0,11.0]]
-  options = [[0.0, 11.0]]
+  options = [[0.0, 4.0], [3.0, 7.0], [7.0,11.0], [2.0,5.0]]
   sampling_method = "uniform"
   min_samples = 1
   max_samples = 1
