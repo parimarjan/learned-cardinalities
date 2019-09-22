@@ -127,8 +127,8 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
             args.pwd, args.db_name, None,
-            args.execution_cache_threshold, sql_result_cache) for
-            cur_query in unknown_query_strs]
+            args.execution_cache_threshold, sql_result_cache, None, i) for
+            i, cur_query in enumerate(unknown_query_strs)]
         all_query_objs = pool.starmap(sql_to_query_object, args)
 
     for i, q in enumerate(all_query_objs):
@@ -264,6 +264,7 @@ def load_all_queries(args, subqueries=True):
                 cached=True, serialized=True)
 
         # TODO: parallelize the generation of subqueries
+        all_sql_subqueries = []
         for i, q in enumerate(samples):
             hashed_key = deterministic_hash(q.query)
             if hashed_key in sql_str_cache:
@@ -277,24 +278,36 @@ def load_all_queries(args, subqueries=True):
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries
                 print("generating + saving subqueries: ", time.time() - s1)
+            print("sql_subqueries len: ", len(sql_subqueries))
+            all_sql_subqueries += sql_subqueries
 
-            loaded_queries = gen_query_objs(args, sql_subqueries, query_obj_cache)
-            # q.subqueries = loaded_queries
-            # print("loaded {} subqueries".format(len(loaded_queries)))
-            subquery_ret.append(loaded_queries)
+        num_subq_per_query = len(sql_subqueries)
+        print("all subqueries len: ", len(all_sql_subqueries))
+        assert len(all_sql_subqueries) % num_subq_per_query == 0
+        all_loaded_queries = gen_query_objs(args, all_sql_subqueries, query_obj_cache)
+        assert len(all_loaded_queries) == len(all_sql_subqueries)
 
-            if args.save_cur_cache_dir:
-                backup_cache = \
-                        klepto.archives.dir_archive(args.save_cur_cache_dir +
-                        "/subq_sql_str", cached=True, serialized=True)
-                backup_cache.archive[hashed_key] = sql_subqueries
+        for i in range(len(samples)):
+            start_idx = i*num_subq_per_query
+            end_idx = start_idx + num_subq_per_query
+            # print(start_idx, end_idx)
+            subquery_ret.append(all_loaded_queries[start_idx:end_idx])
 
-                backup_query_obj_cache = \
-                            klepto.archives.dir_archive(args.save_cur_cache_dir + "/subq_query_obj",
-                        cached=True, serialized=True)
-                for qi, sql in enumerate(sql_subqueries):
-                    hsql = deterministic_hash(sql)
-                    backup_query_obj_cache.archive[hsql] = loaded_queries[qi]
+        print("len subquery ret: ", len(subquery_ret))
+        # pdb.set_trace()
+
+        if args.save_cur_cache_dir:
+            backup_cache = \
+                    klepto.archives.dir_archive(args.save_cur_cache_dir +
+                    "/subq_sql_str", cached=True, serialized=True)
+            backup_cache.archive[hashed_key] = sql_subqueries
+
+            backup_query_obj_cache = \
+                        klepto.archives.dir_archive(args.save_cur_cache_dir + "/subq_query_obj",
+                    cached=True, serialized=True)
+            for qi, sql in enumerate(sql_subqueries):
+                hsql = deterministic_hash(sql)
+                backup_query_obj_cache.archive[hsql] = loaded_queries[qi]
 
         print("subquery generation took {} seconds".format(time.time()-start))
 

@@ -948,7 +948,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
     # archive only considers the stuff stored in disk
     if sql_cache is not None and hashed_sql in sql_cache.archive:
         # load it and return
-        # print("loaded {} from cache".format(hashed_sql))
+        print("loaded {} from cache".format(hashed_sql))
         return sql_cache.archive[hashed_sql]
 
     start = time.time()
@@ -981,6 +981,8 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
             print(e)
             print(sql)
             pdb.set_trace()
+        else:
+            print("failed because of timeout!")
 
         return None
 
@@ -1020,7 +1022,7 @@ def get_total_count_query(sql):
 
 def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         total_count=None,execution_cache_threshold=None,
-        sql_cache=None, timeout=None):
+        sql_cache=None, timeout=None, num_query=1):
     '''
     @sql: string sql.
     @ret: Query object with all fields appropriately initialized.
@@ -1028,6 +1030,9 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     @execution_cache_threshold: In seconds, if query takes beyond this, then
     cache it.
     '''
+    if num_query % 100 == 0:
+        print("sql_to_query_object num query: ", num_query)
+
     if execution_cache_threshold is None:
         execution_cache_threshold = 60
 
@@ -1040,7 +1045,9 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
 
     # TODO: better error handling
     if output is None:
-        return None
+        print("cached execute query returned None!!")
+        exit(-1)
+        # return None
     # from query string, to Query object
     true_val = output[0][0]
     # print("true_val: ", true_val)
