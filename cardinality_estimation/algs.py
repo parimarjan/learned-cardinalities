@@ -211,6 +211,9 @@ class Postgres(CardinalityEstimationAlg):
     def test(self, test_samples):
         return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
 
+    def avg_eval_time(self):
+        return 0.00001
+
 class Random(CardinalityEstimationAlg):
     def test(self, test_samples):
         return np.array([random.random() for _ in test_samples])
@@ -227,6 +230,8 @@ class Sampling(CardinalityEstimationAlg):
 
     def __init__(self, *args, **kwargs):
         self.sampling_percentage = kwargs["sampling_percentage"]
+        self.eval_times = []
+        self.gen_times = []
 
     def train(self, db, training_samples, **kwargs):
         # FIXME: this should be a utility function, also used in
@@ -249,6 +254,7 @@ class Sampling(CardinalityEstimationAlg):
         cache_key = select_all
         if cache_key in data_cache.archive:
             df = data_cache.archive[cache_key]
+            print("loaded sampling data from the cache!")
         else:
             cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(db.user,
                     db.pwd, db.db_name)
@@ -263,41 +269,68 @@ class Sampling(CardinalityEstimationAlg):
         # pdb.set_trace()
         self.test_cache = {}
 
+        self.sampling_time = 10     #ms
+
     def test(self, test_samples, **kwargs):
+        import functools
+        def conjunction(*conditions):
+            return functools.reduce(np.logical_and, conditions)
         predictions = []
         total = len(self.df)
         for si, sample in enumerate(test_samples):
-            if si % 100 == 0:
-                print(si)
+            matching = 0
+            # if si % 100 == 0:
+                # print(si)
 
             hashed_query = deterministic_hash(sample.query)
             if hashed_query in self.test_cache:
                 predictions.append(self.test_cache[hashed_query])
                 continue
-
-            cur_df = self.df
+            # cur_df = self.df
             # go over every predicate in sample
+            start = time.time()
+            conditions = []
             for i, pred in enumerate(sample.pred_column_names):
                 pred = pred[pred.find(".")+1:]
                 cmp_op = sample.cmp_ops[i]
                 vals = sample.vals[i]
                 if cmp_op == "in":
-                    cur_df = cur_df[cur_df[pred].isin(vals)]
+                    # cur_df = cur_df[cur_df[pred].isin(vals)]
+                    cond = self.df[pred].isin(vals)
+                    conditions.append(cond)
                 elif cmp_op == "lt":
                     lb = float(vals[0])
                     ub = float(vals[1])
                     assert lb <= ub
-                    cur_df = cur_df[cur_df[pred] >= lb]
-                    cur_df = cur_df[cur_df[pred] < ub]
+                    # cur_df = cur_df[cur_df[pred] >= lb]
+                    # cur_df = cur_df[cur_df[pred] < ub]
+                    cond1 = self.df[pred] >= lb
+                    cond2 = self.df[pred] < ub
+                    conditions.append(cond1)
+                    conditions.append(cond2)
                 else:
                     print(cmp_op)
                     assert False
 
-            true_sel = (len(cur_df) / total)
+            self.gen_times.append(time.time() - start)
+            start = time.time()
+            filtered = self.df[conjunction(*conditions)]
+            matching = len(filtered)
+            self.eval_times.append(time.time()-start)
+            # print("filtering: {} sec".format(eval_times[-1])
+            true_sel = matching / total
+
             predictions.append(true_sel)
             self.test_cache[hashed_query] = true_sel
 
+        if len(self.eval_times) > 0:
+            print("sampling eval time avg: ", np.mean(np.array(self.eval_times)))
+            print("sampling gen cond time avg: ", np.mean(np.array(self.gen_times)))
+            print("sampling eval time std: ", np.std(np.array(self.eval_times)))
         return np.array(predictions)
+
+    def avg_eval_time(self):
+        return np.mean(np.array(self.eval_times))
 
     def num_parameters(self):
         '''
@@ -330,6 +363,7 @@ class OurPGM(CardinalityEstimationAlg):
         self.recompute = kwargs["recompute"]
         self.test_cache = {}
         self.column_bins = {}
+        self.eval_times = []
 
         # key: column name
         # val: dataframe, which represents a sorted (ascending, based on column
@@ -489,9 +523,9 @@ class OurPGM(CardinalityEstimationAlg):
                                                 ALIAS  = col[col.find(".")+1:],
                                                 BINS   = self.num_bins)
                     inner_from.append(ntile)
-		    # SELECT MIN(model_year) FROM (SELECT model_year, ntile(5)
-		    #OVER (order by model_year) AS ntile from dmv) AS tmp group by ntile order by
-		    #ntile;
+                    # SELECT MIN(model_year) FROM (SELECT model_year, ntile(5)
+                    #OVER (order by model_year) AS ntile from dmv) AS tmp group by ntile order by
+                    #ntile;
                     ntile = NTILE_CLAUSE.format(COLUMN = col,
                                                 ALIAS  = "ntile",
                                                 BINS   = self.num_bins)
@@ -584,8 +618,41 @@ class OurPGM(CardinalityEstimationAlg):
                 elif isinstance(dist, dict):
                     self.param_count += len(dist)*2
 
+    def avg_eval_time(self):
+        return np.mean(np.array(self.eval_times))
+
     def num_parameters(self):
-        return self.model.num_parameters()
+        # approximate it based on the db stats
+        alph_sizes = []
+        num_columns = len(self.db.column_stats)
+        print(self.db.column_stats.keys())
+        for k,stats in self.db.column_stats.items():
+            num_vals = stats["num_values"]
+            if num_vals > 1000:
+                print("{} treated as continuous binned for param est".format(k))
+                alph_sizes.append(self.num_bins)
+            else:
+                alph_sizes.append(num_vals)
+
+        # self.use_svd = kwargs["use_svd"]
+        # self.num_singular_vals = kwargs["num_singular_vals"]
+
+        # self.num_bins = kwargs["num_bins"]
+        # self.recompute = kwargs["recompute"]
+        avg_alph_size = np.mean(np.array(alph_sizes))
+        ind_prob_sizes = num_columns * avg_alph_size
+        if self.use_svd and self.recompute:
+            k = self.num_singular_vals
+            edge_sizes = ((num_columns-1)**2)*k*(avg_alph_size)
+        elif self.use_svd:
+            k = self.num_singular_vals
+            edge_sizes = ((num_columns-1))*k*(avg_alph_size)
+        elif self.recompute:
+            edge_sizes = ((num_columns-1)**2)*(avg_alph_size**2)
+        else:
+            # no svd or recompute
+            edge_sizes = ((num_columns-1))*(avg_alph_size**2)
+        return ind_prob_sizes + edge_sizes
 
     def load_model(self, key):
         # TODO have a system to do this
@@ -608,11 +675,14 @@ class OurPGM(CardinalityEstimationAlg):
             # TODO: add assertion checks on possible_vals, weights shape etc.
 
             # if no binning, then don't need weights
+            start = time.time()
             if len(self.column_bins) == 0:
                 est_sel = self.model.evaluate(possible_vals)
             else:
                 est_sel = self.model.evaluate(possible_vals, weights)
                 # est_sel = self.model.evaluate(possible_vals)
+            end = time.time()
+            self.eval_times.append(end-start)
 
             if self.DEBUG:
                 true_sel = query.true_sel

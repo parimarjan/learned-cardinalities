@@ -26,13 +26,14 @@ DB_ORDER = ["dmv", "synthdb", "imdb", "osm2", "higgs", "power"]
 EXP_KEYS = ["num_params", "eval_times", "train_times"]
 # ALGS_ORDER = ["pg", "NN1", "S0.1", "S1",
         # "cl", "cl5", "clr","clr5"]
-ALGS_ORDER = ["pg", "S0.1", "S1",
+ALGS_ORDER = ["pg", "Sampling",
         "cl", "cl5", "clr","clr5"]
 
 PALETTE ={"pg":"blue",
         "NN1":"green",
-        "S0.1":"#FF8C00",
-        "S1": "#FFA500",
+        # "S0.1":"#FF8C00",
+        # "S1": "#FFA500",
+        "Sampling": "#FFA500",
         "cl":"#FF0000",
         "cl5":"#8B0000",
         "clr":"#800000",
@@ -111,10 +112,12 @@ def parse_results(results_cache, trainining_queries=True):
                     alg = "clr5"
                 elif alg == "chow-liu":
                     alg = "cl"
-                elif alg == "Sampling1":
-                    alg = "S1"
-                elif alg == "Sampling0.1":
-                    alg = "S0.1"
+                elif "Sampling" in alg:
+                    alg = "Sampling"
+                # elif alg == "Sampling1":
+                    # alg = "S1"
+                # elif alg == "Sampling0.1":
+                    # alg = "S0.1"
                 elif alg == "Postgres":
                     alg = "pg"
 
@@ -139,10 +142,12 @@ def parse_results(results_cache, trainining_queries=True):
                         alg = "clr5"
                     elif alg == "chow-liu":
                         alg = "cl"
-                    elif alg == "Sampling1":
-                        alg = "S1"
-                    elif alg == "Sampling0.1":
-                        alg = "S0.1"
+                    elif "Sampling" in alg:
+                        alg = "Sampling"
+                    # elif alg == "Sampling1":
+                        # alg = "S1"
+                    # elif alg == "Sampling0.1":
+                        # alg = "S0.1"
                     elif alg == "Postgres":
                         alg = "pg"
 
@@ -198,6 +203,7 @@ def gen_exp_summary(df, pdf, stat_type):
     elif stat_type == "eval_times":
         ylabel = "Milliseconds"
         ymax = 10
+        df["val"] = df["val"]*1000
     elif stat_type == "train_times":
         ylabel = "Seconds"
 

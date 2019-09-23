@@ -383,9 +383,14 @@ def main():
 
         if args.test:
             eval_alg(alg, losses, test_queries, args.use_subqueries)
-        eval_times[alg.__str__()] = round(time.time() - start, 2)
-        # print("going to call num parameters")
-        # num_params[alg.__str__()] = alg.num_parameters()
+        totalq = len(train_queries) + len(test_queries)
+        # avg_eval_time = round((time.time() - start) / totalq, 3)
+        avg_eval_time = round(alg.avg_eval_time(), 3)
+        cur_num_params = alg.num_parameters()
+        eval_times[alg.__str__()] = avg_eval_time
+        num_params[alg.__str__()] = cur_num_params
+        print("{}, avg eval time: {}, num_params: {}".format(alg.__str__(),
+            avg_eval_time, cur_num_params))
 
     results = {}
     results["training_queries"] = train_queries
@@ -423,7 +428,7 @@ def read_flags():
     parser.add_argument("--pgm_alg_name", type=str, required=False,
             default="chow-liu")
     parser.add_argument("--sampling_percentage", type=float, required=False,
-            default=1.0)
+            default=0.001)
 
     parser.add_argument("--db_name", type=str, required=False,
             default="card_est")
