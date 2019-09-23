@@ -17,15 +17,13 @@ JL_VARIANTS = [0]
 SAMPLES_TYPE = ["train", "test"]
 SAMPLING_METHODS = ["jl_ratio", "jl_diff", "jl_rank"]
 LOSS_TYPES = ["qerr", "join-loss"]
-MAX_ERRS = {"qerr": 20.00, "join-loss":1000000}
+MAX_ERRS = {"qerr": 50.00, "join-loss":1000000}
 HIDDEN_LAYERS = [1, 2, 3, 4]
-# LRS = [0.0001, 0.001, 0.01]
-LRS = [0.01, 0.0001]
+LRS = [0.0001, 0.001, 0.01]
+# LRS = [0.01, 0.0001]
 OPTIMIZERS = ["sgd", "adam", "ams"]
-# ALG_ORDER = ["FCNN", "Tables-FCNN", "Tables-LinearRegression"]
+ALG_ORDER = ["FCNN", "Tables-FCNN", "Tables-LinearRegression"]
 # ALG_ORDER = ["FCNN0.01", "FCNN0.0001", "Tables-FCNN", "Tables-LinearRegression"]
-ALG_ORDER = ["Postgres", "FCNN0.01", "FCNN0.0001", "Tables-FCNN",
-        "Tables-LinearRegression"]
 
 PG_TRAIN_JL = 376236.00
 PG_TEST_JL = 352099.00
@@ -73,7 +71,8 @@ def parse_results():
 
         if data["name"] == "nn":
             name = ""
-            opt_obj = name + data["kwargs"]["net_name"] + str(lr)
+            # opt_obj = name + data["kwargs"]["net_name"] + str(lr)
+            opt_obj = name + data["kwargs"]["net_name"]
         elif data["name"] == "NumTablesNN":
             name = "Tables-"
             opt_obj = name + data["kwargs"]["net_name"]
@@ -176,12 +175,6 @@ def plot_subplot(ax, df, loss_type, samples_type, lr):
     plt.tight_layout()
 
 def plot_generalization_figs(df):
-    # lrs = set(df["lr"])
-    # for lr in lrs:
-        # print(lr)
-
-    # df_lr = df[df["lr"] == lr]
-
     lr = ""
     df_lr = df
     for lt in LOSS_TYPES:
@@ -209,7 +202,10 @@ def plot_table_errors(tables_df, lt, samples_type):
     fg = sns.FacetGrid(tables_df, col = "num_tables", hue="alg", col_wrap=3,
             hue_order = ALG_ORDER)
     fg = fg.map(plt.plot, "iter", "loss")
+    # fg = fg.map(plt.errorbar, "iter", "loss")
     # plt.legend(loc='upper left')
+    # fg = sns.factorplot("iter", "loss", col="num_tables",
+                           # data=tables_df, kind="point", wrap=4)
     fg.axes[0].legend(loc='upper left')
 
     # TODO: set how many queries are there on each table
@@ -239,12 +235,13 @@ df, tables_df = parse_results()
 # skip the first entry, since it is too large
 # print(df[df["iter"] == 0])
 df = df[df["iter"] != 0]
-df = df[df["iter"] <= 100000]
+# df = df[df["iter"] <= 100000]
 
 pdf = PdfPages("training_curves.pdf")
+
 plot_generalization_figs(df)
 
-plot_table_errors(tables_df, "qerr", "train")
-plot_table_errors(tables_df, "qerr", "test")
+# plot_table_errors(tables_df, "qerr", "train")
+# plot_table_errors(tables_df, "qerr", "test")
 pdf.close()
 
