@@ -243,8 +243,9 @@ def load_all_queries(args, subqueries=True):
             if s.true_sel != 0.00:
                 nonzero_samples.append(s)
             else:
-                print(s)
-                print("ZERO QUERY!")
+                pass
+                # print(s)
+                # print("ZERO QUERY!")
                 # pdb.set_trace()
 
             # if "NULL" in str(s):
