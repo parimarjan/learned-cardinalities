@@ -867,8 +867,8 @@ class NN2(CardinalityEstimationAlg):
             self.table_x_test = defaultdict(list)
             self.table_y_train = defaultdict(list)
             self.table_y_test = defaultdict(list)
-            num_tables = len(db.tables)
-            print("num tables: ", num_tables)
+            num_tables = len(db.aliases)
+            # print("num tables: ", num_tables)
             for i in range(1,num_tables+1):
                 queries = get_all_num_table_queries(training_samples, i)
                 for q in queries:
@@ -916,6 +916,16 @@ class NN2(CardinalityEstimationAlg):
         elif self.net_name == "LinearRegression":
             net = LinearRegression(len(features),
                     1)
+        elif self.net_name == "Hydra":
+            net = Hydra(len(features),
+                    self.hidden_layer_multiple, 1,
+                    len(db.aliases), False)
+        elif self.net_name == "HydraLinear":
+            net = Hydra(len(features),
+                    self.hidden_layer_multiple, 1,
+                    len(db.aliases), True)
+
+            print("Hydra created!")
 
         if self.loss_func == "qloss":
             loss_func = qloss_torch
@@ -952,14 +962,13 @@ class NN2(CardinalityEstimationAlg):
             if len(x_table) == 0:
                 continue
             pred_table = net(x_table)
+
             pred_table = pred_table.squeeze(1)
             loss_train = loss_func(pred_table, y_table)
             if num_table not in self.stats["train"]["tables_eval"]["qerr"]:
                 self.stats["train"]["tables_eval"]["qerr"][num_table] = {}
 
             self.stats["train"]["tables_eval"]["qerr"][num_table][num_iter] = loss_train.item()
-
-            # self.stats["train"]["tables_eval"]["qerr"][num_iter] = loss_train.item()
 
             # do for test as well
             if num_table not in self.table_x_test:
@@ -983,7 +992,11 @@ class NN2(CardinalityEstimationAlg):
 
         # evaluate qerr
         pred = net(X)
-        pred = pred.squeeze(1)
+        try:
+            pred = pred.squeeze(1)
+        except:
+            pass
+
         train_loss = loss_func(pred, Y)
         self.stats[key]["eval"]["qerr"][num_iter] = train_loss.item()
         print("""\n{}: {}, num samples: {}, qerr: {}""".format(
@@ -1058,6 +1071,7 @@ class NN2(CardinalityEstimationAlg):
             optimizer = torch.optim.Adam(net.parameters(), lr=lr,
                     amsgrad=False)
         elif self.optimizer_name == "sgd":
+            print(net)
             optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
         else:
             assert False
@@ -1216,7 +1230,12 @@ class NN2(CardinalityEstimationAlg):
                 ybatch = Y[idxs]
 
             pred = net(xbatch)
-            pred = pred.squeeze(1)
+            try:
+                pred = pred.squeeze(1)
+            except:
+                pass
+            # pred = pred.squeeze(1)
+
             loss = loss_func(pred, ybatch)
 
             # how do we modify the loss variable based on different join loss
@@ -1707,9 +1726,9 @@ class NumTablesNN(CardinalityEstimationAlg):
         '''
         '''
         self.db = db
+        self.num_tables = len(db.aliases)
         db.init_featurizer()
         test_samples = kwargs["test_samples"]
-
         # do common pre-processing part here
         # FIXME: decompose
         if self.eval_num_tables:
@@ -1717,7 +1736,7 @@ class NumTablesNN(CardinalityEstimationAlg):
             self.table_x_test = defaultdict(list)
             self.table_y_train = defaultdict(list)
             self.table_y_test = defaultdict(list)
-            num_tables = len(db.tables)
+            num_tables = len(db.aliases)
             print("num tables: ", num_tables)
             for i in range(1,num_tables+1):
                 queries = get_all_num_table_queries(training_samples, i)

@@ -266,6 +266,7 @@ def load_all_queries(args, subqueries=True):
 
         # TODO: parallelize the generation of subqueries
         all_sql_subqueries = []
+        num_subq_per_query = []
         for i, q in enumerate(samples):
             hashed_key = deterministic_hash(q.query)
             if hashed_key in sql_str_cache:
@@ -279,23 +280,17 @@ def load_all_queries(args, subqueries=True):
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries
                 print("generating + saving subqueries: ", time.time() - s1)
-            print("sql_subqueries len: ", len(sql_subqueries))
             all_sql_subqueries += sql_subqueries
+            num_subq_per_query.append(len(sql_subqueries))
 
-        num_subq_per_query = len(sql_subqueries)
-        print("all subqueries len: ", len(all_sql_subqueries))
-        assert len(all_sql_subqueries) % num_subq_per_query == 0
+        # assert len(all_sql_subqueries) % num_subq_per_query == 0
         all_loaded_queries = gen_query_objs(args, all_sql_subqueries, query_obj_cache)
         assert len(all_loaded_queries) == len(all_sql_subqueries)
 
         for i in range(len(samples)):
-            start_idx = i*num_subq_per_query
-            end_idx = start_idx + num_subq_per_query
-            # print(start_idx, end_idx)
+            start_idx = i*num_subq_per_query[i]
+            end_idx = start_idx + num_subq_per_query[i]
             subquery_ret.append(all_loaded_queries[start_idx:end_idx])
-
-        print("len subquery ret: ", len(subquery_ret))
-        # pdb.set_trace()
 
         if args.save_cur_cache_dir:
             backup_cache = \

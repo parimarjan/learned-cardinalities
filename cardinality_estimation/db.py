@@ -178,6 +178,9 @@ class DB():
             if heuristic_features:
                 self.feature_len += 1
 
+            # for num_tables present
+            self.feature_len += 1
+
     def get_features(self, query, heuristic_features=True):
         '''
         TODO: add different featurization options.
@@ -301,7 +304,9 @@ class DB():
 
         if heuristic_features:
             pg_est = query.pg_count / query.total_count
-            feature_vector[-1] = pg_est
+            feature_vector[-2] = pg_est
+
+        feature_vector[-1] = len(query.froms)
         return feature_vector
 
     def gen_subqueries(self, query):
