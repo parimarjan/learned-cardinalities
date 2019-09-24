@@ -157,6 +157,26 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 
     return ret_queries
 
+def get_template_samples(fn):
+    # number of samples to use from this template (fn)
+    print(fn)
+    if "2.toml" in fn:
+        return 2000
+    elif "2b1.toml" in fn:
+        return 1500
+    elif "2b2.toml" in fn:
+        return 2000
+    elif "2b3.toml" in fn:
+        return 2000
+    elif "2b4.toml" in fn:
+        return 1500
+    elif "3.toml" in fn:
+        return 1000
+    elif "4.toml" in fn:
+        return 1000
+    else:
+        assert False
+
 def load_all_queries(args, subqueries=True):
     '''
     iterates over every Query, and SubQuery object stored in this cache dir.
@@ -200,8 +220,9 @@ def load_all_queries(args, subqueries=True):
     for i, template in enumerate(query_templates):
         # generate queries
         print(os.path.basename(fns[i]))
+        num_samples = get_template_samples(fns[i])
         query_strs = gen_query_strs(args, template,
-                args.num_samples_per_template, sql_str_cache)
+                num_samples, sql_str_cache)
 
         if not found_db:
             print("going to update db stats!")
