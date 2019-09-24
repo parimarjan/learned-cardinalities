@@ -962,8 +962,10 @@ class NN2(CardinalityEstimationAlg):
             if len(x_table) == 0:
                 continue
             pred_table = net(x_table)
-
-            pred_table = pred_table.squeeze(1)
+            try:
+                pred_table = pred_table.squeeze(1)
+            except:
+                pass
             loss_train = loss_func(pred_table, y_table)
             if num_table not in self.stats["train"]["tables_eval"]["qerr"]:
                 self.stats["train"]["tables_eval"]["qerr"][num_table] = {}
@@ -976,7 +978,10 @@ class NN2(CardinalityEstimationAlg):
             x_table = self.table_x_test[num_table]
             y_table = self.table_y_test[num_table]
             pred_table = net(x_table)
-            pred_table = pred_table.squeeze(1)
+            try:
+                pred_table = pred_table.squeeze(1)
+            except:
+                pass
             loss_test = loss_func(pred_table, y_table)
 
             if num_table not in self.stats["test"]["tables_eval"]["qerr"]:

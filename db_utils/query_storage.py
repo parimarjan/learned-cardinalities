@@ -163,13 +163,13 @@ def get_template_samples(fn):
     if "2.toml" in fn:
         return 2000
     elif "2b1.toml" in fn:
-        return 1500
+        return 2000
     elif "2b2.toml" in fn:
         return 2000
     elif "2b3.toml" in fn:
         return 2000
     elif "2b4.toml" in fn:
-        return 1500
+        return 2000
     elif "3.toml" in fn:
         return 1000
     elif "4.toml" in fn:
@@ -220,7 +220,8 @@ def load_all_queries(args, subqueries=True):
     for i, template in enumerate(query_templates):
         # generate queries
         print(os.path.basename(fns[i]))
-        num_samples = get_template_samples(fns[i])
+        # num_samples = get_template_samples(fns[i])
+        num_samples = args.num_samples_per_template
         query_strs = gen_query_strs(args, template,
                 num_samples, sql_str_cache)
 

@@ -184,7 +184,11 @@ def update_cards(est_cards, q, fix_aliases=True):
         cards[table_key] = int(est_cards[j])
         cards[filter_table_key] = int(est_cards[j])
 
-    # print(cards.keys())
+    # mis = []
+    # for k in cards:
+        # if "movie_info" in k and " " not in k:
+            # mis.append(k)
+    # print(mis)
     # pdb.set_trace()
     return cards
 
