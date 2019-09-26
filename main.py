@@ -117,7 +117,6 @@ def eval_alg(alg, losses, queries, use_subqueries):
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
     '''
-    start = time.time()
     np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
     if use_subqueries:
         all_queries = get_all_subqueries(queries)
@@ -127,9 +126,12 @@ def eval_alg(alg, losses, queries, use_subqueries):
     start = time.time()
     yhats = alg.test(all_queries)
     eval_time = round(time.time() - start, 2)
+    print("evaluating alg took: {} seconds".format(eval_time))
+
     for i, q in enumerate(all_queries):
         q.yhats[alg.__str__()] = yhats[i]
 
+    loss_start = time.time()
     for loss_func in losses:
         loss_name = get_loss_name(loss_func.__name__)
         if "join" in loss_name:
@@ -156,7 +158,7 @@ def eval_alg(alg, losses, queries, use_subqueries):
                     np.round(np.percentile(losses,95),3),
                     np.round(np.percentile(losses,99),3)))
 
-    print("evaluating alg took: {} seconds".format(eval_time))
+    print("loss computations took: {} seconds".format(time.time()-loss_start))
 
 def main():
     if args.gen_synth_data:
@@ -170,47 +172,15 @@ def main():
         # update_all_queries(args)
         # exit(-1)
 
-    # Steps: collect statistics, gen templates, filter out zeros and dups, gen
-    # subqueries.
-
-    # query_templates = []
-    # fns = list(glob.glob(args.template_dir+"/*"))
-    # for fn in fns:
-        # if ".sql" in fn:
-            # with open(fn, "r") as f:
-                # template = f.read()
-        # elif ".toml" in fn:
-            # template = toml.load(fn)
-        # else:
-            # assert False
-        # query_templates.append(template)
-
     db, samples, subqueries = load_all_queries(args, subqueries=True)
     for i, query in enumerate(samples):
+        try:
+            assert len(subqueries[i]) > 0
+        except:
+            print(query)
+            print(query.true_sel)
+            pdb.set_trace()
         query.subqueries = subqueries[i]
-
-    print(len(samples))
-    # pdb.set_trace()
-    # start = time.time()
-    # misc_cache = klepto.archives.dir_archive("./misc_cache",
-            # cached=True, serialized=True)
-    # db_key = deterministic_hash("db-" + args.template_dir)
-    # # if db_key in misc_cache.archive:
-    # if False:
-        # db = misc_cache.archive[db_key]
-    # else:
-        # # either load the db object from cache, or regenerate it.
-        # db = DB(args.user, args.pwd, args.db_host, args.port,
-                # args.db_name)
-        # for template in query_templates:
-            # if isinstance(template, dict):
-                # db.update_db_stats(template["base_sql"]["sql"])
-            # else:
-                # db.update_db_stats(template)
-        # misc_cache.archive[db_key] = db
-
-    # print("generating db object took {} seconds".format(\
-            # time.time() - start))
 
     # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
     # in all of the queries
@@ -268,17 +238,18 @@ def main():
             eval_alg(alg, losses, test_queries, args.use_subqueries)
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
-    results = {}
-    results["training_queries"] = train_queries
-    results["test_queries"] = test_queries
-    results["args"] = args
-    results["train_times"] = train_times
-    results["eval_times"] = eval_times
+    if args.results_cache:
+        results = {}
+        results["training_queries"] = train_queries
+        results["test_queries"] = test_queries
+        results["args"] = args
+        results["train_times"] = train_times
+        results["eval_times"] = eval_times
 
-    results_cache = klepto.archives.dir_archive(args.results_cache)
-    dt = datetime.datetime.now()
-    exp_name = args.exp_name + "-{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
-    results_cache.archive[exp_name] = results
+        results_cache = klepto.archives.dir_archive(args.results_cache)
+        dt = datetime.datetime.now()
+        exp_name = args.exp_name + "-{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
+        results_cache.archive[exp_name] = results
 
 def gen_exp_hash():
     return str(deterministic_hash(str(args)))
@@ -295,7 +266,7 @@ def gen_samples_hash():
 def read_flags():
     # parser = argparse.ArgumentParser()
     parser.add_argument("--results_cache", type=str, required=False,
-            default="./results")
+            default=None)
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
     parser.add_argument("--reuse_env", type=int, required=False,
