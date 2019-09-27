@@ -266,7 +266,7 @@ def read_flags():
     parser.add_argument("--reuse_env", type=int, required=False,
             default=1)
     parser.add_argument("--gen_queries", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--update_subq_cards", type=int, required=False,
             default=0)
     parser.add_argument("--eval_num_tables", type=int, required=False,

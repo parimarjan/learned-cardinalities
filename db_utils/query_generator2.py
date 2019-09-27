@@ -145,7 +145,7 @@ class QueryGenerator2():
                 if cur_key in self.sampling_outputs:
                     output = self.sampling_outputs[cur_key]
                 else:
-                    output = cached_execute_query(cur_sql, self.user,
+                    output, _ = cached_execute_query(cur_sql, self.user,
                             self.db_host, self.port, self.pwd, self.db_name,
                             100, None, None)
                     self.sampling_outputs[cur_key] = output
@@ -183,7 +183,6 @@ class QueryGenerator2():
                             pred_group, pred_vals)
 
                 try:
-                    print(samples)
                     total_count = sum([int(s[-1]) for s in samples])
                     print("total count: ", total_count)
                 except:

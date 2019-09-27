@@ -25,6 +25,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
+TIMEOUT_COUNT_CONSTANT = 150001001
+
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
 
@@ -542,47 +544,6 @@ def extract_from_clause(query):
 
     return froms, aliases, tables
 
-def extract_from_clause_old(query):
-    '''
-    SLOW AS FUCK
-    Extracts the from statement, and the relevant joins when there are multiple
-    tables.
-    @ret: froms:
-          froms: [alias1, alias2, ...] OR [table1, table2,...]
-          aliases:{alias1: table1, alias2: table2} (OR [] if no aliases present)
-          tables: [table1, table2, ...]
-    '''
-    def handle_table(table):
-        if isinstance(table, dict):
-            alias = ALIAS_FORMAT.format(TABLE = table["value"],
-                                ALIAS = table["name"])
-            froms.append(alias)
-            aliases[table["name"]] = table["value"]
-            tables.append(table["value"])
-        else:
-            froms.append(table)
-            tables.append(table)
-
-    froms = []
-    # key: alias, val: table name
-    aliases = {}
-    # just table names
-    tables = []
-
-    start = time.time()
-    parsed_query = parse(query)
-    print("extract froms parse took: ", time.time() - start)
-    from_clause = parsed_query["from"]
-    if isinstance(from_clause, list):
-        for i, table in enumerate(from_clause):
-            handle_table(table)
-    else:
-        # only one table.
-        # return [from_clause]
-        handle_table(from_clause)
-
-    return froms, aliases, tables
-
 def check_table_exists(cur, table_name):
     cur.execute("select exists(select * from information_schema.tables where\
             table_name=%s)", (table_name,))
@@ -914,21 +875,6 @@ def gen_all_subqueries(query):
     all_subqueries = _gen_subqueries_nx(query)
     return all_subqueries
 
-    ### old slow stuff
-    # print("gen all subqueries!")
-    # _,aliases,tables = extract_from_clause(query)
-    # parsed = sqlparse.parse(query)[0]
-    # # let us go over all the where clauses
-    # where_clauses = None
-    # for token in parsed.tokens:
-        # if (type(token) == sqlparse.sql.Where):
-            # where_clauses = token
-    # assert where_clauses is not None
-    # all_subqueries = _gen_subqueries(tables, where_clauses, aliases)
-    # print("generated {} sql subqueries in {}: ".format(len(all_subqueries),
-        # time.time()-start))
-    # return all_subqueries
-
 def cached_execute_query(sql, user, db_host, port, pwd, db_name,
         execution_cache_threshold, sql_cache_dir=None, timeout=120000):
     '''
@@ -947,9 +893,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
 
     # archive only considers the stuff stored in disk
     if sql_cache is not None and hashed_sql in sql_cache.archive:
-        # load it and return
-        # print("loaded {} from cache".format(hashed_sql))
-        return sql_cache.archive[hashed_sql]
+        return sql_cache.archive[hashed_sql], False
 
     start = time.time()
 
@@ -983,8 +927,9 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
             pdb.set_trace()
         else:
             print("failed because of timeout!")
+            return None, True
 
-        return None
+        return None, False
 
     exp_output = cursor.fetchall()
     cursor.close()
@@ -993,7 +938,7 @@ def cached_execute_query(sql, user, db_host, port, pwd, db_name,
     if (end - start > execution_cache_threshold) \
             and sql_cache is not None:
         sql_cache.archive[hashed_sql] = exp_output
-    return exp_output
+    return exp_output, False
 
 def get_total_count_query(sql):
     '''
@@ -1040,24 +985,37 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         print("no SELECT COUNT in sql!")
         exit(-1)
 
-    output = cached_execute_query(sql, user, db_host, port, pwd, db_name,
+    output, tout = cached_execute_query(sql, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
 
-    # TODO: better error handling
-    if output is None:
-        print("cached execute query returned None!!")
-        exit(-1)
-        # return None
-    # from query string, to Query object
-    true_val = output[0][0]
-    # print("true_val: ", true_val)
+    if tout:
+        # just fix all vals to be same
+        true_val = TIMEOUT_COUNT_CONSTANT
+        pg_est = TIMEOUT_COUNT_CONSTANT
+        total_count = TIMEOUT_COUNT_CONSTANT
+        pred_columns, pred_types, pred_vals = extract_predicates(sql)
+
+        from cardinality_estimation.query import Query
+        query = Query(sql, pred_columns, pred_vals, pred_types,
+                true_val, total_count, pg_est)
+        return query
+    else:
+        if output is None:
+            print("cached execute query returned None!!")
+            exit(-1)
+            # return None
+        # from query string, to Query object
+        true_val = output[0][0]
+
     exp_query = "EXPLAIN " + sql
-    exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
+    exp_output, tout  = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
             execution_cache_threshold, sql_cache, timeout)
+
+    assert not tout
+
     if exp_output is None:
         return None
     pg_est = pg_est_from_explain(exp_output)
-    # print("pg_est: ", pg_est)
 
     # FIXME: start caching the true total count values
     if total_count is None:
@@ -1068,14 +1026,14 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         TRUE_TOTAL_COUNT = False
         total_timeout = 180000
         if TRUE_TOTAL_COUNT:
-            exp_output = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
+            exp_output, _ = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
                     execution_cache_threshold, sql_cache, total_timeout)
             if exp_output is None:
                 # print("total count query timed out")
                 # print(total_count_query)
                 # execute it with explain
                 exp_query = "EXPLAIN " + total_count_query
-                exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
+                exp_output, _ = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
                         execution_cache_threshold, sql_cache, total_timeout)
                 if exp_output is None:
                     print("pg est was None for ")
@@ -1088,7 +1046,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
                 # print("total count: ", total_count)
         else:
             exp_query = "EXPLAIN " + total_count_query
-            exp_output = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
+            exp_output, _ = cached_execute_query(exp_query, user, db_host, port, pwd, db_name,
                     execution_cache_threshold, sql_cache, total_timeout)
             if exp_output is None:
                 print("pg est was None for ")
