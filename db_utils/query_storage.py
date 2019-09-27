@@ -159,23 +159,24 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 
 def get_template_samples(fn):
     # number of samples to use from this template (fn)
-    print(fn)
     if "2.toml" in fn:
-        return 2000
+        num = 2000
     elif "2b1.toml" in fn:
-        return 2000
+        num = 1997
     elif "2b2.toml" in fn:
-        return 2000
+        num = 1800
     elif "2b3.toml" in fn:
-        return 2000
+        num = 2000
     elif "2b4.toml" in fn:
-        return 2000
-    elif "3.toml" in fn:
-        return 1000
+        num = 1500
     elif "4.toml" in fn:
-        return 1000
+        num = 1000
+    elif "3.toml" in fn:
+        num = 1000
     else:
         assert False
+
+    return num
 
 def load_all_queries(args, subqueries=True):
     '''
@@ -220,8 +221,10 @@ def load_all_queries(args, subqueries=True):
     for i, template in enumerate(query_templates):
         # generate queries
         print(os.path.basename(fns[i]))
-        # num_samples = get_template_samples(fns[i])
-        num_samples = args.num_samples_per_template
+        if args.num_samples_per_template == -1:
+            num_samples = get_template_samples(fns[i])
+        else:
+            num_samples = args.num_samples_per_template
         query_strs = gen_query_strs(args, template,
                 num_samples, sql_str_cache)
 
@@ -261,7 +264,7 @@ def load_all_queries(args, subqueries=True):
     if args.only_nonzero_samples:
         nonzero_samples = []
         for s in samples:
-            print("true count: ", s.true_count)
+            # print("true count: ", s.true_count)
             if s.true_sel != 0.00:
                 nonzero_samples.append(s)
             else:
@@ -298,6 +301,7 @@ def load_all_queries(args, subqueries=True):
             else:
                 s1 = time.time()
                 print("going to generate subqueries for query num ", i)
+                assert False
                 sql_subqueries = gen_all_subqueries(q.query)
                 # save it for the future!
                 sql_str_cache.archive[hashed_key] = sql_subqueries
@@ -309,10 +313,15 @@ def load_all_queries(args, subqueries=True):
         all_loaded_queries = gen_query_objs(args, all_sql_subqueries, query_obj_cache)
         assert len(all_loaded_queries) == len(all_sql_subqueries)
 
+        start_idx = 0
         for i in range(len(samples)):
-            start_idx = i*num_subq_per_query[i]
             end_idx = start_idx + num_subq_per_query[i]
             subquery_ret.append(all_loaded_queries[start_idx:end_idx])
+            if len(subquery_ret[-1]) == 0:
+                print(i)
+                print("found no subqueries")
+                pdb.set_trace()
+            start_idx += num_subq_per_query[i]
 
         if args.save_cur_cache_dir:
             backup_cache = \

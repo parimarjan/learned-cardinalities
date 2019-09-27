@@ -926,6 +926,8 @@ class NN2(CardinalityEstimationAlg):
                     len(db.aliases), True)
 
             print("Hydra created!")
+        else:
+            assert False
 
         if self.loss_func == "qloss":
             loss_func = qloss_torch
