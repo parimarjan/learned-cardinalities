@@ -25,7 +25,7 @@ import numpy as np
 from db_utils.query_generator import QueryGenerator
 from db_utils.query_generator2 import QueryGenerator2
 import toml
-from db_utils.query_storage import load_all_queries
+from db_utils.query_storage import *
 
 def get_alg(alg):
     if alg == "independent":
@@ -168,18 +168,12 @@ def main():
     elif "dmv" in args.db_name:
         load_dmv_data(args)
 
-    # if True:
-        # update_all_queries(args)
-        # exit(-1)
-
     db, samples, subqueries = load_all_queries(args, subqueries=True)
+    if args.update_subq_cards:
+        update_subq_cards(subqueries, args.cache_dir)
+
     for i, query in enumerate(samples):
-        try:
-            assert len(subqueries[i]) > 0
-        except:
-            print(query)
-            print(query.true_sel)
-            pdb.set_trace()
+        assert len(subqueries[i]) > 0
         query.subqueries = subqueries[i]
 
     # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
@@ -271,6 +265,10 @@ def read_flags():
             default="nn")
     parser.add_argument("--reuse_env", type=int, required=False,
             default=1)
+    parser.add_argument("--gen_queries", type=int, required=False,
+            default=0)
+    parser.add_argument("--update_subq_cards", type=int, required=False,
+            default=0)
     parser.add_argument("--eval_num_tables", type=int, required=False,
             default=0)
     parser.add_argument("--rf_trees", type=int, required=False,
