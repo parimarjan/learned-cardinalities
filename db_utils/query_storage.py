@@ -173,6 +173,12 @@ def get_template_samples(fn):
         num = 1000
     elif "3.toml" in fn:
         num = 1000
+    elif "7.toml" in fn:
+        num = 40
+    elif "7b.toml" in fn:
+        num = 140
+    elif "7c.toml" in fn:
+        num = 20
     else:
         assert False
 
@@ -209,12 +215,12 @@ def _load_subquery_strs(args, queries, sql_str_cache,
 
     return new_queries, all_sql_subqueries
 
-def _load_query_strs(args, cache_dir, template):
+def _load_query_strs(args, cache_dir, template, template_fn):
     sql_str_cache = klepto.archives.dir_archive(cache_dir + "/sql_str",
             cached=True, serialized=True)
     # find all the query strs associated with this template
     if args.num_samples_per_template == -1:
-        num_samples = get_template_samples(fns[i])
+        num_samples = get_template_samples(template_fn)
     else:
         num_samples = args.num_samples_per_template
     query_strs = gen_query_strs(args, template,
@@ -306,7 +312,7 @@ def load_all_queries(args, subqueries=True):
     for fn in fns:
         assert ".toml" in fn
         template = toml.load(fn)
-        query_strs = _load_query_strs(args, args.cache_dir, template)
+        query_strs = _load_query_strs(args, args.cache_dir, template, fn)
         # deduplicate
         query_strs = remove_doubles(query_strs)
         if not found_db:
