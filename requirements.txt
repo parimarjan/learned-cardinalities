@@ -16,3 +16,4 @@ toml
 pyzmq
 psutil
 wget
+xgboost
