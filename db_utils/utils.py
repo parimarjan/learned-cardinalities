@@ -271,26 +271,6 @@ def pg_est_from_explain(output):
     pdb.set_trace()
     return 1.00
 
-def extract_join_clause_old(query):
-    start = time.time()
-    parsed_query = parse(query)
-    pred_vals = get_all_wheres(parsed_query)
-    join_clauses = []
-    for i, pred in enumerate(pred_vals):
-        # FIXME: when will there be more than one key in pred?
-        assert len(pred.keys()) == 1
-        pred_type = list(pred.keys())[0]
-        columns = pred[pred_type]
-        if pred_type != "eq":
-            continue
-
-        if not "." in str(columns[1]):
-            continue
-
-        join_clauses.append(columns[0] + " = " + columns[1])
-
-    return join_clauses
-
 def extract_join_clause(query):
     '''
     FIXME: this can be optimized further / or made to handle more cases
@@ -337,6 +317,55 @@ def get_all_wheres(parsed_query):
     else:
         pred_vals = parsed_query["where"]["and"]
     return pred_vals
+
+def extract_predicates2(query):
+    '''
+    @ret:
+        - column names with predicate conditions in WHERE.
+        - predicate operator type (e.g., "in", "lte" etc.)
+        - predicate value
+    Note: join conditions don't count as predicate conditions.
+
+    FIXME: temporary hack. For range queries, always returning key
+    "lt", and vals for both the lower and upper bound
+    '''
+    predicate_cols = []
+    predicate_types = []
+    predicate_vals = []
+    if "::float" in query:
+        query = query.replace("::float", "")
+    elif "::int" in query:
+        query = query.replace("::int", "")
+    # really fucking dumb
+    bad_str1 = "mii2.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    bad_str2 = "mii1.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    if bad_str1 in query:
+        query = query.replace(bad_str1, "")
+
+    if bad_str2 in query:
+        query = query.replace(bad_str2, "")
+
+    parsed = sqlparse.parse(query)[0]
+    # let us go over all the where clauses
+    start = time.time()
+    where_clauses = None
+    for token in parsed.tokens:
+        if (type(token) == sqlparse.sql.Where):
+            where_clauses = token
+    if where_clauses is None:
+        assert False
+        return [], [], []
+
+    froms, aliases, table_names = extract_from_clause(query)
+    if len(aliases) > 0:
+        tables = [k for k in aliases]
+    else:
+        tables = table_names
+    matches = find_all_clauses(tables, where_clauses)
+
+    print(matches)
+    print(where_clauses)
+    pdb.set_trace()
 
 def extract_predicates(query):
     '''
