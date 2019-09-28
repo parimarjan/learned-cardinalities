@@ -846,7 +846,7 @@ def _gen_subqueries_nx(query):
     start = time.time()
     froms,aliases,tables = extract_from_clause(query)
     joins = extract_join_clause(query)
-    pred_columns, pred_types, pred_vals = extract_predicates(query)
+    # pred_columns, pred_types, pred_vals = extract_predicates(query)
     join_graph = nx.Graph()
     for j in joins:
         j1 = j.split("=")[0]
@@ -1035,7 +1035,8 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         true_val = TIMEOUT_COUNT_CONSTANT
         pg_est = TIMEOUT_COUNT_CONSTANT
         total_count = TIMEOUT_COUNT_CONSTANT
-        pred_columns, pred_types, pred_vals = extract_predicates(sql)
+        # pred_columns, pred_types, pred_vals = extract_predicates(sql)
+        pred_columns, pred_types, pred_vals = None, None, None
 
         from cardinality_estimation.query import Query
         query = Query(sql, pred_columns, pred_vals, pred_types,
@@ -1099,8 +1100,8 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
 
     # need to extract predicate columns, predicate operators, and predicate
     # values now.
-    pred_columns, pred_types, pred_vals = extract_predicates(sql)
-    # pred_columns, pred_types, pred_vals = None, None, None
+    # pred_columns, pred_types, pred_vals = extract_predicates(sql)
+    pred_columns, pred_types, pred_vals = None, None, None
 
     from cardinality_estimation.query import Query
     query = Query(sql, pred_columns, pred_vals, pred_types,
