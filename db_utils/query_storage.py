@@ -116,7 +116,6 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     else:
         print("need to generate {} query objects".\
                 format(len(unknown_query_strs)))
-        # assert False
 
     sql_result_cache = args.cache_dir + "/sql_result"
     all_query_objs = []
@@ -126,7 +125,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
             args.pwd, args.db_name, None,
-            args.execution_cache_threshold, sql_result_cache, 3600000, i) for
+            args.execution_cache_threshold, sql_result_cache, 1800000, i) for
             i, cur_query in enumerate(unknown_query_strs)]
         all_query_objs = pool.starmap(sql_to_query_object, args)
 
@@ -183,8 +182,8 @@ def get_template_samples(fn):
 
     return num
 
-def _load_subquery_strs(args, queries, sql_str_cache,
-        gen_subqueries=True):
+def _load_subqueries(args, queries, sql_str_cache, subq_cache,
+        gen_subqueries):
     '''
     @ret:
     '''
@@ -195,11 +194,23 @@ def _load_subquery_strs(args, queries, sql_str_cache,
     for i, q in enumerate(queries):
         hashed_key = deterministic_hash(q.query)
         if hashed_key in sql_str_cache:
+            assert False
             sql_subqueries = sql_str_cache[hashed_key]
         elif hashed_key in sql_str_cache.archive:
             sql_subqueries = sql_str_cache.archive[hashed_key]
+            if not gen_subqueries:
+                all_subq_present = True
+                for subq_sql in sql_subqueries:
+                    hsql = deterministic_hash(subq_sql)
+                    if not hsql in subq_cache.archive:
+                        all_subq_present = False
+                        break
+                if not all_subq_present:
+                    print("skipping query {} {}".format(q.template_name, i))
+                    continue
         else:
             if not gen_subqueries:
+                print("gen_queries is false, so skipping subquery gen")
                 continue
             else:
                 s1 = time.time()
@@ -212,7 +223,9 @@ def _load_subquery_strs(args, queries, sql_str_cache,
         all_sql_subqueries += sql_subqueries
         new_queries.append(q)
 
-    return new_queries, all_sql_subqueries
+    all_subqueries = gen_query_objs(args, all_sql_subqueries, subq_cache)
+    assert len(all_subqueries) == len(all_sql_subqueries)
+    return new_queries, all_sql_subqueries, all_subqueries
 
 def _load_query_strs(args, cache_dir, template, template_fn):
     sql_str_cache = klepto.archives.dir_archive(cache_dir + "/sql_str",
@@ -237,10 +250,10 @@ def _remove_zero_samples(samples):
     print("len nonzero samples: ", len(nonzero_samples))
     return nonzero_samples
 
-def _load_subquery_objs(args, all_sql_subqueries, query_obj_cache):
-    all_subqueries = gen_query_objs(args, all_sql_subqueries, query_obj_cache)
-    assert len(all_subqueries) == len(all_sql_subqueries)
-    return all_subqueries
+# def _load_subquery_objs(args, all_sql_subqueries, query_obj_cache):
+    # all_subqueries = gen_query_objs(args, all_sql_subqueries, query_obj_cache)
+    # assert len(all_subqueries) == len(all_sql_subqueries)
+    # return all_subqueries
 
 def _save_subq_sqls(queries, subq_sqls, cache_dir):
     sql_cache = klepto.archives.dir_archive(cache_dir + "/subq_sql_str",
@@ -325,15 +338,15 @@ def load_all_queries(args, subqueries=True):
         if not args.use_subqueries:
             continue
 
-        queries, subq_strs = _load_subquery_strs(args, queries,
-                subq_sql_str_cache, args.gen_queries)
+        queries, subq_strs, subqueries = _load_subqueries(args, queries,
+                subq_sql_str_cache, subq_query_obj_cache, args.gen_queries)
         assert len(subq_strs) % len(queries) == 0
         num_subq_per_query = int(len(subq_strs) / len(queries))
         print("{}: queries: {}, subqueries: {}".format(template_name,
             len(queries), num_subq_per_query))
 
-        subqueries = _load_subquery_objs(args, subq_strs,
-                subq_query_obj_cache)
+        # subqueries = _load_subquery_objs(args, subq_strs,
+                # subq_query_obj_cache)
 
         start_idx = 0
         for i in range(len(queries)):

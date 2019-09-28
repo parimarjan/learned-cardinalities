@@ -126,7 +126,7 @@ class DB():
         print("saved cache to disk")
         self.sql_cache.dump()
 
-    def init_featurizer(self, heuristic_features=True):
+    def init_featurizer(self, heuristic_features=True, num_tables_feature=False):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -141,6 +141,7 @@ class DB():
         # let's figure out the feature len based on db.stats
         self.featurizer = {}
         self.num_tables = len(self.tables)
+        self.num_tables_feature = num_tables_feature
         self.num_cols = len(self.column_stats)
         self.feature_len = 0
         for table in self.tables:
@@ -179,7 +180,8 @@ class DB():
                 self.feature_len += 1
 
             # for num_tables present
-            self.feature_len += 1
+            if self.num_tables_feature:
+                self.feature_len += 1
 
     def get_features(self, query, heuristic_features=True):
         '''
@@ -302,11 +304,19 @@ class DB():
             else:
                 assert False
 
-        if heuristic_features:
-            pg_est = query.pg_count / query.total_count
+        # TODO: simplify
+        pg_est = query.pg_count / query.total_count
+        if heuristic_features and self.num_tables_feature:
             feature_vector[-2] = pg_est
 
-        feature_vector[-1] = len(query.froms)
+        elif heuristic_features and not self.num_tables_feature:
+            feature_vector[-1] = pg_est
+
+        if self.num_tables_feature:
+            feature_vector[-1] = len(query.froms)
+
+
+
         return feature_vector
 
     def gen_subqueries(self, query):
