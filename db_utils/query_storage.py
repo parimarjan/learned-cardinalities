@@ -215,7 +215,7 @@ def _load_subqueries(args, queries, sql_str_cache, subq_cache,
                     continue
         else:
             if not gen_subqueries:
-                print("gen_queries is false, so skipping subquery gen")
+                # print("gen_queries is false, so skipping subquery gen")
                 continue
             else:
                 s1 = time.time()

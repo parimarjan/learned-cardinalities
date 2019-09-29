@@ -5,6 +5,41 @@ import pdb
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+class FatHydra(torch.nn.Module):
+    def __init__(self, input_width, hidden_width_multiple,
+            n_output, num_tables):
+        super(FatHydra, self).__init__()
+        # linear layer + sigmoid for each num_tables option
+        self.pred_layers = []
+        print("creating FatHydra for {} tables".format(num_tables))
+
+        n_hidden = int(input_width * hidden_width_multiple)
+        self.layer1 = nn.Sequential(
+            nn.Linear(input_width, n_hidden, bias=True),
+            nn.LeakyReLU()
+        ).to(device)
+
+        for i in range(0, num_tables):
+            final_layer = nn.Sequential(
+                nn.Linear(n_hidden, n_output, bias=True),
+                nn.Sigmoid()
+            ).to(device)
+            self.pred_layers.append(final_layer)
+
+        self.pred_layers = nn.ModuleList(self.pred_layers)
+
+        assert num_tables == len(self.pred_layers)
+
+    def forward(self, x_all):
+        outputs = []
+        x_all = self.layer1(x_all)
+        for x in x_all:
+            num_tables = int(x[-1].item())
+            output = self.pred_layers[num_tables-1](x)
+            outputs.append(output)
+        outputs = torch.cat(outputs)
+        return outputs
+
 class Hydra(torch.nn.Module):
     def __init__(self, input_width, hidden_width_multiple,
             n_output, num_tables, linear):

@@ -920,6 +920,11 @@ class NN2(CardinalityEstimationAlg):
             net = Hydra(len(features),
                     self.hidden_layer_multiple, 1,
                     len(db.aliases), False)
+        elif self.net_name == "FatHydra":
+            net = FatHydra(len(features),
+                    self.hidden_layer_multiple, 1,
+                    len(db.aliases))
+            print("FatHydra created!")
         elif self.net_name == "HydraLinear":
             net = Hydra(len(features),
                     self.hidden_layer_multiple, 1,
@@ -991,8 +996,8 @@ class NN2(CardinalityEstimationAlg):
 
             self.stats["test"]["tables_eval"]["qerr"][num_table][num_iter] = loss_test.item()
 
-            print("num_tables: {}, train_qerr: {}, test_qerr: {}".format(\
-                    num_table, loss_train, loss_test))
+            print("num_tables: {}, train_qerr: {}, test_qerr: {}, size: {}".format(\
+                    num_table, loss_train, loss_test, len(y_table)))
 
     def _periodic_eval(self, net, samples, X, Y, env, key, loss_func, num_iter,
             scheduler):
@@ -1381,7 +1386,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         # self.num_trees = kwargs["num_trees"]
         # self.eval_num_tables = kwargs["eval_num_tables"]
         self.eval_num_tables = True
-        self.loss_stop_thresh = 1.50
+        self.loss_stop_thresh = 1.00
         self.num_tables_train_qerr = {}
 
         if kwargs["loss_func"] == "qloss":

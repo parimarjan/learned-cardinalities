@@ -126,7 +126,7 @@ class DB():
         print("saved cache to disk")
         self.sql_cache.dump()
 
-    def init_featurizer(self, heuristic_features=True, num_tables_feature=False):
+    def init_featurizer(self, heuristic_features=True, num_tables_feature=True):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.

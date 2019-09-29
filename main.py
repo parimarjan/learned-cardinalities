@@ -171,8 +171,8 @@ def main():
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
     db_key = deterministic_hash("db-" + args.template_dir)
-    # found_db = db_key in misc_cache.archive
-    found_db = False
+    found_db = db_key in misc_cache.archive
+    # found_db = False
     if found_db:
         db = misc_cache.archive[db_key]
     else:
@@ -334,7 +334,7 @@ def read_flags():
     parser.add_argument("--eval_iter_jl", type=int,
             required=False, default=5000)
     parser.add_argument("--lr", type=float,
-            required=False, default=0.0001)
+            required=False, default=0.001)
     parser.add_argument("--clip_gradient", type=float,
             required=False, default=10.0)
     parser.add_argument("--rel_qerr_loss", type=int,
