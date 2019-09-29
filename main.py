@@ -168,30 +168,59 @@ def main():
     elif "dmv" in args.db_name:
         load_dmv_data(args)
 
-    db, samples, subqueries = load_all_queries(args, subqueries=True)
-    if args.update_subq_cards:
-        update_subq_cards(subqueries, args.cache_dir)
-
-    for i, query in enumerate(samples):
-        assert len(subqueries[i]) > 0
-        query.subqueries = subqueries[i]
-
-    # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
-    # in all of the queries
-    if args.use_subqueries:
-        all_queries = get_all_subqueries(samples)
-    for q in all_queries:
-        q.yhats = {}
-        q.losses = defaultdict(dict)
-        q.eval_time = {}
-        q.train_time = {}
-
-    if args.test:
-        train_queries, test_queries = train_test_split(samples, test_size=args.test_size,
-                random_state=args.random_seed)
+    misc_cache = klepto.archives.dir_archive("./misc_cache",
+            cached=True, serialized=True)
+    db_key = deterministic_hash("db-" + args.template_dir)
+    # found_db = db_key in misc_cache.archive
+    found_db = False
+    if found_db:
+        db = misc_cache.archive[db_key]
     else:
-        train_queries = samples
-        test_queries = []
+        # either load the db object from cache, or regenerate it.
+        db = DB(args.user, args.pwd, args.db_host, args.port,
+                args.db_name)
+    train_queries = []
+    test_queries = []
+
+    fns = list(glob.glob(args.template_dir+"/*"))
+
+    for fn in fns:
+        print("template fn: ", fn)
+        samples, subqueries = load_all_queries(args, fn, subqueries=True)
+
+        if not found_db:
+            print("going to update db stats!")
+            db.update_db_stats(samples[0].query)
+
+        if args.update_subq_cards:
+            update_subq_cards(subqueries, args.cache_dir)
+
+        for i, query in enumerate(samples):
+            assert len(subqueries[i]) > 0
+            query.subqueries = subqueries[i]
+
+        # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
+        # in all of the queries
+        if args.use_subqueries:
+            all_queries = get_all_subqueries(samples)
+        for q in all_queries:
+            q.yhats = {}
+            q.losses = defaultdict(dict)
+            q.eval_time = {}
+            q.train_time = {}
+
+        if args.test:
+            cur_train_queries, cur_test_queries = train_test_split(samples, test_size=args.test_size, random_state=args.random_seed)
+        else:
+            cur_train_queries = samples
+            cur_test_queries = []
+
+        train_queries += cur_train_queries
+        test_queries += cur_test_queries
+
+    print(len(train_queries), len(test_queries))
+    if not found_db:
+        misc_cache.archive[db_key] = db
 
     if len(train_queries) == 0:
         # debugging, so doesn't crash

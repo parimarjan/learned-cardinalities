@@ -3,7 +3,7 @@ import glob
 import sys
 import pdb
 import os
-from cardinality_estimation.query import *
+# from cardinality_estimation.query import Query
 
 def update_sql_str(new_cache_dir, old_cache_dir, cache_type):
     old_cache = klepto.archives.dir_archive(old_cache_dir + "/" +
@@ -49,6 +49,6 @@ for cache_dir in glob.glob(all_dir + "/*"):
         # continue
     # print(cache_dir)
     update_sql_str(out_dir, cache_dir, "sql_str")
-    update_sql_str(out_dir, cache_dir, "subq_sql_str")
-    update_query_obj(out_dir, cache_dir, "query_obj")
-    update_query_obj(out_dir, cache_dir, "subq_query_obj")
+    # update_sql_str(out_dir, cache_dir, "subq_sql_str")
+    # update_query_obj(out_dir, cache_dir, "query_obj")
+    # update_query_obj(out_dir, cache_dir, "subq_query_obj")

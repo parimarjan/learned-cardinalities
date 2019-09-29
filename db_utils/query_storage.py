@@ -14,16 +14,21 @@ TODO: bring in the Query object format in here as well.
 '''
 
 def remove_doubles(query_strs):
-    print("remove_doubles")
+    doubles = 0
     newq = []
     seen_samples = set()
     for q in query_strs:
         if q in seen_samples:
-            print(q)
+            doubles += 1
+            # print("seen double!")
+            # print(q)
             # pdb.set_trace()
             continue
         seen_samples.add(q)
         newq.append(q)
+
+    if doubles > 0:
+        print("removed {} doubles".format(doubles))
     return newq
 
 def gen_query_strs(args, query_template, num_samples,
@@ -170,9 +175,9 @@ def get_template_samples(fn):
     elif "4.toml" in fn:
         num = 1000
     elif "3.toml" in fn:
-        num = 1000
+        num = 100
     elif "7.toml" in fn:
-        num = 40
+        num = 90
     elif "7b.toml" in fn:
         num = 140
     elif "7c.toml" in fn:
@@ -298,71 +303,45 @@ def _load_query_objs(args, cache_dir, query_strs, template_name=None,
 
     return samples
 
-def load_all_queries(args, subqueries=True):
+def load_all_queries(args, fn, subqueries=True):
     all_queries = []
     all_subqueries = []
-
-    misc_cache = klepto.archives.dir_archive("./misc_cache",
-            cached=True, serialized=True)
-    db_key = deterministic_hash("db-" + args.template_dir)
-    found_db = db_key in misc_cache.archive
-    # found_db = False
-    if found_db:
-        db = misc_cache.archive[db_key]
-    else:
-        # either load the db object from cache, or regenerate it.
-        db = DB(args.user, args.pwd, args.db_host, args.port,
-                args.db_name)
-
-    fns = list(glob.glob(args.template_dir+"/*"))
 
     subq_query_obj_cache = klepto.archives.dir_archive(args.cache_dir +
             "/subq_query_obj", cached=True, serialized=True)
     subq_sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_sql_str",
             cached=True, serialized=True)
 
-    for fn in fns:
-        assert ".toml" in fn
-        template = toml.load(fn)
-        query_strs = _load_query_strs(args, args.cache_dir, template, fn)
-        # deduplicate
-        query_strs = remove_doubles(query_strs)
-        if not found_db:
-            print("going to update db stats!")
-            db.update_db_stats(query_strs[0])
+    # for fn in fns:
+    assert ".toml" in fn
+    template = toml.load(fn)
+    query_strs = _load_query_strs(args, args.cache_dir, template, fn)
+    # deduplicate
+    query_strs = remove_doubles(query_strs)
 
-        template_name = os.path.basename(fn)
-        queries = _load_query_objs(args, args.cache_dir, query_strs,
-                template_name)
+    template_name = os.path.basename(fn)
+    queries = _load_query_objs(args, args.cache_dir, query_strs,
+            template_name)
 
-        if not args.use_subqueries:
-            continue
+    queries, subq_strs, subqueries = _load_subqueries(args, queries,
+            subq_sql_str_cache, subq_query_obj_cache, args.gen_queries)
+    assert len(subq_strs) % len(queries) == 0
+    num_subq_per_query = int(len(subq_strs) / len(queries))
+    print("{}: queries: {}, subqueries: {}".format(template_name,
+        len(queries), num_subq_per_query))
 
-        queries, subq_strs, subqueries = _load_subqueries(args, queries,
-                subq_sql_str_cache, subq_query_obj_cache, args.gen_queries)
-        assert len(subq_strs) % len(queries) == 0
-        num_subq_per_query = int(len(subq_strs) / len(queries))
-        print("{}: queries: {}, subqueries: {}".format(template_name,
-            len(queries), num_subq_per_query))
+    start_idx = 0
+    for i in range(len(queries)):
+        end_idx = start_idx + num_subq_per_query
+        all_subqueries.append(subqueries[start_idx:end_idx])
+        all_queries.append(queries[i])
+        if len(all_subqueries[-1]) == 0:
+            print(i)
+            print("found no subqueries")
+            pdb.set_trace()
+        start_idx += num_subq_per_query
 
-        # subqueries = _load_subquery_objs(args, subq_strs,
-                # subq_query_obj_cache)
-
-        start_idx = 0
-        for i in range(len(queries)):
-            end_idx = start_idx + num_subq_per_query
-            all_subqueries.append(subqueries[start_idx:end_idx])
-            all_queries.append(queries[i])
-            if len(all_subqueries[-1]) == 0:
-                print(i)
-                print("found no subqueries")
-                pdb.set_trace()
-            start_idx += num_subq_per_query
-
-    if not found_db:
-        misc_cache.archive[db_key] = db
-
-    return db, all_queries, all_subqueries
+    return all_queries, all_subqueries
 
 def update_subq_cards(all_subqueries, cache_dir):
 

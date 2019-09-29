@@ -1378,8 +1378,11 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.Xtrains = {}
         self.Ytrains = {}
         self.model_name = kwargs["num_tables_model"]
-        self.num_trees = kwargs["num_trees"]
-        self.eval_num_tables = kwargs["eval_num_tables"]
+        # self.num_trees = kwargs["num_trees"]
+        # self.eval_num_tables = kwargs["eval_num_tables"]
+        self.eval_num_tables = True
+        self.loss_stop_thresh = 1.50
+        self.num_tables_train_qerr = {}
 
         if kwargs["loss_func"] == "qloss":
             self.loss_func = qloss_torch
@@ -1475,6 +1478,11 @@ class NumTablesNN(CardinalityEstimationAlg):
             y_table = self.table_y_train[num_table]
             if len(x_table) == 0:
                 continue
+
+            if num_table in self.num_tables_train_qerr:
+                if self.num_tables_train_qerr[num_table] < self.loss_stop_thresh:
+                    continue
+
             net = self.models[num_table]
             pred_table = net(x_table)
             pred_table = pred_table.squeeze(1)
@@ -1483,6 +1491,7 @@ class NumTablesNN(CardinalityEstimationAlg):
                 self.stats["train"]["tables_eval"]["qerr"][num_table] = {}
 
             self.stats["train"]["tables_eval"]["qerr"][num_table][num_iter] = loss_train.item()
+            self.num_tables_train_qerr[num_table] = loss_train.item()
 
             # do for test as well
             if num_table not in self.table_x_test:
@@ -1647,6 +1656,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         # Train each net for N iterations, and then evaluate.
         start = time.time()
         try:
+
             while True:
                 if (num_iter % 100 == 0):
                     # progress stuff
@@ -1674,33 +1684,34 @@ class NumTablesNN(CardinalityEstimationAlg):
                         env.clean()
                         env = None
 
-
                 for num_tables, _ in self.samples.items():
-                    # for train_it in range(self.eval_iter):
-                        # if (train_it % 100 == 0):
-                            # print(num_tables, train_it, end=",")
-                    for train_it in range(1):
-                        optimizer = self.optimizers[num_tables]
-                        net = self.models[num_tables]
-                        X = self.Xtrains[num_tables]
-                        Y = self.Ytrains[num_tables]
 
-                        MB_SIZE = 128
-                        idxs = np.random.choice(list(range(len(X))), MB_SIZE)
-                        xbatch = X[idxs]
-                        ybatch = Y[idxs]
+                    if num_tables in self.num_tables_train_qerr:
+                        if self.num_tables_train_qerr[num_tables] < self.loss_stop_thresh:
+                            # print("skipping training ", num_tables)
+                            continue
 
-                        pred = net(xbatch)
-                        pred = pred.squeeze(1)
-                        loss = self.loss_func(pred, ybatch)
+                    optimizer = self.optimizers[num_tables]
+                    net = self.models[num_tables]
+                    X = self.Xtrains[num_tables]
+                    Y = self.Ytrains[num_tables]
 
-                        optimizer.zero_grad()
-                        loss.backward()
+                    MB_SIZE = 128
+                    idxs = np.random.choice(list(range(len(X))), MB_SIZE)
+                    xbatch = X[idxs]
+                    ybatch = Y[idxs]
 
-                        if self.clip_gradient is not None:
-                            clip_grad_norm_(net.parameters(), self.clip_gradient)
+                    pred = net(xbatch)
+                    pred = pred.squeeze(1)
+                    loss = self.loss_func(pred, ybatch)
 
-                        optimizer.step()
+                    optimizer.zero_grad()
+                    loss.backward()
+
+                    if self.clip_gradient is not None:
+                        clip_grad_norm_(net.parameters(), self.clip_gradient)
+
+                    optimizer.step()
 
                 num_iter += 1
                 if (num_iter > self.max_iter):
