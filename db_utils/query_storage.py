@@ -163,15 +163,20 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 def get_template_samples(fn):
     # number of samples to use from this template (fn)
     if "2.toml" in fn:
-        num = 2000
+        # num = 2000
+        num = 1000
     elif "2b1.toml" in fn:
-        num = 1997
+        # num = 1997
+        num = 1000
     elif "2b2.toml" in fn:
-        num = 1800
+        # num = 1800
+        num = 1000
     elif "2b3.toml" in fn:
-        num = 2000
+        # num = 2000
+        num = 1000
     elif "2b4.toml" in fn:
-        num = 1500
+        # num = 1500
+        num = 1000
     elif "4.toml" in fn:
         num = 1000
     elif "3.toml" in fn:
@@ -286,7 +291,7 @@ def _save_query_objs(queries, cache_dir):
     query_obj_cache = klepto.archives.dir_archive(cache_dir + "/query_obj",
             cached=True, serialized=True)
     for query in queries:
-        hsql = deterministic_hash(query.sql)
+        hsql = deterministic_hash(query.query)
         query_obj_cache.archive[hsql] = query
 
 def _load_query_objs(args, cache_dir, query_strs, template_name=None,
@@ -355,4 +360,46 @@ def update_subq_cards(all_subqueries, cache_dir):
         if wrong_count > 0:
             print("wrong counts: ", wrong_count)
             _save_subquery_objs(subqueries, cache_dir)
+
+def update_subq_preds(all_queries, all_subqueries, cache_dir):
+
+    assert len(all_queries) == len(all_subqueries)
+    for i, query in enumerate(all_queries):
+        subqueries = all_subqueries[i]
+        pred_columns, cmp_ops, pred_vals = extract_predicates(query.query)
+        query.pred_column_names = pred_columns
+        query.cmp_ops = cmp_ops
+        query.vals = pred_vals
+        wrong_count = 0
+        print(query.pred_column_names)
+        for subq in subqueries:
+            if subq.true_count > subq.total_count:
+                subq.total_count = subq.true_count
+                wrong_count += 1
+            print(subq.pred_column_names)
+            print(subq.froms)
+            if subq.pred_column_names is not None:
+                print("already had subquery pred columns set")
+                continue
+            subq.pred_column_names = []
+            subq.cmp_ops = []
+            subq.vals = []
+
+            # loop over all the query predicates, and if we find same alias in
+            # subq, then add them
+
+            for pi, pred_col in enumerate(query.pred_column_names):
+                # is pred_col one of the subq aliases
+                pred_table = pred_col[0:pred_col.find(".")]
+                if pred_table in subq.aliases:
+                    val = query.vals[pi]
+                    cmp_op = query.cmp_ops[pi]
+                    subq.pred_column_names.append(pred_col)
+                    subq.vals.append(val)
+                    subq.cmp_ops.append(cmp_op)
+
+            # assert len(subq.pred_column_names) >= 1
+
+        _save_subquery_objs(subqueries, cache_dir)
+    _save_query_objs(all_queries, cache_dir)
 

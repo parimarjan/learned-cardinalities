@@ -194,6 +194,10 @@ def main():
 
         if args.update_subq_cards:
             update_subq_cards(subqueries, args.cache_dir)
+        if args.update_subq_preds:
+            update_subq_preds(samples, subqueries, args.cache_dir)
+            print("update subq preds done!")
+            pdb.set_trace()
 
         for i, query in enumerate(samples):
             assert len(subqueries[i]) > 0
@@ -297,6 +301,8 @@ def read_flags():
     parser.add_argument("--gen_queries", type=int, required=False,
             default=0)
     parser.add_argument("--update_subq_cards", type=int, required=False,
+            default=0)
+    parser.add_argument("--update_subq_preds", type=int, required=False,
             default=0)
     parser.add_argument("--eval_num_tables", type=int, required=False,
             default=0)
