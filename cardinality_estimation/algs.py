@@ -913,23 +913,27 @@ class NN2(CardinalityEstimationAlg):
             net = SimpleRegression(len(features),
                     self.hidden_layer_multiple, 1,
                     num_hidden_layers=self.num_hidden_layers)
+            self.mb_size = 128
         elif self.net_name == "LinearRegression":
             net = LinearRegression(len(features),
                     1)
+            self.mb_size = 128
         elif self.net_name == "Hydra":
             net = Hydra(len(features),
                     self.hidden_layer_multiple, 1,
                     len(db.aliases), False)
+            self.mb_size = 512
         elif self.net_name == "FatHydra":
             net = FatHydra(len(features),
                     self.hidden_layer_multiple, 1,
                     len(db.aliases))
+            self.mb_size = 512
             print("FatHydra created!")
         elif self.net_name == "HydraLinear":
             net = Hydra(len(features),
                     self.hidden_layer_multiple, 1,
                     len(db.aliases), True)
-
+            self.mb_size = 512
             print("Hydra created!")
         else:
             assert False
@@ -1215,6 +1219,7 @@ class NN2(CardinalityEstimationAlg):
             # all SubQueries the same?
 
             if self.sampling == "query":
+                assert False
                 mb_samples = []
                 xbatch = []
                 ybatch = []
@@ -1230,12 +1235,12 @@ class NN2(CardinalityEstimationAlg):
                 xbatch = to_variable(xbatch).float()
                 ybatch = to_variable(ybatch).float()
             elif self.sampling == "subquery":
-                MB_SIZE = 128
+                MB_SIZE = self.mb_size
                 idxs = np.random.choice(list(range(len(X))), MB_SIZE)
                 xbatch = X[idxs]
                 ybatch = Y[idxs]
             elif self.sampling == "weighted_query":
-                MB_SIZE = 128
+                MB_SIZE = self.mb_size
                 idxs = np.random.choice(list(range(len(X))), MB_SIZE,
                         p=subquery_sampling_weights)
                 xbatch = X[idxs]
