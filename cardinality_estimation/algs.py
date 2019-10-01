@@ -1518,11 +1518,16 @@ class NumTablesNN(CardinalityEstimationAlg):
         else:
             tables = num_tables
 
-        if self.group_models:
+        if self.group_models == 1:
             # so 1 and 2 get mapped to 1
             tables += 1
             tables = int((tables / 2))
             return tables
+        elif self.group_models == 2:
+            if tables <= 2:
+                return 1
+            else:
+                return 2
         else:
             return tables
 
