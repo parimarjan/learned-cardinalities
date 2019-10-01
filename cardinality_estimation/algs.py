@@ -1481,6 +1481,21 @@ class NumTablesNN(CardinalityEstimationAlg):
 
         self.stats["model_params"] = {}
 
+    def map_num_tables(self, num_tables):
+        if num_tables >= 12:
+            tables = 12
+        else:
+            tables = num_tables
+
+        DIV2 = True
+        if DIV2:
+            # so 1 and 2 get mapped to 1
+            tables += 1
+            tables = int((tables / 2))
+            return tables
+        else:
+            return tables
+
     # same function for all the nns
     def _periodic_num_table_eval_nets(self, loss_func, num_iter):
         for num_table in self.table_x_train:
@@ -1531,12 +1546,12 @@ class NumTablesNN(CardinalityEstimationAlg):
         # join_loss compute function to work (ugh...)
         for sample in samples:
             Y.append(sample.true_sel)
-            num_tables = len(sample.froms)
+            num_tables = self.map_num_tables(len(sample.froms))
             pred.append(self.models[num_tables](sample.features).item())
 
             for subq in sample.subqueries:
                 Y.append(subq.true_sel)
-                num_tables = len(subq.froms)
+                num_tables = self.map_num_tables(len(subq.froms))
                 pred.append(self.models[num_tables](subq.features).item())
 
         pred = to_variable(pred).float()
@@ -1578,7 +1593,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         test_samples = kwargs["test_samples"]
         for sample in training_samples:
             features = db.get_features(sample)
-            num_tables = len(sample.froms)
+            num_tables = self.map_num_tables(len(sample.froms))
             if num_tables not in self.samples:
                 self.samples[num_tables] = []
                 self.Xtrains[num_tables] = []
@@ -1594,8 +1609,7 @@ class NumTablesNN(CardinalityEstimationAlg):
             self.samples[num_tables].append(sample)
 
             for subq in sample.subqueries:
-                num_tables = len(subq.froms)
-                assert num_tables == len(subq.aliases)
+                num_tables = self.map_num_tables(len(subq.froms))
                 if num_tables not in self.samples:
                     self.samples[num_tables] = []
                     self.Xtrains[num_tables] = []
@@ -1615,6 +1629,7 @@ class NumTablesNN(CardinalityEstimationAlg):
             Y = self.Ytrains[num_tables]
             self.Xtrains[num_tables] = to_variable(X).float()
             self.Ytrains[num_tables] = to_variable(Y).float()
+        print("num tables in samples: ", len(self.samples))
 
         if test_samples:
             for sample in test_samples:
@@ -1764,31 +1779,44 @@ class NumTablesNN(CardinalityEstimationAlg):
             self.table_x_test = defaultdict(list)
             self.table_y_train = defaultdict(list)
             self.table_y_test = defaultdict(list)
-            num_tables = len(db.aliases)
-            print("num tables: ", num_tables)
-            for i in range(1,num_tables+1):
+            num_real_tables = len(db.aliases)
+            for i in range(1,num_real_tables+1):
                 queries = get_all_num_table_queries(training_samples, i)
+                num_tables_map = self.map_num_tables(i)
                 for q in queries:
-                    self.table_x_train[i].append(db.get_features(q))
-                    self.table_y_train[i].append(q.true_sel)
+                    # self.table_x_train[i].append(db.get_features(q))
+                    # self.table_y_train[i].append(q.true_sel)
+                    self.table_x_train[num_tables_map].append(db.get_features(q))
+                    self.table_y_train[num_tables_map].append(q.true_sel)
 
-                self.table_x_train[i] = \
-                    to_variable(self.table_x_train[i]).float()
-                self.table_y_train[i] = \
-                    to_variable(self.table_y_train[i]).float()
+                # self.table_x_train[num_tables_map] = \
+                    # to_variable(self.table_x_train[num_tables_map]).float()
+                # self.table_y_train[num_tables_map] = \
+                    # to_variable(self.table_y_train[num_tables_map]).float()
                 if test_samples:
                     queries = get_all_num_table_queries(test_samples, i)
                     for q in queries:
-                        self.table_x_test[i].append(db.get_features(q))
-                        self.table_y_test[i].append(q.true_sel)
-                    self.table_x_test[i] = \
-                        to_variable(self.table_x_test[i]).float()
-                    self.table_y_test[i] = \
-                        to_variable(self.table_y_test[i]).float()
+                        self.table_x_test[num_tables_map].append(db.get_features(q))
+                        self.table_y_test[num_tables_map].append(q.true_sel)
+                    # self.table_x_test[num_tables_map] = \
+                        # to_variable(self.table_x_test[num_tables_map]).float()
+                    # self.table_y_test[num_tables_map] = \
+                        # to_variable(self.table_y_test[num_tables_map]).float()
+
+            for i in range(len(self.table_x_train)):
+                num_tables_map = i + 1  # starts from 1
+                self.table_x_train[num_tables_map] = \
+                    to_variable(self.table_x_train[num_tables_map]).float()
+                self.table_y_train[num_tables_map] = \
+                    to_variable(self.table_y_train[num_tables_map]).float()
+                self.table_x_test[num_tables_map] = \
+                    to_variable(self.table_x_test[num_tables_map]).float()
+                self.table_y_test[num_tables_map] = \
+                    to_variable(self.table_y_test[num_tables_map]).float()
 
         for sample in training_samples:
             features = db.get_features(sample)
-            num_tables = len(sample.froms)
+            num_tables = self.map_num_tables(len(sample.froms))
             if num_tables not in self.samples:
                 self.samples[num_tables] = []
                 self.Xtrains[num_tables] = []
@@ -1797,8 +1825,7 @@ class NumTablesNN(CardinalityEstimationAlg):
             self.Xtrains[num_tables].append(features)
             self.Ytrains[num_tables].append(sample.true_sel)
             for subq in sample.subqueries:
-                num_tables = len(subq.froms)
-                assert num_tables == len(subq.aliases)
+                num_tables = self.map_num_tables(len(subq.froms))
                 if num_tables not in self.samples:
                     self.samples[num_tables] = []
                     self.Xtrains[num_tables] = []
