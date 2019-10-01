@@ -164,21 +164,21 @@ def get_template_samples(fn):
     # number of samples to use from this template (fn)
     if "2.toml" in fn:
         # num = 2000
-        num = 1000
+        num = 500
     elif "2b1.toml" in fn:
         # num = 1997
-        num = 1000
+        num = 500
     elif "2b2.toml" in fn:
         # num = 1800
-        num = 1000
+        num = 500
     elif "2b3.toml" in fn:
         # num = 2000
-        num = 1000
+        num = 500
     elif "2b4.toml" in fn:
         # num = 1500
-        num = 1000
+        num = 500
     elif "4.toml" in fn:
-        num = 1000
+        num = 500
     elif "3.toml" in fn:
         num = 100
     elif "7.toml" in fn:

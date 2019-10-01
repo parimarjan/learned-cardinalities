@@ -1393,6 +1393,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.eval_num_tables = True
         self.loss_stop_thresh = 1.00
         self.num_tables_train_qerr = {}
+        self.group_models = kwargs["group_models"]
 
         if kwargs["loss_func"] == "qloss":
             self.loss_func = qloss_torch
@@ -1487,8 +1488,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         else:
             tables = num_tables
 
-        DIV2 = True
-        if DIV2:
+        if self.group_models:
             # so 1 and 2 get mapped to 1
             tables += 1
             tables = int((tables / 2))

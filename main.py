@@ -93,7 +93,8 @@ def get_alg(alg):
                     num_tables_model = args.num_tables_model,
                     num_trees = args.rf_trees,
                     reuse_env = args.reuse_env,
-                    eval_num_tables = args.eval_num_tables)
+                    eval_num_tables = args.eval_num_tables,
+                    group_models = args.group_models)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
@@ -298,6 +299,8 @@ def read_flags():
             default="nn")
     parser.add_argument("--reuse_env", type=int, required=False,
             default=1)
+    parser.add_argument("--group_models", type=int, required=False,
+            default=0)
     parser.add_argument("--gen_queries", type=int, required=False,
             default=0)
     parser.add_argument("--update_subq_cards", type=int, required=False,
