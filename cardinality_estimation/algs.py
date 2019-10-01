@@ -152,8 +152,34 @@ class CardinalityEstimationAlg():
         pass
 
 class Postgres(CardinalityEstimationAlg):
+    # def test(self, test_samples):
+        # return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
+
     def test(self, test_samples):
-        return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
+        # num tables based
+        ret = []
+        num_tables = defaultdict(list)
+        num_tables_true = defaultdict(list)
+        for sample in test_samples:
+            num_table = len(sample.froms)
+            true_sel = sample.true_sel
+            pg_sel = sample.pg_count / float(sample.total_count)
+            num_tables[num_table].append(pg_sel)
+            num_tables_true[num_table].append(true_sel)
+
+            if num_table <= 3:
+                ret.append(true_sel)
+            else:
+                ret.append(pg_sel)
+
+        for table in num_tables:
+            yhat = np.array(num_tables[table])
+            ytrue = np.array(num_tables_true[table])
+            qloss_val = qloss(yhat, ytrue)
+            print("{}: qerr: {}".format(table, qloss_val))
+
+        return ret
+
 
 class PostgresRegex(CardinalityEstimationAlg):
     def test(self, test_samples):
@@ -1146,6 +1172,17 @@ class NN2(CardinalityEstimationAlg):
                 wts = [sq_weight]*(len(sample.subqueries)+1)
                 # add lists
                 subquery_sampling_weights += wts
+        elif self.sampling == "num_tables_weight":
+            query_sampling_weights = None
+            subquery_sampling_weights = []
+            for si, sample in enumerate(training_samples):
+                subquery_sampling_weights.append(1.00 / len(sample.froms))
+                for sq in sample.subqueries:
+                    subquery_sampling_weights.append(1.00 / len(sq.froms))
+
+            subquery_sampling_weights = \
+                    self.update_sampling_weights(subquery_sampling_weights)
+            assert len(subquery_sampling_weights) == len(X)
         else:
             query_sampling_weights = None
 
@@ -1179,14 +1216,6 @@ class NN2(CardinalityEstimationAlg):
                         print("new priority alpha: ", self.sampling_priority_alpha)
 
                     if self.sampling_priority_method == "jl_ratio":
-                        print("max: ", np.max(join_losses_ratio))
-                        print("min: ", np.min(join_losses_ratio))
-                        print("std: ", np.std(join_losses_ratio))
-                        # total_join_loss = np.sum(np.array(join_losses_ratio))
-                        # for wi, _ in enumerate(query_sampling_weights):
-                            # wt = join_losses_ratio[wi] / total_join_loss
-                            # query_sampling_weights[wi] = wt
-
                         query_sampling_weights = self.update_sampling_weights(join_losses_ratio)
                     elif self.sampling_priority_method == "jl_rank":
                         jl_ranks = np.argsort(join_losses_ratio)
@@ -1239,7 +1268,8 @@ class NN2(CardinalityEstimationAlg):
                 idxs = np.random.choice(list(range(len(X))), MB_SIZE)
                 xbatch = X[idxs]
                 ybatch = Y[idxs]
-            elif self.sampling == "weighted_query":
+            elif self.sampling == "weighted_subquery" \
+                    or self.sampling == "num_tables_weight":
                 MB_SIZE = self.mb_size
                 idxs = np.random.choice(list(range(len(X))), MB_SIZE,
                         p=subquery_sampling_weights)
