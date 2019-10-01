@@ -16,11 +16,19 @@ def update_sql_str(new_cache_dir, old_cache_dir, cache_type):
     for k, sql_strs in old_cache.items():
         assert isinstance(sql_strs, list)
         if k in new_cache:
+            new_cache_list = new_cache[k]
             # append the list
-            new_cache[k] += sql_strs
+            # new_cache[k] += sql_strs
         else:
-            new_cache[k] = sql_strs
+            new_cache_list = []
 
+        # only append non-doubles
+        for sql in sql_strs:
+            if sql not in new_cache_list:
+                new_cache_list.append(sql)
+        new_cache[k] = new_cache_list
+
+        print("new cache len: ", len(new_cache[k]))
     new_cache.dump()
 
 def update_query_obj(new_cache_dir, old_cache_dir, cache_type):

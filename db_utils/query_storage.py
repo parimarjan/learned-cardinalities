@@ -182,7 +182,7 @@ def get_template_samples(fn):
     elif "3.toml" in fn:
         num = 100
     elif "7.toml" in fn:
-        num = 90
+        num = 77
     elif "7b.toml" in fn:
         num = 140
     elif "7c.toml" in fn:
