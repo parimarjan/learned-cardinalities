@@ -1516,8 +1516,8 @@ class NumTablesNN(CardinalityEstimationAlg):
 
             self.stats["test"]["tables_eval"]["qerr"][num_table][num_iter] = loss_test.item()
 
-            print("num_tables: {}, train_qerr: {}, test_qerr: {}".format(\
-                    num_table, loss_train, loss_test))
+            print("num_tables: {}, train_qerr: {}, test_qerr: {}, size: {}".format(\
+                    num_table, loss_train, loss_test, len(y_table)))
 
     def _periodic_eval(self, samples, env, key, loss_func,
             num_iter):
