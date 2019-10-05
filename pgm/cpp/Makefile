@@ -1,21 +1,25 @@
 OS = $(shell uname -s)
 
-#CFLAGS = -O3 -std=c++11 -Wall -fno-use-cxa-atexit -fPIC
 ifeq (${OS}, Darwin)
   # OS X
 	CLANG ?= clang++
 	LIB = libpgm.dylib
+	CFLAGS = -O3 -std=c++11 -fPIC -I /usr/local/Cellar/eigen/3.3.7/include/eigen3/
+	SHARED_FLAG = -dynamiclib
 else ifeq (${OS}, Linux)
   # Linux
- 	CLANG ?= g++
+ 	CLANG ?= clang++
 	LIB = libpgm.so
+	#CFLAGS = -O3 -std=c++11 -fPIC -I /home/ubuntu/libs/
+	CFLAGS = -O3 -std=c++11 -fPIC -I /data/pari/libs/
+	SHARED_FLAG = -shared
 else
   $(error Unsupported platform: ${OS})
 endif
 
 ${LIB}: main.cc
-	$(CLANG) -std=c++11 -fPIC -c main.cc -o main.o
-	$(CLANG) -shared  -Wl,-soname,${LIB} -o ${LIB} main.o
+	$(CLANG) $(CFLAGS) -c main.cc -o main.o
+	$(CLANG) $(SHARED_FLAG) -o ${LIB} main.o
 
 clean:
 	rm -f *.bc *.o *.out ${LIB}

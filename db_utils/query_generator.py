@@ -97,9 +97,9 @@ class QueryGenerator():
                     gen_query = gen_query.replace(low_pred, low_val)
                     gen_query = gen_query.replace(high_pred, high_val)
 
-            print(gen_query)
+            # print(gen_query)
             all_query_strs.append(gen_query)
-        print("{} took {} seconds to generate".format(len(all_query_strs),
+        print("{} query strings took {} seconds to generate".format(len(all_query_strs),
             time.time()-start))
         return all_query_strs
 

@@ -5,23 +5,66 @@ from utils.utils import *
 from db_utils.utils import *
 import pandas as pd
 import numpy as np
+import random
 
-def load_dmv_data(args):
+def load_csv_data(args, header=0, sep=","):
     # if the table doesn't already exist, then load it in
     con = pg.connect(user=args.user, host=args.db_host, port=args.port,
             password=args.pwd, database=args.db_name)
+
+    # con = pg.connect(user=args.user, port=args.port,
+            # password=args.pwd, database=args.db_name)
+
     cur = con.cursor()
     table_name = args.db_name
     exists = check_table_exists(cur, table_name)
     if not exists:
         from sqlalchemy import create_engine
-        # df = pd.read_csv("/data/pari/dmv.csv")
-        df = pd.read_csv(args.db_file_name)
-        no_space_column_names = []
+        print("going to read csv!")
+        df = pd.read_csv(args.db_file_name, header=header, sep=sep,
+                low_memory=False)
+        # let's try to make each column something nicer
         for k in df.keys():
-            no_space_column_names.append(k.replace(" ", "_").lower())
-        df.columns = no_space_column_names
-        cmd = 'postgresql://{}:{}@localhost:5432/dmv'.format(args.user, args.pwd)
+            print(k)
+            print(df[k].dtype)
+            if (df[k].dtype != "O"):
+                # seems fine as is
+                continue
+            # try to get objects into more meaningful types
+            # pdb.set_trace()
+            if "date" in k.lower():
+                # convert to unix timestamps
+                print("converting datetime to unix")
+                df[k] = pd.to_datetime(df[k]).astype(np.int64)
+            elif "time" in k.lower():
+                df[k] = pd.to_timedelta(df[k]).astype(np.int64)
+            else:
+                # try to see if it is a float
+                try:
+                    float(df[k][0])
+                    # convert to numbery things
+                    df[k] = pd.to_numeric(df[k], errors="coerce")
+                except:
+                    # do nothing since it is not a float!
+                    pass
+
+        # pdb.set_trace()
+        updated_cols = []
+        for k in df.keys():
+            try:
+                int(k)
+                k = "col" + str(k)
+            except:
+                # if it was not an int, do nothing
+                pass
+            k = k.replace(" ", "_")
+            k = k.lower()
+            k = k.encode("utf-8", "strict").decode("utf-8")
+            updated_cols.append(k)
+
+        df.columns = updated_cols
+        cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(args.user,
+                args.pwd, args.db_name)
         engine = create_engine(cmd)
         print("going to load in db!")
         df.to_sql(table_name, engine)
@@ -33,6 +76,8 @@ def load_osm_data(args):
     # if the table doesn't already exist, then load it in
     con = pg.connect(user=args.user, host=args.db_host, port=args.port,
             password=args.pwd, database=args.db_name)
+    # con = pg.connect(user=args.user, port=args.port,
+            # password=args.pwd, database=args.db_name)
     cur = con.cursor()
     table_name = args.db_name
     exists = check_table_exists(cur, table_name)
@@ -118,17 +163,21 @@ def get_gaussian_data_params(args):
     return means, covs
 
 def get_table_name(args):
-    return args.synth_table + str(args.synth_num_columns) + str(args.random_seed)
+    return args.synth_table + str(args.synth_num_columns) + \
+        str(args.synth_period_len) + str(args.random_seed)
+        # + \
+        # str(args.synth_num_vals)
 
 def gen_synth_data(args):
     con = pg.connect(user=args.user, host=args.db_host, port=args.port,
             password=args.pwd, database=args.db_name)
     cur = con.cursor()
     table_name = get_table_name(args)
+    # table_name = args.synth_table + str(args.synth_num_columns)
     exists = check_table_exists(cur, table_name)
-    # print("exists: ", exists)
-    # if exists:
-        # return
+    print("exists: ", exists)
+    if exists:
+        return
     con.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
     # always creates the table and fills it up with data.
     cur.execute("DROP TABLE IF EXISTS {TABLE}".format(TABLE=table_name))
@@ -165,20 +214,31 @@ def update_synth_templates(args, query_templates):
     # generation stuff
     print("update synth templates!!")
     table_name = get_table_name(args)
-    # add a select count(*) for every combination of columns
+
+    # TODO: add a select count(*) for every combination of columns
     meta_tmp = "SELECT COUNT(*) FROM {TABLE} WHERE {CONDS}"
     # TEST.col2 = 'col2'
-    cond_meta_tmp = "{TABLE}.{COLUMN} in (X{COLUMN})"
-    column_list = []
+    # cond_meta_tmp = "{TABLE}.{COLUMN} IN (X{COLUMN})"
+    cond_meta_tmp = "{TABLE}.{COLUMN} IN ('SELECT {COLUMN} FROM {TABLE}')"
     combs = []
-    for i in range(args.synth_num_columns):
-        column_list.append("col" + str(i))
+    column_ids = list(range(args.synth_num_columns))
+    for i in range(2, args.synth_num_columns+1, 1):
+        combs += (list(itertools.combinations(column_ids, i)))
+    random.shuffle(combs)
+    combs = combs[0:10]
+    print(combs)
 
-    conditions = []
-    for col in column_list:
-        conditions.append(cond_meta_tmp.format(TABLE  = table_name,
-                                               COLUMN = col))
-    cond_str = " AND ".join(conditions)
-    query_tmp = meta_tmp.format(TABLE = table_name,
-                    CONDS = cond_str)
-    query_templates.append(query_tmp)
+    for comb in combs:
+        conditions = []
+        column_list = []
+        for j in comb:
+            column_list.append("col" + str(j))
+
+        for col in column_list:
+            conditions.append(cond_meta_tmp.format(TABLE  = table_name,
+                                                   COLUMN = col))
+        cond_str = " AND ".join(conditions)
+        query_tmp = meta_tmp.format(TABLE = table_name,
+                        CONDS = cond_str)
+        print(query_tmp)
+        query_templates.append(query_tmp)

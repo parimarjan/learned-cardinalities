@@ -11,21 +11,101 @@
 #include <set>
 #include <map>
 #include <fstream>
-
+//#include <assert>
+#include <cassert>
+#include <Eigen/Dense>
 
 using namespace std::chrono;
 using namespace std;
 
 bool VERBOSE = false;
 
+// in the future, we may want to experiment with other stuff here
+// 1 ==> store just the joint probability in the SVD matrix
+// 2 ==> store the difference from the indepence assumption
+int SVD_VERSION = 1;
+
+/* assumes data is stored in column-major order */
+Eigen::MatrixXd ConvertToEigenMatrix(std::vector<std::vector<double>> data)
+{
+    Eigen::MatrixXd eMatrix(data[0].size(), data.size());
+
+    for (int i = 0; i < data.size(); ++i)
+        //eMatrix.row(i) = Eigen::VectorXd::Map(&data[i][0], data[0].size());
+        eMatrix.col(i) = Eigen::VectorXd::Map(&data[i][0], data[0].size());
+    return eMatrix;
+}
+
+// FIXME: temporary till assert can be included
+void _ASSERT(int val1, int val2) {
+  if (val1 != val2) {
+    cout << "assertion failed" << endl;
+    exit(-1);
+  }
+}
+
+double elem_diff(vector<double> vec1, vector<double> vec2)
+{
+ double diff = 0.00;
+ for (int i = 0; i < vec1.size(); i++) {
+    diff += abs(vec1[i] - vec2[i]);
+ }
+ return diff;
+}
+
+bool all_close(vector<double> vec1, vector<double> vec2, double eps)
+{
+ double diff = 0.00;
+ for (int i = 0; i < vec1.size(); i++) {
+    diff += abs(vec1[i] - vec2[i]);
+ }
+ if (diff > eps) {
+   return false;
+ }
+ return true;
+}
+
+/* Converts to std::vec<vec<..>> in column major form.
+ *
+ * @mat: Eigen format. TODO: should be able to take any Eigen matrix type.
+ * @num_cols: -1 = all columns.
+ */
+vector<vector<double>> ConvertEigenToVec(Eigen::MatrixXd mat, int num_cols)
+{
+  //vector< vector<double> > vec(mat.cols(), vector<double>(mat.rows(), 0));
+	vector<vector<double>> vec;
+  if (num_cols == -1) num_cols = mat.cols();
+  vec.resize(num_cols);
+  for (int i = 0; i < num_cols; i++) {
+    // initialize the column from eigen matrix
+    vec[i].resize(mat.rows(),0.00);
+    double *start = mat.data() + i*mat.rows();
+    std::copy(start, start + mat.rows(), vec[i].begin());
+  }
+
+  _ASSERT(vec.size(), mat.cols());
+  _ASSERT(vec[0].size(), mat.rows());
+  return vec;
+}
+
 struct Edges
 {
 	int col_num,row_num;
+  // stored in column major form. Outer vector represents columns, then each
+  // contiguous inner vector represents a single column of data.
+  // each element, (i,j) represents the joint probability of x_i, x_j.
+  // FIXME: indices i,j are based on the node positions assigned at the start
+  // (?)
 	vector<vector<double> > prob_matrix;
 	vector<double> col_sum;
 	vector<double> row_sum;
 
-	void init(int size1,vector<int> &data_array1,int size2,vector<int> &data_array2,vector<int> &count_column)
+  /* @size1: num columns
+   * @size2: num rows
+   */
+  void init(int size1,vector<int> &data_array1,int size2,vector<int>
+      &data_array2,vector<int> &count_column, bool use_svd, int
+      num_singular_vals)
 	{
 		prob_matrix.resize(size1);
 		for(int i=0;i<size1;i++)
@@ -69,6 +149,67 @@ struct Edges
 			row_sum[j]=sum;
 		}
 	}
+
+  void update_joint_svd_edge(vector<double> prob1, vector<double> prob2,
+      int num_singular_vals)
+  {
+    // prob matrix has been appropriately initialized, and should not be
+    // changed again. If svd flag is set, we will replace it with a SVD
+    // reconstruction, based on top-k singular values
+
+    if (SVD_VERSION == 2) {
+      for (int i = 0; i < prob_matrix.size(); i++) {
+        for (int j = 0; j < prob_matrix[0].size(); j++) {
+          // storing only the difference from the independence assumption
+          this->prob_matrix[i][j] = prob_matrix[i][j] - (prob1[i]*prob2[j]);
+        }
+      }
+    }
+
+    // will replace prob_matrix with the svd-d' version
+
+    Eigen::MatrixXd prob_eigen = ConvertToEigenMatrix(prob_matrix);
+    // TODO: can we avoid materializing the whole matrices?
+    Eigen::BDCSVD<Eigen::MatrixXd> svd(prob_eigen, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    const Eigen::MatrixXd &U = svd.matrixU();
+    const Eigen::MatrixXd &V = svd.matrixV();
+    const Eigen::VectorXd &SVec = svd.singularValues();
+
+    if (num_singular_vals == -1) num_singular_vals = SVec.size();
+    // else, only consider top num_singular_vals while doing reconstruction
+
+    Eigen::MatrixXd S = SVec.asDiagonal();
+    int k = std::min(num_singular_vals, (int) SVec.size());
+    cout << "k: " << k << endl;
+
+    Eigen::MatrixXd recon = U.block(0,0,U.rows(),k)\
+                            *S.block(0,0,k,k)\
+                            *V.block(0,0,V.rows(),k).transpose();
+
+    vector<vector<double>> recon_prob_mat = ConvertEigenToVec(recon, -1);
+
+    if (VERBOSE) {
+      bool close = (recon - prob_eigen).isMuchSmallerThan(0.01);
+      cout << "reconstruction allclose: " << close << endl;
+      cout << "orig prob.size " << prob_matrix.size() << endl;
+      cout << "orig prob[0].size " << prob_matrix[0].size() << endl;
+      cout << "recon prob.size " << recon_prob_mat.size() << endl;
+      cout << "recon prob[0].size " << recon_prob_mat[0].size() << endl;
+      cout << "prob_eigen.rows " << prob_eigen.rows() << endl;
+      cout << "prob_eigen.cols " << prob_eigen.cols() << endl;
+
+      // just to check since easier to do linear algebra comparisons after
+      // conversion to Eigen
+      Eigen::MatrixXd prob_eigen2 = ConvertToEigenMatrix(recon_prob_mat);
+      bool close2 = (prob_eigen - prob_eigen2).isMuchSmallerThan(0.01);
+
+      cout << "prob_eigen2.rows " << prob_eigen2.rows() << endl;
+      cout << "prob_eigen2.cols " << prob_eigen2.cols() << endl;
+      cout << "reconstruction to c++, close: " << close2 << endl;
+    }
+
+    this->prob_matrix = recon_prob_mat;
+  }
 
 	double cal_mutual_info()
 	{
@@ -180,12 +321,73 @@ bool sortFunc(mst_sort &a,mst_sort &b)
 	return a.val>b.val;
 }
 
+struct DisjointSets
+{
+    int *parent, *rnk;
+    int n;
+
+    // Constructor.
+    DisjointSets(int n)
+    {
+        // Allocate memory
+        this->n = n;
+        parent = new int[n+1];
+        rnk = new int[n+1];
+
+        // Initially, all vertices are in
+        // different sets and have rank 0.
+        for (int i = 0; i <= n; i++)
+        {
+            rnk[i] = 0;
+
+            //every element is parent of itself
+            parent[i] = i;
+        }
+    }
+
+    // Find the parent of a node 'u'
+    // Path Compression
+    int find(int u)
+    {
+        /* Make the parent of the nodes in the path
+           from u--> parent[u] point to parent[u] */
+        if (u != parent[u])
+            parent[u] = find(parent[u]);
+        return parent[u];
+    }
+
+    // Union by rank
+    void merge(int x, int y)
+    {
+        x = find(x), y = find(y);
+
+        /* Make tree with smaller height
+           a subtree of the other tree  */
+        if (rnk[x] > rnk[y])
+            parent[y] = x;
+        else // If rnk[x] <= rnk[y]
+            parent[x] = y;
+
+        if (rnk[x] == rnk[y])
+            rnk[y]++;
+    }
+};
+
 struct Graphical_Model
 {
 	int root;
 	int graph_size;
 	vector<Nodes> node_list;
 	vector<vector<Edges> > edge_matrix;
+
+  // configuration parameters
+  bool use_svd;
+  int num_singular_vals;
+  bool recompute;
+  // for each random variable, map their index to weight. weight <= 1, used in
+  // cases with binning, if a continuous variable doesn't fall into the
+  // complete bin.
+  vector<map<int,double>> *cur_weights;
 
 	void fill_data(vector<vector<int> > &data_matrix, vector<int> &count_column)
 	{
@@ -208,16 +410,58 @@ struct Graphical_Model
 			for(int j=i+1;j<col_num;j++)
 			{
 				Edges temp_edge;
-				temp_edge.init(node_list[i].alphabet_size,data_matrix[i],node_list[j].alphabet_size,data_matrix[j],count_column);
+        temp_edge.init(node_list[i].alphabet_size,data_matrix[i],node_list[j].alphabet_size,data_matrix[j],count_column, use_svd, num_singular_vals);
 				edge_matrix[i].push_back(temp_edge);
 			}
 		}
-
 	}
 
-	void init(vector<vector<int> > &data_matrix, vector<int> &count_column)
+  /* TODO: describe.
+   */
+  void update_joint_svd_all()
+  {
+		for (int i = 0; i < edge_matrix.size(); i++)
+		{
+			for(int j = 0; j < edge_matrix[i].size(); j++)
+			{
+        int node2_idx = j+i+1;
+        // sanity checks
+        Nodes *node1 = &node_list[i];
+        Nodes *node2 = &node_list[node2_idx];
+        Edges *edge = &edge_matrix[i][j];
+
+        _ASSERT(node1->prob_list.size(), node1->alphabet_size);
+        _ASSERT(node2->prob_list.size(), node2->alphabet_size);
+        _ASSERT(edge->prob_matrix.size() * edge->prob_matrix[0].size(),
+            node1->alphabet_size*node2->alphabet_size);
+        _ASSERT(edge->prob_matrix.size(),
+            node1->alphabet_size);
+        _ASSERT(edge->prob_matrix[0].size(),
+            node2->alphabet_size);
+
+        // now we are ready to update the edge
+        edge->update_joint_svd_edge(node1->prob_list, node2->prob_list,
+            num_singular_vals);
+			}
+		}
+  }
+
+	void init(vector<vector<int> > &data_matrix, vector<int> &count_column,
+      bool use_svd, int num_singular_vals)
 	{
+    if (VERBOSE) {
+      cout << "init!" << endl;
+      cout << "use svd: " << use_svd << endl;
+      cout << "num svs: " << num_singular_vals	 << endl;
+    }
+    this->use_svd = use_svd;
+    this->num_singular_vals = num_singular_vals;
+
 		fill_data(data_matrix,count_column);
+
+    // at this point, the edge matrix would have been initialized. So we can
+    // update the joint distribution matrices stored in each edge
+    if (use_svd) update_joint_svd_all();
 	}
 
 	void create_graph(vector<mst_sort> &added_edges)
@@ -249,20 +493,24 @@ struct Graphical_Model
 			}
 
 			process_order.erase(process_order.begin());
-
 		}
+	}
 
+	void MST_clean()
+	{
+		for(int i=0;i<graph_size;i++)
+		{
+			node_list[i].parent_ptr=-1;
+			node_list[i].child_ptr.resize(0);
+		}
 	}
 
 	void MST()
 	{
 		vector<mst_sort> mutual_info_vec;
-
 		set<int> vertices_added;
 		set<int>::iterator it1,it2;
-
 		vector<mst_sort> added_edges;
-
 
 		for(int i=0;i<graph_size;i++)
 		{
@@ -273,8 +521,69 @@ struct Graphical_Model
 				temp.b=j;
 				temp.val=edge_matrix[i][j-i-1].cal_mutual_info();
 				mutual_info_vec.push_back(temp);
+		        if (VERBOSE)
+		        {
+		          cout<< temp.val <<" : mutual info "<<i<<" "<<j<<endl;
+		        }
+			}
+		}
+
+		std::sort(mutual_info_vec.begin(),mutual_info_vec.end(),sortFunc);
+
+		int vec_size=mutual_info_vec.size();
+
+		DisjointSets ds(graph_size);
+
+		for (int i=0;i<mutual_info_vec.size();i++)
+	    {
+	        int u = mutual_info_vec[i].a;
+	        int v = mutual_info_vec[i].b;
+
+	        int set_u = ds.find(u);
+	        int set_v = ds.find(v);
+
+	        // Check if the selected edge is creating
+	        // a cycle or not (Cycle is created if u
+	        // and v belong to same set)
+	        if (set_u != set_v)
+	        {
+	            // Current edge will be in the MST
+	            // so print it
+	            if (VERBOSE)
+		        {
+		          cout<<" edge added: "<<mutual_info_vec[i].a<<" "<<mutual_info_vec[i].b<<endl;
+		        }
+	            added_edges.push_back(mutual_info_vec[i]);
+
+
+	            // Merge two sets
+	            ds.merge(set_u, set_v);
+	        }
+	    }
+
+
+		create_graph(added_edges);
+	}
+
+	void MST_sel(vector<int> edge_list)
+	{
+		vector<mst_sort> mutual_info_vec;
+		set<int> vertices_added;
+		set<int>::iterator it1,it2;
+		vector<mst_sort> added_edges;
+		int edge_list_sz=edge_list.size();
+
+		for(int i=0;i<edge_list_sz;i++)
+		{
+			for(int j=i+1;j<edge_list_sz;j++)
+			{
+				mst_sort temp;
+				temp.a=edge_list[i];
+				temp.b=edge_list[j];
+				temp.val=edge_matrix[edge_list[i]][edge_list[j]-edge_list[i]-1].cal_mutual_info();
+				mutual_info_vec.push_back(temp);
         if (VERBOSE) {
-          cout<< temp.val <<" : mutual info "<<i<<" "<<j<<endl;
+          cout<< temp.val <<" : mutual info "<<edge_list[i]<<" "<<edge_list[j]<<endl;
         }
 			}
 		}
@@ -283,33 +592,66 @@ struct Graphical_Model
 
 		int vec_size=mutual_info_vec.size();
 
-		for(int i=0;i<mutual_info_vec.size();i++)
-		{
-			it1=vertices_added.find(mutual_info_vec[i].a);
-			it2=vertices_added.find(mutual_info_vec[i].b);
-			if(!(it1!=vertices_added.end() && it2!=vertices_added.end()))
-			{
-				added_edges.push_back(mutual_info_vec[i]);
-				vertices_added.insert(mutual_info_vec[i].a);
-				vertices_added.insert(mutual_info_vec[i].b);
-			}
+		DisjointSets ds(graph_size);
 
-			if(vertices_added.size()==graph_size)
-			{
-				break;
-			}
-		}
+		for (int i=0;i<mutual_info_vec.size();i++)
+	    {
+	        int u = mutual_info_vec[i].a;
+	        int v = mutual_info_vec[i].b;
+
+	        int set_u = ds.find(u);
+	        int set_v = ds.find(v);
+
+	        // Check if the selected edge is creating
+	        // a cycle or not (Cycle is created if u
+	        // and v belong to same set)
+	        if (set_u != set_v)
+	        {
+	            // Current edge will be in the MST
+	            // so print it
+	            if (VERBOSE)
+		        {
+		          cout<<" edge added: "<<mutual_info_vec[i].a<<" "<<mutual_info_vec[i].b<<endl;
+		        }
+	            added_edges.push_back(mutual_info_vec[i]);
+
+
+	            // Merge two sets
+	            ds.merge(set_u, set_v);
+	        }
+	    }
+
 
 		create_graph(added_edges);
 
+		// for(int i=0;i<mutual_info_vec.size();i++)
+		// {
+		// 	it1=vertices_added.find(mutual_info_vec[i].a);
+		// 	it2=vertices_added.find(mutual_info_vec[i].b);
+		// 	if(!(it1!=vertices_added.end() && it2!=vertices_added.end()))
+		// 	{
+		// 		added_edges.push_back(mutual_info_vec[i]);
+		// 		vertices_added.insert(mutual_info_vec[i].a);
+		// 		vertices_added.insert(mutual_info_vec[i].b);
+		// 	}
+
+		// 	if(vertices_added.size()==edge_list_sz)
+		// 	{
+		// 		break;
+		// 	}
+		// }
+
+		// create_graph(added_edges);
 	}
+
 
 	void train()
 	{
 		MST();
 	}
 
-	map<int ,double> eval(int curr_node,vector<set<int>  > &filter,bool approx,double frac)
+  map<int ,double> pgm_eval(int curr_node,vector<set<int>> &filter, bool
+      approx,double frac)
 	{
 		double ans=0.0;
 		int alp_size=node_list[curr_node].alphabet_size;
@@ -331,7 +673,7 @@ struct Graphical_Model
 		for(int i=0;i<curr_child.size();i++)
 		{
 			int child_node=curr_child[i];
-			map<int,double> child_map=eval(curr_child[i],filter,approx,frac);
+			map<int,double> child_map= pgm_eval(curr_child[i],filter,approx,frac);
 
 			Edges *temp_edge;
 
@@ -352,20 +694,27 @@ struct Graphical_Model
 				for(std::map<int,double>::iterator it_kid=child_map.begin();it_kid!=child_map.end();it_kid++)
 				{
 					int child_val=it_kid->first;
-					if(child_node<curr_node)
-					{
-						ans+=(temp_edge->prob_matrix[child_val][par_val]*it_kid->second)/prob_par;
-					}
-					else
-					{
-						ans+=(temp_edge->prob_matrix[par_val][child_val]*it_kid->second)/prob_par;
-					}
+          double prob_child = node_list[child_node].prob_list[child_val];
+          double joint_prob;
 
-				}
+          if (child_node < curr_node) {
+            joint_prob = temp_edge->prob_matrix[child_val][par_val];
+          } else {
+            joint_prob = temp_edge->prob_matrix[par_val][child_val];
+          }
 
-				if(approx)
-				{
-					ans/=frac;
+          if (use_svd && SVD_VERSION == 2) {
+            // In this case, we were just storing the difference from the
+            // independence assumption. So we just add the independence back
+            // in.
+            joint_prob += (prob_child * prob_par);
+          }
+
+          double unweighted_val = joint_prob * it_kid->second / prob_par;
+          if (cur_weights != NULL) {
+            double weight = (*cur_weights)[child_node][child_val];
+            ans += (weight*unweighted_val);
+          } else ans += unweighted_val;
 				}
 
 				curr_vals[par_val]*=ans;
@@ -398,65 +747,58 @@ struct Graphical_Model
 		}
 	}
 
-
-
+  double num_parameters()
+  {
+    double total = 0.0;
+		for(int i=0;i<node_list.size();i++)
+		{
+      cout << i << endl;
+      //Nodes *parent = &node_list[i];
+			//total += parent->alphabet_size;
+      // for each child, approximate the size of the prob distribution
+	    vector<int> child_ptr = node_list[i].child_ptr;
+      for(int j=0; j < child_ptr.size();j++)
+      {
+        //Nodes *child = &node_list[child_ptr[j]];
+        //total += child->alphabet_size * parent->alphabet_size;
+      }
+		}
+    return total;
+  }
 };
 
-Graphical_Model pgm;
+//Graphical_Model pgm;
+//vector<map<int,double>> cur_weights;
 
-void init(vector<vector<int> > &data_matrix,vector<int> &count_column)
+Graphical_Model * init(vector<vector<int> > &data_matrix,vector<int> &count_column,
+    bool use_svd, int num_singular_vals, bool recompute)
 {
-	pgm.init(data_matrix,count_column);
+  Graphical_Model *pgm = new Graphical_Model();
+	pgm->init(data_matrix,count_column, use_svd, num_singular_vals);
+  pgm->recompute = recompute;
+  return pgm;
 }
 
-void train()
-{
-	pgm.train();
-}
-
-double eval(vector<set<int>  > &filter,bool approx,double frac)
+double eval(Graphical_Model &pgm, vector<set<int>> &filter,bool approx,double frac)
 {
 	double ans=0.0;
 	map<int,double> root_map;
-	vector<set<int> > new_filter(filter.size());
-
-	if(approx)
-	{
-		for(int i=0;i<filter.size();i++)
-		{
-			int count=frac*filter[i].size();
-			vector<int> v(filter[i].begin(),filter[i].end());
-			std::random_shuffle(v.begin(),v.end());
-
-			for(int j=0;j<count;j++)
-			{
-				new_filter[i].insert(v[j]);
-			}
-
-		}
-
-		root_map=pgm.eval(pgm.root,new_filter,approx,frac);
-	}
-	else
-	{
-		root_map=pgm.eval(pgm.root,filter,approx,frac);
-	}
-
+  root_map=pgm.pgm_eval(pgm.root,filter,approx,frac);
 
 	for(std::map<int,double>::iterator it=root_map.begin();it!=root_map.end();it++)
 	{
-		ans+=it->second*pgm.node_list[pgm.root].prob_list[it->first];
-	}
-
-	if(approx)
-	{
-		ans/=frac;
+    double unweighted_val = it->second*pgm.node_list[pgm.root].prob_list[it->first];
+    if (pgm.cur_weights != NULL) {
+      double weight = (*pgm.cur_weights)[pgm.root][it->first];
+      ans += weight * unweighted_val;
+    } else ans += unweighted_val;
 	}
 
 	return ans;
 }
 
-extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim_col)
+extern "C" void *py_init(int *data, int row_sz, int col_sz,int *count_ptr,int
+    dim_col, bool use_svd, int num_singular_vals, bool recompute)
 {
   vector<vector<int> > data_matrix(col_sz);
 
@@ -476,45 +818,103 @@ extern "C" void py_init(int *data, int row_sz, int col_sz,int *count_ptr,int dim
   	count_column.push_back(*count_ptr);
   	count_ptr++;
   }
-  init(data_matrix,count_column);
-  return ;
+
+  Graphical_Model *pgm = init(data_matrix,count_column, use_svd,
+      num_singular_vals, recompute);
+  cout << "returning from py init!" << endl;
+  return pgm;
 }
 
-extern "C" void py_train()
+extern "C" void py_train(Graphical_Model &pgm)
 {
-  train();
+  cout << "py train!" << endl;
+  pgm.train();
   pgm.print();
   return;
 }
 
-extern "C" double py_eval(int **data, int *lens,int n_ar,int approx,double frac)
+extern "C" double py_num_parameters(Graphical_Model &pgm)
+{
+  return pgm.num_parameters();
+}
+
+/* @pgm: pointer that was returned from py_init
+ * @weight_data: NULL, or same dimensions as data, but with weight for each
+ * element.
+ */
+extern "C" double py_eval(Graphical_Model &pgm,
+    int **data, double **weight_data, int *lens,
+    int n_ar,int approx,double frac)
 {
   vector<set<int> > filter(n_ar);
-  for(int i=0;i<n_ar;i++)
-  {
-  	int *ans=data[i];
-  	for(int j=0;j<lens[i];j++)
-  	{
-  		filter[i].insert(*ans);
-  		ans++;
-  	}
-  }
-  //cout << "app: " << approx << endl;
-  //cout << "frac: " << frac << endl;
-  bool app=false;
-  if(approx!=0)
-  {
-    app=true;
+  if (weight_data != NULL) {
+    vector<map<int,double>> weights(n_ar);
+    for(int i=0;i<n_ar;i++)
+    {
+      int *ans = data[i];
+      double *weight = weight_data[i];
+
+      for(int j=0;j<lens[i];j++)
+      {
+        weights[i][*ans] = *weight;
+        weight++;
+        filter[i].insert(*ans);
+        ans++;
+      }
+    }
+    pgm.cur_weights = &weights;
+  } else {
+    pgm.cur_weights = NULL;
   }
 
-  double ans = eval(filter,app,frac);
+  for(int i=0;i<n_ar;i++)
+  {
+    int *ans = data[i];
+    for(int j=0;j<lens[i];j++)
+    {
+      filter[i].insert(*ans);
+      ans++;
+    }
+  }
+
+  if (pgm.recompute) {
+    vector<int> edge_list;
+
+    for(int i=0;i<pgm.graph_size;i++)
+    {
+      if(pgm.node_list[i].alphabet_size!=filter[i].size())
+      {
+        if (VERBOSE) {
+          cout<<i<<" i was added out of "<<pgm.graph_size<<" "<<filter[i].size()<<endl;
+        }
+        edge_list.push_back(i);
+      }
+    }
+
+    if(edge_list.size()>=2)
+    {
+      if (VERBOSE) cout<<"MST sel being made"<<endl;
+      std::sort(edge_list.begin(),edge_list.end());
+      pgm.MST_clean();
+      pgm.MST_sel(edge_list);
+    }
+    else
+    {
+      if (VERBOSE) cout<<"MST norrmal"<<endl;
+      pgm.MST_clean();
+      pgm.MST();
+    }
+  }
+
+  double ans = eval(pgm,filter,false,frac);
   return ans;
 }
 
 int main(int argc, char *argv[])
 {
-
 	fstream file,file1;
+  bool use_svd = false;
+  int num_singular_vals = -1;
 
 	string a,b,c;
 	double p,q,r;
@@ -540,8 +940,6 @@ int main(int argc, char *argv[])
     data_vec[1].push_back(q);
     data_vec[2].push_back(r);
 
-    // cout<<p<<","<<q<<","<<r<<endl;
-
 	}
 
 	file1.open("counts.csv", ios::in);
@@ -552,8 +950,6 @@ int main(int argc, char *argv[])
     count_column.push_back(p);
 
 	}
-
-
 
 	int myints1[]= {7,6,1,11,10,9,8};
 	std::set<int> MySet1(myints1, myints1 + 7);
@@ -595,36 +991,34 @@ int main(int argc, char *argv[])
 	// 	vec_set[2].insert(i%5000);
 	// }
 
-	for(int i=0;i<data_vec.size();i++)
-	{
-		for(int j=0;j<data_vec[i].size();j++)
-		{
-			cout<<data_vec[i][j]<<" ";
-		}
-		cout<<endl;
-	}
+	//for(int i=0;i<data_vec.size();i++)
+	//{
+		//for(int j=0;j<data_vec[i].size();j++)
+		//{
+			//cout<<data_vec[i][j]<<" ";
+		//}
+		//cout<<endl;
+	//}
 
-	for(int i=0;i<count_column.size();i++)
-	{
-		cout<<count_column[i]<<" ";
-	}
+	//for(int i=0;i<count_column.size();i++)
+	//{
+		//cout<<count_column[i]<<" ";
+	//}
 
+	//init(data_vec,count_column, use_svd, num_singular_vals, false);
+	//pgm.print();
 
+	//train();
+	//pgm.print();
 
-	init(data_vec,count_column);
-	pgm.print();
+	//high_resolution_clock::time_point start_time, end_time;
 
-	train();
-	pgm.print();
+	//start_time = high_resolution_clock::now();
 
-	high_resolution_clock::time_point start_time, end_time;
+	//cout<<eval(vec_set,false,1.0)<<" : is the probablity"<<endl;
 
-	start_time = high_resolution_clock::now();
-
-	cout<<eval(vec_set,false,1.0)<<" : is the probablity"<<endl;
-
-	end_time = high_resolution_clock::now();
-    cout<<duration_cast < duration < float > > (end_time - start_time).count()<<" eval time  "<<endl<<endl;
+	//end_time = high_resolution_clock::now();
+    //cout<<duration_cast < duration < float > > (end_time - start_time).count()<<" eval time  "<<endl<<endl;
 
 	return 0;
 }
