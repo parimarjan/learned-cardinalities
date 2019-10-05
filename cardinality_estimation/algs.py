@@ -1502,6 +1502,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         dt = datetime.datetime.now()
         self.key = "{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
         self.key += "-" + str(deterministic_hash(str(kwargs)))[0:6]
+        self.key += "gm-" + str(self.group_models)
 
         self.stats = {}
         self.training_cache[self.key] = self.stats
@@ -1568,8 +1569,6 @@ class NumTablesNN(CardinalityEstimationAlg):
             if tables <= abs(self.group_models):
                 return -1
             else:
-                print("NOT returning -1")
-                print(tables)
                 return 1
         else:
             return tables
@@ -1684,6 +1683,7 @@ class NumTablesNN(CardinalityEstimationAlg):
                 key, num_iter, len(Y), train_loss.item(), jl1, jl2,
                 time.time()-jl_eval_start))
 
+            self.training_cache.dump()
             return join_losses, join_losses2
 
         return None, None
@@ -1792,8 +1792,9 @@ class NumTablesNN(CardinalityEstimationAlg):
                     print(num_iter, end=",")
                     sys.stdout.flush()
 
-                if (num_iter % self.eval_iter == 0
-                        and num_iter != 0):
+                # if (num_iter % self.eval_iter == 0
+                        # and num_iter != 0):
+                if (num_iter % self.eval_iter == 0):
 
                     if self.eval_num_tables:
                         self._periodic_num_table_eval_nets(self.loss_func, num_iter)
