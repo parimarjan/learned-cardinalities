@@ -306,7 +306,7 @@ class Sampling(CardinalityEstimationAlg):
 
     def train(self, db, training_samples, **kwargs):
         # FIXME: this should be a utility function, also used in
-        # _load_training_data2
+        # _load_training_data_single_table
         table = [t for t in db.tables][0]
         print(table)
         columns = list(db.column_stats.keys())
@@ -462,44 +462,17 @@ class OurPGM(CardinalityEstimationAlg):
             name += str(self.num_singular_vals)
         return name
 
-    def _load_osm_data(self, db):
-        start = time.time()
-        # load directly to numpy since should be much faster
-        data = np.fromfile('/data/pari/osm.bin',
-                dtype=np.int64).reshape(-1, 6)
-        # data = np.fromfile(OSM_FILE,
-                # dtype=np.int64).reshape(-1, 6)
-        columns = list(db.column_stats.keys())
-        # drop the index column
-        data = data[:,1:6]
-        self.column_bins = {}
-        for i in range(data.shape[1]):
-            # these columns don't need to be discretized.
-            # FIXME: use more general check here.
-            if db.column_stats[columns[i]]["num_values"] < 1000:
-                continue
-            d0 = data[:, i]
-            _, bins = pd.qcut(d0, self.num_bins, retbins=True, duplicates="drop")
-            self.column_bins[columns[i]] = bins
-            data[:, i] = np.digitize(d0, bins, right=True)
-            print(len(set(d0)))
-            print(min(d0))
+    def _load_training_data_multi_table(self, db):
+        '''
+        ret should match single table case:
+            samples: each row is a unique combination of vals, with num columns
+            = num random variables for the pgm model.
+            weights: counts for each row of unique vals
+        '''
+        print("load training data multi table!")
+        pdb.set_trace()
 
-        end = time.time()
-        df = pd.DataFrame(data)
-        df = df.groupby([0,1,2,3,4]).size().\
-                sort_values(ascending=False).\
-                reset_index(name='count')
-
-        # FIXME: should not be hardcoded
-        samples = df.values[:,0:5]
-        weights = np.array(df["count"])
-
-        print("took : ", end-start)
-        # pdb.set_trace()
-        return samples, weights
-
-    def _load_training_data2(self, db):
+    def _load_training_data_single_table(self, db):
         '''
         Should be a general purpose function that works on all single table
         cases, with both discrete and continuous columns.
@@ -565,104 +538,22 @@ class OurPGM(CardinalityEstimationAlg):
         print("weights shape: ", weights.shape)
         return samples, weights
 
-    def _load_training_data(self, db, continuous_cols):
-        '''
-        @ret:
-            samples: 2d array. each row represents an output from the group by
-            of postgres over the given columns.
-            weights: count of that group by row
-        '''
-        start = time.time()
-        assert len(db.tables) == 1
-        table = [t for t in db.tables][0]
-        columns = list(db.column_stats.keys())
-        print("continuous cols: ", continuous_cols)
-
-        if not continuous_cols:
-            FROM = table
-            columns_str = ",".join(columns)
-        else:
-            # If some of the columns have continuous data, then we will divide them
-            # into quantiles
-            inner_from = []
-            outer_columns = []
-            for full_col_name,stats in db.column_stats.items():
-                col  = full_col_name[full_col_name.find(".")+1:]
-                outer_columns.append(col)
-                if is_float(stats["max_value"]) and \
-                        stats["num_values"] > 5000:
-                    ntile = NTILE_CLAUSE.format(COLUMN = col,
-                                                ALIAS  = col[col.find(".")+1:],
-                                                BINS   = self.num_bins)
-                    inner_from.append(ntile)
-                    # SELECT MIN(model_year) FROM (SELECT model_year, ntile(5)
-                    #OVER (order by model_year) AS ntile from dmv) AS tmp group by ntile order by
-                    #ntile;
-                    ntile = NTILE_CLAUSE.format(COLUMN = col,
-                                                ALIAS  = "ntile",
-                                                BINS   = self.num_bins)
-                    bin_cmd = '''SELECT MIN({COL}) FROM (SELECT {COL}, {NTILE}
-                    FROM {TABLE}) AS tmp group by ntile order
-                    by ntile'''.format(COL = col,
-                                       NTILE = ntile,
-                                       TABLE = table)
-                    print(bin_cmd)
-                    result = db.execute(bin_cmd)
-                    self.column_bins[full_col_name] = [r[0] for r in result]
-                else:
-                    inner_from.append(col)
-
-            FROM = "(SELECT {COLS} FROM {TABLE}) AS tmp".format(\
-                            COLS = ",".join(inner_from),
-                            TABLE = table)
-            columns_str = ",".join(outer_columns)
-
-        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str,
-                FROM_CLAUSE=FROM)
-        print(group_by)
-        group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
-
-        groupby_output = db.execute(group_by)
-        print("len groupby output: ", len(groupby_output))
-
-        samples = []
-        weights = []
-        # FIXME: we could potentially avoid the loop here?
-        for i, sample in enumerate(groupby_output):
-            samples.append([])
-            for j in range(len(sample)-1):
-                # FIXME: need to make this consistent throughout
-                if sample[j] is None:
-                    # FIXME: what should be the sentinel value?
-                    print("adding NULL_VALUE")
-                    samples[i].append(NULL_VALUE)
-                else:
-                    samples[i].append(sample[j])
-            # last value of the output should be the count in the groupby
-            # template
-            weights.append(sample[j+1])
-        samples = np.array(samples)
-        weights = np.array(weights)
-        print("training joint distribution  generation took {} seconds".format(time.time()-start))
-        return samples, weights
-
     def train(self, db, training_samples, **kwargs):
         self.db = db
 
         if "synth" in db.db_name:
             samples, weights = self._load_training_data(db, False)
         elif "osm" in db.db_name:
-            # samples, weights = self._load_training_data(db, True)
-            # samples, weights = self._load_osm_data(db)
-            samples, weights = self._load_training_data2(db)
+            samples, weights = self._load_training_data_single_table(db)
         elif "imdb" in db.db_name:
-            assert False
+            samples, weights = self._load_training_data_multi_table(db)
         elif "dmv" in db.db_name:
-            samples, weights = self._load_training_data(db, False)
+            # FIXME: this hasn't been tested yet
+            samples, weights = self._load_training_data_single_table(db)
         elif "higgs" in db.db_name:
-            samples, weights = self._load_training_data2(db)
+            samples, weights = self._load_training_data_single_table(db)
         elif "power" in db.db_name:
-            samples, weights = self._load_training_data2(db)
+            samples, weights = self._load_training_data_single_table(db)
         else:
             assert False
         columns = list(db.column_stats.keys())
