@@ -173,7 +173,6 @@ def main():
             cached=True, serialized=True)
     db_key = deterministic_hash("db-" + args.template_dir)
     found_db = db_key in misc_cache.archive
-    # found_db = False
     if found_db:
         db = misc_cache.archive[db_key]
     else:

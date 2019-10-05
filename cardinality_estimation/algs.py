@@ -667,7 +667,7 @@ def rel_loss_torch(pred, ytrue):
     error = (errors.sum()) / len(pred)
     return error
 
-def qloss(yhat, ytrue):
+def qloss(yhat, ytrue, avg=True):
 
     epsilons = np.array([QERR_MIN_EPS]*len(yhat))
     ytrue = np.maximum(ytrue, epsilons)
@@ -675,12 +675,15 @@ def qloss(yhat, ytrue):
 
     # TODO: check this
     errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
-    error = np.sum(errors) / len(yhat)
+    if avg:
+        error = np.sum(errors) / len(yhat)
+    else:
+        return errors
 
     return error
 
 
-def qloss_torch(yhat, ytrue):
+def qloss_torch(yhat, ytrue, avg=True):
 
     epsilons = to_variable([QERR_MIN_EPS]*len(yhat)).float()
     ytrue = torch.max(ytrue, epsilons)
@@ -688,7 +691,10 @@ def qloss_torch(yhat, ytrue):
 
     # TODO: check this
     errors = torch.max( (ytrue / yhat), (yhat / ytrue))
-    error = errors.sum() / len(yhat)
+    if avg:
+        error = errors.sum() / len(yhat)
+    else:
+        return errors
 
     return error
 
@@ -752,8 +758,6 @@ class NN1(CardinalityEstimationAlg):
                 print("loaded trained model!")
 
         loss_func = qloss_torch
-        # loss_func = rel_loss_torch
-        # loss_func = weighted_loss
         print("feature len: ", len(X[0]))
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
@@ -867,18 +871,22 @@ class NN2(CardinalityEstimationAlg):
         self.stats["train"]["eval"] = {}
         self.stats["train"]["eval"]["qerr"] = {}
         self.stats["train"]["eval"]["join-loss"] = {}
+        self.stats["train"]["eval"]["join-loss-all"] = {}
 
         self.stats["test"]["eval"] = {}
         self.stats["test"]["eval"]["qerr"] = {}
         self.stats["test"]["eval"]["join-loss"] = {}
+        self.stats["test"]["eval"]["join-loss-all"] = {}
 
         self.stats["train"]["tables_eval"] = {}
         # key will be int: num_table, and val: qerror
         self.stats["train"]["tables_eval"]["qerr"] = {}
+        self.stats["train"]["tables_eval"]["qerr-all"] = {}
 
         self.stats["test"]["tables_eval"] = {}
         # key will be int: num_table, and val: qerror
         self.stats["test"]["tables_eval"]["qerr"] = {}
+        self.stats["test"]["tables_eval"]["qerr-all"] = {}
 
         # TODO: store these
         self.stats["model_params"] = {}
@@ -903,8 +911,10 @@ class NN2(CardinalityEstimationAlg):
 
                 self.table_x_train[i] = \
                     to_variable(self.table_x_train[i]).float()
+                # self.table_y_train[i] = \
+                    # to_variable(self.table_y_train[i]).float()
                 self.table_y_train[i] = \
-                    to_variable(self.table_y_train[i]).float()
+                    np.array(self.table_y_train[i])
                 if test_samples:
                     queries = get_all_num_table_queries(test_samples, i)
                     for q in queries:
@@ -912,8 +922,10 @@ class NN2(CardinalityEstimationAlg):
                         self.table_y_test[i].append(q.true_sel)
                     self.table_x_test[i] = \
                         to_variable(self.table_x_test[i]).float()
+                    # self.table_y_test[i] = \
+                        # to_variable(self.table_y_test[i]).float()
                     self.table_y_test[i] = \
-                        to_variable(self.table_y_test[i]).float()
+                        np.array(self.table_y_test[i])
 
         ## FIXME: don't store features in query objects
         # initialize samples
@@ -1003,11 +1015,16 @@ class NN2(CardinalityEstimationAlg):
                 pred_table = pred_table.squeeze(1)
             except:
                 pass
-            loss_train = loss_func(pred_table, y_table)
+            pred_table = pred_table.data.numpy()
+            loss_train = qloss(pred_table, y_table, avg=False)
             if num_table not in self.stats["train"]["tables_eval"]["qerr"]:
                 self.stats["train"]["tables_eval"]["qerr"][num_table] = {}
+                self.stats["train"]["tables_eval"]["qerr-all"][num_table] = {}
 
-            self.stats["train"]["tables_eval"]["qerr"][num_table][num_iter] = loss_train.item()
+            self.stats["train"]["tables_eval"]["qerr"][num_table][num_iter] = \
+                    np.mean(loss_train)
+            self.stats["train"]["tables_eval"]["qerr-all"][num_table][num_iter] = \
+                    loss_train
 
             # do for test as well
             if num_table not in self.table_x_test:
@@ -1019,15 +1036,19 @@ class NN2(CardinalityEstimationAlg):
                 pred_table = pred_table.squeeze(1)
             except:
                 pass
-            loss_test = loss_func(pred_table, y_table)
+            pred_table = pred_table.data.numpy()
+            loss_test = qloss(pred_table, y_table, avg=False)
 
             if num_table not in self.stats["test"]["tables_eval"]["qerr"]:
                 self.stats["test"]["tables_eval"]["qerr"][num_table] = {}
+                self.stats["test"]["tables_eval"]["qerr-all"][num_table] = {}
 
-            self.stats["test"]["tables_eval"]["qerr"][num_table][num_iter] = loss_test.item()
+            self.stats["test"]["tables_eval"]["qerr"][num_table][num_iter] = \
+                    np.mean(loss_test)
+            self.stats["test"]["tables_eval"]["qerr-all"][num_table][num_iter] = loss_test
 
             print("num_tables: {}, train_qerr: {}, test_qerr: {}, size: {}".format(\
-                    num_table, loss_train, loss_test, len(y_table)))
+                    num_table, np.mean(loss_train), np.mean(loss_test), len(y_table)))
 
     def _periodic_eval(self, net, samples, X, Y, env, key, loss_func, num_iter,
             scheduler):
@@ -1069,6 +1090,7 @@ class NN2(CardinalityEstimationAlg):
                 scheduler.step(jl1)
 
             self.stats[key]["eval"]["join-loss"][num_iter] = jl1
+            self.stats[key]["eval"]["join-loss-all"][num_iter] = jl1
 
             # TODO: add color to key values.
             print("""\n{}: {}, num samples: {}, loss: {}, jl1 {},jl2 {},time: {}""".format(
@@ -1502,18 +1524,22 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.stats["train"]["eval"] = {}
         self.stats["train"]["eval"]["qerr"] = {}
         self.stats["train"]["eval"]["join-loss"] = {}
+        self.stats["train"]["eval"]["join-loss-all"] = {}
 
         self.stats["test"]["eval"] = {}
         self.stats["test"]["eval"]["qerr"] = {}
         self.stats["test"]["eval"]["join-loss"] = {}
+        self.stats["test"]["eval"]["join-loss-all"] = {}
 
         self.stats["train"]["tables_eval"] = {}
         # key will be int: num_table, and val: qerror
         self.stats["train"]["tables_eval"]["qerr"] = {}
+        self.stats["train"]["tables_eval"]["qerr-all"] = {}
 
         self.stats["test"]["tables_eval"] = {}
         # key will be int: num_table, and val: qerror
         self.stats["test"]["tables_eval"]["qerr"] = {}
+        self.stats["test"]["tables_eval"]["qerr-all"] = {}
 
         self.stats["model_params"] = {}
 
@@ -1550,7 +1576,6 @@ class NumTablesNN(CardinalityEstimationAlg):
 
     # same function for all the nns
     def _periodic_num_table_eval_nets(self, loss_func, num_iter):
-        print("_periodic_num_table_eval_nets!")
         for num_table in self.samples:
             x_table = self.table_x_train[num_table]
             y_table = self.table_y_train[num_table]
@@ -1564,12 +1589,20 @@ class NumTablesNN(CardinalityEstimationAlg):
             net = self.models[num_table]
             pred_table = net(x_table)
             pred_table = pred_table.squeeze(1)
-            loss_train = loss_func(pred_table, y_table)
+            pred_table = pred_table.data.numpy()
+
+            loss_trains = qloss(pred_table, y_table, avg=False)
+
             if num_table not in self.stats["train"]["tables_eval"]["qerr"]:
                 self.stats["train"]["tables_eval"]["qerr"][num_table] = {}
+                self.stats["train"]["tables_eval"]["qerr-all"][num_table] = {}
 
-            self.stats["train"]["tables_eval"]["qerr"][num_table][num_iter] = loss_train.item()
-            self.num_tables_train_qerr[num_table] = loss_train.item()
+            self.stats["train"]["tables_eval"]["qerr"][num_table][num_iter] = \
+                np.mean(loss_trains)
+            self.stats["train"]["tables_eval"]["qerr-all"][num_table][num_iter] = \
+                loss_trains
+
+            self.num_tables_train_qerr[num_table] = np.mean(loss_trains)
 
             # do for test as well
             if num_table not in self.table_x_test:
@@ -1578,14 +1611,19 @@ class NumTablesNN(CardinalityEstimationAlg):
             y_table = self.table_y_test[num_table]
             pred_table = net(x_table)
             pred_table = pred_table.squeeze(1)
-            loss_test = loss_func(pred_table, y_table)
+            pred_table = pred_table.data.numpy()
+            loss_test = qloss(pred_table, y_table, avg=False)
             if num_table not in self.stats["test"]["tables_eval"]["qerr"]:
                 self.stats["test"]["tables_eval"]["qerr"][num_table] = {}
+                self.stats["test"]["tables_eval"]["qerr-all"][num_table] = {}
 
-            self.stats["test"]["tables_eval"]["qerr"][num_table][num_iter] = loss_test.item()
+            self.stats["test"]["tables_eval"]["qerr"][num_table][num_iter] = \
+                np.mean(loss_test)
+            self.stats["test"]["tables_eval"]["qerr-all"][num_table][num_iter] = \
+                loss_test
 
             print("num_tables: {}, train_qerr: {}, test_qerr: {}, size: {}".format(\
-                    num_table, loss_train, loss_test, len(y_table)))
+                    num_table, np.mean(loss_trains), np.mean(loss_test), len(y_table)))
 
     def _periodic_eval(self, samples, env, key, loss_func,
             num_iter):
@@ -1639,13 +1677,13 @@ class NumTablesNN(CardinalityEstimationAlg):
             # join_losses = np.maximum(join_losses, 0.00)
 
             self.stats[key]["eval"]["join-loss"][num_iter] = jl1
+            self.stats[key]["eval"]["join-loss-all"][num_iter] = join_losses
 
             # TODO: add color to key values.
             print("""\n{}: {}, num samples: {}, loss: {}, jl1 {},jl2 {},time: {}""".format(
                 key, num_iter, len(Y), train_loss.item(), jl1, jl2,
                 time.time()-jl_eval_start))
 
-            pdb.set_trace()
             return join_losses, join_losses2
 
         return None, None
@@ -1866,12 +1904,16 @@ class NumTablesNN(CardinalityEstimationAlg):
                 num_tables_map = i + 1  # starts from 1
                 self.table_x_train[num_tables_map] = \
                     to_variable(self.table_x_train[num_tables_map]).float()
+                # self.table_y_train[num_tables_map] = \
+                    # to_variable(self.table_y_train[num_tables_map]).float()
                 self.table_y_train[num_tables_map] = \
-                    to_variable(self.table_y_train[num_tables_map]).float()
+                    np.array(self.table_y_train[num_tables_map])
                 self.table_x_test[num_tables_map] = \
                     to_variable(self.table_x_test[num_tables_map]).float()
                 self.table_y_test[num_tables_map] = \
-                    to_variable(self.table_y_test[num_tables_map]).float()
+                    np.array(self.table_y_test[num_tables_map])
+                # self.table_y_test[num_tables_map] = \
+                    # to_variable(self.table_y_test[num_tables_map]).float()
 
         for sample in training_samples:
             features = db.get_features(sample)

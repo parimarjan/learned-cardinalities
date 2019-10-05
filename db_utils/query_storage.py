@@ -163,20 +163,20 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 def get_template_samples(fn):
     # number of samples to use from this template (fn)
     if "2.toml" in fn:
-        num = 2000
-        # num = 500
+        # num = 2000
+        num = 500
     elif "2b1.toml" in fn:
-        num = 1997
-        # num = 500
+        # num = 1997
+        num = 500
     elif "2b2.toml" in fn:
-        num = 1800
-        # num = 500
+        # num = 1800
+        num = 500
     elif "2b3.toml" in fn:
-        num = 2000
-        # num = 500
+        # num = 2000
+        num = 500
     elif "2b4.toml" in fn:
-        num = 1500
-        # num = 500
+        # num = 1500
+        num = 500
     elif "4.toml" in fn:
         num = 500
     elif "3.toml" in fn:
@@ -358,7 +358,7 @@ def update_subq_cards(all_subqueries, cache_dir):
                 subq.total_count = subq.true_count
                 wrong_count += 1
 
-            if subq.true_sel >= 1:
+            if subq.true_sel > 1:
                 subq.true_sel = 1.00
                 wrong_count += 1
 
