@@ -1157,6 +1157,10 @@ class NN2(CardinalityEstimationAlg):
 
             if (num_iter % self.eval_iter == 0):
 
+                if not reuse_env and (num_iter % self.eval_iter_jl == 0):
+                    assert env is None
+                    env = park.make('query_optimizer')
+
                 if self.eval_num_tables:
                     self._periodic_num_table_eval(loss_func, net, num_iter)
 
@@ -1168,7 +1172,7 @@ class NN2(CardinalityEstimationAlg):
 
                 if not reuse_env and (num_iter % self.eval_iter_jl == 0):
                     env.clean()
-                    env = park.make('query_optimizer')
+                    env = None
 
                 # update query_sampling_wieghts if needed
                 if query_sampling_weights is not None \
@@ -1552,18 +1556,28 @@ class NumTablesNN(CardinalityEstimationAlg):
         for sample in samples:
             Y.append(sample.true_sel)
             num_tables = self.map_num_tables(len(sample.froms))
-            pred.append(self.models[num_tables](sample.features).item())
+            if num_tables == -1:
+                # use true cardinality
+                pred.append(sample.true_sel)
+            else:
+                pred.append(self.models[num_tables](sample.features).item())
 
             for subq in sample.subqueries:
                 Y.append(subq.true_sel)
                 num_tables = self.map_num_tables(len(subq.froms))
-                pred.append(self.models[num_tables](subq.features).item())
+                if num_tables == -1:
+                    pred.append(subq.true_sel)
+                else:
+                    pred.append(self.models[num_tables](subq.features).item())
 
-        pred = to_variable(pred).float()
-        Y = to_variable(Y).float()
-        train_loss = loss_func(pred, Y)
+        # pred = to_variable(pred).float()
+        # Y = to_variable(Y).float()
+        pred = np.array(pred)
+        Y = np.array(Y)
+        # train_loss = loss_func(pred, Y)
+        train_loss = qloss(pred, Y)
 
-        self.stats[key]["eval"]["qerr"][num_iter] = train_loss.item()
+        self.stats[key]["eval"]["qerr"][num_iter] = train_loss
 
         print("""\n{}: {}, num samples: {}, loss: {}""".format(
             key, num_iter, len(Y), train_loss.item()))
@@ -1702,6 +1716,7 @@ class NumTablesNN(CardinalityEstimationAlg):
                     # evaluation code
                     if (num_iter % self.eval_iter_jl == 0 \
                             and not self.reuse_env):
+                        assert env is None
                         env = park.make('query_optimizer')
 
                     join_losses, join_losses_ratio = self._periodic_eval(training_samples,
