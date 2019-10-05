@@ -1542,12 +1542,15 @@ class NumTablesNN(CardinalityEstimationAlg):
             if tables <= abs(self.group_models):
                 return -1
             else:
+                print("NOT returning -1")
+                print(tables)
                 return 1
         else:
             return tables
 
     # same function for all the nns
     def _periodic_num_table_eval_nets(self, loss_func, num_iter):
+        print("_periodic_num_table_eval_nets!")
         for num_table in self.samples:
             x_table = self.table_x_train[num_table]
             y_table = self.table_y_train[num_table]
@@ -1633,7 +1636,7 @@ class NumTablesNN(CardinalityEstimationAlg):
 
             # FIXME: remove all negative values, so weighted_prob can work
             # fine. But there really shouldn't be any negative values here.
-            join_losses = np.maximum(join_losses, 0.00)
+            # join_losses = np.maximum(join_losses, 0.00)
 
             self.stats[key]["eval"]["join-loss"][num_iter] = jl1
 
@@ -1642,6 +1645,7 @@ class NumTablesNN(CardinalityEstimationAlg):
                 key, num_iter, len(Y), train_loss.item(), jl1, jl2,
                 time.time()-jl_eval_start))
 
+            pdb.set_trace()
             return join_losses, join_losses2
 
         return None, None
