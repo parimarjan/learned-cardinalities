@@ -330,6 +330,7 @@ def load_all_queries(args, fn, subqueries=True):
 
     queries, subq_strs, subqueries = _load_subqueries(args, queries,
             subq_sql_str_cache, subq_query_obj_cache, args.gen_queries)
+    print(len(subq_strs), len(queries))
     assert len(subq_strs) % len(queries) == 0
     num_subq_per_query = int(len(subq_strs) / len(queries))
     print("{}: queries: {}, subqueries: {}".format(template_name,
