@@ -23,7 +23,7 @@ else:
     lib_file = "libpgm.dylib"
 
 pgm_dir = os.environ["PGM_DIR"]
-lib_file = pgm_dir + lib_file
+lib_file = pgm_dir + "/" + lib_file
 
 pgm = CDLL(lib_file, mode=RTLD_GLOBAL)
 
