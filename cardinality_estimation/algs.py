@@ -1756,6 +1756,8 @@ class NumTablesNN(CardinalityEstimationAlg):
             elif self.net_name == "LinearRegression":
                 net = LinearRegression(len(features),
                         1)
+            else:
+                assert False
 
             self.models[num_tables] = net
             print("created net {} for {} tables".format(net, num_tables))
@@ -1956,9 +1958,11 @@ class NumTablesNN(CardinalityEstimationAlg):
         '''
         pred = []
         for sample in test_samples:
-            num_tables = len(sample.froms)
-            model = self.models[num_tables]
-            pred.append(model.predict([self.db.get_features(sample)]))
+            num_tables = self.map_num_tables(len(sample.froms))
+            if num_tables == -1:
+                pred.append(sample.true_sel)
+            else:
+                pred.append(self.models[num_tables](sample.features).item())
         return pred
 
     def size(self):
