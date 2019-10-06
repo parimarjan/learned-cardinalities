@@ -29,9 +29,11 @@ import multiprocessing
 import xgboost as xgb
 from sklearn.ensemble import RandomForestRegressor
 from .custom_linear import CustomLinearModel
+from sqlalchemy import create_engine
 
 # sentinel value for NULLS
 NULL_VALUE = "-1"
+OSM_FILE = '/Users/pari/db_data/osm.bin'
 
 def get_all_num_table_queries(samples, num):
     '''
@@ -66,71 +68,153 @@ def get_all_features(samples, db):
 
     return np.array(X),np.array(Y)
 
-def get_possible_values(sample, db, column_bins=None):
+def get_possible_values(sample, db, column_bins=None,
+        column_bin_vals=None):
     '''
     @sample: Query object.
     @db: DB class object.
     @column_bins: {column_name : bins}. Used if we want to discretize some of
     the columns.
 
-    @ret: RV = Random Variable / Column
+    @ret:
+        @possible_vals = Random Variable / Column
         [[RV1-1, RV1-2, ...], [RV2-1, RV2-2, ...] ...]
         Each index refers to a column in the database (or a random variable).
         The predicates in the sample query are used to get all possible values
         that the random variable will need to be evaluated on.
+
+        @weights: same dimensions as possible vals. Only really makes sense
+        when dealing with continuous random variables which are binned. For the
+        rv's which don't cover a complete bin, this will represent the weight
+        given by: (end - val) / (end-start)
     '''
     all_possible_vals = []
+    all_weights = []
     # loop over each column in db
     states = db.column_stats.keys()
+    # avoid duplicates, in range queries, unforunately, Query object stores two
+    # columns with same names
+    seen = []
     for state in states:
         # find the right column entry in sample
         # val = None
         possible_vals = []
+        weights = []
         # Note: Query.vals / Query.pred_column_names aren't sorted, and if
         # there are no predicates on a column, then it will not have an entry
         # in Query.vals
         for i, column in enumerate(sample.pred_column_names):
-            if column != state:
+            if column != state or column in seen:
                 continue
+            seen.append(column)
             cmp_op = sample.cmp_ops[i]
             val = sample.vals[i]
-            # dedup
-            if hasattr(sample.vals[i], "__len__"):
-                val = set(val)
 
             if cmp_op == "in":
-                # FIXME: something with the osm dataset
+                # dedup
+                if hasattr(sample.vals[i], "__len__"):
+                    val = set(val)
                 possible_vals = [str(v.replace("'","")) for v in val]
-                # possible_vals = [v for v in val]
+                weights.append(1.00)
             elif cmp_op == "lt":
-                assert len(val) == 2
                 if column not in column_bins:
                     # then select everything in the given range of
                     # integers.
-                    val = [int(v) for v in val]
-                    for ival in range(val[0], val[1]):
-                        possible_vals.append(str(ival))
+                    val = [float(v) for v in val]
+                    for v in db.column_stats[column]["unique_values"]:
+                        v = v[0]
+                        if v is None:
+                            continue
+                        if v >= val[0] and v <= val[1]:
+                            possible_vals.append(v)
+                            weights.append(1.00)
                 else:
+                    assert column_bins is not None
+                    assert column_bin_vals is not None
                     # discretize first
                     bins = column_bins[column]
+                    column_groupby = column_bin_vals[column]
                     vals = [float(v) for v in val]
-                    for bi, bval in enumerate(bins):
-                        if bval >= vals[0]:
-                            # ntile's start from 1
-                            possible_vals.append(bi+1)
-                        elif bval < vals[0]:
-                            continue
-                        if bval > vals[1]:
-                            break
-                    # print(vals)
-                    # print(possible_vals)
-                    # pdb.set_trace()
+                    binned_vals = np.digitize(vals, bins, right=True)
+                    # FIXME: do something in between (collect stats like #rvs
+                    # per bin etc.)
+                    USE_PRECISE_WEIGHTS = False
+                    if not USE_PRECISE_WEIGHTS:
+                        for bi in range(binned_vals[0],binned_vals[1]+1):
+                            possible_vals.append(bi)
+                            weights.append(1.00)
+                    else:
+                        groupby_key = column_groupby.keys()[0]
+                        if (binned_vals[0] == binned_vals[1]):
+                            lower_lim = bins[binned_vals[0]-1]
+                            upper_lim = bins[binned_vals[0]]
+
+                            bin_groupby = \
+                                column_groupby[column_groupby[groupby_key] >= lower_lim]
+                            bin_groupby = \
+                                    bin_groupby[bin_groupby[groupby_key] < upper_lim]
+                            # FIXME: check edge conditions
+                            total_val = bin_groupby[groupby_key].sum()
+                            bin_groupby = \
+                                bin_groupby[bin_groupby[groupby_key] > vals[0]]
+                            selected_val = bin_groupby[groupby_key].sum()
+                            weight = float(selected_val) / total_val
+                            possible_vals.append(binned_vals[0])
+                            weights.append(weight)
+                        else:
+                            # different bins, means the weight can be different for
+                            # the endpoints, and 1.00 for all the middle ones
+
+                            # because right=True when we use np.digitize
+                            assert binned_vals[0] != 0
+                            for bi in range(binned_vals[0],binned_vals[1]+1):
+                                possible_vals.append(bi)
+                                # if not an edge column then just add 1.00 weight
+                                lower_lim = bins[bi-1]
+                                upper_lim = bins[bi]
+                                assert lower_lim <= vals[1]
+                                assert upper_lim >= vals[0]
+                                groupby_key = column_groupby.keys()[0]
+
+                                if bi == binned_vals[0]:
+                                    assert lower_lim <= vals[0]
+                                    bin_groupby = \
+                                        column_groupby[column_groupby[groupby_key] >= lower_lim]
+                                    bin_groupby = \
+                                            bin_groupby[bin_groupby[groupby_key] < upper_lim]
+                                    # FIXME: check edge conditions
+                                    total_val = bin_groupby[groupby_key].sum()
+                                    bin_groupby = \
+                                        bin_groupby[bin_groupby[groupby_key] > vals[0]]
+                                    selected_val = bin_groupby[groupby_key].sum()
+                                    weight = float(selected_val) / total_val
+                                elif bi == binned_vals[1]:
+                                    bin_groupby = \
+                                        column_groupby[column_groupby[groupby_key] >= lower_lim]
+                                    bin_groupby = \
+                                            bin_groupby[bin_groupby[groupby_key] < upper_lim]
+                                    # FIXME: check edge conditions
+                                    total_val = bin_groupby[groupby_key].sum()
+                                    bin_groupby = \
+                                        bin_groupby[bin_groupby[groupby_key] < vals[1]]
+                                    selected_val = bin_groupby[groupby_key].sum()
+                                    weight = float(selected_val) / total_val
+                                else:
+                                    weight = 1.00
+
+                                assert weight <= 1.00
+                                weights.append(weight)
+
             elif cmp_op == "eq":
                 possible_vals.append(val)
+                weights.append(1.00)
             else:
                 assert False
+
         all_possible_vals.append(possible_vals)
-    return all_possible_vals
+        all_weights.append(weights)
+
+    return all_possible_vals, all_weights
 
 class CardinalityEstimationAlg():
 
@@ -141,11 +225,12 @@ class CardinalityEstimationAlg():
         pass
     def test(self, test_samples, **kwargs):
         pass
-    def size(self):
+    def num_parameters(self):
         '''
         size of the parameters needed so we can compare across different algorithms.
         '''
-        pass
+        return 0
+
     def __str__(self):
         return self.__class__.__name__
     def save_model(self, save_dir="./", suffix_name=""):
@@ -197,6 +282,9 @@ class PostgresRegex(CardinalityEstimationAlg):
             ret.append(sel)
         return ret
 
+    def avg_eval_time(self):
+        return 0.00001
+
 class Random(CardinalityEstimationAlg):
     def test(self, test_samples):
         return np.array([random.random() for _ in test_samples])
@@ -209,6 +297,129 @@ class Independent(CardinalityEstimationAlg):
         return np.array([np.prod(np.array(s.marginal_sels)) \
                 for s in test_samples])
 
+class Sampling(CardinalityEstimationAlg):
+
+    def __init__(self, *args, **kwargs):
+        self.sampling_percentage = kwargs["sampling_percentage"]
+        self.eval_times = []
+        self.gen_times = []
+
+    def train(self, db, training_samples, **kwargs):
+        # FIXME: this should be a utility function, also used in
+        # _load_training_data2
+        table = [t for t in db.tables][0]
+        print(table)
+        columns = list(db.column_stats.keys())
+        FROM = table
+        columns_str = ",".join(columns)
+        # just select all of these columns from the given table
+        select_all = "SELECT {COLS} FROM {TABLE} WHERE random() < {PERC}".format(
+                COLS = columns_str,
+                TABLE = table,
+                PERC = str(self.sampling_percentage / 100.00))
+        print(select_all)
+
+        # TODO: add cache here.
+        data_cache = klepto.archives.dir_archive("./misc_cache",
+                cached=True, serialized=True)
+        cache_key = select_all
+        if cache_key in data_cache.archive:
+            df = data_cache.archive[cache_key]
+            print("loaded sampling data from the cache!")
+        else:
+            cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(db.user,
+                    db.pwd, db.db_name)
+            engine = create_engine(cmd)
+            df = pd.read_sql_query(select_all, engine)
+            data_cache.archive[cache_key] = df
+
+        print(df.keys())
+        self.df = df
+        print("len samples: ", len(self.df))
+        print("training done!")
+        # pdb.set_trace()
+        self.test_cache = {}
+
+        self.sampling_time = 10     #ms
+
+    def test(self, test_samples, **kwargs):
+        import functools
+        def conjunction(*conditions):
+            return functools.reduce(np.logical_and, conditions)
+        predictions = []
+        total = len(self.df)
+        for si, sample in enumerate(test_samples):
+            matching = 0
+            # if si % 100 == 0:
+                # print(si)
+
+            hashed_query = deterministic_hash(sample.query)
+            if hashed_query in self.test_cache:
+                predictions.append(self.test_cache[hashed_query])
+                continue
+            # cur_df = self.df
+            # go over every predicate in sample
+            start = time.time()
+            conditions = []
+            for i, pred in enumerate(sample.pred_column_names):
+                pred = pred[pred.find(".")+1:]
+                cmp_op = sample.cmp_ops[i]
+                vals = sample.vals[i]
+                if cmp_op == "in":
+                    # cur_df = cur_df[cur_df[pred].isin(vals)]
+                    cond = self.df[pred].isin(vals)
+                    conditions.append(cond)
+                elif cmp_op == "lt":
+                    lb = float(vals[0])
+                    ub = float(vals[1])
+                    assert lb <= ub
+                    # cur_df = cur_df[cur_df[pred] >= lb]
+                    # cur_df = cur_df[cur_df[pred] < ub]
+                    cond1 = self.df[pred] >= lb
+                    cond2 = self.df[pred] < ub
+                    conditions.append(cond1)
+                    conditions.append(cond2)
+                else:
+                    print(cmp_op)
+                    assert False
+
+            self.gen_times.append(time.time() - start)
+            start = time.time()
+            filtered = self.df[conjunction(*conditions)]
+            matching = len(filtered)
+            self.eval_times.append(time.time()-start)
+            # print("filtering: {} sec".format(eval_times[-1])
+            true_sel = matching / total
+
+            predictions.append(true_sel)
+            self.test_cache[hashed_query] = true_sel
+
+        if len(self.eval_times) > 0:
+            print("sampling eval time avg: ", np.mean(np.array(self.eval_times)))
+            print("sampling gen cond time avg: ", np.mean(np.array(self.gen_times)))
+            print("sampling eval time std: ", np.std(np.array(self.eval_times)))
+        return np.array(predictions)
+
+    def avg_eval_time(self):
+        return np.mean(np.array(self.eval_times))
+
+    def num_parameters(self):
+        '''
+        size of the parameters needed so we can compare across different algorithms.
+        '''
+        return 0
+
+    def __str__(self):
+        if self.sampling_percentage >= 1.00:
+            sp = int(self.sampling_percentage)
+        else:
+            sp = self.sampling_percentage
+        return self.__class__.__name__ + str(sp)
+
+    def save_model(self, save_dir="./", suffix_name=""):
+        pass
+
+
 class OurPGM(CardinalityEstimationAlg):
 
     def __init__(self, *args, **kwargs):
@@ -216,16 +427,143 @@ class OurPGM(CardinalityEstimationAlg):
         self.kwargs = kwargs
         self.backend = kwargs["backend"]
         self.alg_name = kwargs["alg_name"]
-        self.model = PGM(alg_name=self.alg_name, backend=self.backend)
+        self.use_svd = kwargs["use_svd"]
+        self.num_singular_vals = kwargs["num_singular_vals"]
 
-        self.num_bins = 100
+        self.num_bins = kwargs["num_bins"]
+        self.recompute = kwargs["recompute"]
         self.test_cache = {}
         self.column_bins = {}
         self.DEBUG = True
+        self.eval_times = []
+
+        # key: column name
+        # val: dataframe, which represents a sorted (ascending, based on column
+        # values) group by on the given column name.
+        # this will store ALL the values in the given bin, so we can compute
+        # precisely which fraction of a range query that partially overlaps
+        # with the bin covers.
+        # TODO: it may be enough to assume uniformity and store each unique
+        # value / or store some other stats etc.
+        self.column_bin_vals = {}
+
+        self.DEBUG = False
+        self.param_count = -1
+
+        self.model = PGM(alg_name=self.alg_name, backend=self.backend,
+                use_svd=self.use_svd, num_singular_vals=self.num_singular_vals,
+                recompute=self.recompute)
 
     def __str__(self):
         name = self.alg_name
+        if self.recompute:
+            name += "-recomp"
+        if self.use_svd:
+            name += str(self.num_singular_vals)
         return name
+
+    def _load_osm_data(self, db):
+        start = time.time()
+        # load directly to numpy since should be much faster
+        data = np.fromfile('/data/pari/osm.bin',
+                dtype=np.int64).reshape(-1, 6)
+        # data = np.fromfile(OSM_FILE,
+                # dtype=np.int64).reshape(-1, 6)
+        columns = list(db.column_stats.keys())
+        # drop the index column
+        data = data[:,1:6]
+        self.column_bins = {}
+        for i in range(data.shape[1]):
+            # these columns don't need to be discretized.
+            # FIXME: use more general check here.
+            if db.column_stats[columns[i]]["num_values"] < 1000:
+                continue
+            d0 = data[:, i]
+            _, bins = pd.qcut(d0, self.num_bins, retbins=True, duplicates="drop")
+            self.column_bins[columns[i]] = bins
+            data[:, i] = np.digitize(d0, bins, right=True)
+            print(len(set(d0)))
+            print(min(d0))
+
+        end = time.time()
+        df = pd.DataFrame(data)
+        df = df.groupby([0,1,2,3,4]).size().\
+                sort_values(ascending=False).\
+                reset_index(name='count')
+
+        # FIXME: should not be hardcoded
+        samples = df.values[:,0:5]
+        weights = np.array(df["count"])
+
+        print("took : ", end-start)
+        # pdb.set_trace()
+        return samples, weights
+
+    def _load_training_data2(self, db):
+        '''
+        Should be a general purpose function that works on all single table
+        cases, with both discrete and continuous columns.
+
+        TODO: add sanity check asserts to make sure this is doing sensible
+        things.
+        '''
+        start = time.time()
+        # assert len(db.tables) == 1
+        table = [t for t in db.tables][0]
+        print(table)
+        columns = list(db.column_stats.keys())
+        FROM = table
+        columns_str = ",".join(columns)
+        # just select all of these columns from the given table
+        select_all = "SELECT {COLS} FROM {TABLE};".format(COLS = columns_str,
+                                                         TABLE = table)
+        # TODO: add cache here.
+        data_cache = klepto.archives.dir_archive("./misc_cache",
+                cached=True, serialized=True)
+        cache_key = select_all
+        if cache_key in data_cache.archive:
+            df = data_cache.archive[cache_key]
+        else:
+            cmd = 'postgresql://{}:{}@localhost:5432/{}'.format(db.user,
+                    db.pwd, db.db_name)
+            engine = create_engine(cmd)
+            df = pd.read_sql_query(select_all, engine)
+            data_cache.archive[cache_key] = df
+
+        # now, df should contain all the raw columns. If there are continuous
+        # columns, then we will need to bin them.
+        df_keys = list(df.keys())
+        for i, column in enumerate(columns):
+            if db.column_stats[column]["num_values"] < 1000:
+                print("{} is treated as discrete column".format(column))
+                # not continuous
+                continue
+            _, bins = pd.qcut(df[df_keys[i]].values, self.num_bins,
+                    retbins=True, duplicates="drop")
+            self.column_bins[column] = bins
+            df2 = df.sort_values(df_keys[i], ascending=True)
+            df2 = df2.groupby(df_keys[i]).size().reset_index(name='count')
+            assert df2.values[-1,0] == db.column_stats[column]["max_value"]
+            assert df2.values[0,0] == db.column_stats[column]["min_value"]
+
+            self.column_bin_vals[column] = df2
+
+            df[df_keys[i]] = np.digitize(df[df_keys[i]].values, bins, right=True)
+            print("{}, num bins: {}, min value: {}".format(column,
+                len(set(df.values[:,i])), min(df.values[:,i])))
+
+        headers = [k for k in df.keys()]
+        df = df.groupby(headers).size().\
+                sort_values(ascending=False).\
+                reset_index(name='count')
+
+        samples = df.values[:,0:-1]
+        weights = np.array(df["count"])
+
+        print("_load_training_data took {} seconds".format(time.time()-start))
+        print("samples shape: ", samples.shape)
+        print("weights shape: ", weights.shape)
+        return samples, weights
 
     def _load_training_data(self, db, continuous_cols):
         '''
@@ -238,6 +576,7 @@ class OurPGM(CardinalityEstimationAlg):
         assert len(db.tables) == 1
         table = [t for t in db.tables][0]
         columns = list(db.column_stats.keys())
+        print("continuous cols: ", continuous_cols)
 
         if not continuous_cols:
             FROM = table
@@ -256,9 +595,9 @@ class OurPGM(CardinalityEstimationAlg):
                                                 ALIAS  = col[col.find(".")+1:],
                                                 BINS   = self.num_bins)
                     inner_from.append(ntile)
-		    # SELECT MIN(model_year) FROM (SELECT model_year, ntile(5)
-		    #OVER (order by model_year) AS ntile from dmv) AS tmp group by ntile order by
-		    #ntile;
+                    # SELECT MIN(model_year) FROM (SELECT model_year, ntile(5)
+                    #OVER (order by model_year) AS ntile from dmv) AS tmp group by ntile order by
+                    #ntile;
                     ntile = NTILE_CLAUSE.format(COLUMN = col,
                                                 ALIAS  = "ntile",
                                                 BINS   = self.num_bins)
@@ -267,6 +606,7 @@ class OurPGM(CardinalityEstimationAlg):
                     by ntile'''.format(COL = col,
                                        NTILE = ntile,
                                        TABLE = table)
+                    print(bin_cmd)
                     result = db.execute(bin_cmd)
                     self.column_bins[full_col_name] = [r[0] for r in result]
                 else:
@@ -279,9 +619,11 @@ class OurPGM(CardinalityEstimationAlg):
 
         group_by = GROUPBY_TEMPLATE.format(COLS = columns_str,
                 FROM_CLAUSE=FROM)
+        print(group_by)
         group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
 
         groupby_output = db.execute(group_by)
+        print("len groupby output: ", len(groupby_output))
 
         samples = []
         weights = []
@@ -310,11 +652,17 @@ class OurPGM(CardinalityEstimationAlg):
         if "synth" in db.db_name:
             samples, weights = self._load_training_data(db, False)
         elif "osm" in db.db_name:
-            samples, weights = self._load_training_data(db, True)
+            # samples, weights = self._load_training_data(db, True)
+            # samples, weights = self._load_osm_data(db)
+            samples, weights = self._load_training_data2(db)
         elif "imdb" in db.db_name:
             assert False
         elif "dmv" in db.db_name:
             samples, weights = self._load_training_data(db, False)
+        elif "higgs" in db.db_name:
+            samples, weights = self._load_training_data2(db)
+        elif "power" in db.db_name:
+            samples, weights = self._load_training_data2(db)
         else:
             assert False
         columns = list(db.column_stats.keys())
@@ -329,6 +677,54 @@ class OurPGM(CardinalityEstimationAlg):
         else:
             self.model = model
 
+        NUM_PARAMS_NOT_IMPL = False
+        if NUM_PARAMS_NOT_IMPL:
+            # calculate it using pomegranate model
+            model = BayesianNetwork.from_samples(samples, weights=weights,
+                    state_names=columns, algorithm="chow-liu", n_jobs=-1)
+            self.param_count = 0
+            for state in model.states:
+                dist = state.distribution.parameters[0]
+                if isinstance(dist, list):
+                    self.param_count += len(dist)*3
+                elif isinstance(dist, dict):
+                    self.param_count += len(dist)*2
+
+    def avg_eval_time(self):
+        return np.mean(np.array(self.eval_times))
+
+    def num_parameters(self):
+        # approximate it based on the db stats
+        alph_sizes = []
+        num_columns = len(self.db.column_stats)
+        print(self.db.column_stats.keys())
+        for k,stats in self.db.column_stats.items():
+            num_vals = stats["num_values"]
+            if num_vals > 1000:
+                print("{} treated as continuous binned for param est".format(k))
+                alph_sizes.append(self.num_bins)
+            else:
+                alph_sizes.append(num_vals)
+
+        # self.use_svd = kwargs["use_svd"]
+        # self.num_singular_vals = kwargs["num_singular_vals"]
+
+        # self.num_bins = kwargs["num_bins"]
+        # self.recompute = kwargs["recompute"]
+        avg_alph_size = np.mean(np.array(alph_sizes))
+        ind_prob_sizes = num_columns * avg_alph_size
+        if self.use_svd and self.recompute:
+            k = self.num_singular_vals
+            edge_sizes = ((num_columns-1)**2)*k*(avg_alph_size)
+        elif self.use_svd:
+            k = self.num_singular_vals
+            edge_sizes = ((num_columns-1))*k*(avg_alph_size)
+        elif self.recompute:
+            edge_sizes = ((num_columns-1)**2)*(avg_alph_size**2)
+        else:
+            # no svd or recompute
+            edge_sizes = ((num_columns-1))*(avg_alph_size**2)
+        return ind_prob_sizes + edge_sizes
 
     def load_model(self, key):
         # TODO have a system to do this
@@ -345,309 +741,35 @@ class OurPGM(CardinalityEstimationAlg):
             if hashed_query in self.test_cache:
                 estimates.append(self.test_cache[hashed_query])
                 continue
-            model_sample = get_possible_values(query, self.db,
-                    self.column_bins)
 
-            # normal method
-            est_sel = self.model.evaluate(model_sample)
+            possible_vals, weights = get_possible_values(query, self.db,
+                    self.column_bins, self.column_bin_vals)
+            # TODO: add assertion checks on possible_vals, weights shape etc.
+
+            # if no binning, then don't need weights
+            start = time.time()
+            if len(self.column_bins) == 0:
+                est_sel = self.model.evaluate(possible_vals)
+            else:
+                est_sel = self.model.evaluate(possible_vals, weights)
+                # est_sel = self.model.evaluate(possible_vals)
+            end = time.time()
+            self.eval_times.append(end-start)
+
             if self.DEBUG:
                 true_sel = query.true_sel
+                pg_sel = query.pg_count / query.total_count
                 qerr = max(true_sel / est_sel, est_sel / true_sel)
+                pg_qerr = max(pg_sel / true_sel, true_sel / pg_sel)
                 if qerr > 4.00:
                     print(query)
-                    print("est sel: {}, true sel: {}, qerr: {}".format(est_sel,
-                        true_sel, qerr))
+                    print("est sel: {}, true sel: {},pg sel: {}, qerr: {},pg_qerr: {}"\
+                            .format(est_sel, true_sel, pg_sel, qerr, pg_qerr))
                     pdb.set_trace()
 
             estimates.append(est_sel)
             self.test_cache[hashed_query] = est_sel
         return estimates
-
-class BN(CardinalityEstimationAlg):
-    '''
-    '''
-    def __init__(self, *args, **kwargs):
-        if "alg" in kwargs:
-            self.alg = kwargs["alg"]
-        else:
-            self.alg = "chow-liu"
-        if "num_bins" in kwargs:
-            self.num_bins = kwargs["num_bins"]
-        else:
-            self.num_bins = 5
-
-        if "avg_factor" in kwargs:
-            self.avg_factor = kwargs["avg_factor"]
-        else:
-            self.avg_factor = 1
-
-        if "gen_bn_dist" in kwargs:
-            self.gen_bn_dist = kwargs["gen_bn_dist"]
-            self.cur_est_sels = []
-        else:
-            self.gen_bn_dist = 0
-
-        self.model = None
-        # non-persistent cast, just to avoid running same alg again
-        self.test_cache = {}
-        self.min_groupby = 0
-        self.column_bins = {}
-
-    def train(self, db, training_samples, **kwargs):
-        # generate the group-by over all the columns we care about.
-        # FIXME: for now, just for one table.
-        self.db = db
-        if "synth" in db.db_name:
-            self._load_synth_model(db, training_samples, **kwargs)
-        elif "osm" in db.db_name:
-            self._load_osm_model(db, training_samples, **kwargs)
-        elif "imdb" in db.db_name:
-            self._load_imdb_model(db, training_samples, **kwargs)
-        elif "dmv" in db.db_name:
-            self.model = self.load_model()
-            if self.model is None:
-                self._load_dmv_model(db, training_samples, **kwargs)
-        else:
-            assert False
-
-        self.save_model()
-        print("trained BN model!")
-
-    def _load_osm_model(self, db, training_samples, **kwargs):
-        # load directly to numpy since should be much faster
-        data = np.fromfile('/data/pari/osm.bin',
-                dtype=np.int64).reshape(-1, 6)
-        columns = list(db.column_stats.keys())
-        # drop the index column
-
-        # FIXME: temporarily, drop a bunch of data
-        # data = data[1000:100000,1:6]
-        data = data[:,1:6]
-        self.column_bins = {}
-        for i in range(data.shape[1]):
-            # these columns don't need to be discretized.
-            # FIXME: use more general check here.
-            if db.column_stats[columns[i]]["num_values"] < 1000:
-                continue
-            d0 = data[:, i]
-            _, bins = pd.qcut(d0, self.num_bins, retbins=True, duplicates="drop")
-            self.column_bins[columns[i]] = bins
-            data[:, i] = np.digitize(d0, bins)
-
-        self.model = self.load_model()
-        if self.model is None:
-            # now, data has become discretized, we can feed it directly into BN.
-            self.model = BayesianNetwork.from_samples(data,
-                    state_names=columns, algorithm=self.alg, n_jobs=-1)
-
-    def _load_synth_model(self, db, training_samples, **kwargs):
-        assert len(db.tables) == 1
-        table = [t for t in db.tables][0]
-        columns = list(db.column_stats.keys())
-        columns_str = ",".join(columns)
-        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE=table)
-        group_by += " ORDER BY COUNT(*) DESC"
-        groupby_output = db.execute(group_by)
-        samples = []
-        weights = []
-        for i, sample in enumerate(groupby_output):
-            samples.append([])
-            for j in range(len(sample)-1):
-                samples[i].append(sample[j])
-            weights.append(sample[j+1])
-        samples = np.array(samples)
-        weights = np.array(weights)
-        self.model = BayesianNetwork.from_samples(samples, weights=weights,
-                state_names=columns, algorithm=self.alg, n_jobs=-1)
-
-    def _load_dmv_model(self, db, training_samples, **kwargs):
-        columns = list(db.column_stats.keys())
-        columns_str = ",".join(columns)
-        # sel_all = "SELECT {COLS} FROM dmv".format(COLS = columns_str)
-        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE="dmv")
-        group_by += " HAVING COUNT(*) > {}".format(self.min_groupby)
-        # TODO: use db_utils
-        groupby_output = db.execute(group_by)
-
-        start = time.time()
-        samples = []
-        weights = []
-        for i, sample in enumerate(groupby_output):
-            samples.append([])
-            for j in range(len(sample)-1):
-                if sample[j] is None:
-                    # FIXME: what should be the sentinel value?
-                    samples[i].append("-1")
-                else:
-                    samples[i].append(sample[j])
-            weights.append(sample[j+1])
-        samples = np.array(samples)
-        weights = np.array(weights)
-        self.model = BayesianNetwork.from_samples(samples, weights=weights,
-                state_names=columns, algorithm=self.alg, n_jobs=-1)
-
-    def _load_imdb_model(self, db, training_samples, **kwargs):
-        # tables = [t for t in db.tables]
-        # columns = list(db.column_stats.keys())
-        # columns_str = ",".join(columns)
-        # group_by = GROUPBY_TEMPLATE.format(COLS = columns_str, FROM_CLAUSE=table)
-        # group_by += " ORDER BY COUNT(*) DESC"
-        # FIXME: temporary
-        sql = training_samples[0].query
-        froms, _, _ = extract_from_clause(sql)
-        # FIXME: should be able to store this somewhere and not waste
-        # re-executing it always
-        from_clause = " , ".join(froms)
-        joins = extract_join_clause(sql)
-        join_clause = ' AND '.join(joins)
-        if len(join_clause) > 0:
-            from_clause += " WHERE " + join_clause
-        from_clause += " AND production_year IS NOT NULL "
-        pred_columns, _, _ = extract_predicates(sql)
-        columns_str = ','.join(pred_columns)
-        group_by = GROUPBY_TEMPLATE.format(COLS = columns_str,
-                FROM_CLAUSE=from_clause)
-
-        groupby_output = db.execute(group_by)
-        samples = []
-        weights = []
-        for i, sample in enumerate(groupby_output):
-            samples.append([])
-            for j in range(len(sample)-1):
-                samples[i].append(sample[j])
-            weights.append(sample[j+1])
-        samples = np.array(samples)
-        weights = np.array(weights)
-        if self.model is None:
-            self.model = BayesianNetwork.from_samples(samples, weights=weights,
-                    state_names=pred_columns, algorithm=self.alg, n_jobs=-1)
-
-    def test(self, test_samples):
-        if self.gen_bn_dist:
-            self.est_dist_pdf = PdfPages("./bn_est_dist.pdf")
-        db = self.db
-        estimates = []
-        for qi, query in enumerate(test_samples):
-            if len(self.cur_est_sels) > 0:
-                # write it to pdf, and reset
-                x = pd.Series(self.cur_est_sels, name="Point Estimates")
-                ax = sns.distplot(x, kde=False)
-                plt.title("BN : " + str(qi))
-                plt.tight_layout()
-                self.est_dist_pdf.savefig()
-                plt.clf()
-                cur_est_sels = []
-
-            hashed_query = deterministic_hash(query.query)
-            if hashed_query in self.test_cache:
-                estimates.append(self.test_cache[hashed_query])
-                continue
-            model_sample = get_possible_values(query, self.db,
-                    self.column_bins)
-            all_points = []
-            for element in itertools.product(*model_sample):
-                all_points.append(element)
-            all_points = np.array(all_points)
-            start = time.time()
-            est_sel = 0.0
-            if self.db.db_name == "imdb":
-                for p in all_points:
-                    try:
-                        est_sel += self.model.probability(p)
-                    except Exception as e:
-                        # unknown key ...
-                        # guest seems to be failing ...
-                        continue
-            elif self.db.db_name == "dmv":
-                if self.avg_factor == 1:
-                    for p in all_points:
-                        try:
-                            est_sel += self.model.probability(p)
-                            if self.gen_bn_dist:
-                                self.cur_est_sels.append(est_sel)
-                        except Exception as e:
-                            # FIXME: add minimum amount.
-                            # unknown key ...
-                            print("unknown key got!")
-                            total = self.db.column_stats["dmv.record_type"]["total_values"]
-                            est_sel += float(self.min_groupby) / total
-                            print(e)
-                            pdb.set_trace()
-                else:
-                    N = len(all_points)
-                    # samples_to_use = max(1000, int(N/self.avg_factor))
-                    samples_to_use = min(self.avg_factor, N)
-                    # print("orig samples: {}, using: {}".format(N,
-                        # samples_to_use))
-                    np.random.shuffle(all_points)
-                    est_samples = all_points[0:samples_to_use]
-                    for p in est_samples:
-                        try:
-                            est_sel += self.model.probability(p)
-                        except Exception as e:
-                            # FIXME: add minimum amount.
-                            # unknown key ...
-                            total = self.db.column_stats["dmv.record_type"]["total_vals"]
-                            est_sel += float(self.min_groupby) / total
-                            continue
-                    est_sel = N*(est_sel / len(est_samples))
-            else:
-                if self.avg_factor == 1:
-                    # don't do any averaging
-                    est_sel = np.sum(self.model.probability(all_points))
-                else:
-                    N = len(all_points)
-                    samples_to_use = max(1000, int(N/self.avg_factor))
-                    # print("orig samples: {}, using: {}".format(N,
-                        # samples_to_use))
-                    np.random.shuffle(all_points)
-                    est_samples = all_points[0:samples_to_use]
-                    est_sel = N*np.average(self.model.probability(est_samples))
-
-            if qi % 100 == 0:
-                pass
-                # print("test query: ", qi)
-                # print("evaluating {} points took {} seconds"\
-                        # .format(len(all_points), time.time()-start))
-            self.test_cache[hashed_query] = est_sel
-            estimates.append(est_sel)
-
-        if self.gen_bn_dist:
-            self.est_dist_pdf.close()
-        return np.array(estimates)
-
-    def get_name(self, suffix_name):
-        '''
-        unique name.
-        '''
-        name = self.alg + str(self.num_bins) + self.db.db_name + suffix_name
-        return name
-
-    def save_model(self, save_dir="./models/", suffix_name=""):
-        self.model.plot()
-        if not os.path.exists(save_dir):
-            make_dir(save_dir)
-        unique_name = self.get_name(suffix_name)
-        plt.savefig(save_dir + "/" + unique_name + ".pdf")
-        with open(save_dir + "/" + unique_name + ".json", "w") as f:
-            f.write(self.model.to_json())
-
-    def load_model(self, save_dir="./models/", suffix_name=""):
-        fn = save_dir + "/" + self.get_name(suffix_name) + ".json"
-        model = None
-        if os.path.exists(fn):
-            with open(fn, "r") as f:
-                model = BayesianNetwork.from_json(f.read())
-        return model
-
-    def size(self):
-        pass
-    def __str__(self):
-        # FIXME: add parameters of the learning model etc.
-        name = self.__class__.__name__ + "-" + self.alg
-        # name += "-bins" + str(self.num_bins)
-        # name += "avg:" + str(self.avg_factor)
-        return name
 
 def weighted_loss(yhat, ytrue):
     loss1 = rel_loss_torch(yhat, ytrue)
@@ -706,21 +828,25 @@ class NN1(CardinalityEstimationAlg):
 
         # TODO: make these all configurable
         self.feature_len = None
-        self.hidden_layer_multiple = 2.0
+        # self.hidden_layer_multiple = 2.0
         self.feat_type = "dict_encoding"
+        self.num_hidden_layers = kwargs["num_hidden_layers"]
+        self.hidden_layer_multiple = kwargs["hidden_layer_multiple"]
 
         # as in the dl papers (not sure if this is needed)
-        self.log_transform = False
+        self.log_transform = True
 
         # TODO: configure other variables
         self.max_iter = kwargs["max_iter"]
+        self.lr = kwargs["lr"]
+        self.eval_iter = kwargs["eval_iter"]
 
     def train(self, db, training_samples, save_model=True,
             use_subqueries=False):
         self.db = db
         if use_subqueries:
             training_samples = get_all_subqueries(training_samples)
-        db.init_featurizer()
+        # db.init_featurizer()
         X = []
         Y = []
         for sample in training_samples:
@@ -747,8 +873,12 @@ class NN1(CardinalityEstimationAlg):
             query_str += s.query
 
         # do training
+        # net = SimpleRegression(len(X[0]),
+                # int(len(X[0])*self.hidden_layer_multiple), 1)
+
         net = SimpleRegression(len(X[0]),
-                int(len(X[0])*self.hidden_layer_multiple), 1)
+                self.hidden_layer_multiple, 1,
+                num_hidden_layers=self.num_hidden_layers)
 
         if save_model:
             make_dir("./models")
@@ -761,7 +891,7 @@ class NN1(CardinalityEstimationAlg):
         print("feature len: ", len(X[0]))
         train_nn(net, X, Y, loss_func=loss_func, max_iter=self.max_iter,
                 tfboard_dir=None, lr=0.0001, adaptive_lr=True,
-                loss_threshold=2.0)
+                loss_threshold=1.00, mb_size=128, eval_iter=self.eval_iter)
 
         self.net = net
 
@@ -769,7 +899,7 @@ class NN1(CardinalityEstimationAlg):
             print("saved model path")
             torch.save(net.state_dict(), model_path)
 
-    def test(self, test_samples):
+    def _test(self, test_samples):
         X = []
         for sample in test_samples:
             X.append(self.db.get_features(sample))
@@ -779,7 +909,8 @@ class NN1(CardinalityEstimationAlg):
         if self.log_transform:
             pred = self.net(X)
             pred = pred.squeeze(1)
-            pred = pred.detach().numpy()
+            # pred = pred.detach().numpy()
+            pred = pred.cpu().detach().numpy()
             for i, p in enumerate(pred):
                 pred[i] = (p*(self.maxy-self.miny)) + self.miny
                 pred[i] = math.pow(10, -pred[i])
@@ -788,6 +919,19 @@ class NN1(CardinalityEstimationAlg):
             pred = self.net(X)
             pred = pred.squeeze(1)
         return pred.cpu().detach().numpy()
+
+    def test(self, test_samples):
+        '''
+        '''
+        # TODO: evaluate in batches of MAX_TEST_SIZE in order to avoid
+        # overwhelming the gpu memory
+        preds = np.zeros(0)
+        MAX_TRAINING_SIZE = 1024
+        for i in range(0,len(test_samples),MAX_TRAINING_SIZE):
+            batch = test_samples[i:i+MAX_TRAINING_SIZE]
+            batch_preds = self._test(batch)
+            preds = np.append(preds, batch_preds)
+        return preds
 
     def size(self):
         pass
@@ -894,7 +1038,7 @@ class NN2(CardinalityEstimationAlg):
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
         self.db = db
-        db.init_featurizer()
+        # db.init_featurizer()
 
         if self.eval_num_tables:
             self.table_x_train = defaultdict(list)

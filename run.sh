@@ -1,5 +1,0 @@
-python3 main.py --db_name imdb --template_dir templates/all_tomls/ --losses qerr,join-loss --qopt_java_output 0 --cache_dir caches -n 1000 --use_subqueries 1 --test 1 --test_size 0.8 --qopt_scan_cost_factor 0.2 --results_cache debug --qopt_get_sql 0 --algs nn3 --eval_iter 500 --eval_iter_jl 25000 --max_iter 100000 --lr 0.0001 --adaptive_lr 0 --eval_num_tables 1 --net_name LinearRegression
-
-python3 main.py --db_name imdb --template_dir templates/all_tomls/ --losses qerr,join-loss --qopt_java_output 0 --cache_dir caches -n 1000 --use_subqueries 1 --test 1 --test_size 0.7 --qopt_scan_cost_factor 0.2 --results_cache debug --qopt_get_sql 0 --algs nn3 --eval_iter 500 --eval_iter_jl 25000 --max_iter 100000 --lr 0.0001 --adaptive_lr 0 --eval_num_tables 1 --net_name LinearRegression
-
-python3 main.py --db_name imdb --template_dir templates/all_tomls/ --losses qerr,join-loss --qopt_java_output 0 --cache_dir caches -n 1000 --use_subqueries 1 --test 1 --test_size 0.9 --qopt_scan_cost_factor 0.2 --results_cache debug --qopt_get_sql 0 --algs nn3 --eval_iter 500 --eval_iter_jl 25000 --max_iter 100000 --lr 0.0001 --adaptive_lr 0 --eval_num_tables 1 --net_name LinearRegression

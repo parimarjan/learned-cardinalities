@@ -17,3 +17,5 @@ pyzmq
 psutil
 wget
 xgboost
+sqlalchemy
+pytest

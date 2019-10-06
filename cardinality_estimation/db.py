@@ -189,7 +189,7 @@ class DB():
         @query: Query object
         '''
         if self.featurizer is None:
-            self.init_featurizer()
+            self.init_featurizer(heuristic_features)
         feature_vector = np.zeros(self.feature_len)
         for table in query.table_names:
             idx, _, _ = self.featurizer[table]
@@ -304,7 +304,6 @@ class DB():
             else:
                 assert False
 
-        # TODO: simplify
         pg_est = query.pg_count / query.total_count
         if heuristic_features and self.num_tables_feature:
             feature_vector[-2] = pg_est
@@ -314,8 +313,6 @@ class DB():
 
         if self.num_tables_feature:
             feature_vector[-1] = len(query.froms)
-
-
 
         return feature_vector
 
