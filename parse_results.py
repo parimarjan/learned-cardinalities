@@ -23,7 +23,7 @@ from collections import defaultdict
 import klepto
 
 BASELINE = "EXHAUSTIVE"
-OLD_QUERY = True
+OLD_QUERY = False
 DEBUG = True
 MAX_QUERY = 1
 
@@ -710,9 +710,9 @@ def main():
     results_cache.load()
     # collect all the data in a large dataframe
     train_df, query_data = parse_query_objs(results_cache, True)
-    # test_df = parse_query_objs(results_cache, False)
     results_cache.dump()
-
+    print("parse succeeded!")
+    pdb.set_trace()
     summary_pdf = PdfPages(args.results_dir + "/summary.pdf")
     make_dir(args.output_dir)
 
