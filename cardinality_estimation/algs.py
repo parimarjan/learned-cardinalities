@@ -113,7 +113,7 @@ def get_possible_values(sample, db, column_bins=None,
     # avoid duplicates, in range queries, unforunately, Query object stores two
     # columns with same names
     seen = []
-    for statei, state in enumerate(states):
+    for state in states:
         # find the right column entry in sample
         # val = None
         possible_vals = []
@@ -126,19 +126,9 @@ def get_possible_values(sample, db, column_bins=None,
         # pdb.set_trace()
         for i, column in enumerate(sample.pred_column_names):
 
-            if column in seen:
+            if column != state or column in seen:
                 continue
             seen.append(column)
-
-            if "2" in column:
-                column = column.replace("2", "1")
-            elif "3" in column:
-                column = column.replace("3", "1")
-            elif "4" in column:
-                column = column.replace("4", "1")
-
-            if column != state:
-                continue
 
             cmp_op = sample.cmp_ops[i]
             val = sample.vals[i]
@@ -478,7 +468,7 @@ class OurPGMMultiTable(CardinalityEstimationAlg):
 
         self.merge_aliases = kwargs["merge_aliases"]
         self.simple_sampling = False
-        self.USE_GROUPBY = False
+        self.USE_GROUPBY = True
 
         # key: column name
         # val: dataframe, which represents a sorted (ascending, based on column
