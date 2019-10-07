@@ -30,6 +30,13 @@ pgm = CDLL(lib_file, mode=RTLD_GLOBAL)
 def deterministic_hash(string):
     return int(hashlib.sha1(str(string).encode("utf-8")).hexdigest(), 16)
 
+def is_float(val):
+    try:
+        float(val)
+        return True
+    except:
+        return False
+
 class PGM():
     '''
     Serves as a wrapper class for the libpgm.so backend.
@@ -221,8 +228,11 @@ class PGM():
             else:
                 est_val = self._eval_ourpgm(sample)
 
-            assert est_val <= 1.00
-            return est_val
+            if est_val >= 1.1:
+                print("est val: ", est_val)
+                pdb.set_trace()
+
+            return min(est_val, 1.00)
 
         elif self.backend == "pomegranate":
             assert self.pom_model is not None
@@ -290,15 +300,17 @@ class PGM():
                 try:
                     if p in mapper:
                         sample[col].append(mapper[p])
-                    elif int(p) in mapper:
-                        sample[col].append(mapper[int(p)])
                     elif str(p) in mapper:
                         sample[col].append(mapper[str(p)])
+                    elif is_float(p) and int(p) in mapper:
+                        sample[col].append(mapper[int(p)])
                     else:
                         # point hasn't been mapped before ...
-                        print("point has not been mapped before!!")
-                        print("col idx: ", col)
-                        print("point: ", p)
+                        # print("point has not been mapped before!!")
+                        # print("col idx: ", col)
+                        # print("point: ", p)
+                        # FIXME: temporay
+                        continue
                         pdb.set_trace()
                         assert False
                 except Exception as e:
