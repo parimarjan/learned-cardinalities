@@ -330,6 +330,7 @@ def load_all_queries(args, fn, subqueries=True):
 
     queries, subq_strs, subqueries = _load_subqueries(args, queries,
             subq_sql_str_cache, subq_query_obj_cache, args.gen_queries)
+    print(len(subq_strs), len(queries))
     assert len(subq_strs) % len(queries) == 0
     num_subq_per_query = int(len(subq_strs) / len(queries))
     print("{}: queries: {}, subqueries: {}".format(template_name,
@@ -355,6 +356,10 @@ def update_subq_cards(all_subqueries, cache_dir):
         for subq in subqueries:
             if subq.true_count > subq.total_count:
                 subq.total_count = subq.true_count
+                wrong_count += 1
+
+            if subq.true_sel > 1:
+                subq.true_sel = 1.00
                 wrong_count += 1
 
         if wrong_count > 0:
