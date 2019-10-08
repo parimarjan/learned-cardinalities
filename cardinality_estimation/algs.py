@@ -513,6 +513,8 @@ class OurPGMMultiTable(CardinalityEstimationAlg):
         if self.simple_sampling:
             return ['random() < {}'.format(self.sampling_percentage)]
         else:
+            data_cache = klepto.archives.dir_archive("./misc_cache",
+                    cached=True, serialized=True)
             for from_clause in from_clauses:
                 alias_name = from_clause.split("AS")[1].strip()
                 if self.merge_aliases:
@@ -526,9 +528,17 @@ class OurPGMMultiTable(CardinalityEstimationAlg):
                                                      TABLES = from_clause,
                                                      RANDOM = str(self.sampling_percentage))
                 print(sel_sql)
-                output = self.db.execute(sel_sql)
+                cache_key = sel_sql
+                if sel_sql in data_cache.archive:
+                    print("found in cache!")
+                    output = data_cache.archive[cache_key]
+                else:
+                    output = self.db.execute(sel_sql)
+                    data_cache.archive[cache_key] = output
+
                 if len(output) == 0:
                     continue
+
                 output = np.array(output)
                 # id keys : should match output dimensions
                 for idi, id_key in enumerate(id_keys):
@@ -556,10 +566,6 @@ class OurPGMMultiTable(CardinalityEstimationAlg):
         PRED_STR = "{COL} IN ({VALS})"
         for k, all_vals in primary_key_predicates.items():
             vals_str = ""
-            # if k == "it1.id":
-                # all_vals = ["3"]
-            # elif k == "it2.id":
-                # all_vals = ["4"]
             print("{}: {}".format(k, len(all_vals)))
 
             for i,val in enumerate(all_vals):
@@ -569,7 +575,6 @@ class OurPGMMultiTable(CardinalityEstimationAlg):
             pred_cond = PRED_STR.format(COL = k, VALS = vals_str)
             pred_conds.append(pred_cond)
 
-        # pdb.set_trace()
         return pred_conds
 
     def _load_training_data_multi_table(self, db, template):
