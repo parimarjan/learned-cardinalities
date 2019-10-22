@@ -11,7 +11,7 @@ import math
 import itertools
 import time
 import klepto
-from utils.utils import *
+# from utils.utils import *
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -19,15 +19,30 @@ import matplotlib.pyplot as plt
 system = platform.system()
 if system == 'Linux':
     lib_file = "libpgm.so"
-    pgm = CDLL(lib_file, mode=RTLD_GLOBAL)
 else:
     lib_file = "libpgm.dylib"
+
+pgm_dir = os.environ["PGM_DIR"]
+lib_file = pgm_dir + "/" + lib_file
+
+pgm = CDLL(lib_file, mode=RTLD_GLOBAL)
+
+def deterministic_hash(string):
+    return int(hashlib.sha1(str(string).encode("utf-8")).hexdigest(), 16)
+
+def is_float(val):
+    try:
+        float(val)
+        return True
+    except:
+        return False
 
 class PGM():
     '''
     Serves as a wrapper class for the libpgm.so backend.
     '''
-    def __init__(self, alg_name="chow-liu", backend="ourpgm"):
+    def __init__(self, alg_name="chow-liu", backend="ourpgm", use_svd=True,
+            num_singular_vals=10, recompute=False):
         # index = random variable. For each random variable, map it to integers
         # 0...n-1 (where n is the size of that random variable)
         self.word2index = []
@@ -37,6 +52,10 @@ class PGM():
         self.save_csv = False
         self.backend = backend
         self.alg_name = alg_name
+        self.use_svd = use_svd
+        self.num_singular_vals = num_singular_vals
+        self.recompute = recompute
+        print(self.backend, self.alg_name)
 
     def train(self, samples, weights, state_names=None):
         '''
@@ -66,19 +85,23 @@ class PGM():
             np.savetxt("counts.csv", weights, delimiter=",")
 
         if self.backend == "ourpgm":
-            pgm.py_init(mapped_samples.ctypes.data_as(c_void_p),
-                    c_long(mapped_samples.shape[0]), c_long(mapped_samples.shape[1]),
-                    weights.ctypes.data_as(c_void_p), c_long(weights.shape[0]))
-            pgm.py_train()
+            pgm.py_init.restype = c_void_p
+            print("before py_init")
+            self.ourpgm_model = pgm.py_init(mapped_samples.ctypes.data_as(c_void_p),
+                    c_long(mapped_samples.shape[0]),
+                    c_long(mapped_samples.shape[1]),
+                    weights.ctypes.data_as(c_void_p),
+                    c_long(weights.shape[0]),
+                    self.use_svd,
+                    c_long(self.num_singular_vals), self.recompute)
+            print("py init returned")
+            pgm.py_train(c_void_p(self.ourpgm_model))
         elif self.backend == "pomegranate":
             # TODO: cache the trained model, based on hash of mapped samples?
+            # TODO: mapped samples should be extended to include all 0's.
             self.pom_model = BayesianNetwork.from_samples(mapped_samples, weights=weights,
                     state_names=self.state_names, algorithm="chow-liu", n_jobs=-1)
-
-            # self.pom_model.plot()
-            # fn = str(self.state_names) + "-chow-liu.pdf"
-            # plt.savefig(fn)
-            # plt.close()
+            print("pomegranate training done!")
 
             if self.alg_name == "greg":
                 # compute all the appropriate SVD's
@@ -132,8 +155,6 @@ class PGM():
                             joint_term = cond_dist.probability(sample) * marg1[i]
 
                             joint_mat[i, j] = (joint_term - ind_term) / math.sqrt(ind_term)
-                            # print(i,j,joint_mat[i,j])
-                            # pdb.set_trace()
 
 
                     # TODO: replace this by scipy.sparse svd's so can only
@@ -158,12 +179,15 @@ class PGM():
                     misc_cache[svd_key] = self.edge_svds[edge_key]
                 misc_cache.dump()
                 misc_cache.clear()
+            elif self.alg_name == "chow-liu":
+                # should not need to do anything here.
+                print("trained chow-liu using pomegranate")
             else:
                 assert False
 
         print("pgm model took {} seconds to train".format(time.time()-start))
 
-    def evaluate(self, rv_values):
+    def evaluate(self, rv_values, weights=None, weights_method=1):
         '''
         @rv_values: Each element is a list. i-th element represents the i-th
         random variable, and the assignments for that random variable which
@@ -171,17 +195,64 @@ class PGM():
         placed on that random variable. The assignments are in the original
         alphabet of the random variable, and need to be converted to the int
         representation specified in self.word2index.
+        @weights_method: 1 --> multiply from outside in the python function
+        (TODO: explain) 2 --> weigh each random variable and use it in the C++
+        implementation.
         '''
         # print(self.backend, self.alg_name)
         assert len(rv_values) == len(self.state_names)
 
         if self.backend == "ourpgm":
-            sample = self._get_sample(rv_values, True)
+            sample = self._get_sample(rv_values, True, weights)
             assert len(sample) == len(self.state_names)
-            return self._eval_ourpgm(sample)
+            # TODO: update weights based on _get_sample
+            if weights is not None:
+                if weights_method == 1:
+                    rv_weights = []
+                    for cur_weights in weights:
+                        cur_rv_weight = 0.00
+                        for w in cur_weights:
+                            cur_rv_weight += w
+                        cur_rv_weight /= len(cur_weights)
+                        rv_weights.append(cur_rv_weight)
+
+                    combined_weight = np.product(np.array(rv_weights))
+                    assert combined_weight <= 1.00
+                    est_val = self._eval_ourpgm(sample)
+                    # print(rv_weights, combined_weight, est_val)
+                    return est_val * combined_weight
+                elif weights_method == 2:
+                    est_val = self._eval_ourpgm(sample, weights=weights)
+                else:
+                    assert False
+            else:
+                est_val = self._eval_ourpgm(sample)
+
+            if est_val >= 1.1:
+                print("est val: ", est_val)
+                pdb.set_trace()
+
+            return min(est_val, 1.00)
+
         elif self.backend == "pomegranate":
             assert self.pom_model is not None
-            if self.alg_name == "greg":
+            if self.alg_name == "chow-liu":
+                sample = self._get_sample(rv_values, True)
+                # print(sample)
+                # pdb.set_trace()
+                # TODO: add approximation option / flag
+                all_points = []
+                for p in itertools.product(*sample):
+                    all_points.append(p)
+                all_points = np.array(all_points)
+                # we should be able to evaluate all these in parallel
+                # print("going to call pomegrante's eval")
+                est_vals = self.pom_model.probability(all_points)
+                est_val = np.sum(est_vals)
+                assert est_val <= 1.00
+                return est_val
+
+            elif self.alg_name == "greg":
                 sample = self._get_sample(rv_values, False)
                 assert len(sample) == len(self.state_names)
                 # find the appropriate marginals, and nodes
@@ -206,7 +277,7 @@ class PGM():
             else:
                 assert False
 
-    def _get_sample(self, rv_values, fill_empty_rv):
+    def _get_sample(self, rv_values, fill_empty_rv, weights=None):
         # convert to word2index representation
         sample = []
         for col, col_points in enumerate(rv_values):
@@ -214,22 +285,32 @@ class PGM():
             sample.append([])
             # TODO: if col_points is empty, then append every possible value into it.
             if len(col_points) == 0 and fill_empty_rv:
+                if weights is not None:
+                    try:
+                        assert len(weights[col]) == 0
+                    except:
+                        pdb.set_trace()
                 for _, cur_val in mapper.items():
                     sample[col].append(cur_val)
+                    if weights is not None:
+                        weights[col].append(1.0)
+
             for p in col_points:
                 # FIXME: dumb shiz
                 try:
                     if p in mapper:
                         sample[col].append(mapper[p])
-                    elif int(p) in mapper:
-                        sample[col].append(mapper[int(p)])
                     elif str(p) in mapper:
                         sample[col].append(mapper[str(p)])
+                    elif is_float(p) and int(p) in mapper:
+                        sample[col].append(mapper[int(p)])
                     else:
                         # point hasn't been mapped before ...
-                        print("point has not been mapped before!!")
-                        print("col idx: ", col)
-                        print("point: ", p)
+                        # print("point has not been mapped before!!")
+                        # print("col idx: ", col)
+                        # print("point: ", p)
+                        # FIXME: temporay
+                        continue
                         pdb.set_trace()
                         assert False
                 except Exception as e:
@@ -237,7 +318,7 @@ class PGM():
                     pdb.set_trace()
         return sample
 
-    def _eval_ourpgm(self, sample):
+    def _eval_ourpgm(self, sample, weights=None):
         if self.save_csv:
             sample_points = []
             for pts in sample:
@@ -247,20 +328,41 @@ class PGM():
                 writer = csv.writer(f)
                 writer.writerow(sample_points)
 
-        entrylist = []
+        data_list = []
+        weight_list = []
         lengths = []
-        for sub_l in sample:
-            entrylist.append((c_int*len(sub_l))(*sub_l))
-            lengths.append(c_int(len(sub_l)))
+        if weights is not None:
+            for i, sub_l in enumerate(sample):
+                weight_l = weights[i]
+                data_list.append((c_int*len(sub_l))(*sub_l))
+                weight_list.append((c_double*len(weight_l))(*weight_l))
+                lengths.append(c_int(len(sub_l)))
 
-        c_l = (POINTER(c_int) * len(entrylist))(*entrylist)
-        c_lengths = (c_int * len(sample))(*lengths)
-        pgm.py_eval.restype = c_double
-        est = pgm.py_eval(c_l, c_lengths, len(sample), 0, c_double(1.00))
+            c_w = (POINTER(c_double) * len(weight_list))(*weight_list)
+            c_l = (POINTER(c_int) * len(data_list))(*data_list)
+            c_lengths = (c_int * len(sample))(*lengths)
+
+            pgm.py_eval.restype = c_double
+            est = pgm.py_eval(c_void_p(self.ourpgm_model),
+                    c_l, c_w, c_lengths, len(sample),
+                    0, c_double(1.00))
+        else:
+            for i, sub_l in enumerate(sample):
+                data_list.append((c_int*len(sub_l))(*sub_l))
+                lengths.append(c_int(len(sub_l)))
+
+            c_l = (POINTER(c_int) * len(data_list))(*data_list)
+            c_lengths = (c_int * len(sample))(*lengths)
+            pgm.py_eval.restype = c_double
+            est = pgm.py_eval(c_void_p(self.ourpgm_model),
+                    c_l, c_void_p(0), c_lengths, len(sample),
+                    0, c_double(1.00))
+
         if self.save_csv:
             with open("results.csv", "a") as f:
                 writer = csv.writer(f)
                 writer.writerow([est])
+
         return est
 
     def _eval_greg_pointwise(self, cond_nodes, margs, point):
@@ -322,3 +424,5 @@ class PGM():
         # pdb.set_trace()
         return ind_prob + ind_prob*correction_term
 
+    def num_parameters(self):
+        return pgm.py_num_parameters()

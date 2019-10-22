@@ -358,7 +358,7 @@ def update_subq_cards(all_subqueries, cache_dir):
                 subq.total_count = subq.true_count
                 wrong_count += 1
 
-            if subq.true_sel >= 1:
+            if subq.true_sel > 1:
                 subq.true_sel = 1.00
                 wrong_count += 1
 
@@ -376,13 +376,13 @@ def update_subq_preds(all_queries, all_subqueries, cache_dir):
         query.cmp_ops = cmp_ops
         query.vals = pred_vals
         wrong_count = 0
-        print(query.pred_column_names)
+        # print(query.pred_column_names)
         for subq in subqueries:
             if subq.true_count > subq.total_count:
                 subq.total_count = subq.true_count
                 wrong_count += 1
-            print(subq.pred_column_names)
-            print(subq.froms)
+            # print(subq.pred_column_names)
+            # print(subq.froms)
             if subq.pred_column_names is not None:
                 print("already had subquery pred columns set")
                 continue

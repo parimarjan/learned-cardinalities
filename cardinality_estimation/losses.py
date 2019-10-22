@@ -241,6 +241,7 @@ def join_loss(pred, queries, old_env,
         # pred[0+len(q[0].subqueries)]], etc would be the cardinalities for the
         # full query objects
         for j in range(pred_start, pred_start+len(q.subqueries), 1):
+            assert pred[j] <= 1.00
             yhat.append(pred[j])
         yhat = np.array(yhat, dtype=np.float32)
         assert len(yhat) == len(q.subqueries)

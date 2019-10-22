@@ -22,11 +22,17 @@ HIDDEN_LAYERS = [1, 2, 3, 4]
 LRS = [0.0001, 0.001, 0.01]
 # LRS = [0.01, 0.0001]
 OPTIMIZERS = ["sgd", "adam", "ams"]
-ALG_ORDER = ["FCNN", "Tables-FCNN", "Tables-LinearRegression"]
+# ALG_ORDER = ["FCNN", "Tables-FCNN", "Tables-LinearRegression",
+        # "Tables-FCNN-Grouped", "Postgres"]
+ALG_ORDER = ["FCNN", "Tables-FCNN", "Tables-LinearRegression",
+        "Tables-FCNN-Grouped1", "Tables-FCNN-Grouped2", "Postgres"]
+
+# ALG_ORDER = ["FCNN", "Tables-FCNN", "Tables-FCNN-Grouped", "Postgres"]
+
 # ALG_ORDER = ["FCNN0.01", "FCNN0.0001", "Tables-FCNN", "Tables-LinearRegression"]
 
-PG_TRAIN_JL = 376236.00
-PG_TEST_JL = 352099.00
+PG_TRAIN_JL = 500319
+PG_TEST_JL = 522423
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -43,12 +49,11 @@ def parse_results():
         - sampling_alpha
         - priority
     '''
-
     cache_dir = args.results_dir
     cache = klepto.archives.dir_archive(cache_dir,
             cached=True, serialized=True)
     cache.load()
-    print("results cache loaded")
+    print("results cache loaded. num results: ", len(cache))
 
     all_data = defaultdict(list)
     tables_data = defaultdict(list)
@@ -64,6 +69,7 @@ def parse_results():
         lr = kwargs["lr"]
         alpha = kwargs["sampling_priority_alpha"]
         sampling_method = kwargs["sampling_priority_method"]
+
         # hidden_layers = 0
         if lr not in LRS:
             print("skipping {} because lr= {}".format(exp_name, lr))
@@ -76,25 +82,49 @@ def parse_results():
         elif data["name"] == "NumTablesNN":
             name = "Tables-"
             opt_obj = name + data["kwargs"]["net_name"]
+            if "gp" in exp_name:
+                opt_obj += "-Grouped1"
+            elif "group_models" in kwargs:
+                print("grouped2")
+                opt_obj += "-Grouped" + str(kwargs["group_models"])
         else:
             opt_obj = data["kwargs"]["net_name"]
+        print("opt_obj: ", opt_obj)
 
         # num_tables version
         for samples_type in SAMPLES_TYPE:
             if "tables_eval" not in data[samples_type]:
                 continue
             exp_eval = data[samples_type]["tables_eval"]
-            print(exp_eval.keys())
+
             for loss_type, tables in exp_eval.items():
                 for num_table, losses in tables.items():
-                    for num_iter, loss in losses.items():
-                        tables_data["iter"].append(num_iter)
-                        tables_data["loss"].append(loss)
-                        tables_data["loss_type"].append(loss_type)
-                        tables_data["num_tables"].append(num_table)
-                        tables_data["lr"].append(lr)
-                        tables_data["samples_type"].append(samples_type)
-                        tables_data["alg"].append(opt_obj)
+                    if "Grouped2" in opt_obj:
+                        print("skipping Grouped2!")
+                        continue
+
+                    elif "Grouped" in opt_obj:
+                        # weird shit, but because we grouped it like this
+                        for tablei in range(2):
+                            cur_num_table = int((num_table * 2)) - tablei
+                            for num_iter, loss in losses.items():
+                                tables_data["iter"].append(num_iter)
+                                tables_data["loss"].append(loss)
+                                tables_data["loss_type"].append(loss_type)
+                                tables_data["num_tables"].append(cur_num_table)
+                                tables_data["lr"].append(lr)
+                                tables_data["samples_type"].append(samples_type)
+                                tables_data["alg"].append(opt_obj)
+
+                    else:
+                        for num_iter, loss in losses.items():
+                            tables_data["iter"].append(num_iter)
+                            tables_data["loss"].append(loss)
+                            tables_data["loss_type"].append(loss_type)
+                            tables_data["num_tables"].append(num_table)
+                            tables_data["lr"].append(lr)
+                            tables_data["samples_type"].append(samples_type)
+                            tables_data["alg"].append(opt_obj)
 
         for samples_type in SAMPLES_TYPE:
             exp_eval = data[samples_type]["eval"]
@@ -151,7 +181,7 @@ def plot_overfit_figures(df, hidden_layers):
             ax = sns.lineplot(x="iter", y="loss", hue="optimizer_obj",
                     style="optimizer_obj",
                     data=df2)
-            max_loss = min(MAX_ERRS[loss_type], max(df2["loss"]))
+            max_loss = min(MAX_ERRS[loss_type], max(df2["loss"]+100000))
             ax.set_ylim(bottom=0, top=max_loss)
             plt.title("Exp Type: Overfit, {}, lr: {}, layers: {}".\
                     format(loss_type, lr, hidden_layers))
@@ -166,9 +196,12 @@ def plot_subplot(ax, df, loss_type, samples_type, lr):
     print(loss_type, samples_type)
     print(max(df_lt["loss"]))
     ax = sns.lineplot(x="iter", y="loss", hue="optimizer_obj",
-            style="optimizer_obj",
+            # style="optimizer_obj",
             data=df_lt, hue_order=ALG_ORDER)
-    max_loss = min(MAX_ERRS[loss_type], max(df_lt["loss"]))
+    if loss_type == "join-loss":
+        max_loss = min(MAX_ERRS[loss_type], max(df_lt["loss"] + 100000))
+    else:
+        max_loss = min(MAX_ERRS[loss_type], max(df_lt["loss"]))
     ax.set_ylim(bottom=0, top=max_loss)
     plt.title("{}: {}, lr: {}".\
             format(samples_type, loss_type, lr))
@@ -190,18 +223,18 @@ def plot_generalization_figs(df):
         ax = fig.add_subplot(2, 1, 2)
         plot_subplot(ax, df_lr, lt, "test", lr)
         handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, loc='upper left')
         ax.get_legend().remove()
+        fig.legend(handles, labels, loc='upper left')
         pdf.savefig()
 
 def plot_table_errors(tables_df, lt, samples_type):
-    print("plot table errors!")
     tables_df = tables_df[tables_df["loss_type"] == lt]
     tables_df = tables_df[tables_df["samples_type"] == samples_type]
-    tables_df = tables_df[tables_df["num_tables"] > 1]
+    # tables_df = tables_df[tables_df["num_tables"] >= 1]
+    tables_df = tables_df[tables_df["num_tables"] <= 12]
     fg = sns.FacetGrid(tables_df, col = "num_tables", hue="alg", col_wrap=3,
             hue_order = ALG_ORDER)
-    fg = fg.map(plt.plot, "iter", "loss")
+    fg = fg.map(plt.scatter, "iter", "loss")
     # fg = fg.map(plt.errorbar, "iter", "loss")
     # plt.legend(loc='upper left')
     # fg = sns.factorplot("iter", "loss", col="num_tables",
@@ -219,7 +252,7 @@ def plot_table_errors(tables_df, lt, samples_type):
             x=0.5, y=.99, horizontalalignment='center',
             verticalalignment='top', fontsize = 40)
 
-    fg.set(ylim=(0,20.0))
+    fg.set(ylim=(0,10.0))
     # fg.set(yscale="log")
     fg.despine(left=True)
 
@@ -231,17 +264,17 @@ def plot_table_errors(tables_df, lt, samples_type):
 args = read_flags()
 df, tables_df = parse_results()
 
+print(df.keys())
 # pdb.set_trace()
 # skip the first entry, since it is too large
 # print(df[df["iter"] == 0])
-df = df[df["iter"] != 0]
+# df = df[df["iter"] != 0]
 # df = df[df["iter"] <= 100000]
 
 pdf = PdfPages("training_curves.pdf")
 
 plot_generalization_figs(df)
 
-# plot_table_errors(tables_df, "qerr", "train")
-# plot_table_errors(tables_df, "qerr", "test")
+plot_table_errors(tables_df, "qerr", "train")
+plot_table_errors(tables_df, "qerr", "test")
 pdf.close()
-

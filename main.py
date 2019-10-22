@@ -96,7 +96,17 @@ def get_alg(alg):
                     eval_num_tables = args.eval_num_tables,
                     group_models = args.group_models)
     elif alg == "ourpgm":
-        return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
+        if args.db_name == "imdb":
+            return OurPGMMultiTable(alg_name = args.pgm_alg_name, backend = args.pgm_backend,
+                    use_svd=args.use_svd, num_singular_vals=args.num_singular_vals,
+                    num_bins = args.num_bins, recompute = args.cl_recompute,
+                    pgm_sampling_percentage=args.pgm_sampling_percentage,
+                    merge_aliases = args.pgm_merge_aliases)
+        else:
+            return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend,
+                    use_svd=args.use_svd, num_singular_vals=args.num_singular_vals,
+                    num_bins = args.num_bins, recompute = args.cl_recompute)
+
     else:
         assert False
 
@@ -200,14 +210,18 @@ def main():
             print("update subq preds done!")
             pdb.set_trace()
 
-        for i, query in enumerate(samples):
-            assert len(subqueries[i]) > 0
-            query.subqueries = subqueries[i]
+        if args.use_subqueries:
+            for i, query in enumerate(samples):
+                assert len(subqueries[i]) > 0
+                query.subqueries = subqueries[i]
 
         # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
         # in all of the queries
         if args.use_subqueries:
             all_queries = get_all_subqueries(samples)
+        else:
+            all_queries = samples
+
         for q in all_queries:
             q.yhats = {}
             q.losses = defaultdict(dict)
@@ -223,7 +237,8 @@ def main():
         train_queries += cur_train_queries
         test_queries += cur_test_queries
 
-    print(len(train_queries), len(test_queries))
+    print("train queries: {}, test queries: {}".format(len(train_queries),
+        len(test_queries)))
     if not found_db:
         misc_cache.archive[db_key] = db
 
@@ -313,10 +328,6 @@ def read_flags():
             default=128)
     parser.add_argument("--exp_name", type=str, required=False,
             default="card_exp")
-    parser.add_argument("--pgm_backend", type=str, required=False,
-            default="ourpgm")
-    parser.add_argument("--pgm_alg_name", type=str, required=False,
-            default="chow-liu")
 
     parser.add_argument("--db_name", type=str, required=False,
             default="imdb")
@@ -395,8 +406,6 @@ def read_flags():
             default=2112)
     parser.add_argument("--test", type=int, required=False,
             default=1)
-    parser.add_argument("--num_bins", type=int, required=False,
-            default=100)
     parser.add_argument("--avg_factor", type=int, required=False,
             default=1)
     parser.add_argument("--test_size", type=float, required=False,
@@ -430,6 +439,26 @@ def read_flags():
 
     parser.add_argument("--loss_func", type=str, required=False,
             default="qloss")
+
+    ## pgm flags
+    parser.add_argument("--pgm_backend", type=str, required=False,
+            default="ourpgm")
+    parser.add_argument("--pgm_alg_name", type=str, required=False,
+            default="chow-liu")
+    parser.add_argument("--sampling_percentage", type=float, required=False,
+            default=0.001)
+    parser.add_argument("--use_svd", type=int, required=False,
+            default=0)
+    parser.add_argument("--num_singular_vals", type=int, required=False,
+            default=5, help="-1 means all")
+    parser.add_argument("--num_bins", type=int, required=False,
+            default=100)
+    parser.add_argument("--cl_recompute", type=int, required=False,
+            default=0)
+    parser.add_argument("--pgm_sampling_percentage", type=float, required=False,
+            default=0.001)
+    parser.add_argument("--pgm_merge_aliases", type=int, required=False,
+            default=0)
 
     return parser.parse_args()
 
