@@ -152,33 +152,33 @@ class CardinalityEstimationAlg():
         pass
 
 class Postgres(CardinalityEstimationAlg):
-    # def test(self, test_samples):
-        # return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
-
     def test(self, test_samples):
-        # num tables based
-        ret = []
-        num_tables = defaultdict(list)
-        num_tables_true = defaultdict(list)
-        for sample in test_samples:
-            num_table = len(sample.froms)
-            true_sel = sample.true_sel
-            pg_sel = sample.pg_count / float(sample.total_count)
-            num_tables[num_table].append(pg_sel)
-            num_tables_true[num_table].append(true_sel)
+        return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
 
-            if num_table <= 3:
-                ret.append(true_sel)
-            else:
-                ret.append(pg_sel)
+    # def test(self, test_samples):
+        # # num tables based
+        # ret = []
+        # num_tables = defaultdict(list)
+        # num_tables_true = defaultdict(list)
+        # for sample in test_samples:
+            # num_table = len(sample.froms)
+            # true_sel = sample.true_sel
+            # pg_sel = sample.pg_count / float(sample.total_count)
+            # num_tables[num_table].append(pg_sel)
+            # num_tables_true[num_table].append(true_sel)
 
-        for table in num_tables:
-            yhat = np.array(num_tables[table])
-            ytrue = np.array(num_tables_true[table])
-            qloss_val = qloss(yhat, ytrue)
-            print("{}: qerr: {}".format(table, qloss_val))
+            # if num_table <= 3:
+                # ret.append(true_sel)
+            # else:
+                # ret.append(pg_sel)
 
-        return ret
+        # for table in num_tables:
+            # yhat = np.array(num_tables[table])
+            # ytrue = np.array(num_tables_true[table])
+            # qloss_val = qloss(yhat, ytrue)
+            # print("{}: qerr: {}".format(table, qloss_val))
+
+        # return ret
 
 
 class PostgresRegex(CardinalityEstimationAlg):
@@ -1075,6 +1075,7 @@ class NN2(CardinalityEstimationAlg):
                 key, num_iter, len(X), train_loss.item(), jl1, jl2,
                 time.time()-jl_eval_start))
 
+            self.training_cache.dump()
             return join_losses, join_losses2
 
         return None, None
