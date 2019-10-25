@@ -23,8 +23,8 @@ AND k.id = mk.keyword_id
 AND mi1.movie_id = mi2.movie_id
 AND mi1.info_type_id = it1.id
 AND mi2.info_type_id = it2.id
-AND it1.id = (Xit1)
-AND it2.id = (Xit2)
+AND (Xit1)
+AND (Xit2)
 AND t.kind_id = kt.id
 AND ci.person_id = n.id
 AND ci.role_id = rt.id
@@ -94,7 +94,7 @@ AND (Xprod_year_low)
   AND (Xprod_year_up)
   AND (Xprod_year_low)
   AND NOT (Xit1)
-	GROUP BY it.id HAVING COUNT(*) > 50000
+	GROUP BY it1.id HAVING COUNT(*) > 50000
   ORDER BY COUNT(*) DESC
   '''
 

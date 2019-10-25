@@ -132,7 +132,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     all_query_objs = []
     start = time.time()
     num_processes = int(min(len(unknown_query_strs),
-        multiprocessing.cpu_count()))
+        multiprocessing.cpu_count())) - 2
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
             args.pwd, args.db_name, None,
@@ -240,7 +240,6 @@ def _load_subqueries(args, queries, sql_str_cache, subq_cache,
         all_sql_subqueries += sql_subqueries
         new_queries.append(q)
 
-    pdb.set_trace()
     all_subqueries = gen_query_objs(args, all_sql_subqueries, subq_cache)
     assert len(all_subqueries) == len(all_sql_subqueries)
     return new_queries, all_sql_subqueries, all_subqueries
