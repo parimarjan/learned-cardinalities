@@ -1066,7 +1066,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
 
         # if we should just update value based on pg' estimate for total count
         # v/s finding true count
-        TRUE_TOTAL_COUNT = True
+        TRUE_TOTAL_COUNT = False
         total_timeout = 180000
         if TRUE_TOTAL_COUNT:
             exp_output, _ = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,

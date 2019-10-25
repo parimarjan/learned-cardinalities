@@ -101,14 +101,20 @@ def gen_query_objs(args, query_strs, query_obj_cache):
             # update the query structure as well if needed
             ret_queries.append(curq)
         elif hsql in query_obj_cache.archive:
-            curq = query_obj_cache.archive[hsql]
-            if not hasattr(curq, "froms"):
-                print("NEED TO UPDATE QUERY STRUCT")
-                update_query_structure(curq)
-                query_obj_cache.archive[hsql] = curq
-            assert hasattr(curq, "froms")
-            # update the query structure as well if needed
-            ret_queries.append(curq)
+            try:
+                curq = query_obj_cache.archive[hsql]
+                if not hasattr(curq, "froms"):
+                    print("NEED TO UPDATE QUERY STRUCT")
+                    update_query_structure(curq)
+                    query_obj_cache.archive[hsql] = curq
+                assert hasattr(curq, "froms")
+                # update the query structure as well if needed
+                ret_queries.append(curq)
+            except:
+                print("klepto query corruption, regenerating...")
+                idx_map[len(unknown_query_strs)] = i
+                ret_queries.append(None)
+                unknown_query_strs.append(sql)
         else:
             idx_map[len(unknown_query_strs)] = i
             ret_queries.append(None)
@@ -150,13 +156,14 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     assert len(ret_queries) == len(query_strs)
 
     # sanity check: commented out so we don't spend time here
-    for i, query in enumerate(ret_queries):
-        assert query.query == query_strs[i]
+    # for i, query in enumerate(ret_queries):
+        # assert query.query == query_strs[i]
 
-    for i, query in enumerate(ret_queries):
-        ret_queries[i] = Query(query.query, query.pred_column_names,
-                query.vals, query.cmp_ops, query.true_count, query.total_count,
-                query.pg_count, query.pg_marginal_sels, query.marginal_sels)
+    # why were we doing this anyway?
+    # for i, query in enumerate(ret_queries):
+        # ret_queries[i] = Query(query.query, query.pred_column_names,
+                # query.vals, query.cmp_ops, query.true_count, query.total_count,
+                # query.pg_count, query.pg_marginal_sels, query.marginal_sels)
 
     return ret_queries
 
@@ -233,6 +240,7 @@ def _load_subqueries(args, queries, sql_str_cache, subq_cache,
         all_sql_subqueries += sql_subqueries
         new_queries.append(q)
 
+    pdb.set_trace()
     all_subqueries = gen_query_objs(args, all_sql_subqueries, subq_cache)
     assert len(all_subqueries) == len(all_sql_subqueries)
     return new_queries, all_sql_subqueries, all_subqueries
@@ -259,11 +267,6 @@ def _remove_zero_samples(samples):
 
     print("len nonzero samples: ", len(nonzero_samples))
     return nonzero_samples
-
-# def _load_subquery_objs(args, all_sql_subqueries, query_obj_cache):
-    # all_subqueries = gen_query_objs(args, all_sql_subqueries, query_obj_cache)
-    # assert len(all_subqueries) == len(all_sql_subqueries)
-    # return all_subqueries
 
 def _save_subq_sqls(queries, subq_sqls, cache_dir):
     sql_cache = klepto.archives.dir_archive(cache_dir + "/subq_sql_str",
@@ -367,24 +370,32 @@ def update_subq_cards(all_subqueries, cache_dir):
             _save_subquery_objs(subqueries, cache_dir)
 
 def update_subq_preds(all_queries, all_subqueries, cache_dir):
+    '''
+    @all_queries: list of query objects.
+    @all_subqueries: for ith query in all_queries, its list of subquery
+    objects.
 
+    Utilizes the fact that parsing the predicate values from queries should
+    give us enough information about all the predicate values in subqueries.
+    '''
     assert len(all_queries) == len(all_subqueries)
     for i, query in enumerate(all_queries):
+        if i % 100 == 0:
+            print("updating subqueries predicates for query {}".format(i))
         subqueries = all_subqueries[i]
-        pred_columns, cmp_ops, pred_vals = extract_predicates(query.query)
-        query.pred_column_names = pred_columns
-        query.cmp_ops = cmp_ops
-        query.vals = pred_vals
+        if query.pred_column_names is None:
+            pred_columns, cmp_ops, pred_vals = extract_predicates(query.query)
+            query.pred_column_names = pred_columns
+            query.cmp_ops = cmp_ops
+            query.vals = pred_vals
+
         wrong_count = 0
-        # print(query.pred_column_names)
+
         for subq in subqueries:
             if subq.true_count > subq.total_count:
                 subq.total_count = subq.true_count
                 wrong_count += 1
-            # print(subq.pred_column_names)
-            # print(subq.froms)
             if subq.pred_column_names is not None:
-                print("already had subquery pred columns set")
                 continue
             subq.pred_column_names = []
             subq.cmp_ops = []
