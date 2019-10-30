@@ -1648,7 +1648,8 @@ class NN2(CardinalityEstimationAlg):
                 print(num_iter, end=",")
                 sys.stdout.flush()
 
-            if (num_iter % self.eval_iter == 0):
+            if (num_iter % self.eval_iter == 0 and \
+                    num_iter != 0):
 
                 if not reuse_env and (num_iter % self.eval_iter_jl == 0):
                     assert env is None
@@ -1997,6 +1998,13 @@ class NumTablesNN(CardinalityEstimationAlg):
                 return 1
             else:
                 return 2
+        elif self.group_models == 3:
+            # return true values for all tables except the middle ones
+            if tables in [5,6,7,8,9,10]:
+                # should start with 1
+                return tables - 4
+            else:
+                return -1
 
         elif self.group_models < 0:
             if tables <= abs(self.group_models):
@@ -2076,6 +2084,8 @@ class NumTablesNN(CardinalityEstimationAlg):
             else:
                 pred.append(self.models[num_tables](sample.features).item())
 
+            # print(self.models.keys())
+            # pdb.set_trace()
             for subq in sample.subqueries:
                 Y.append(subq.true_sel)
                 num_tables = self.map_num_tables(len(subq.froms))
@@ -2126,22 +2136,20 @@ class NumTablesNN(CardinalityEstimationAlg):
         for sample in training_samples:
             features = db.get_features(sample)
             num_tables = self.map_num_tables(len(sample.froms))
-            if num_tables == -1:
-                continue
+            if num_tables != -1:
+                if num_tables not in self.samples:
+                    self.samples[num_tables] = []
+                    self.Xtrains[num_tables] = []
+                    self.Ytrains[num_tables] = []
 
-            if num_tables not in self.samples:
-                self.samples[num_tables] = []
-                self.Xtrains[num_tables] = []
-                self.Ytrains[num_tables] = []
+                self.Xtrains[num_tables].append(features)
+                self.Ytrains[num_tables].append(sample.true_sel)
 
-            self.Xtrains[num_tables].append(features)
-            self.Ytrains[num_tables].append(sample.true_sel)
+                ## why convert to torch here and not there...
+                features = to_variable(features).float()
+                sample.features = features
 
-            ## why convert to torch here and not there...
-            features = to_variable(features).float()
-            sample.features = features
-
-            self.samples[num_tables].append(sample)
+                self.samples[num_tables].append(sample)
 
             for subq in sample.subqueries:
                 num_tables = self.map_num_tables(len(subq.froms))
@@ -2166,7 +2174,8 @@ class NumTablesNN(CardinalityEstimationAlg):
             Y = self.Ytrains[num_tables]
             self.Xtrains[num_tables] = to_variable(X).float()
             self.Ytrains[num_tables] = to_variable(Y).float()
-        print("num tables in samples: ", len(self.samples))
+        # print("num tables in samples: ", len(self.samples))
+        # TODO: summarize data in each table
 
         if test_samples:
             for sample in test_samples:
@@ -2179,6 +2188,7 @@ class NumTablesNN(CardinalityEstimationAlg):
                     subq.features = subq_features
 
         for num_tables in self.samples:
+            print("setting up neural net for model index: ", num_tables)
             sample = self.samples[num_tables][0]
             features = db.get_features(sample)
             if self.net_name == "FCNN":
@@ -2227,9 +2237,9 @@ class NumTablesNN(CardinalityEstimationAlg):
                     print(num_iter, end=",")
                     sys.stdout.flush()
 
-                # if (num_iter % self.eval_iter == 0
-                        # and num_iter != 0):
-                if (num_iter % self.eval_iter == 0):
+                if (num_iter % self.eval_iter == 0
+                        and num_iter != 0):
+                # if (num_iter % self.eval_iter == 0):
 
                     if self.eval_num_tables:
                         self._periodic_num_table_eval_nets(self.loss_func, num_iter)
@@ -2322,10 +2332,12 @@ class NumTablesNN(CardinalityEstimationAlg):
             self.table_y_test = defaultdict(list)
             num_real_tables = len(db.aliases)
             for i in range(1,num_real_tables+1):
-                queries = get_all_num_table_queries(training_samples, i)
                 num_tables_map = self.map_num_tables(i)
                 if num_tables_map == -1:
                     continue
+                queries = get_all_num_table_queries(training_samples, i)
+                print("mapping table {} to model index {}".format(i,
+                    num_tables_map))
                 for q in queries:
                     self.table_x_train[num_tables_map].append(db.get_features(q))
                     self.table_y_train[num_tables_map].append(q.true_sel)

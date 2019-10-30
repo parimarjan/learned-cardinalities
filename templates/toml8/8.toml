@@ -259,7 +259,7 @@ AND (Xcompany_type)
 	AND mi.info_type_id = it.id
   AND (Xprod_year_up)
   AND (Xprod_year_low)
-	GROUP BY it.id HAVING COUNT(*) > 40000
+	GROUP BY it.id HAVING COUNT(*) > 100000
   ORDER BY COUNT(*) DESC
   '''
 

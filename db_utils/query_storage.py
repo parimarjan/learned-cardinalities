@@ -132,7 +132,8 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     all_query_objs = []
     start = time.time()
     num_processes = int(min(len(unknown_query_strs),
-        multiprocessing.cpu_count())) - 2
+        multiprocessing.cpu_count() / 2))
+    num_processes = max(num_processes, 1)
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
             args.pwd, args.db_name, None,
@@ -189,7 +190,7 @@ def get_template_samples(fn):
     elif "3.toml" in fn:
         num = 100
     elif "7.toml" in fn:
-        num = 77
+        num = 250
     elif "7b.toml" in fn:
         num = 140
     elif "7c.toml" in fn:
