@@ -6,8 +6,8 @@ title = "Template 5"
 [base_sql]
 sql = '''SELECT COUNT(*)
 FROM
-aka_name as an,
 name as n,
+aka_name as an,
 info_type as it1,
 person_info as pi1,
 cast_info as ci,

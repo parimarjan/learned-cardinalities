@@ -8,7 +8,7 @@ from utils.utils import *
 from cardinality_estimation.query import Query
 import klepto
 import time
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from multiprocessing import Pool
 import concurrent.futures
 
@@ -57,6 +57,12 @@ class DB():
         self.tables = set()
         self.aliases = {}
         self.cmp_ops_onehot = {}
+
+        # for pgm stuff
+        self.templates = []
+        self.foreign_keys = {}    # table.key : table.key
+        self.primary_keys = set() # table.key
+        self.alias_to_keys = defaultdict(set)
 
     def get_entropies(self):
         '''
@@ -353,16 +359,42 @@ class DB():
             create_indexes=False):
         '''
         '''
+        def _update_keys(key1, key2):
+            alias_name = key1[0:key1.find(".")]
+            alias_name2 = key2[0:key2.find(".")]
+            self.alias_to_keys[alias_name].add(key1)
+            self.alias_to_keys[alias_name2].add(key2)
+
+            if ".id" in key1:
+                self.primary_keys.add(key1)
+                # which table did this key belong to?
+
+            elif "_id" in key1:
+                print(key1, key2)
+                if ".id" in key2:
+                    self.foreign_keys[key1] = key2
+                # else, it is a foreign_key : foreign_key join, we can ignore
+                # this for now.
+
         if "SELECT COUNT" not in query_template:
             print(query_template)
             assert False
 
+        self.templates.append(query_template)
         pred_columns, pred_types, pred_vals = extract_predicates(query_template)
         for cmp_op in pred_types:
             self.cmp_ops.add(cmp_op)
         from_clauses, aliases, tables = extract_from_clause(query_template)
         self.aliases.update(aliases)
         self.tables.update(tables)
+
+        join_clauses = extract_join_clause(query_template)
+        for clause in join_clauses:
+            # separate it out
+            left = clause.split("=")[0].strip()
+            right = clause.split("=")[1].strip()
+            _update_keys(left, right)
+            _update_keys(right, left)
 
         if create_indexes:
             for alias, table_name in self.aliases.items():

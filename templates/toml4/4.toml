@@ -1,5 +1,6 @@
 title = "Template 4"
 # combining toml3 + cast_info stuff
+# TODO: add movie_info join with preds on it on top of this and compare jl#s
 
 [base_sql]
 sql = '''SELECT COUNT(*) FROM title as t,
