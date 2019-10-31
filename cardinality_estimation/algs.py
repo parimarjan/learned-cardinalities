@@ -237,33 +237,33 @@ class CardinalityEstimationAlg():
         pass
 
 class Postgres(CardinalityEstimationAlg):
-    # def test(self, test_samples):
-        # return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
-
     def test(self, test_samples):
-        # num tables based
-        ret = []
-        num_tables = defaultdict(list)
-        num_tables_true = defaultdict(list)
-        for sample in test_samples:
-            num_table = len(sample.froms)
-            true_sel = sample.true_sel
-            pg_sel = sample.pg_count / float(sample.total_count)
-            num_tables[num_table].append(pg_sel)
-            num_tables_true[num_table].append(true_sel)
+        return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
 
-            if num_table <= 3:
-                ret.append(true_sel)
-            else:
-                ret.append(pg_sel)
+    # def test(self, test_samples):
+        # # num tables based
+        # ret = []
+        # num_tables = defaultdict(list)
+        # num_tables_true = defaultdict(list)
+        # for sample in test_samples:
+            # num_table = len(sample.froms)
+            # true_sel = sample.true_sel
+            # pg_sel = sample.pg_count / float(sample.total_count)
+            # num_tables[num_table].append(pg_sel)
+            # num_tables_true[num_table].append(true_sel)
 
-        for table in num_tables:
-            yhat = np.array(num_tables[table])
-            ytrue = np.array(num_tables_true[table])
-            qloss_val = qloss(yhat, ytrue)
-            print("{}: qerr: {}".format(table, qloss_val))
+            # if num_table <= 3:
+                # ret.append(true_sel)
+            # else:
+                # ret.append(pg_sel)
 
-        return ret
+        # for table in num_tables:
+            # yhat = np.array(num_tables[table])
+            # ytrue = np.array(num_tables_true[table])
+            # qloss_val = qloss(yhat, ytrue)
+            # print("{}: qerr: {}".format(table, qloss_val))
+
+        # return ret
 
 
 class PostgresRegex(CardinalityEstimationAlg):
@@ -981,6 +981,7 @@ class NN2(CardinalityEstimationAlg):
         self.sampling_priority_alpha = kwargs["sampling_priority_alpha"]
         self.net_name = kwargs["net_name"]
         self.reuse_env = kwargs["reuse_env"]
+        self.jl_use_postgres = kwargs["jl_use_postgres"]
 
         nn_cache_dir = kwargs["nn_cache_dir"]
 
@@ -1218,7 +1219,7 @@ class NN2(CardinalityEstimationAlg):
                 and num_iter != 0):
             jl_eval_start = time.time()
             est_card_costs, baseline_costs = join_loss(pred, samples, env,
-                    baseline=self.baseline)
+                    self.baseline, self.jl_use_postgres)
 
             join_losses = np.array(est_card_costs) - np.array(baseline_costs)
             join_losses2 = np.array(est_card_costs) / np.array(baseline_costs)
@@ -1462,7 +1463,7 @@ class NN2(CardinalityEstimationAlg):
 
                 if jl_variant in [1, 2]:
                     est_card_costs, baseline_costs = join_loss(pred, mb_samples, self, env,
-                            baseline=self.baseline)
+                            baseline, self.jl_use_postgres)
 
                     ## TODO: first one is just too large a number to use (?)
                     # jl = np.array(est_card_costs)  - np.array(baseline_costs)
@@ -1807,7 +1808,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         if (num_iter % self.eval_iter_jl == 0):
             jl_eval_start = time.time()
             est_card_costs, baseline_costs = join_loss(pred, samples, env,
-                    baseline=self.baseline)
+                    baseline, self.jl_use_postgres)
 
             join_losses = np.array(est_card_costs) - np.array(baseline_costs)
             join_losses2 = np.array(est_card_costs) / np.array(baseline_costs)

@@ -118,71 +118,79 @@ def run_all_eps(env, num_queries, fixed_agent=None):
         queries[query] = info
     return queries
 
-def update_cards(est_cards, q, fix_aliases=True):
+def update_cards(est_cards, q, use_aliases=False,
+        fix_aliases=True):
     '''
     @est_cards: cardinalities for each of the subqueries in q.subqueries.
     @ret: cardinalities for each subquery.
+    @use_aliases: when using alias names for identifying each table, as in when
+    using postgres estimates.
 
     HACK: because alias information is being lost in calcite, we hack table
     name + filter value as key (ugh....)
     '''
     cards = {}
     for j, subq in enumerate(q.subqueries):
-        # get all the tables in subquery
-        tables = subq.table_names
-        filter_tables = []
-        try:
-            assert hasattr(subq, "froms")
-        except:
-            print(subq)
-            pdb.set_trace()
+        if use_aliases:
+            aliases = [k for k in subq.aliases]
+            alias_key = ' '.join(aliases)
+            cards[alias_key] = int(est_cards[j])
+        else:
+            # get all the tables in subquery
+            tables = subq.table_names
+            filter_tables = []
+            try:
+                assert hasattr(subq, "froms")
+            except:
+                print(subq)
+                pdb.set_trace()
 
-        if fix_aliases:
-            # STUPID hack.
-            aliases = [a for a in subq.aliases]
-            for k, alias in enumerate(aliases):
-                # deal with multiple predicates ...
-                seen = set()
-                table = subq.aliases[alias]
-                # because range queries have additional entry
-                # update table[k] to also include filter, if a filter is present.
-                # alias = get_alias(subq, table)
+            if fix_aliases:
+                # STUPID hack.
+                aliases = [a for a in subq.aliases]
+                for k, alias in enumerate(aliases):
+                    # deal with multiple predicates ...
+                    seen = set()
+                    table = subq.aliases[alias]
+                    # because range queries have additional entry
+                    # update table[k] to also include filter, if a filter is present.
+                    # alias = get_alias(subq, table)
 
-                # check each of the predicates to see if alias present
-                val = ""
-                for pred_i, pred in enumerate(subq.pred_column_names):
-                    if pred in seen:
-                        continue
-                    # yikes
-                    # kill me
-                    if " " + alias + "." in " " + pred:
-                        # ...assuming it is sorted here...
-                        if subq.cmp_ops[pred_i] == "lt":
-                            val = str(subq.vals[pred_i][1])
-                        else:
-                            val = subq.vals[pred_i]
-                            if isinstance(val, dict):
-                                val = val["literal"]
-                            elif isinstance(val, list):
-                                val = val[0]
+                    # check each of the predicates to see if alias present
+                    val = ""
+                    for pred_i, pred in enumerate(subq.pred_column_names):
+                        if pred in seen:
+                            continue
+                        # yikes
+                        # kill me
+                        if " " + alias + "." in " " + pred:
+                            # ...assuming it is sorted here...
+                            if subq.cmp_ops[pred_i] == "lt":
+                                val = str(subq.vals[pred_i][1])
+                            else:
+                                val = subq.vals[pred_i]
+                                if isinstance(val, dict):
+                                    val = val["literal"]
+                                elif isinstance(val, list):
+                                    val = val[0]
 
-                    seen.add(pred)
+                        seen.add(pred)
 
-                filter_tables.append(table + val)
-                # filter_tables.append(table)
+                    filter_tables.append(table + val)
+                    # filter_tables.append(table)
 
-        val = subq.true_count
-        tables.sort()
-        filter_tables.sort()
-        table_key = " ".join(tables)
-        filter_table_key = " ".join(filter_tables)
-        # ugh, initial space because of the way cardinalities json was
-        # generated..
-        # table_key = " " + table_key
+            # val = subq.true_count
+            tables.sort()
+            filter_tables.sort()
+            table_key = " ".join(tables)
+            filter_table_key = " ".join(filter_tables)
+            # ugh, initial space because of the way cardinalities json was
+            # generated..
+            # table_key = " " + table_key
 
-        ## FIXME: shouldn't need both these, but need to check into calcite..
-        cards[table_key] = int(est_cards[j])
-        cards[filter_table_key] = int(est_cards[j])
+            ## FIXME: shouldn't need both these, but need to check into calcite..
+            cards[table_key] = int(est_cards[j])
+            cards[filter_table_key] = int(est_cards[j])
 
     return cards
 
@@ -207,7 +215,7 @@ def _fix_query(query):
     return query
 
 def join_loss(pred, queries, old_env,
-        baseline="EXHAUSTIVE"):
+        baseline, use_postgres):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
@@ -248,20 +256,20 @@ def join_loss(pred, queries, old_env,
         totals = np.array([q.total_count for q in q.subqueries],
                         dtype=np.float32)
         est_cards = np.multiply(yhat, totals)
-        # cardinalities[str(i)] = update_cards(est_cards, q)
-        cardinalities[str(deterministic_hash(q.query))] = update_cards(est_cards, q)
+        cardinalities[str(deterministic_hash(q.query))] = \
+                    update_cards(est_cards, q, use_aliases=use_postgres)
         pred_start += len(q.subqueries)
 
     # Set true cardinalities
     true_cardinalities = {}
     for i, q in enumerate(queries):
         est_cards = np.array([q.true_count for q in q.subqueries])
-        # true_cardinalities[str(i)] = update_cards(est_cards, q)
-        true_cardinalities[str(deterministic_hash(q.query))] = update_cards(est_cards, q)
+        true_cardinalities[str(deterministic_hash(q.query))] = \
+                        update_cards(est_cards, q, use_aliases=use_postgres)
 
     est_card_costs_dict, baseline_costs_dict = \
                 env.compute_join_order_loss(query_dict, true_cardinalities, cardinalities,
-                        baseline)
+                        baseline, postgres=use_postgres)
     est_card_costs = []
     baseline_costs = []
 
@@ -277,7 +285,8 @@ def join_loss(pred, queries, old_env,
     return est_card_costs, baseline_costs
 
 def compute_join_order_loss(alg, queries, use_subqueries,
-        baseline="EXHAUSTIVE", compute_runtime=False):
+        baseline="EXHAUSTIVE", compute_runtime=False,
+        use_postgres=False):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
@@ -290,104 +299,9 @@ def compute_join_order_loss(alg, queries, use_subqueries,
     pred = alg.test(all_queries)
 
     env = park.make('query_optimizer')
-    est_card_costs, baseline_costs = join_loss(pred, queries, env, baseline=baseline)
+
+    est_card_costs, baseline_costs = join_loss(pred, queries, env,
+            baseline, use_postgres)
 
     env.clean()
     return np.array(est_card_costs) - np.array(baseline_costs)
-
-def compute_join_order_loss_old(alg, queries, use_subqueries,
-        baseline="EXHAUSTIVE", compute_runtime=False):
-    '''
-    TODO: also updates each query object with the relevant stats that we want
-    to plot.
-    '''
-    assert len(queries[0].subqueries) > 0
-    # create a new park env, and close at the end.
-    env = park.make('query_optimizer')
-    # Set queries
-    query_dict = {}
-
-    # TMP: debugging, hardcoded-queries
-    # queries = queries[0:1]
-    # fname = "/home/pari/query-optimizer/simple-queries/0.sql"
-    # with open(fname, "r") as f:
-        # queries[0].query = f.read()
-
-    # each queries index is set to its name
-    for i, q in enumerate(queries):
-        q.query = _fix_query(q.query)
-        query_dict[str(i)] = q.query
-
-    env.initialize_queries(query_dict)
-    cardinalities = {}
-    # Set estimated cardinalities
-    for i, q in enumerate(queries):
-        yhat = alg.test(q.subqueries)
-        yhat = np.array(yhat, dtype=np.float32)
-        totals = np.array([q.total_count for q in q.subqueries],
-                        dtype=np.float32)
-        est_cards = np.multiply(yhat, totals)
-        cardinalities[str(i)] = update_cards(est_cards, q)
-
-        if not hasattr(q, "subq_cards"):
-            q.subq_cards = {}
-        q.subq_cards[alg.__str__()] = cardinalities[str(i)]
-
-    env.initialize_cardinalities(cardinalities)
-    # let us now initialize the cost model costs, based on all the subqueries that we
-    # have.
-    # cost_model = {}
-    # for i, q in enumerate(queries):
-        # cost_model[i] = update_cost_model(q)
-
-    # Learn optimal agent for estimated cardinalities
-    agents = []
-    train_q = run_all_eps(env, len(cardinalities))
-    fixed_agent = {}
-
-    for i, q in enumerate(queries):
-        info = train_q[str(i)]
-        actions = info["joinOrders"][baseline]["joinEdgeChoices"]
-        fixed_agent[str(i)] = actions
-
-    assert len(fixed_agent) == len(cardinalities) == len(queries)
-    agents.append(fixed_agent)
-
-    cardinalities = {}
-    # Set true cardinalities
-    for i, q in enumerate(queries):
-        est_cards = np.array([q.true_count for q in q.subqueries])
-        cardinalities[str(i)] = update_cards(est_cards, q)
-        # for later plotting
-        q.subq_cards["true"] = cardinalities[str(i)]
-
-    env.initialize_cardinalities(cardinalities)
-
-    # Test agent on true cardinalities
-    assert len(agents) == 1
-    # TODO: save the data / compare across queries etc.
-    # for rep, fixed_agent in enumerate(agents):
-    fixed_agent = agents[0]
-
-    test_q = run_all_eps(env, len(cardinalities), fixed_agent=fixed_agent)
-    total_error = 0.00
-    baseline_costs = []
-    est_card_costs = []
-
-    for i, q in enumerate(queries):
-        if not hasattr(q, "join_info"):
-            q.join_info = {}
-        info = test_q[str(i)]
-        q.join_info[alg.__str__()] = info
-        bcost = info["costs"][baseline]
-        card_cost = info["costs"]["RL"]
-        cur_error = card_cost - bcost
-        total_error += card_cost - bcost
-        baseline_costs.append(float(bcost))
-        est_card_costs.append(float(card_cost))
-    print(q.join_info.keys())
-    total_avg_err = np.mean(np.array(est_card_costs)-np.array(baseline_costs))
-    print("total avg error: {}: {}".format(baseline, total_avg_err))
-    rel_errors = np.array(est_card_costs) / np.array(baseline_costs)
-
-    return rel_errors

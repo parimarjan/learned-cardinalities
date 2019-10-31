@@ -69,7 +69,8 @@ def get_alg(alg):
                     net_name = args.net_name,
                     reuse_env = args.reuse_env,
                     eval_iter_jl = args.eval_iter_jl,
-                    eval_num_tables = args.eval_num_tables)
+                    eval_num_tables = args.eval_num_tables,
+                    jl_use_postgres = args.jl_use_postgres)
     elif alg == "nn3":
         return NumTablesNN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,
@@ -94,7 +95,8 @@ def get_alg(alg):
                     num_trees = args.rf_trees,
                     reuse_env = args.reuse_env,
                     eval_num_tables = args.eval_num_tables,
-                    group_models = args.group_models)
+                    group_models = args.group_models,
+                    jl_use_postgres = args.jl_use_postgres)
     elif alg == "ourpgm":
         return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend)
     else:
@@ -138,7 +140,8 @@ def eval_alg(alg, losses, queries, use_subqueries):
         if "join" in loss_name:
             losses = loss_func(alg, queries, args.use_subqueries,
                     baseline=args.baseline_join_alg,
-                    compute_runtime=args.compute_runtime)
+                    compute_runtime=args.compute_runtime,
+                    use_postgres = args.jl_use_postgres)
             assert len(losses) == len(queries)
             # only used with queries, since subqueries don't have an associated join-loss
             for i, q in enumerate(queries):
@@ -352,6 +355,8 @@ def read_flags():
             required=False, default=0)
     parser.add_argument("--eval_test_while_training", type=int,
             required=False, default=1)
+    parser.add_argument("--jl_use_postgres", type=int,
+            required=False, default=0)
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
