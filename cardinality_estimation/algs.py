@@ -1886,6 +1886,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.loss_stop_thresh = 1.00
         self.num_tables_train_qerr = {}
         self.group_models = kwargs["group_models"]
+        self.jl_use_postgres = kwargs["jl_use_postgres"]
 
         if kwargs["loss_func"] == "qloss":
             self.loss_func = qloss_torch
@@ -2107,7 +2108,7 @@ class NumTablesNN(CardinalityEstimationAlg):
         if (num_iter % self.eval_iter_jl == 0):
             jl_eval_start = time.time()
             est_card_costs, baseline_costs = join_loss(pred, samples, env,
-                    baseline, self.jl_use_postgres)
+                    "EXHAUSTIVE", self.jl_use_postgres)
 
             join_losses = np.array(est_card_costs) - np.array(baseline_costs)
             join_losses2 = np.array(est_card_costs) / np.array(baseline_costs)

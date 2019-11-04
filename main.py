@@ -1,4 +1,5 @@
 from cardinality_estimation.db import DB
+
 # from cardinality_estimation.cardinality_sample import CardinalitySample
 from cardinality_estimation.query import *
 from cardinality_estimation.algs import *
