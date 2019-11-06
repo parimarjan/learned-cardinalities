@@ -1064,7 +1064,7 @@ def weighted_loss(yhat, ytrue):
     loss2 = qloss_torch(yhat, ytrue)
     return loss1 + loss2
 
-def rel_loss_torch(pred, ytrue):
+def rel_loss_torch(pred, ytrue, avg=True):
     '''
     Loss function for neural network training. Should use the
     compute_relative_loss formula, but deal with appropriate pytorch types.
@@ -1074,10 +1074,32 @@ def rel_loss_torch(pred, ytrue):
     assert len(pred) == len(ytrue)
     epsilons = to_variable([REL_LOSS_EPSILON]*len(pred)).float()
     errors = torch.abs(pred-ytrue) / (torch.max(epsilons, ytrue))
-    error = (errors.sum()) / len(pred)
+    if avg:
+        error = (errors.sum()) / len(pred)
+    else:
+        error = errors
+    return error
+
+def rel_loss(pred, ytrue, avg=True):
+    '''
+    Loss function for neural network training. Should use the
+    compute_relative_loss formula, but deal with appropriate pytorch types.
+    '''
+    # this part is the same for both rho_est, or directly selectivity
+    # estimation cases
+    assert len(pred) == len(ytrue)
+    epsilons = np.array([REL_LOSS_EPSILON]*len(pred))
+    errors = np.abs(pred-ytrue) / (np.maximum(epsilons, ytrue))
+    if avg:
+        error = (np.sum(errors) / len(pred))
+    else:
+        error = errors
     return error
 
 def qloss(yhat, ytrue, avg=True):
+    '''
+    numpy version.
+    '''
 
     epsilons = np.array([QERR_MIN_EPS]*len(yhat))
     ytrue = np.maximum(ytrue, epsilons)
@@ -1087,6 +1109,54 @@ def qloss(yhat, ytrue, avg=True):
     errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
     if avg:
         error = np.sum(errors) / len(yhat)
+    else:
+        return errors
+
+    return error
+
+
+def qloss_torch(yhat, ytrue, avg=True):
+
+    epsilons = to_variable([QERR_MIN_EPS]*len(yhat)).float()
+    ytrue = torch.max(ytrue, epsilons)
+    yhat = torch.max(yhat, epsilons)
+
+    # TODO: check this
+    errors = torch.max( (ytrue / yhat), (yhat / ytrue))
+    if avg:
+        error = errors.sum() / len(yhat)
+    else:
+        return errors
+
+    return error
+
+def abs_loss(yhat, ytrue, avg=True):
+    '''
+    numpy version.
+    '''
+    # ytrue = np.maximum(ytrue, epsilons)
+    # yhat = np.maximum(yhat, epsilons)
+
+    # TODO: check this
+    errors = np.absolute(ytrue - yhat)
+    if avg:
+        error = np.sum(errors) / len(yhat)
+    else:
+        return errors
+
+    return error
+
+def abs_loss_torch(yhat, ytrue, avg=True):
+    '''
+    numpy version.
+    '''
+    # ytrue = torch.max(ytrue, epsilons)
+    # yhat = torch.max(yhat, epsilons)
+
+    # TODO: check this
+    errors = torch.abs(ytrue - yhat)
+    if avg:
+        error = errors.sum() / len(yhat)
     else:
         return errors
 
@@ -1731,7 +1801,8 @@ class NN2(CardinalityEstimationAlg):
                 xbatch = X[idxs]
                 ybatch = Y[idxs]
             elif self.sampling == "weighted_subquery" \
-                    or self.sampling == "num_tables_weight":
+                    or self.sampling == "num_tables_weight" \
+                    or self.sampling == "weighted_query":
                 MB_SIZE = self.mb_size
                 idxs = np.random.choice(list(range(len(X))), MB_SIZE,
                         p=subquery_sampling_weights)
@@ -1887,11 +1958,12 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.num_tables_train_qerr = {}
         self.group_models = kwargs["group_models"]
         self.jl_use_postgres = kwargs["jl_use_postgres"]
+        self.loss_func = kwargs["loss_func"]
 
-        if kwargs["loss_func"] == "qloss":
-            self.loss_func = qloss_torch
-        else:
-            assert False
+        # if kwargs["loss_func"] == "qloss":
+            # self.loss_func = qloss_torch
+        # else:
+            # assert False
 
         # TODO: remove redundant crap.
         self.feature_len = None
@@ -1920,7 +1992,6 @@ class NumTablesNN(CardinalityEstimationAlg):
         self.rel_jloss = kwargs["rel_jloss"]
         self.adaptive_lr = kwargs["adaptive_lr"]
         self.baseline = kwargs["baseline"]
-        # self.loss_func = kwargs["loss_func"]
         self.sampling = kwargs["sampling"]
         self.sampling_priority_method = kwargs["sampling_priority_method"]
         self.adaptive_priority_alpha = kwargs["adaptive_priority_alpha"]
@@ -2016,24 +2087,56 @@ class NumTablesNN(CardinalityEstimationAlg):
         else:
             return tables
 
+    def _get_loss_func(self, num_table, torch_version=True):
+        if self.loss_func == "qloss":
+            if torch_version:
+                return qloss_torch
+            else:
+                return qloss
+        elif self.loss_func == "mixed1":
+            if num_table <= 4:
+                if torch_version:
+                    return qloss_torch
+                else:
+                    return qloss
+            else:
+                if torch_version:
+                    return rel_loss_torch
+                else:
+                    return rel_loss
+        elif self.loss_func == "mixed2":
+            if num_table <= 4:
+                if torch_version:
+                    return qloss_torch
+                else:
+                    return qloss
+            else:
+                if torch_version:
+                    return abs_loss_torch
+                else:
+                    return abs_loss
+        else:
+            assert False
+
     # same function for all the nns
-    def _periodic_num_table_eval_nets(self, loss_func, num_iter):
+    def _periodic_num_table_eval_nets(self, num_iter):
         for num_table in self.samples:
             x_table = self.table_x_train[num_table]
             y_table = self.table_y_train[num_table]
             if len(x_table) == 0:
                 continue
 
-            if num_table in self.num_tables_train_qerr:
-                if self.num_tables_train_qerr[num_table] < self.loss_stop_thresh:
-                    continue
+            # if num_table in self.num_tables_train_qerr:
+                # if self.num_tables_train_qerr[num_table] < self.loss_stop_thresh:
+                    # continue
 
             net = self.models[num_table]
             pred_table = net(x_table)
             pred_table = pred_table.squeeze(1)
             pred_table = pred_table.data.numpy()
 
-            loss_trains = qloss(pred_table, y_table, avg=False)
+            loss_trains = self._get_loss_func(num_table, torch_version=False) \
+                            (pred_table, y_table, avg=False)
 
             if num_table not in self.stats["train"]["tables_eval"]["qerr"]:
                 self.stats["train"]["tables_eval"]["qerr"][num_table] = {}
@@ -2054,7 +2157,8 @@ class NumTablesNN(CardinalityEstimationAlg):
             pred_table = net(x_table)
             pred_table = pred_table.squeeze(1)
             pred_table = pred_table.data.numpy()
-            loss_test = qloss(pred_table, y_table, avg=False)
+            loss_test = self._get_loss_func(num_table, torch_version=False) \
+                        (pred_table, y_table, avg=False)
             if num_table not in self.stats["test"]["tables_eval"]["qerr"]:
                 self.stats["test"]["tables_eval"]["qerr"][num_table] = {}
                 self.stats["test"]["tables_eval"]["qerr-all"][num_table] = {}
@@ -2067,8 +2171,12 @@ class NumTablesNN(CardinalityEstimationAlg):
             print("num_tables: {}, train_qerr: {}, test_qerr: {}, size: {}".format(\
                     num_table, np.mean(loss_trains), np.mean(loss_test), len(y_table)))
 
-    def _periodic_eval(self, samples, env, key, loss_func,
+    def _periodic_eval(self, samples, env, key,
             num_iter):
+        '''
+        this loss computation is not used for training, so we can just use
+        qerror here.
+        '''
 
         assert (num_iter % self.eval_iter == 0)
         Y = []
@@ -2086,8 +2194,6 @@ class NumTablesNN(CardinalityEstimationAlg):
             else:
                 pred.append(self.models[num_tables](sample.features).item())
 
-            # print(self.models.keys())
-            # pdb.set_trace()
             for subq in sample.subqueries:
                 Y.append(subq.true_sel)
                 num_tables = self.map_num_tables(len(subq.froms))
@@ -2244,7 +2350,7 @@ class NumTablesNN(CardinalityEstimationAlg):
                 # if (num_iter % self.eval_iter == 0):
 
                     if self.eval_num_tables:
-                        self._periodic_num_table_eval_nets(self.loss_func, num_iter)
+                        self._periodic_num_table_eval_nets(num_iter)
 
                     # evaluation code
                     if (num_iter % self.eval_iter_jl == 0 \
@@ -2253,21 +2359,20 @@ class NumTablesNN(CardinalityEstimationAlg):
                         env = park.make('query_optimizer')
 
                     join_losses, join_losses_ratio = self._periodic_eval(training_samples,
-                            env, "train", self.loss_func, num_iter)
+                            env, "train", num_iter)
                     if test_samples:
                         self._periodic_eval(test_samples,
-                                env,"test", self.loss_func, num_iter)
+                                env,"test", num_iter)
 
                     if not self.reuse_env and env is not None:
                         env.clean()
                         env = None
 
                 for num_tables, _ in self.samples.items():
-
-                    if num_tables in self.num_tables_train_qerr:
-                        if self.num_tables_train_qerr[num_tables] < self.loss_stop_thresh:
-                            # print("skipping training ", num_tables)
-                            continue
+                    # if num_tables in self.num_tables_train_qerr:
+                        # if self.num_tables_train_qerr[num_tables] < self.loss_stop_thresh:
+                            # # print("skipping training ", num_tables)
+                            # continue
 
                     optimizer = self.optimizers[num_tables]
                     net = self.models[num_tables]
@@ -2281,7 +2386,7 @@ class NumTablesNN(CardinalityEstimationAlg):
 
                     pred = net(xbatch)
                     pred = pred.squeeze(1)
-                    loss = self.loss_func(pred, ybatch)
+                    loss = self._get_loss_func(num_tables)(pred, ybatch)
 
                     optimizer.zero_grad()
                     loss.backward()

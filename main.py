@@ -435,11 +435,12 @@ def read_flags():
     parser.add_argument("--jl_variant", type=int, required=False,
             default=0)
     parser.add_argument("--sampling", type=str, required=False,
-            default="subquery")
+            default="subquery", help="weighted_query: reprioritize, subquery: uniform \
+            over all queries")
     parser.add_argument("--sampling_priority_method", type=str, required=False,
             default="jl_ratio", help="jl_ratio OR jl_diff or jl_rank")
     parser.add_argument("--sampling_priority_alpha", type=float, required=False,
-            default=1.00, help="")
+            default=5.00, help="")
     parser.add_argument("--adaptive_priority_alpha", type=int, required=False,
             default=0)
 
