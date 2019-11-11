@@ -3,10 +3,12 @@ import pdb
 import park
 from utils.utils import *
 from cardinality_estimation.query import *
+import itertools
 
 EPSILON = 0.000001
 REL_LOSS_EPSILON = EPSILON
 QERR_MIN_EPS = EPSILON
+CROSS_JOIN_CARD = 1313136191
 
 def get_loss(loss):
     if loss == "abs":
@@ -118,12 +120,12 @@ def run_all_eps(env, num_queries, fixed_agent=None):
         queries[query] = info
     return queries
 
-def update_cards(est_cards, q, use_aliases=False,
+def update_cards(est_cards, q, use_postgres=False,
         fix_aliases=True):
     '''
     @est_cards: cardinalities for each of the subqueries in q.subqueries.
     @ret: cardinalities for each subquery.
-    @use_aliases: when using alias names for identifying each table, as in when
+    @use_postgres: when using alias names for identifying each table, as in when
     using postgres estimates.
 
     HACK: because alias information is being lost in calcite, we hack table
@@ -131,8 +133,9 @@ def update_cards(est_cards, q, use_aliases=False,
     '''
     cards = {}
     for j, subq in enumerate(q.subqueries):
-        if use_aliases:
+        if use_postgres:
             aliases = [k for k in subq.aliases]
+            aliases.sort()
             alias_key = ' '.join(aliases)
             cards[alias_key] = int(est_cards[j])
         else:
@@ -215,10 +218,10 @@ def _fix_query(query):
     return query
 
 def join_loss(pred, queries, old_env,
-        baseline, use_postgres):
+        baseline, use_postgres, pdf=None):
     '''
-    TODO: also updates each query object with the relevant stats that we want
-    to plot.
+    @pdf: None, or open pdf file to which the plans and cardinalities will be
+    plotted.
     '''
 
     if old_env is None:
@@ -257,7 +260,7 @@ def join_loss(pred, queries, old_env,
                         dtype=np.float32)
         est_cards = np.multiply(yhat, totals)
         cardinalities[str(deterministic_hash(q.query))] = \
-                    update_cards(est_cards, q, use_aliases=use_postgres)
+                    update_cards(est_cards, q, use_postgres=use_postgres)
         pred_start += len(q.subqueries)
 
     # Set true cardinalities
@@ -265,28 +268,42 @@ def join_loss(pred, queries, old_env,
     for i, q in enumerate(queries):
         est_cards = np.array([q.true_count for q in q.subqueries])
         true_cardinalities[str(deterministic_hash(q.query))] = \
-                        update_cards(est_cards, q, use_aliases=use_postgres)
+                        update_cards(est_cards, q, use_postgres=use_postgres)
 
-    est_card_costs_dict, baseline_costs_dict = \
+    est_card_costs_dict, opt_costs_dict, est_plans, opt_plans = \
                 env.compute_join_order_loss(query_dict, true_cardinalities, cardinalities,
                         baseline, postgres=use_postgres)
-    est_card_costs = []
-    baseline_costs = []
 
+    if use_postgres:
+        if est_plans and pdf:
+            print("going to plot query results for join-loss")
+            for k in est_plans:
+                # plot both optimal, and estimated plans
+                explain = est_plans[k]
+                title = "test"
+                plot_explain_join_order(explain, true_cardinalities[k],
+                        cardinalities[k], pdf, title)
+                # pdb.set_trace()
+    else:
+        assert est_plans is None
+
+    est_card_costs = []
+    opt_costs = []
+    # FIXME: maybe use dicts throughout?
     # need to convert it back into arrays
     for i, q in enumerate(queries):
         key = str(deterministic_hash(q.query))
         est_card_costs.append(est_card_costs_dict[key])
-        baseline_costs.append(baseline_costs_dict[key])
+        opt_costs.append(opt_costs_dict[key])
 
     if old_env is None:
         env.clean()
 
-    return est_card_costs, baseline_costs
+    return est_card_costs, opt_costs
 
 def compute_join_order_loss(alg, queries, use_subqueries,
         baseline="EXHAUSTIVE", compute_runtime=False,
-        use_postgres=False):
+        use_postgres=False, pdf=None):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
@@ -300,8 +317,8 @@ def compute_join_order_loss(alg, queries, use_subqueries,
 
     env = park.make('query_optimizer')
 
-    est_card_costs, baseline_costs = join_loss(pred, queries, env,
-            baseline, use_postgres)
+    est_card_costs, opt_costs = join_loss(pred, queries, env,
+            baseline, use_postgres, pdf=pdf)
 
     env.clean()
-    return np.array(est_card_costs) - np.array(baseline_costs)
+    return np.array(est_card_costs) - np.array(opt_costs)

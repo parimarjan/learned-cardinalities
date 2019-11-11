@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 TIMEOUT_COUNT_CONSTANT = 150001001
+CROSS_JOIN_CARD = 19329323
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
 INSERT_TEMPLATE = "INSERT INTO {name} ({columns}) VALUES %s"
@@ -67,45 +68,177 @@ RANGE_PREDS = ["gt", "gte", "lt", "lte"]
 
 CREATE_INDEX_TMP = '''CREATE INDEX IF NOT EXISTS {INDEX_NAME} ON {TABLE} ({COLUMN});'''
 
+NODE_COLORS = {}
+# NODE_COLORS["Hash Join"] = 'b'
+# NODE_COLORS["Merge Join"] = 'r'
+# NODE_COLORS["Nested Loop"] = 'c'
+
+NODE_COLORS["Index Scan"] = 'b'
+NODE_COLORS["Seq Scan"] = 'r'
+NODE_COLORS["Bitmap Heap Scan"] = 'c'
+
+# figure this out...
+NODE_COLORS["Hash"] = 'b'
+NODE_COLORS["Materialize"] = 'w'
+NODE_COLORS["Sort"] = 'b'
+
+# for signifying whether the join was a left join or right join
+EDGE_COLORS = {}
+EDGE_COLORS["left"] = "b"
+EDGE_COLORS["right"] = "r"
+
 def _find_all_tables(plan):
     '''
     '''
     # find all the scan nodes under the current level, and return those
     table_names = extract_values(plan, "Relation Name")
+    alias_names = extract_values(plan, "Alias")
     table_names.sort()
-    return table_names
+    alias_names.sort()
 
-def plot_graph_explain(G, base_table_nodes, join_nodes, fn, title="test"):
-    NODE_SIZE = 300
-    plt.title(title)
+    return table_names, alias_names
+
+def extract_aliases2(plan):
+    aliases = extract_values(plan, "Alias")
+    # aliases.sort()
+    # print(aliases)
+    # pdb.set_trace()
+    return aliases
+
+def get_leading_hint(explain):
+    '''
+    Ryan's implementation.
+    '''
+    def __extract_jo(plan):
+        if len(plan["Plans"]) == 2:
+            left = list(extract_aliases2(plan["Plans"][0]))
+            right = list(extract_aliases2(plan["Plans"][1]))
+
+            if len(left) == 1 and len(right) == 1:
+                return left[0] + " " + right[0]
+
+            if len(left) == 1:
+                left_alias = left[0]
+                return left_alias + " (" + __extract_jo(plan["Plans"][1]) + ")"
+
+            if len(right) == 1:
+                right_alias = right[0]
+                return "(" + __extract_jo(plan["Plans"][0]) + ") " + right_alias
+
+            return ("(" + __extract_jo(plan["Plans"][0])
+                    + ") ("
+                    + __extract_jo(plan["Plans"][1]) + ")")
+
+        return __extract_jo(plan["Plans"][0])
+
+    jo = __extract_jo(explain[0][0][0]["Plan"])
+    jo = "(" + jo + ")"
+    return jo
+
+def get_pg_join_order(join_graph, explain):
+    '''
+    Ryan's implementation.
+    '''
+    physical_join_ops = {}
+    def __extract_jo(plan):
+        if plan["Node Type"] in join_types:
+            left = list(extract_aliases(plan["Plans"][0]))
+            right = list(extract_aliases(plan["Plans"][1]))
+            all_froms = left + right
+            all_nodes = []
+            for from_clause in all_froms:
+                from_alias = from_clause[from_clause.find(" as ")+4:]
+                if "_info" in from_alias:
+                    print(from_alias)
+                    pdb.set_trace()
+                all_nodes.append(from_alias)
+            all_nodes.sort()
+            all_nodes = " ".join(all_nodes)
+            physical_join_ops[all_nodes] = plan["Node Type"]
+
+            if len(left) == 1 and len(right) == 1:
+                return left[0] +  " CROSS JOIN " + right[0]
+
+            if len(left) == 1:
+                return left[0] + " CROSS JOIN (" + __extract_jo(plan["Plans"][1]) + ")"
+
+            if len(right) == 1:
+                return "(" + __extract_jo(plan["Plans"][0]) + ") CROSS JOIN " + right[0]
+
+            return ("(" + __extract_jo(plan["Plans"][0])
+                    + ") CROSS JOIN ("
+                    + __extract_jo(plan["Plans"][1]) + ")")
+
+        return __extract_jo(plan["Plans"][0])
+
+    return __extract_jo(explain[0][0][0]["Plan"]), physical_join_ops
+
+def _plot_join_order_graph(G, base_table_nodes, join_nodes, pdf, title="test"):
+
+    def format_ints(num):
+        # returns the number formatted to closest 1000 + K
+        return str(round(num, -3)).replace("000","") + "K"
+
+    def _plot_labels(xdiff, ydiff, key, font_color, font_size):
+        labels = {}
+        label_pos = {}
+        for k, v in pos.items():
+            label_pos[k] = (v[0]+xdiff, v[1]+ydiff)
+            if key in G.nodes[k]:
+                if is_float(G.nodes[k][key]):
+                    labels[k] = format_ints(G.nodes[k][key])
+                else:
+                    labels[k] = G.nodes[k][key]
+            else:
+                est_labels[k] = -1
+
+        nx.draw_networkx_labels(G, label_pos, labels,
+                font_size=font_size, font_color=font_color)
+
+    NODE_SIZE = 600
     pos = graphviz_layout(G, prog='dot')
-    # first draw just the base tables
+    plt.title(title)
+    color_intensity = [G.nodes[n]["cur_cost"] for n in G.nodes()]
+    vmin = min(color_intensity)
+    vmax = max(color_intensity)
+    cmap = 'viridis_r'
+    # pos = graphviz_layout(G, prog='dot',
+            # args='-Gnodesep=0.05')
     nx.draw_networkx_nodes(G, pos,
-               nodelist=base_table_nodes,
-               node_color='b',
                node_size=NODE_SIZE,
-               alpha=0.2)
+               node_color = color_intensity,
+               cmap = cmap,
+               alpha=0.2,
+               vmin=vmin, vmax=vmax)
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin = vmin,
+        vmax=vmax))
+    sm._A = []
+    plt.colorbar(sm, alpha=0.2)
 
-    nx.draw_networkx_nodes(G, pos,
-               nodelist=join_nodes,
-               node_color='r',
-               node_size=NODE_SIZE,
-               alpha=0.2)
+    _plot_labels(0, -25, "est_card", "r", 8)
+    _plot_labels(0, +25, "true_card", "g", 8)
+    _plot_labels(0, 0, "node_label", "b", 14)
 
+    # TODO: shape of node based on scan types
+    # _plot_labels(+25, +5, "scan_type", "b", 10)
 
-    node_labels = {}
-    for n in G.nodes():
-        if len(G.nodes[n]["tables"]) == 1:
-            node_labels[n] = n
-        else:
-            node_labels[n] = n
+    x_values, y_values = zip(*pos.values())
+    x_max = max(x_values)
+    x_min = min(x_values)
+    x_margin = (x_max - x_min) * 0.10
+    plt.xlim(x_min - x_margin, x_max + x_margin)
 
-        nx.draw_networkx_labels(G, pos, node_labels, font_size=8)
+    edge_colors = []
+    for edge in G.edges():
+        edge_colors.append(EDGE_COLORS[G.edges[edge]["join_direction"]])
 
-    nx.draw_networkx_edges(G,pos,width=1.0,
-            alpha=0.5,with_labels=False)
+    nx.draw_networkx_edges(G, pos, width=1.0,
+            alpha=1.0,with_labels=False, arrows=False,
+            edge_color=edge_colors)
+
     plt.tight_layout()
-    plt.savefig(fn)
+    # plt.savefig(fn)
+    pdf.savefig()
     plt.close()
 
 def explain_to_nx(explain):
@@ -122,66 +255,99 @@ def explain_to_nx(explain):
             join_nodes.append(name)
         else:
             name = tables[0]
-            # shorten it
-            name = "".join([n[0] for n in name.split("_")])
-            if name in base_table_nodes:
-                name = name + "2"
+            if len(name) >= 6:
+                # no aliases, shorten it
+                name = "".join([n[0] for n in name.split("_")])
+                if name in base_table_nodes:
+                    name = name + "2"
             base_table_nodes.append(name)
         return name
 
+    def _add_node_stats(node, plan):
+        # add stats for the join
+        G.nodes[node]["Plan Rows"] = plan["Plan Rows"]
+        # G.nodes[node]["Node Type"] = plan["Node Type"]
+        total_cost = plan["Total Cost"]
+        G.nodes[node]["Total Cost"] = total_cost
+        aliases = G.nodes[node]["aliases"]
+        if len(G.nodes[node]["tables"]) > 1:
+            children_cost = plan["Plans"][0]["Total Cost"] \
+                    + plan["Plans"][1]["Total Cost"]
+
+            # +1 to avoid cases which are very close
+            if not total_cost+1 >= children_cost:
+                print("aliases: {} children cost: {}, total cost: {}".format(\
+                        aliases, children_cost, total_cost))
+                pdb.set_trace()
+            G.nodes[node]["cur_cost"] = total_cost - children_cost
+            G.nodes[node]["node_label"] = plan["Node Type"][0]
+            G.nodes[node]["scan_type"] = ""
+        else:
+            # FIXME: debug
+            G.nodes[node]["cur_cost"] = total_cost
+            G.nodes[node]["node_label"] = node
+            # what type of scan was this?
+            node_types = extract_values(plan, "Node Type")
+            for i, full_n in enumerate(node_types):
+                shortn = ""
+                for n in full_n.split(" "):
+                    shortn += n[0]
+                node_types[i] = shortn
+
+            scan_type = "\n".join(node_types)
+            G.nodes[node]["scan_type"] = scan_type
+
     def traverse(obj):
-        """Return all matching values in an object."""
         if isinstance(obj, dict):
             if "Plans" in obj:
                 if len(obj["Plans"]) == 2:
                     # these are all the joins
-                    left_tables = _find_all_tables(obj["Plans"][0])
-                    right_tables = _find_all_tables(obj["Plans"][1])
+                    left_tables, left_aliases = _find_all_tables(obj["Plans"][0])
+                    right_tables, right_aliases = _find_all_tables(obj["Plans"][1])
                     all_tables = left_tables + right_tables
-                    node_type = obj["Node Type"]
+                    all_aliases = left_aliases + right_aliases
+                    all_aliases.sort()
                     all_tables.sort()
 
-                    node0 = _get_node_name(left_tables)
-                    node1 = _get_node_name(right_tables)
-                    node_new = _get_node_name(all_tables)
-                    # print(left_tables)
-                    # print(right_tables)
-                    # print(obj.keys())
-                    # print(obj["Node Type"])
-                    # print("cost: ", obj["Total Cost"])
-                    # # print("time: ", obj["Actual Total Time"])
-                    # # print("actual rows: ", obj["Actual Rows"])
-                    # print("plan rows: ", obj["Plan Rows"])
-                    # print("width: ", obj["Plan Width"])
-                    # # print("Actual Loops: ", obj["Actual Loops"])
-                    # print("parallel: ", obj["Parallel Aware"])
-                    # if left_tables[0] == "movie_info" and right_tables[0] == "title":
-                        # print("movie info and title")
-                        # pdb.set_trace()
-                    # print("left plan rows: ", obj["Plans"][0]["Plan Rows"])
-                    # print("right plan rows: ", obj["Plans"][1]["Plan Rows"])
-                    # print("left parallel: ", obj["Plans"][0]["Parallel Aware"])
-                    # print("right plan rows: ", obj["Plans"][1]["Parallel Aware"])
-                    # assert not obj["Plans"][0]["Parallel Aware"]
-                    # assert not obj["Plans"][1]["Parallel Aware"]
-
-                    # pdb.set_trace()
+                    if len(left_aliases) > 0:
+                        node0 = _get_node_name(left_aliases)
+                        node1 = _get_node_name(right_aliases)
+                        node_new = _get_node_name(all_aliases)
+                    else:
+                        node0 = _get_node_name(left_tables)
+                        node1 = _get_node_name(right_tables)
+                        node_new = _get_node_name(all_tables)
 
                     # update graph
-                    # G.add_edge(node0, node1)
-                    G.add_edge(node0, node_new)
-                    G.add_edge(node1, node_new)
+                    # G.add_edge(node0, node_new)
+                    # G.add_edge(node1, node_new)
+                    G.add_edge(node_new, node0)
+                    G.add_edge(node_new, node1)
+                    G.edges[(node_new, node0)]["join_direction"] = "left"
+                    G.edges[(node_new, node1)]["join_direction"] = "right"
+
                     # add other parameters on the nodes
                     G.nodes[node0]["tables"] = left_tables
                     G.nodes[node1]["tables"] = right_tables
+                    G.nodes[node0]["aliases"] = left_aliases
+                    G.nodes[node1]["aliases"] = right_aliases
                     G.nodes[node_new]["tables"] = all_tables
+                    G.nodes[node_new]["aliases"] = all_aliases
+
+                    # TODO: if either the left, or right were a scan, then add
+                    # scan stats
+                    _add_node_stats(node_new, obj)
+
+                    if len(left_tables) == 1:
+                        _add_node_stats(node0, obj["Plans"][0])
+                    if len(right_tables) == 1:
+                        _add_node_stats(node1, obj["Plans"][1])
 
             for k, v in obj.items():
                 if isinstance(v, (dict, list)):
                     traverse(v)
-                # print(k)
 
-        elif isinstance(obj, list):
+        elif isinstance(obj, list) or isinstance(obj,tuple):
             for item in obj:
                 traverse(item)
 
@@ -190,6 +356,40 @@ def explain_to_nx(explain):
     G.base_table_nodes = base_table_nodes
     G.join_nodes = join_nodes
     return G
+
+def plot_explain_join_order(explain, true_cardinalities,
+        est_cardinalities, pdf, title):
+    '''
+    '''
+    G = explain_to_nx(explain)
+    for node in G.nodes():
+        aliases = G.nodes[node]["aliases"]
+        aliases.sort()
+        card_key = " ".join(aliases)
+        if card_key in true_cardinalities:
+            G.nodes[node]["est_card"] = est_cardinalities[card_key]
+            G.nodes[node]["true_card"] = true_cardinalities[card_key]
+        else:
+            # unknown, might be a cross-join?
+            G.nodes[node]["est_card"] = CROSS_JOIN_CARD
+            G.nodes[node]["true_card"] = CROSS_JOIN_CARD
+            print("did not find alias in cards, is this cross join?")
+            print(aliases)
+            pdb.set_trace()
+
+        if G.nodes[node]["Plan Rows"] != G.nodes[node]["true_card"]:
+            # if len(aliases) != 1 and \
+                # G.nodes[node]["true_card"] != TIMEOUT_COUNT_CONSTANT:
+            if len(aliases) != 1:
+                print("should run explain with true values")
+                print("aliases: {}, true: {}, est: {}, plan rows: {}".format(\
+                        aliases,
+                        G.nodes[node]["true_card"], G.nodes[node]["est_card"],
+                        G.nodes[node]["Plan Rows"]))
+                # pdb.set_trace()
+                # assert False
+
+    _plot_join_order_graph(G, G.base_table_nodes, G.join_nodes, pdf)
 
 def benchmark_sql(sql, user, db_host, port, pwd, db_name,
         join_collapse_limit):
@@ -367,167 +567,167 @@ def extract_predicates2(query):
     print(where_clauses)
     pdb.set_trace()
 
-def extract_predicates(query):
-    '''
-    @ret:
-        - column names with predicate conditions in WHERE.
-        - predicate operator type (e.g., "in", "lte" etc.)
-        - predicate value
-    Note: join conditions don't count as predicate conditions.
+# def extract_predicates(query):
+    # '''
+    # @ret:
+        # - column names with predicate conditions in WHERE.
+        # - predicate operator type (e.g., "in", "lte" etc.)
+        # - predicate value
+    # Note: join conditions don't count as predicate conditions.
 
-    FIXME: temporary hack. For range queries, always returning key
-    "lt", and vals for both the lower and upper bound
-    '''
-    def parse_column(pred, cur_pred_type):
-        '''
-        gets the name of the column, and whether column location is on the left
-        (0) or right (1)
-        '''
-        for i, obj in enumerate(pred[cur_pred_type]):
-            assert i <= 1
-            if isinstance(obj, str) and "." in obj:
-                # assert "." in obj
-                column = obj
-            elif isinstance(obj, dict):
-                assert "literal" in obj
-                val = obj["literal"]
-                val_loc = i
-            else:
-                val = obj
-                val_loc = i
+    # FIXME: temporary hack. For range queries, always returning key
+    # "lt", and vals for both the lower and upper bound
+    # '''
+    # def parse_column(pred, cur_pred_type):
+        # '''
+        # gets the name of the column, and whether column location is on the left
+        # (0) or right (1)
+        # '''
+        # for i, obj in enumerate(pred[cur_pred_type]):
+            # assert i <= 1
+            # if isinstance(obj, str) and "." in obj:
+                # # assert "." in obj
+                # column = obj
+            # elif isinstance(obj, dict):
+                # assert "literal" in obj
+                # val = obj["literal"]
+                # val_loc = i
+            # else:
+                # val = obj
+                # val_loc = i
 
-        assert column is not None
-        assert val is not None
-        return column, val_loc, val
+        # assert column is not None
+        # assert val is not None
+        # return column, val_loc, val
 
-    def _parse_predicate(pred, pred_type):
-        if pred_type == "eq":
-            columns = pred[pred_type]
-            if len(columns) <= 1:
-                return None
-            # FIXME: more robust handling?
-            if "." in str(columns[1]):
-                # should be a join, skip this.
-                # Note: joins only happen in "eq" predicates
-                return None
-            predicate_types.append(pred_type)
-            predicate_cols.append(columns[0])
-            predicate_vals.append(columns[1])
+    # def _parse_predicate(pred, pred_type):
+        # if pred_type == "eq":
+            # columns = pred[pred_type]
+            # if len(columns) <= 1:
+                # return None
+            # # FIXME: more robust handling?
+            # if "." in str(columns[1]):
+                # # should be a join, skip this.
+                # # Note: joins only happen in "eq" predicates
+                # return None
+            # predicate_types.append(pred_type)
+            # predicate_cols.append(columns[0])
+            # predicate_vals.append(columns[1])
 
-        elif pred_type in RANGE_PREDS:
-            vals = [None, None]
-            col_name, val_loc, val = parse_column(pred, pred_type)
-            vals[val_loc] = val
+        # elif pred_type in RANGE_PREDS:
+            # vals = [None, None]
+            # col_name, val_loc, val = parse_column(pred, pred_type)
+            # vals[val_loc] = val
 
-            # this loop may find no matching predicate for the other side, in
-            # which case, we just leave the val as None
-            for pred2 in pred_vals:
-                pred2_type = list(pred2.keys())[0]
-                if pred2_type in RANGE_PREDS:
-                    col_name2, val_loc2, val2 = parse_column(pred2, pred2_type)
-                    if col_name2 == col_name:
-                        # assert val_loc2 != val_loc
-                        if val_loc2 == val_loc:
-                            # same predicate as pred
-                            continue
-                        vals[val_loc2] = val2
-                        break
+            # # this loop may find no matching predicate for the other side, in
+            # # which case, we just leave the val as None
+            # for pred2 in pred_vals:
+                # pred2_type = list(pred2.keys())[0]
+                # if pred2_type in RANGE_PREDS:
+                    # col_name2, val_loc2, val2 = parse_column(pred2, pred2_type)
+                    # if col_name2 == col_name:
+                        # # assert val_loc2 != val_loc
+                        # if val_loc2 == val_loc:
+                            # # same predicate as pred
+                            # continue
+                        # vals[val_loc2] = val2
+                        # break
 
-            predicate_types.append("lt")
-            predicate_cols.append(col_name)
-            if "g" in pred_type:
-                # reverse vals, since left hand side now means upper bound
-                vals.reverse()
-            predicate_vals.append(vals)
+            # predicate_types.append("lt")
+            # predicate_cols.append(col_name)
+            # if "g" in pred_type:
+                # # reverse vals, since left hand side now means upper bound
+                # vals.reverse()
+            # predicate_vals.append(vals)
 
-        elif pred_type == "between":
-            # we just treat it as a range query
-            col = pred[pred_type][0]
-            val1 = pred[pred_type][1]
-            val2 = pred[pred_type][2]
-            vals = [val1, val2]
-            predicate_types.append("lt")
-            predicate_cols.append(col)
-            predicate_vals.append(vals)
-        elif pred_type == "in" \
-                or "like" in pred_type:
-            # includes preds like, ilike, nlike etc.
-            column = pred[pred_type][0]
-            # what if column has been seen before? Will just be added again to
-            # the list of predicates, which is the correct behaviour
-            vals = pred[pred_type][1]
-            if isinstance(vals, dict):
-                vals = vals["literal"]
-            if not isinstance(vals, list):
-                vals = [vals]
-            predicate_types.append(pred_type)
-            predicate_cols.append(column)
-            predicate_vals.append(vals)
-        elif pred_type == "or":
-            # print(pred[pred_type])
-            # pdb.set_trace()
-            # _parse_predicate(pred, pred_type)
-            # for pred_type2, pred2 in pred[pred_type].items():
-                # print(pred_type2, pred2)
-                # pdb.set_trace()
+        # elif pred_type == "between":
+            # # we just treat it as a range query
+            # col = pred[pred_type][0]
+            # val1 = pred[pred_type][1]
+            # val2 = pred[pred_type][2]
+            # vals = [val1, val2]
+            # predicate_types.append("lt")
+            # predicate_cols.append(col)
+            # predicate_vals.append(vals)
+        # elif pred_type == "in" \
+                # or "like" in pred_type:
+            # # includes preds like, ilike, nlike etc.
+            # column = pred[pred_type][0]
+            # # what if column has been seen before? Will just be added again to
+            # # the list of predicates, which is the correct behaviour
+            # vals = pred[pred_type][1]
+            # if isinstance(vals, dict):
+                # vals = vals["literal"]
+            # if not isinstance(vals, list):
+                # vals = [vals]
+            # predicate_types.append(pred_type)
+            # predicate_cols.append(column)
+            # predicate_vals.append(vals)
+        # elif pred_type == "or":
+            # # print(pred[pred_type])
+            # # pdb.set_trace()
+            # # _parse_predicate(pred, pred_type)
+            # # for pred_type2, pred2 in pred[pred_type].items():
+                # # print(pred_type2, pred2)
+                # # pdb.set_trace()
+                # # _parse_predicate(pred2, pred_type2)
+            # for pred2 in pred[pred_type]:
+                # # print(pred2)
+                # assert len(pred2.keys()) == 1
+                # pred_type2 = list(pred2.keys())[0]
                 # _parse_predicate(pred2, pred_type2)
-            for pred2 in pred[pred_type]:
-                # print(pred2)
-                assert len(pred2.keys()) == 1
-                pred_type2 = list(pred2.keys())[0]
-                _parse_predicate(pred2, pred_type2)
 
-        elif pred_type == "missing":
-            column = pred[pred_type]
-            val = ["NULL"]
-            predicate_types.append("in")
-            predicate_cols.append(column)
-            predicate_vals.append(val)
-        else:
-            # assert False
-            # TODO: need to support "OR" statements
-            return None
-            # assert False, "unsupported predicate type"
+        # elif pred_type == "missing":
+            # column = pred[pred_type]
+            # val = ["NULL"]
+            # predicate_types.append("in")
+            # predicate_cols.append(column)
+            # predicate_vals.append(val)
+        # else:
+            # # assert False
+            # # TODO: need to support "OR" statements
+            # return None
+            # # assert False, "unsupported predicate type"
 
-    start = time.time()
-    predicate_cols = []
-    predicate_types = []
-    predicate_vals = []
-    if "::float" in query:
-        query = query.replace("::float", "")
-    elif "::int" in query:
-        query = query.replace("::int", "")
-    # really fucking dumb
-    bad_str1 = "mii2.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
-    bad_str2 = "mii1.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
-    if bad_str1 in query:
-        query = query.replace(bad_str1, "")
+    # start = time.time()
+    # predicate_cols = []
+    # predicate_types = []
+    # predicate_vals = []
+    # if "::float" in query:
+        # query = query.replace("::float", "")
+    # elif "::int" in query:
+        # query = query.replace("::int", "")
+    # # really fucking dumb
+    # bad_str1 = "mii2.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    # bad_str2 = "mii1.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    # if bad_str1 in query:
+        # query = query.replace(bad_str1, "")
 
-    if bad_str2 in query:
-        query = query.replace(bad_str2, "")
+    # if bad_str2 in query:
+        # query = query.replace(bad_str2, "")
 
-    try:
-        parsed_query = parse(query)
-    except:
-        print(query)
-        print("moz sql parser failed to parse this!")
-        pdb.set_trace()
-    pred_vals = get_all_wheres(parsed_query)
+    # try:
+        # parsed_query = parse(query)
+    # except:
+        # print(query)
+        # print("moz sql parser failed to parse this!")
+        # pdb.set_trace()
+    # pred_vals = get_all_wheres(parsed_query)
 
-    for i, pred in enumerate(pred_vals):
-        try:
-            assert len(pred.keys()) == 1
-        except:
-            print(pred)
-            pdb.set_trace()
-        pred_type = list(pred.keys())[0]
-        # if pred == "or" or pred == "OR":
-            # continue
-        _parse_predicate(pred, pred_type)
+    # for i, pred in enumerate(pred_vals):
+        # try:
+            # assert len(pred.keys()) == 1
+        # except:
+            # print(pred)
+            # pdb.set_trace()
+        # pred_type = list(pred.keys())[0]
+        # # if pred == "or" or pred == "OR":
+            # # continue
+        # _parse_predicate(pred, pred_type)
 
-    # print("extract predicate cols done!")
-    # print("extract predicates took ", time.time() - start)
-    return predicate_cols, predicate_types, predicate_vals
+    # # print("extract predicate cols done!")
+    # # print("extract predicates took ", time.time() - start)
+    # return predicate_cols, predicate_types, predicate_vals
 
 def extract_from_clause(query):
     '''
@@ -1069,8 +1269,9 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
         TRUE_TOTAL_COUNT = False
         total_timeout = 180000
         if TRUE_TOTAL_COUNT:
-            exp_output, _ = cached_execute_query(total_count_query, user, db_host, port, pwd, db_name,
-                    execution_cache_threshold, sql_cache, total_timeout)
+            exp_output, _ = cached_execute_query(total_count_query, user,
+                    db_host, port, pwd, db_name, execution_cache_threshold,
+                    sql_cache, total_timeout)
             if exp_output is None:
                 # print("total count query timed out")
                 # print(total_count_query)

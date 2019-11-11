@@ -28,6 +28,11 @@ from db_utils.query_generator2 import QueryGenerator2
 import toml
 from db_utils.query_storage import *
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
 def get_alg(alg):
     if alg == "independent":
         return Independent()
@@ -149,10 +154,22 @@ def eval_alg(alg, losses, queries, use_subqueries):
     for loss_func in losses:
         loss_name = get_loss_name(loss_func.__name__)
         if "join" in loss_name:
+            if args.viz_join_plans:
+                pdf_fn = args.viz_fn + os.path.basename(args.template_dir) \
+                            + alg.__str__() + ".pdf"
+                print("writing out join plan visualizations to ", pdf_fn)
+                join_viz_pdf = PdfPages(pdf_fn)
+            else:
+                join_viz_pdf = None
+
             losses = loss_func(alg, queries, args.use_subqueries,
                     baseline=args.baseline_join_alg,
                     compute_runtime=args.compute_runtime,
-                    use_postgres = args.jl_use_postgres)
+                    use_postgres = args.jl_use_postgres,
+                    pdf = join_viz_pdf)
+            if join_viz_pdf:
+                join_viz_pdf.close()
+
             assert len(losses) == len(queries)
             # only used with queries, since subqueries don't have an associated join-loss
             for i, q in enumerate(queries):
@@ -372,6 +389,11 @@ def read_flags():
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
+    parser.add_argument("--viz_join_plans", type=int,
+            required=False, default=0)
+    parser.add_argument("--viz_fn", type=str,
+            required=False, default="./test")
+
     parser.add_argument("--nn_cache_dir", type=str, required=False,
             default="./nn_training_cache")
     parser.add_argument("--divide_mb_len", type=int, required=False,
