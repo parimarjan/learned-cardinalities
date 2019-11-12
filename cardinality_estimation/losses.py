@@ -10,6 +10,12 @@ REL_LOSS_EPSILON = EPSILON
 QERR_MIN_EPS = EPSILON
 CROSS_JOIN_CARD = 1313136191
 
+def node_match(n1, n2):
+    return n1 == n2
+
+# def edge_match(e1, e2):
+    # return e1["join_direction"] == e2["join_direction"]
+
 def get_loss(loss):
     if loss == "abs":
         return compute_abs_loss
@@ -275,15 +281,43 @@ def join_loss(pred, queries, old_env,
                         baseline, postgres=use_postgres)
 
     if use_postgres:
+        all_opt_plans = set()
+        all_est_plans = set()
+
         if est_plans and pdf:
             print("going to plot query results for join-loss")
-            for k in est_plans:
+            # for k in est_plans:
+            for i, q in enumerate(queries):
+                k = str(deterministic_hash(q.query))
+                opt_cost = opt_costs_dict[k]
+                est_cost = est_card_costs_dict[k]
                 # plot both optimal, and estimated plans
                 explain = est_plans[k]
-                title = "test"
-                plot_explain_join_order(explain, true_cardinalities[k],
+                leading = get_leading_hint(explain)
+                all_est_plans.add(leading)
+                title = "Estimator Plan: {}, estimator cost: {}, opt cost: {}".format(\
+                    i, est_cost, opt_cost)
+                estG = plot_explain_join_order(explain, true_cardinalities[k],
                         cardinalities[k], pdf, title)
-                # pdb.set_trace()
+                opt_explain = opt_plans[k]
+                opt_leading = get_leading_hint(opt_explain)
+                all_opt_plans.add(opt_leading)
+                title = "Optimal Plan: {}, estimator cost: {}, opt cost: {}".format(\
+                    i, est_cost, opt_cost)
+                optG = plot_explain_join_order(opt_explain, true_cardinalities[k],
+                        cardinalities[k], pdf, title)
+
+                # edit_dists = nx.optimize_graph_edit_distance(estG, optG,
+                        # node_match=node_match)
+                # for i in range(2):
+                    # ed = next(edit_dists)
+
+                # print("opt cost: {}, est_cost: {}, diff: {}, edit dist: {}".\
+                        # format(opt_cost, est_cost, est_cost-opt_cost,
+                            # ed))
+
+            print("num opt plans: {}, num est plans: {}".format(\
+                    len(all_opt_plans), len(all_est_plans)))
     else:
         assert est_plans is None
 
@@ -299,7 +333,7 @@ def join_loss(pred, queries, old_env,
     if old_env is None:
         env.clean()
 
-    return est_card_costs, opt_costs
+    return est_card_costs, opt_costs, est_plans, opt_plans
 
 def compute_join_order_loss(alg, queries, use_subqueries,
         baseline="EXHAUSTIVE", compute_runtime=False,
@@ -317,7 +351,7 @@ def compute_join_order_loss(alg, queries, use_subqueries,
 
     env = park.make('query_optimizer')
 
-    est_card_costs, opt_costs = join_loss(pred, queries, env,
+    est_card_costs, opt_costs, _, _ = join_loss(pred, queries, env,
             baseline, use_postgres, pdf=pdf)
 
     env.clean()

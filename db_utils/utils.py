@@ -173,7 +173,7 @@ def get_pg_join_order(join_graph, explain):
 
     return __extract_jo(explain[0][0][0]["Plan"]), physical_join_ops
 
-def _plot_join_order_graph(G, base_table_nodes, join_nodes, pdf, title="test"):
+def _plot_join_order_graph(G, base_table_nodes, join_nodes, pdf, title):
 
     def format_ints(num):
         # returns the number formatted to closest 1000 + K
@@ -304,6 +304,8 @@ def explain_to_nx(explain):
                     # these are all the joins
                     left_tables, left_aliases = _find_all_tables(obj["Plans"][0])
                     right_tables, right_aliases = _find_all_tables(obj["Plans"][1])
+                    if len(left_tables) == 0 or len(right_tables) == 0:
+                        return
                     all_tables = left_tables + right_tables
                     all_aliases = left_aliases + right_aliases
                     all_aliases.sort()
@@ -389,7 +391,8 @@ def plot_explain_join_order(explain, true_cardinalities,
                 # pdb.set_trace()
                 # assert False
 
-    _plot_join_order_graph(G, G.base_table_nodes, G.join_nodes, pdf)
+    _plot_join_order_graph(G, G.base_table_nodes, G.join_nodes, pdf, title)
+    return G
 
 def benchmark_sql(sql, user, db_host, port, pwd, db_name,
         join_collapse_limit):

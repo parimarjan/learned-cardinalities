@@ -1394,6 +1394,8 @@ class NN2(CardinalityEstimationAlg):
         # TODO: store these
         self.stats["model_params"] = {}
 
+        self.stats["est_plans"] = {}
+
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
         self.db = db
@@ -1576,8 +1578,22 @@ class NN2(CardinalityEstimationAlg):
         if (num_iter % self.eval_iter_jl == 0 \
                 and num_iter != 0):
             jl_eval_start = time.time()
-            est_card_costs, baseline_costs = join_loss(pred, samples, env,
-                    self.baseline, self.jl_use_postgres)
+            est_card_costs, baseline_costs, est_plans, opt_plans = \
+                    join_loss(pred, samples, env, self.baseline, self.jl_use_postgres)
+
+            # FIXME: make this optional
+            for qname, plan in est_plans.items():
+                if qname not in self.stats["est_plans"]:
+                    self.stats["est_plans"][qname] = []
+                leading = get_leading_hint(plan)
+                print(leading)
+
+                if len(self.stats["est_plans"][qname]) > 0 \
+                        and self.stats["est_plans"][qname][-1][1] == leading:
+                    print("plan did not change!")
+                    continue
+                else:
+                    self.stats["est_plans"][qname].append((num_iter, plan))
 
             join_losses = np.array(est_card_costs) - np.array(baseline_costs)
             join_losses2 = np.array(est_card_costs) / np.array(baseline_costs)
