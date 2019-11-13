@@ -217,8 +217,9 @@ def main():
     fns = list(glob.glob(args.template_dir+"/*"))
 
     for fn in fns:
-        print("template fn: ", fn)
+        start = time.time()
         samples, subqueries = load_all_queries(args, fn, subqueries=True)
+        print("{} took {} seconds to load data".format(fn, time.time()-start))
 
         if not found_db:
             print("going to update db stats!")
@@ -227,9 +228,10 @@ def main():
         if args.update_subq_cards:
             update_subq_cards(subqueries, args.cache_dir)
         if args.update_subq_preds:
+            start = time.time()
             update_subq_preds(samples, subqueries, args.cache_dir)
-            print("update subq preds done!")
-            pdb.set_trace()
+            print("update_subq_preds took {} seconds for {}".\
+                    format(time.time()-start, fn))
 
         if args.use_subqueries:
             for i, query in enumerate(samples):

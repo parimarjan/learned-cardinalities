@@ -128,7 +128,8 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         print("need to generate {} query objects".\
                 format(len(unknown_query_strs)))
 
-    sql_result_cache = args.cache_dir + "/sql_result"
+    # sql_result_cache = args.cache_dir + "/sql_result"
+    sql_result_cache = None
     all_query_objs = []
     start = time.time()
     num_processes = int(min(len(unknown_query_strs),
@@ -171,28 +172,29 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 def get_template_samples(fn):
     # number of samples to use from this template (fn)
     if "2.toml" in fn:
-        # num = 2000
-        num = 500
+        num = 2000
+        # num = 500
     elif "2b1.toml" in fn:
-        # num = 1997
-        num = 500
+        num = 1997
+        # num = 500
     elif "2b2.toml" in fn:
-        # num = 1800
-        num = 500
+        num = 1800
+        # num = 500
     elif "2b3.toml" in fn:
-        # num = 2000
-        num = 500
+        num = 2000
+        # num = 500
     elif "2b4.toml" in fn:
-        # num = 1500
-        num = 500
+        num = 1500
+        # num = 500
     elif "4.toml" in fn:
         num = 500
     elif "3.toml" in fn:
         num = 100
     elif "7.toml" in fn:
-        num = 250
+        # num = 250
+        num = 77
     elif "7b.toml" in fn:
-        num = 140
+        num = 105
     elif "7c.toml" in fn:
         num = 20
     else:
@@ -353,7 +355,7 @@ def load_all_queries(args, fn, subqueries=True):
     return all_queries, all_subqueries
 
 def update_subq_cards(all_subqueries, cache_dir):
-
+    print("starting update subq cards, this may take a while...")
     for subqueries in all_subqueries:
         wrong_count = 0
         for subq in subqueries:
@@ -378,6 +380,7 @@ def update_subq_preds(all_queries, all_subqueries, cache_dir):
     Utilizes the fact that parsing the predicate values from queries should
     give us enough information about all the predicate values in subqueries.
     '''
+    print("starting update_subq_preds, this may take a while...")
     assert len(all_queries) == len(all_subqueries)
     for i, query in enumerate(all_queries):
         if i % 100 == 0:
