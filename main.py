@@ -1,6 +1,5 @@
 from cardinality_estimation.db import DB
 
-# from cardinality_estimation.cardinality_sample import CardinalitySample
 from cardinality_estimation.query import *
 from cardinality_estimation.algs import *
 from cardinality_estimation.losses import *
@@ -193,6 +192,7 @@ def eval_alg(alg, losses, queries, use_subqueries):
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
 def main():
+    # TODO: separate out 1-table stuff
     if args.gen_synth_data:
         gen_synth_data(args)
     elif "osm" in args.db_name:
@@ -218,25 +218,26 @@ def main():
 
     for fn in fns:
         start = time.time()
-        samples, subqueries = load_all_queries(args, fn, subqueries=True)
+        samples = []
+        # query directory:
+        qdir = args.query_directory + "/" + os.path.basename(fn)
+        saved_queries = list(glob.glob(qdir+"/*"))
+        print("num saved queries: ", len(saved_queries))
+        # for qfn in saved_queries:
+            # samples.append(convert_sql_rep_to_query_rep(qfn))
+
+        num_processes = multiprocessing.cpu_count()
+        with Pool(processes=num_processes) as pool:
+            par_args = [[qfn] for qfn in saved_queries]
+            samples = pool.starmap(convert_sql_rep_to_query_rep,
+                    par_args)
+
         print("{} took {} seconds to load data".format(fn, time.time()-start))
+        pdb.set_trace()
 
         if not found_db:
             print("going to update db stats!")
             db.update_db_stats(samples[0].query)
-
-        if args.update_subq_cards:
-            update_subq_cards(subqueries, args.cache_dir)
-        if args.update_subq_preds:
-            start = time.time()
-            update_subq_preds(samples, subqueries, args.cache_dir)
-            print("update_subq_preds took {} seconds for {}".\
-                    format(time.time()-start, fn))
-
-        if args.use_subqueries:
-            for i, query in enumerate(samples):
-                assert len(subqueries[i]) > 0
-                query.subqueries = subqueries[i]
 
         # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
         # in all of the queries
@@ -333,6 +334,8 @@ def read_flags():
     # parser = argparse.ArgumentParser()
     parser.add_argument("--results_cache", type=str, required=False,
             default=None)
+    parser.add_argument("--query_directory", type=str, required=False,
+            default="./queries")
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
     parser.add_argument("--reuse_env", type=int, required=False,
@@ -421,7 +424,7 @@ def read_flags():
     parser.add_argument("--only_nonzero_samples", type=int, required=False,
             default=1)
     parser.add_argument("--use_subqueries", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--synth_table", type=str, required=False,
             default="test")
     parser.add_argument("--synth_num_columns", type=int, required=False,

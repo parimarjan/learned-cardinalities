@@ -175,7 +175,8 @@ class DB():
                 continuous = True
             else:
                 # use 1-hot encoding
-                num_buckets = min(self.max_discrete_feauturizing_buckets, info["num_values"])
+                num_buckets = min(self.max_discrete_feauturizing_buckets,
+                        info["num_values"])
                 pred_len += num_buckets
                 continuous = False
 

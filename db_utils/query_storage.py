@@ -8,10 +8,93 @@ import toml
 import multiprocessing
 from multiprocessing import Pool
 from cardinality_estimation.db import DB
+from networkx.readwrite import json_graph
 
 '''
 TODO: bring in the Query object format in here as well.
 '''
+
+def load_sql_rep(fn):
+    print(fn)
+    assert ".pkl" in fn
+    with open(fn, "rb") as f:
+        query = pickle.load(f)
+
+    query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
+    query["subset_graph"] = json_graph.adjacency_graph(query["subset_graph"])
+    return query
+
+def nx_graph_to_query_rep(G, true_count, total_count, pg_count):
+    '''
+    Extracts all the relevant information from the sql_rep format and puts it
+    in the cardinality_estimation/Query format, without re-parsing any part of
+    the sql.
+
+    FIXME: each table must have aliases
+    '''
+    froms = []
+    conds = []
+    pred_cols = []
+    pred_vals = []
+    pred_types = []
+    table_names = []
+    aliases = []
+
+    for nd in G.nodes(data=True):
+        node = nd[0]
+        data = nd[1]
+        assert "real_name" in data
+        froms.append(ALIAS_FORMAT.format(TABLE=data["real_name"],
+                                         ALIAS=node))
+        table_names.append(data["real_name"])
+        aliases.append(node)
+
+        for pred in data["predicates"]:
+            if pred not in conds:
+                conds.append(pred)
+
+        pred_cols += data["pred_cols"]
+        pred_vals += data["pred_vals"]
+        pred_types += data["pred_types"]
+
+    for edge in G.edges(data=True):
+        conds.append(edge[2]['join_condition'])
+
+    # preserve order for caching
+    froms.sort()
+    conds.sort()
+    from_clause = " , ".join(froms)
+    if len(conds) > 0:
+        wheres = ' AND '.join(conds)
+        from_clause += " WHERE " + wheres
+    count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
+
+    ret_query = Query(count_query, pred_cols,
+            pred_vals, pred_types, true_count, total_count,
+            pg_count, None, None)
+    # TODO: add joins too
+    ret_query.table_names = table_names
+    ret_query.aliases = aliases
+
+    return ret_query
+
+def convert_sql_rep_to_query_rep(qrep_fn):
+    qrep = load_sql_rep(qrep_fn)
+    jg = qrep["join_graph"]
+    query = None
+    subqueries = []
+
+    for nodes in qrep["subset_graph"]:
+        card = qrep["subset_graph"].nodes()[nodes]["cardinality"]
+        sg = jg.subgraph(nodes)
+        sq = nx_graph_to_query_rep(sg, card["actual"], card["total"],
+            card["expected"])
+        subqueries.append(sq)
+        if len(sg.nodes()) == len(jg.nodes()):
+            query = sq
+    assert query is not None
+    query.subqueries = subqueries
+    return query
 
 def remove_doubles(query_strs):
     doubles = 0
@@ -191,8 +274,8 @@ def get_template_samples(fn):
     elif "3.toml" in fn:
         num = 100
     elif "7.toml" in fn:
-        # num = 250
-        num = 77
+        num = 250
+        # num = 77
     elif "7b.toml" in fn:
         num = 105
     elif "7c.toml" in fn:
@@ -318,11 +401,10 @@ def load_all_queries(args, fn, subqueries=True):
     all_subqueries = []
 
     subq_query_obj_cache = klepto.archives.dir_archive(args.cache_dir +
-            "/subq_query_obj", cached=True, serialized=True)
+            "/subq_query_obj", cached=True, serialized=True, memsize=16000)
     subq_sql_str_cache = klepto.archives.dir_archive(args.cache_dir + "/subq_sql_str",
             cached=True, serialized=True)
 
-    # for fn in fns:
     assert ".toml" in fn
     template = toml.load(fn)
     query_strs = _load_query_strs(args, args.cache_dir, template, fn)
@@ -335,6 +417,7 @@ def load_all_queries(args, fn, subqueries=True):
 
     queries, subq_strs, subqueries = _load_subqueries(args, queries,
             subq_sql_str_cache, subq_query_obj_cache, args.gen_queries)
+
     print(len(subq_strs), len(queries))
     assert len(subq_strs) % len(queries) == 0
     num_subq_per_query = int(len(subq_strs) / len(queries))

@@ -570,167 +570,160 @@ def extract_predicates2(query):
     print(where_clauses)
     pdb.set_trace()
 
-# def extract_predicates(query):
-    # '''
-    # @ret:
-        # - column names with predicate conditions in WHERE.
-        # - predicate operator type (e.g., "in", "lte" etc.)
-        # - predicate value
-    # Note: join conditions don't count as predicate conditions.
+def extract_predicates(query):
+    '''
+    @ret:
+        - column names with predicate conditions in WHERE.
+        - predicate operator type (e.g., "in", "lte" etc.)
+        - predicate value
+    Note: join conditions don't count as predicate conditions.
 
-    # FIXME: temporary hack. For range queries, always returning key
-    # "lt", and vals for both the lower and upper bound
-    # '''
-    # def parse_column(pred, cur_pred_type):
-        # '''
-        # gets the name of the column, and whether column location is on the left
-        # (0) or right (1)
-        # '''
-        # for i, obj in enumerate(pred[cur_pred_type]):
-            # assert i <= 1
-            # if isinstance(obj, str) and "." in obj:
-                # # assert "." in obj
-                # column = obj
-            # elif isinstance(obj, dict):
-                # assert "literal" in obj
-                # val = obj["literal"]
-                # val_loc = i
-            # else:
-                # val = obj
-                # val_loc = i
+    FIXME: temporary hack. For range queries, always returning key
+    "lt", and vals for both the lower and upper bound
+    '''
+    def parse_column(pred, cur_pred_type):
+        '''
+        gets the name of the column, and whether column location is on the left
+        (0) or right (1)
+        '''
+        for i, obj in enumerate(pred[cur_pred_type]):
+            assert i <= 1
+            if isinstance(obj, str) and "." in obj:
+                # assert "." in obj
+                column = obj
+            elif isinstance(obj, dict):
+                assert "literal" in obj
+                val = obj["literal"]
+                val_loc = i
+            else:
+                val = obj
+                val_loc = i
 
-        # assert column is not None
-        # assert val is not None
-        # return column, val_loc, val
+        assert column is not None
+        assert val is not None
+        return column, val_loc, val
 
-    # def _parse_predicate(pred, pred_type):
-        # if pred_type == "eq":
-            # columns = pred[pred_type]
-            # if len(columns) <= 1:
-                # return None
-            # # FIXME: more robust handling?
-            # if "." in str(columns[1]):
-                # # should be a join, skip this.
-                # # Note: joins only happen in "eq" predicates
-                # return None
-            # predicate_types.append(pred_type)
-            # predicate_cols.append(columns[0])
-            # predicate_vals.append(columns[1])
+    def _parse_predicate(pred, pred_type):
+        if pred_type == "eq":
+            columns = pred[pred_type]
+            if len(columns) <= 1:
+                return None
+            # FIXME: more robust handling?
+            if "." in str(columns[1]):
+                # should be a join, skip this.
+                # Note: joins only happen in "eq" predicates
+                return None
+            predicate_types.append(pred_type)
+            predicate_cols.append(columns[0])
+            predicate_vals.append(columns[1])
 
-        # elif pred_type in RANGE_PREDS:
-            # vals = [None, None]
-            # col_name, val_loc, val = parse_column(pred, pred_type)
-            # vals[val_loc] = val
+        elif pred_type in RANGE_PREDS:
+            vals = [None, None]
+            col_name, val_loc, val = parse_column(pred, pred_type)
+            vals[val_loc] = val
 
-            # # this loop may find no matching predicate for the other side, in
-            # # which case, we just leave the val as None
-            # for pred2 in pred_vals:
-                # pred2_type = list(pred2.keys())[0]
-                # if pred2_type in RANGE_PREDS:
-                    # col_name2, val_loc2, val2 = parse_column(pred2, pred2_type)
-                    # if col_name2 == col_name:
-                        # # assert val_loc2 != val_loc
-                        # if val_loc2 == val_loc:
-                            # # same predicate as pred
-                            # continue
-                        # vals[val_loc2] = val2
-                        # break
+            # this loop may find no matching predicate for the other side, in
+            # which case, we just leave the val as None
+            for pred2 in pred_vals:
+                pred2_type = list(pred2.keys())[0]
+                if pred2_type in RANGE_PREDS:
+                    col_name2, val_loc2, val2 = parse_column(pred2, pred2_type)
+                    if col_name2 == col_name:
+                        # assert val_loc2 != val_loc
+                        if val_loc2 == val_loc:
+                            # same predicate as pred
+                            continue
+                        vals[val_loc2] = val2
+                        break
 
-            # predicate_types.append("lt")
-            # predicate_cols.append(col_name)
-            # if "g" in pred_type:
-                # # reverse vals, since left hand side now means upper bound
-                # vals.reverse()
-            # predicate_vals.append(vals)
+            predicate_types.append("lt")
+            predicate_cols.append(col_name)
+            if "g" in pred_type:
+                # reverse vals, since left hand side now means upper bound
+                vals.reverse()
+            predicate_vals.append(vals)
 
-        # elif pred_type == "between":
-            # # we just treat it as a range query
-            # col = pred[pred_type][0]
-            # val1 = pred[pred_type][1]
-            # val2 = pred[pred_type][2]
-            # vals = [val1, val2]
-            # predicate_types.append("lt")
-            # predicate_cols.append(col)
-            # predicate_vals.append(vals)
-        # elif pred_type == "in" \
-                # or "like" in pred_type:
-            # # includes preds like, ilike, nlike etc.
-            # column = pred[pred_type][0]
-            # # what if column has been seen before? Will just be added again to
-            # # the list of predicates, which is the correct behaviour
-            # vals = pred[pred_type][1]
-            # if isinstance(vals, dict):
-                # vals = vals["literal"]
-            # if not isinstance(vals, list):
-                # vals = [vals]
-            # predicate_types.append(pred_type)
-            # predicate_cols.append(column)
-            # predicate_vals.append(vals)
-        # elif pred_type == "or":
-            # # print(pred[pred_type])
-            # # pdb.set_trace()
-            # # _parse_predicate(pred, pred_type)
-            # # for pred_type2, pred2 in pred[pred_type].items():
-                # # print(pred_type2, pred2)
-                # # pdb.set_trace()
-                # # _parse_predicate(pred2, pred_type2)
-            # for pred2 in pred[pred_type]:
-                # # print(pred2)
-                # assert len(pred2.keys()) == 1
-                # pred_type2 = list(pred2.keys())[0]
-                # _parse_predicate(pred2, pred_type2)
+        elif pred_type == "between":
+            # we just treat it as a range query
+            col = pred[pred_type][0]
+            val1 = pred[pred_type][1]
+            val2 = pred[pred_type][2]
+            vals = [val1, val2]
+            predicate_types.append("lt")
+            predicate_cols.append(col)
+            predicate_vals.append(vals)
+        elif pred_type == "in" \
+                or "like" in pred_type:
+            # includes preds like, ilike, nlike etc.
+            column = pred[pred_type][0]
+            # what if column has been seen before? Will just be added again to
+            # the list of predicates, which is the correct behaviour
+            vals = pred[pred_type][1]
+            if isinstance(vals, dict):
+                vals = vals["literal"]
+            if not isinstance(vals, list):
+                vals = [vals]
+            predicate_types.append(pred_type)
+            predicate_cols.append(column)
+            predicate_vals.append(vals)
+        elif pred_type == "or":
+            for pred2 in pred[pred_type]:
+                # print(pred2)
+                assert len(pred2.keys()) == 1
+                pred_type2 = list(pred2.keys())[0]
+                _parse_predicate(pred2, pred_type2)
 
-        # elif pred_type == "missing":
-            # column = pred[pred_type]
-            # val = ["NULL"]
-            # predicate_types.append("in")
-            # predicate_cols.append(column)
-            # predicate_vals.append(val)
-        # else:
-            # # assert False
-            # # TODO: need to support "OR" statements
-            # return None
-            # # assert False, "unsupported predicate type"
+        elif pred_type == "missing":
+            column = pred[pred_type]
+            val = ["NULL"]
+            predicate_types.append("in")
+            predicate_cols.append(column)
+            predicate_vals.append(val)
+        else:
+            # assert False
+            # TODO: need to support "OR" statements
+            return None
+            # assert False, "unsupported predicate type"
 
-    # start = time.time()
-    # predicate_cols = []
-    # predicate_types = []
-    # predicate_vals = []
-    # if "::float" in query:
-        # query = query.replace("::float", "")
-    # elif "::int" in query:
-        # query = query.replace("::int", "")
-    # # really fucking dumb
-    # bad_str1 = "mii2.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
-    # bad_str2 = "mii1.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
-    # if bad_str1 in query:
-        # query = query.replace(bad_str1, "")
+    start = time.time()
+    predicate_cols = []
+    predicate_types = []
+    predicate_vals = []
+    if "::float" in query:
+        query = query.replace("::float", "")
+    elif "::int" in query:
+        query = query.replace("::int", "")
+    # really fucking dumb
+    bad_str1 = "mii2.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    bad_str2 = "mii1.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+    if bad_str1 in query:
+        query = query.replace(bad_str1, "")
 
-    # if bad_str2 in query:
-        # query = query.replace(bad_str2, "")
+    if bad_str2 in query:
+        query = query.replace(bad_str2, "")
 
-    # try:
-        # parsed_query = parse(query)
-    # except:
-        # print(query)
-        # print("moz sql parser failed to parse this!")
-        # pdb.set_trace()
-    # pred_vals = get_all_wheres(parsed_query)
+    try:
+        parsed_query = parse(query)
+    except:
+        print(query)
+        print("moz sql parser failed to parse this!")
+        pdb.set_trace()
+    pred_vals = get_all_wheres(parsed_query)
 
-    # for i, pred in enumerate(pred_vals):
-        # try:
-            # assert len(pred.keys()) == 1
-        # except:
-            # print(pred)
-            # pdb.set_trace()
-        # pred_type = list(pred.keys())[0]
-        # # if pred == "or" or pred == "OR":
-            # # continue
-        # _parse_predicate(pred, pred_type)
+    for i, pred in enumerate(pred_vals):
+        try:
+            assert len(pred.keys()) == 1
+        except:
+            print(pred)
+            pdb.set_trace()
+        pred_type = list(pred.keys())[0]
+        # if pred == "or" or pred == "OR":
+            # continue
+        _parse_predicate(pred, pred_type)
 
-    # # print("extract predicate cols done!")
-    # # print("extract predicates took ", time.time() - start)
-    # return predicate_cols, predicate_types, predicate_vals
+    # print("extract predicate cols done!")
+    # print("extract predicates took ", time.time() - start)
+    return predicate_cols, predicate_types, predicate_vals
 
 def extract_from_clause(query):
     '''
