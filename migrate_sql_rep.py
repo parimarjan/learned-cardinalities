@@ -41,18 +41,23 @@ def convert_to_sql_rep(query, subqueries):
             continue
         subg = join_graph.subgraph(node)
         node_sql = nx_graph_to_query(subg)
-        pred_cols, pred_types, pred_vals = extract_predicates(node_sql)
-        join_graph.nodes[node]["pred_cols"] = pred_cols
-        join_graph.nodes[node]["pred_types"] = pred_types
-        join_graph.nodes[node]["pred_vals"] = pred_vals
+        for subq in subqueries:
+            subq_alias = [a for a in subq.aliases][0]
+            if subq_alias == node:
+                join_graph.nodes[node]["pred_cols"] = subq.pred_column_names
+                join_graph.nodes[node]["pred_types"] = subq.cmp_ops
+                join_graph.nodes[node]["pred_vals"] = subq.vals
+                break
+
+        assert join_graph.nodes[node]["pred_cols"] is not None
 
     subset_graph = generate_subset_graph(join_graph)
 
-    print("query has",
-          len(join_graph.nodes), "relations,",
-          len(join_graph.edges), "joins, and",
-          len(subset_graph), " possible subsets.",
-          "took:", time.time() - start)
+    # print("query has",
+          # len(join_graph.nodes), "relations,",
+          # len(join_graph.edges), "joins, and",
+          # len(subset_graph), " possible subsets.",
+          # "took:", time.time() - start)
 
     ret = {}
     ret["sql"] = sql
@@ -104,11 +109,11 @@ def main():
         print("going to write queries to ", dir_name)
         make_dir(dir_name)
         for i, convq in enumerate(conv_queries):
-            qfn = dir_name + str(i) + ".pkl"
+            query_hash = deterministic_hash(convq["sql"])
+            qfn = dir_name + str(query_hash) + ".pkl"
             # TODO: combine this with gzip as well?
             with open(qfn, 'wb') as fp:
                 pickle.dump(convq, fp, protocol=pickle.HIGHEST_PROTOCOL)
-
 
 def read_flags():
     # parser = argparse.ArgumentParser()

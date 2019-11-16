@@ -193,6 +193,7 @@ AND (Xcompany_type)
   min_samples = 10
   max_samples = 15
 
+# template 2
 [[templates]]
 
   name = "8b"

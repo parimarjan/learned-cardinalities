@@ -215,29 +215,38 @@ def main():
     test_queries = []
 
     fns = list(glob.glob(args.template_dir+"/*"))
-
     for fn in fns:
         start = time.time()
         samples = []
-        # query directory:
         qdir = args.query_directory + "/" + os.path.basename(fn)
-        saved_queries = list(glob.glob(qdir+"/*"))
-        print("num saved queries: ", len(saved_queries))
-        # for qfn in saved_queries:
-            # samples.append(convert_sql_rep_to_query_rep(qfn))
+        qfns = list(glob.glob(qdir+"/*"))
+
+        if args.num_samples_per_template == -2:
+            qfns = qfns
+        elif args.num_samples_per_template == -1:
+            num_samples = get_template_samples(fn)
+            qfns = qfns[0:num_samples]
+        elif args.num_samples_per_template < len(qfns):
+            qfns = qfns[0:args.num_samples_per_template]
+        else:
+            print(fn)
+            pdb.set_trace()
+            # need to create new queries, save them, and update the fns
+            assert False
 
         num_processes = multiprocessing.cpu_count()
         with Pool(processes=num_processes) as pool:
-            par_args = [[qfn] for qfn in saved_queries]
+            par_args = [[qfn] for qfn in qfns]
             samples = pool.starmap(convert_sql_rep_to_query_rep,
                     par_args)
 
         print("{} took {} seconds to load data".format(fn, time.time()-start))
-        pdb.set_trace()
 
         if not found_db:
-            print("going to update db stats!")
-            db.update_db_stats(samples[0].query)
+            for sample in samples:
+                # not all samples may share all predicates etc. so updating
+                # them all. stats will not be recomputed for repeated columns
+                db.update_db_stats(sample)
 
         # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
         # in all of the queries
@@ -253,7 +262,8 @@ def main():
             q.train_time = {}
 
         if args.test:
-            cur_train_queries, cur_test_queries = train_test_split(samples, test_size=args.test_size, random_state=args.random_seed)
+            cur_train_queries, cur_test_queries = train_test_split(samples,
+                    test_size=args.test_size, random_state=args.random_seed)
         else:
             cur_train_queries = samples
             cur_test_queries = []
@@ -261,6 +271,7 @@ def main():
         train_queries += cur_train_queries
         test_queries += cur_test_queries
 
+    pdb.set_trace()
     print("train queries: {}, test queries: {}".format(len(train_queries),
         len(test_queries)))
     if not found_db:
@@ -282,8 +293,6 @@ def main():
     print("going to run algorithms: ", args.algs)
     print("num train queries: ", len(train_queries))
     print("num test queries: ", len(test_queries))
-    # this is deterministic, so just using it to store this in the saved data.
-    # TODO: should not need this if initialized properly.
 
     train_times = {}
     eval_times = {}

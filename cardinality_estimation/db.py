@@ -47,7 +47,9 @@ class DB():
         #         stats["title"]["id"]["num_values"] = x
         self.column_stats = OrderedDict()
         # self.max_discrete_feauturizing_buckets = 100
-        self.max_discrete_feauturizing_buckets = 20
+        # self.max_discrete_feauturizing_buckets = 20
+        self.max_discrete_feauturizing_buckets = 10
+
         # generally, these would be range queries, but they can be "=", or "in"
         # queries as well, and we will support upto 10 such values
         self.continuous_feature_size = 10
@@ -319,7 +321,7 @@ class DB():
             feature_vector[-1] = pg_est
 
         if self.num_tables_feature:
-            feature_vector[-1] = len(query.froms)
+            feature_vector[-1] = len(query.aliases)
 
         return feature_vector
 
@@ -356,110 +358,59 @@ class DB():
         self.sql_cache.dump()
         return queries
 
-    def update_db_stats(self, query_template,
-            create_indexes=False):
+    def update_db_stats(self, query):
         '''
+        @query: Query object
         '''
-        def _update_keys(key1, key2):
-            alias_name = key1[0:key1.find(".")]
-            alias_name2 = key2[0:key2.find(".")]
-            self.alias_to_keys[alias_name].add(key1)
-            self.alias_to_keys[alias_name2].add(key2)
-
-            if ".id" in key1:
-                self.primary_keys.add(key1)
-                # which table did this key belong to?
-
-            elif "_id" in key1:
-                print(key1, key2)
-                if ".id" in key2:
-                    self.foreign_keys[key1] = key2
-                # else, it is a foreign_key : foreign_key join, we can ignore
-                # this for now.
-
-        if "SELECT COUNT" not in query_template:
-            print(query_template)
-            assert False
-
-        self.templates.append(query_template)
-        pred_columns, pred_types, pred_vals = extract_predicates(query_template)
-        for cmp_op in pred_types:
+        for cmp_op in query.cmp_ops:
             self.cmp_ops.add(cmp_op)
-        from_clauses, aliases, tables = extract_from_clause(query_template)
-        self.aliases.update(aliases)
-        self.tables.update(tables)
 
-        join_clauses = extract_join_clause(query_template)
-        for clause in join_clauses:
-            # separate it out
-            left = clause.split("=")[0].strip()
-            right = clause.split("=")[1].strip()
-            _update_keys(left, right)
-            _update_keys(right, left)
+        # self.aliases.update(query.aliases)
+        # self.tables.update(query.table_names)
+        for i, alias in enumerate(query.aliases):
+            if alias not in self.aliases:
+                self.aliases[alias] = query.table_names[i]
+                self.tables.add(query.table_names[i])
 
-        if create_indexes:
-            for alias, table_name in self.aliases.items():
-                print(alias, table_name)
-                for pred_column in pred_columns:
-                    if " " + alias in " " + pred_column:
-                        print(pred_column)
-                        column_name = pred_column.split(".")[1]
-                        index_cmd = CREATE_INDEX_TMP.format(COLUMN =
-                                column_name, TABLE = table_name,
-                                INDEX_NAME = table_name + "_" + column_name)
-                        print(index_cmd)
-                        self.execute(index_cmd)
-                        # pdb.set_trace()
-
-            pdb.set_trace()
-
-        # TODO: load sql cache in memory?
-        DEBUG = True
-        for column in pred_columns:
+        for column in query.pred_column_names:
             if column in self.column_stats:
                 continue
             # need to load it. first check if it is in the cache, else
             # regenerate it.
             hashed_stats = deterministic_hash(column)
+            print("need to generate stuff for column: ", column)
+            column_stats = {}
+            table = column[0:column.find(".")]
+            if table in self.aliases:
+                table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
+                                    ALIAS = table)
+            min_query = MIN_TEMPLATE.format(TABLE = table,
+                                            COL   = column)
+            max_query = MAX_TEMPLATE.format(TABLE = table,
+                                            COL   = column)
+            unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
+                                                      COL = column)
+            total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
+            unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
+                                                            COL = column)
 
-            if hashed_stats in self.sql_cache.archive and not DEBUG:
-                column_stats = self.sql_cache.archive[hashed_stats]
-                print("loading column stats from cache: ", column_stats.keys())
-                self.column_stats.update(column_stats)
+            # TODO: move to using cached_execute
+            column_stats[column] = {}
+            column_stats[column]["min_value"] = self.execute(min_query)[0][0]
+            column_stats[column]["max_value"] = self.execute(max_query)[0][0]
+            column_stats[column]["num_values"] = \
+                    self.execute(unique_count_query)[0][0]
+            column_stats[column]["total_values"] = \
+                    self.execute(total_count_query)[0][0]
+
+            # only store all the values for tables with small alphabet
+            # sizes (so we can use them for things like the PGM).
+            # Otherwise, it bloats up the cache.
+            if column_stats[column]["num_values"] <= 5000:
+                column_stats[column]["unique_values"] = \
+                        self.execute(unique_vals_query)
             else:
-                print("need to generate stuff for column: ", column)
-                column_stats = {}
-                table = column[0:column.find(".")]
-                if table in self.aliases:
-                    table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
-                                        ALIAS = table)
-                min_query = MIN_TEMPLATE.format(TABLE = table,
-                                                COL   = column)
-                max_query = MAX_TEMPLATE.format(TABLE = table,
-                                                COL   = column)
-                unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
-                                                          COL = column)
-                total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
-                unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
-                                                                COL = column)
+                column_stats[column]["unique_values"] = None
 
-                # TODO: move to using cached_execute
-                column_stats[column] = {}
-                column_stats[column]["min_value"] = self.execute(min_query)[0][0]
-                column_stats[column]["max_value"] = self.execute(max_query)[0][0]
-                column_stats[column]["num_values"] = \
-                        self.execute(unique_count_query)[0][0]
-                column_stats[column]["total_values"] = \
-                        self.execute(total_count_query)[0][0]
-
-                # only store all the values for tables with small alphabet
-                # sizes (so we can use them for things like the PGM).
-                # Otherwise, it bloats up the cache.
-                if column_stats[column]["num_values"] <= 5000:
-                    column_stats[column]["unique_values"] = \
-                            self.execute(unique_vals_query)
-                else:
-                    column_stats[column]["unique_values"] = None
-
-                self.sql_cache.archive[hashed_stats] = column_stats
-                self.column_stats.update(column_stats)
+            self.sql_cache.archive[hashed_stats] = column_stats
+            self.column_stats.update(column_stats)

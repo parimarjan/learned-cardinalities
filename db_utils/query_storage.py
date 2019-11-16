@@ -15,7 +15,6 @@ TODO: bring in the Query object format in here as well.
 '''
 
 def load_sql_rep(fn):
-    print(fn)
     assert ".pkl" in fn
     with open(fn, "rb") as f:
         query = pickle.load(f)
@@ -255,29 +254,25 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 def get_template_samples(fn):
     # number of samples to use from this template (fn)
     if "2.toml" in fn:
-        num = 2000
-        # num = 500
+        num = 1000
     elif "2b1.toml" in fn:
-        num = 1997
-        # num = 500
+        num = 1000
     elif "2b2.toml" in fn:
-        num = 1800
-        # num = 500
+        num = 1000
     elif "2b3.toml" in fn:
-        num = 2000
-        # num = 500
+        num = 1000
     elif "2b4.toml" in fn:
-        num = 1500
-        # num = 500
+        num = 1000
     elif "4.toml" in fn:
         num = 500
     elif "3.toml" in fn:
         num = 100
     elif "7.toml" in fn:
-        num = 250
-        # num = 77
+        num = 50
     elif "7b.toml" in fn:
-        num = 105
+        num = 353
+    elif "8.toml" in fn:
+        num = 239
     elif "7c.toml" in fn:
         num = 20
     else:
@@ -327,6 +322,7 @@ def _load_subqueries(args, queries, sql_str_cache, subq_cache,
         new_queries.append(q)
 
     all_subqueries = gen_query_objs(args, all_sql_subqueries, subq_cache)
+    print("loop done")
     assert len(all_subqueries) == len(all_sql_subqueries)
     return new_queries, all_sql_subqueries, all_subqueries
 

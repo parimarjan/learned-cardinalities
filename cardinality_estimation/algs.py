@@ -41,11 +41,11 @@ def get_all_num_table_queries(samples, num):
     '''
     ret = []
     for sample in samples:
-        num_tables = len(sample.froms)
+        num_tables = len(sample.aliases)
         if num_tables == num:
             ret.append(sample)
         for subq in sample.subqueries:
-            num_tables = len(subq.froms)
+            num_tables = len(subq.aliases)
             if num_tables == num:
                 ret.append(subq)
     return ret
@@ -1582,18 +1582,16 @@ class NN2(CardinalityEstimationAlg):
                     join_loss(pred, samples, env, self.baseline, self.jl_use_postgres)
 
             # FIXME: make this optional
-            for qname, plan in est_plans.items():
-                if qname not in self.stats["est_plans"]:
-                    self.stats["est_plans"][qname] = []
-                leading = get_leading_hint(plan)
-                print(leading)
-
-                if len(self.stats["est_plans"][qname]) > 0 \
-                        and self.stats["est_plans"][qname][-1][1] == leading:
-                    print("plan did not change!")
-                    continue
-                else:
-                    self.stats["est_plans"][qname].append((num_iter, plan))
+            # for qname, plan in est_plans.items():
+                # if qname not in self.stats["est_plans"]:
+                    # self.stats["est_plans"][qname] = []
+                # leading = get_leading_hint(plan)
+                # if len(self.stats["est_plans"][qname]) > 0 \
+                        # and self.stats["est_plans"][qname][-1][1] == leading:
+                    # print("plan did not change!")
+                    # continue
+                # else:
+                    # self.stats["est_plans"][qname].append((num_iter, plan))
 
             join_losses = np.array(est_card_costs) - np.array(baseline_costs)
             join_losses2 = np.array(est_card_costs) / np.array(baseline_costs)
