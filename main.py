@@ -31,6 +31,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+import sql_rep.query
 
 def get_alg(alg):
     if alg == "independent":
@@ -217,10 +218,11 @@ def main():
     fns = list(glob.glob(args.template_dir+"/*"))
     for fn in fns:
         start = time.time()
+        # loading, or generating samples
         samples = []
         qdir = args.query_directory + "/" + os.path.basename(fn)
         qfns = list(glob.glob(qdir+"/*"))
-
+        print(qfns)
         if args.num_samples_per_template == -2:
             qfns = qfns
         elif args.num_samples_per_template == -1:
@@ -229,11 +231,21 @@ def main():
         elif args.num_samples_per_template < len(qfns):
             qfns = qfns[0:args.num_samples_per_template]
         else:
-            print(fn)
-            pdb.set_trace()
-            # need to create new queries, save them, and update the fns
-            assert False
+            samples_to_gen = args.num_samples_per_template - len(qfns)
+            assert ".toml" in fn
+            template = toml.load(fn)
+            query_strs = gen_queries(template, samples_to_gen, args)
+            for qstr in query_strs:
+                qrep = sql_rep.query.parse_sql(qstr, args.user, args.db_name,
+                        args.db_host, args.port, args.pwd,
+                        compute_ground_truth=True)
+                print(qrep.keys())
+                pdb.set_trace()
 
+        # for qfn in qfns:
+            # samples.append(load_sql_rep(qfn))
+
+        # original setup: with Query objects etc.
         num_processes = multiprocessing.cpu_count()
         with Pool(processes=num_processes) as pool:
             par_args = [[qfn] for qfn in qfns]
@@ -248,19 +260,6 @@ def main():
                 # them all. stats will not be recomputed for repeated columns
                 db.update_db_stats(sample)
 
-        # FIXME: temporary, and slightly ugly hack -- need to initialize few fields
-        # in all of the queries
-        if args.use_subqueries:
-            all_queries = get_all_subqueries(samples)
-        else:
-            all_queries = samples
-
-        for q in all_queries:
-            q.yhats = {}
-            q.losses = defaultdict(dict)
-            q.eval_time = {}
-            q.train_time = {}
-
         if args.test:
             cur_train_queries, cur_test_queries = train_test_split(samples,
                     test_size=args.test_size, random_state=args.random_seed)
@@ -271,11 +270,12 @@ def main():
         train_queries += cur_train_queries
         test_queries += cur_test_queries
 
-    pdb.set_trace()
     print("train queries: {}, test queries: {}".format(len(train_queries),
         len(test_queries)))
     if not found_db:
         misc_cache.archive[db_key] = db
+
+    pdb.set_trace()
 
     if len(train_queries) == 0:
         # debugging, so doesn't crash

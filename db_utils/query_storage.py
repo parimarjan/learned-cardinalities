@@ -14,6 +14,23 @@ from networkx.readwrite import json_graph
 TODO: bring in the Query object format in here as well.
 '''
 
+def gen_queries(query_template, num_samples, args):
+    '''
+    @query_template: dict, or str, as used by QueryGenerator2 or
+    QueryGenerator.
+    '''
+    if isinstance(query_template, dict):
+        qg = QueryGenerator2(query_template, args.user, args.db_host, args.port,
+                args.pwd, args.db_name)
+    elif isinstance(query_template, str):
+        qg = QueryGenerator(query_template, args.user, args.db_host, args.port,
+                args.pwd, args.db_name)
+
+    gen_sqls = qg.gen_queries(num_samples)
+    gen_sqls = remove_doubles(gen_sqls)
+    # TODO: remove queries that evaluate to zero
+    return gen_sqls
+
 def load_sql_rep(fn):
     assert ".pkl" in fn
     with open(fn, "rb") as f:
@@ -126,12 +143,7 @@ def gen_query_strs(args, query_template, num_samples,
     if isinstance(query_template, str):
         hashed_tmp = deterministic_hash(query_template)
     elif isinstance(query_template, dict):
-        # hashed_tmp_old = deterministic_hash(query_template)
-        # hashed_tmp = deterministic_hash(query_template)
         hashed_tmp = deterministic_hash(query_template["base_sql"]["sql"])
-        # if hashed_tmp_old in sql_str_cache.archive:
-            # # load it and put it into the new one
-            # sql_str_cache.archive[hashed_tmp] = sql_str_cache.archive[hashed_tmp_old]
     else:
         assert False
 
@@ -147,15 +159,28 @@ def gen_query_strs(args, query_template, num_samples,
     elif len(query_strs) < num_samples:
         # need to generate additional queries
         req_samples = num_samples - len(query_strs)
-        if isinstance(query_template, dict):
-            qg = QueryGenerator2(query_template, args.user, args.db_host, args.port,
-                    args.pwd, args.db_name)
-        elif isinstance(query_template, str):
-            qg = QueryGenerator(query_template, args.user, args.db_host, args.port,
-                    args.pwd, args.db_name)
+        num_processes = multiprocessing.cpu_count()
+        num_processes = min(num_processes, args.num_samples_per_template)
+        num_per_p = int(args.num_samples_per_template / num_processes)
 
-        gen_sqls = qg.gen_queries(req_samples)
-        query_strs += gen_sqls
+        with Pool(processes=num_processes) as pool:
+            par_args = [(query_template, num_per_p, args)
+                    for _ in range(num_processes)]
+            comb_query_strs = pool.starmap(gen_queries, par_args)
+        # need to flatten_the list
+        for cqueries in comb_query_strs:
+            query_strs += cqueries
+        print("generated {} query sqls".format(len(query_strs)))
+
+        # if isinstance(query_template, dict):
+            # qg = QueryGenerator2(query_template, args.user, args.db_host, args.port,
+                    # args.pwd, args.db_name)
+        # elif isinstance(query_template, str):
+            # qg = QueryGenerator(query_template, args.user, args.db_host, args.port,
+                    # args.pwd, args.db_name)
+
+        # gen_sqls = qg.gen_queries(req_samples)
+        # query_strs += gen_sqls
         # save on the disk
         sql_str_cache.archive[hashed_tmp] = query_strs
 

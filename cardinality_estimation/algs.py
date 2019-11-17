@@ -1401,6 +1401,7 @@ class NN2(CardinalityEstimationAlg):
         self.db = db
         # db.init_featurizer()
 
+        # FIXME: this creates repeated data, at least few extra gbs
         if self.eval_num_tables:
             self.table_x_train = defaultdict(list)
             self.table_x_test = defaultdict(list)
