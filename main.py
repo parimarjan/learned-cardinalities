@@ -2,6 +2,9 @@ from cardinality_estimation.db import DB
 
 from cardinality_estimation.query import *
 from cardinality_estimation.algs import *
+from cardinality_estimation.bayesian import *
+from cardinality_estimation.nn import *
+
 from cardinality_estimation.losses import *
 from cardinality_estimation.data_loader import *
 import argparse
@@ -54,6 +57,29 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn1":
         return NN1(max_iter = args.max_iter)
+    elif alg == "nn":
+        return NN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
+                num_hidden_layers=args.num_hidden_layers,
+                hidden_layer_multiple=args.hidden_layer_multiple,
+                    jl_start_iter=args.jl_start_iter, eval_iter =
+                    args.eval_iter, optimizer_name=args.optimizer_name,
+                    adaptive_lr=args.adaptive_lr,
+                    rel_qerr_loss=args.rel_qerr_loss,
+                    clip_gradient=args.clip_gradient,
+                    baseline=args.baseline_join_alg,
+                    nn_cache_dir = args.nn_cache_dir,
+                    divide_mb_len = args.divide_mb_len,
+                    rel_jloss=args.rel_jloss,
+                    loss_func = args.loss_func,
+                    sampling=args.sampling,
+                    sampling_priority_method=args.sampling_priority_method,
+                    sampling_priority_alpha = args.sampling_priority_alpha,
+                    adaptive_priority_alpha = args.adaptive_priority_alpha,
+                    net_name = args.net_name,
+                    reuse_env = args.reuse_env,
+                    eval_iter_jl = args.eval_iter_jl,
+                    eval_num_tables = args.eval_num_tables,
+                    jl_use_postgres = args.jl_use_postgres)
     elif alg == "nn2":
         return NN2(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,
@@ -147,9 +173,6 @@ def eval_alg(alg, losses, queries, use_subqueries):
     eval_time = round(time.time() - start, 2)
     print("evaluating alg took: {} seconds".format(eval_time))
 
-    for i, q in enumerate(all_queries):
-        q.yhats[alg.__str__()] = yhats[i]
-
     loss_start = time.time()
     for loss_func in losses:
         loss_name = get_loss_name(loss_func.__name__)
@@ -171,15 +194,10 @@ def eval_alg(alg, losses, queries, use_subqueries):
                 join_viz_pdf.close()
 
             assert len(losses) == len(queries)
-            # only used with queries, since subqueries don't have an associated join-loss
-            for i, q in enumerate(queries):
-                q.losses[alg.__str__()][loss_name] = losses[i]
         else:
             losses = loss_func(alg, queries, args.use_subqueries,
                     baseline=args.baseline_join_alg)
             assert len(losses) == len(all_queries)
-            for i, q in enumerate(all_queries):
-                q.losses[alg.__str__()][loss_name] = losses[i]
 
         # TODO: set global printoptions to round digits
         print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
@@ -222,7 +240,6 @@ def main():
         samples = []
         qdir = args.query_directory + "/" + os.path.basename(fn)
         qfns = list(glob.glob(qdir+"/*"))
-        print(qfns)
         if args.num_samples_per_template == -2:
             qfns = qfns
         elif args.num_samples_per_template == -1:
@@ -231,16 +248,8 @@ def main():
         elif args.num_samples_per_template < len(qfns):
             qfns = qfns[0:args.num_samples_per_template]
         else:
-            samples_to_gen = args.num_samples_per_template - len(qfns)
-            assert ".toml" in fn
-            template = toml.load(fn)
-            query_strs = gen_queries(template, samples_to_gen, args)
-            for qstr in query_strs:
-                qrep = sql_rep.query.parse_sql(qstr, args.user, args.db_name,
-                        args.db_host, args.port, args.pwd,
-                        compute_ground_truth=True)
-                print(qrep.keys())
-                pdb.set_trace()
+            print("queries should be generated using appropriate script")
+            assert False
 
         # for qfn in qfns:
             # samples.append(load_sql_rep(qfn))
@@ -274,8 +283,6 @@ def main():
         len(test_queries)))
     if not found_db:
         misc_cache.archive[db_key] = db
-
-    pdb.set_trace()
 
     if len(train_queries) == 0:
         # debugging, so doesn't crash

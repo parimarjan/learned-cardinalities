@@ -89,6 +89,7 @@ def main():
             template = toml.load(fn)
             num_processes = multiprocessing.cpu_count()
             num_processes = min(num_processes, args.num_samples_per_template)
+            num_processes = max(4, num_processes)
             num_per_p = int(args.num_samples_per_template / num_processes)
 
             query_strs = []
@@ -101,7 +102,8 @@ def main():
                 query_strs += cqueries
             print("generated {} query sqls".format(len(query_strs)))
 
-            num_processes = int(num_processes / 2) + 1
+            # num_processes = int(num_processes / 2) + 1
+            num_processes = 4
             with Pool(processes=num_processes) as pool:
                 par_args = [(query, args.user, args.db_name, args.db_host,
                     args.port, args.pwd, False, True) for query in query_strs]
