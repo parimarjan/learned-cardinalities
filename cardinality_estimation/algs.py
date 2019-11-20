@@ -243,7 +243,7 @@ def qloss(yhat, ytrue, avg=True):
 
 
 def qloss_torch(yhat, ytrue, avg=True):
-
+    assert yhat.shape == ytrue.shape
     epsilons = to_variable([QERR_MIN_EPS]*len(yhat)).float()
     ytrue = torch.max(ytrue, epsilons)
     yhat = torch.max(yhat, epsilons)

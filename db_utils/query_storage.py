@@ -94,8 +94,7 @@ def nx_graph_to_query_rep(G, true_count, total_count, pg_count):
 
     return ret_query
 
-def convert_sql_rep_to_query_rep(qrep_fn):
-    qrep = load_sql_rep(qrep_fn)
+def convert_sql_rep_to_query_rep(qrep):
     jg = qrep["join_graph"]
     query = None
     subqueries = []

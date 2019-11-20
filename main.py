@@ -251,15 +251,20 @@ def main():
             print("queries should be generated using appropriate script")
             assert False
 
-        # for qfn in qfns:
-            # samples.append(load_sql_rep(qfn))
+        for qfn in qfns:
+            qrep = load_sql_rep(qfn)
+            if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
+                continue
+            samples.append(qrep)
 
-        # original setup: with Query objects etc.
-        num_processes = multiprocessing.cpu_count()
-        with Pool(processes=num_processes) as pool:
-            par_args = [[qfn] for qfn in qfns]
-            samples = pool.starmap(convert_sql_rep_to_query_rep,
-                    par_args)
+            # for node,info in qrep["subset_graph"].nodes().items():
+                # if "total" not in info["cardinality"]:
+                    # print("going to update total")
+                    # total = samples[0]["subset_graph"].nodes()[node]["cardinality"]["total"]
+                    # # save it?
+                    # qrep["subset_graph"].nodes()[node]["cardinality"]["total"] = total
+                # else:
+                    # break
 
         print("{} took {} seconds to load data".format(fn, time.time()-start))
 
@@ -267,7 +272,8 @@ def main():
             for sample in samples:
                 # not all samples may share all predicates etc. so updating
                 # them all. stats will not be recomputed for repeated columns
-                db.update_db_stats(sample)
+                ## FIXME:
+                db.update_db_stats(convert_sql_rep_to_query_rep(sample))
 
         if args.test:
             cur_train_queries, cur_test_queries = train_test_split(samples,

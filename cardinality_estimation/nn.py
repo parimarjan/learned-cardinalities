@@ -3,6 +3,7 @@ import numpy as np
 import pdb
 import math
 from db_utils.utils import *
+from db_utils.query_storage import *
 from utils.utils import *
 import matplotlib
 matplotlib.use('Agg')
@@ -48,16 +49,6 @@ def get_all_num_table_queries(samples, num):
                 ret.append(subq)
     return ret
 
-def get_all_features(samples, db):
-    '''
-    @samples: Query objects, with subqueries.
-    @ret:
-        X:
-        Y:
-    '''
-    pdb.set_trace()
-
-
 class NN(CardinalityEstimationAlg):
     def __init__(self, *args, **kwargs):
         for k, val in kwargs.items():
@@ -67,7 +58,118 @@ class NN(CardinalityEstimationAlg):
         # TODO: find appropriate name based on kwargs, dt etc.
         # TODO: write out everything to text logging file
 
-    def _get_feature_vectors(samples, torch=True):
+        if self.loss_func == "qloss":
+            self.loss = qloss_torch
+        elif self.loss_func == "rel":
+            self.loss = rel_loss_torch
+        elif self.loss_func == "weighted":
+            self.loss = weighted_loss
+        else:
+            assert False
+
+        nn_cache_dir = self.nn_cache_dir
+
+        # caching related stuff
+        self.training_cache = klepto.archives.dir_archive(nn_cache_dir,
+                cached=True, serialized=True)
+        # will keep storing all the training information in the cache / and
+        # dump it at the end
+        # self.key = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        dt = datetime.datetime.now()
+        self.key = "{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
+        self.key += "-" + str(deterministic_hash(str(kwargs)))[0:6]
+
+        self.stats = {}
+        self.training_cache[self.key] = self.stats
+
+        # all the configuration parameters are specified here
+        self.stats["kwargs"] = kwargs
+        self.stats["name"] = self.__str__()
+
+        # iteration : value
+        self.stats["gradients"] = {}
+        self.stats["lr"] = {}
+
+        # iteration : value + additional stuff, like query-string : sql
+        self.stats["mb-loss"] = {}
+
+        # iteration: qerr: val, jloss: val
+        self.stats["train"] = {}
+        self.stats["test"] = {}
+
+        self.stats["train"]["eval"] = {}
+        self.stats["train"]["eval"]["qerr"] = {}
+        self.stats["train"]["eval"]["join-loss"] = {}
+        self.stats["train"]["eval"]["join-loss-all"] = {}
+
+        self.stats["test"]["eval"] = {}
+        self.stats["test"]["eval"]["qerr"] = {}
+        self.stats["test"]["eval"]["join-loss"] = {}
+        self.stats["test"]["eval"]["join-loss-all"] = {}
+
+        self.stats["train"]["tables_eval"] = {}
+        # key will be int: num_table, and val: qerror
+        self.stats["train"]["tables_eval"]["qerr"] = {}
+        self.stats["train"]["tables_eval"]["qerr-all"] = {}
+
+        self.stats["test"]["tables_eval"] = {}
+        # key will be int: num_table, and val: qerror
+        self.stats["test"]["tables_eval"]["qerr"] = {}
+        self.stats["test"]["tables_eval"]["qerr-all"] = {}
+
+        # TODO: store these
+        self.stats["model_params"] = {}
+
+        self.stats["est_plans"] = {}
+
+    def _init_nets(self):
+        # TODO: num_tables version, need have multiple neural nets
+        num_features = len(self.Xtrain[0])
+        if self.net_name == "FCNN":
+            # do training
+            net = SimpleRegression(num_features,
+                    self.hidden_layer_multiple, 1,
+                    num_hidden_layers=self.num_hidden_layers)
+            self.mb_size = 128
+        elif self.net_name == "LinearRegression":
+            net = LinearRegression(num_features,
+                    1)
+            self.mb_size = 128
+        elif self.net_name == "Hydra":
+            net = Hydra(num_features,
+                    self.hidden_layer_multiple, 1,
+                    len(db.aliases), False)
+            self.mb_size = 512
+        elif self.net_name == "FatHydra":
+            net = FatHydra(num_features,
+                    self.hidden_layer_multiple, 1,
+                    len(db.aliases))
+            self.mb_size = 512
+            print("FatHydra created!")
+        elif self.net_name == "HydraLinear":
+            net = Hydra(num_features,
+                    self.hidden_layer_multiple, 1,
+                    len(db.aliases), True)
+            self.mb_size = 512
+            print("Hydra created!")
+        else:
+            assert False
+
+        if self.optimizer_name == "ams":
+            optimizer = torch.optim.Adam(net.parameters(), lr=self.lr,
+                    amsgrad=True)
+        elif self.optimizer_name == "adam":
+            optimizer = torch.optim.Adam(net.parameters(), lr=self.lr,
+                    amsgrad=False)
+        elif self.optimizer_name == "sgd":
+            optimizer = torch.optim.SGD(net.parameters(),
+                    lr=self.lr, momentum=0.9)
+        else:
+            assert False
+
+        return net, optimizer
+
+    def _get_feature_vectors(self, samples, torch=True):
         '''
         @samples: sql_rep format representation for query and all its
         subqueries.
@@ -77,12 +179,111 @@ class NN(CardinalityEstimationAlg):
             num_tables in each query: (0:N-1 --> 1 table, N:N2 --> 2 table, and
             so on)
             Y: corresponding selectivities.
-            index_mapping: index : (query, aliases)
+            index_mapping: index : (query, aliases, total)
                 - used to construct the true_cardinalities, est_cardinalities
                   dictionaries for computing join loss
             num_table_mapping: num_tables : (start, end)
         '''
-        pdb.set_trace()
+        X = []
+        Y = []
+        num_table_mapping = {}
+
+        # num_table: list
+        Xtmps = defaultdict(list)
+        Ytmps = defaultdict(list)
+        for i, sample in enumerate(samples):
+            # FIXME: do more efficient way without converting to Query
+            query = convert_sql_rep_to_query_rep(sample)
+            for subq in query.subqueries:
+                features = self.db.get_features(subq)
+                aliases = tuple(sorted(subq.aliases))
+                assert aliases in sample["subset_graph"].nodes()
+                Xtmps[len(subq.aliases)].append((i, aliases,
+                        features))
+                Ytmps[len(subq.aliases)].append(subq.true_sel)
+
+        for i in range(20):
+            if i not in Xtmps:
+                continue
+            # start:end
+            num_table_mapping[i] = (len(X), len(X)+len(Xtmps[i]))
+            for xi, x in enumerate(Xtmps[i]):
+                samples[x[0]]["subset_graph"].nodes()[x[1]]["idx"] = len(X)
+                X.append(x[2])
+                Y.append(Ytmps[i][xi])
+
+        assert len(X) == len(Y)
+        print("feature vectors created!")
+        # update the actual Xs, Ys, and mappings
+        if torch:
+            X = to_variable(X).float()
+            Y = to_variable(Y).float()
+
+        return X,Y,num_table_mapping
+
+    def _update_sampling_weights(self, priorities):
+        '''
+        refer to prioritized action replay
+        '''
+        priorities = np.power(priorities, self.sampling_priority_alpha)
+        total = np.sum(priorities)
+        query_sampling_weights = np.zeros(len(priorities))
+        for i, priority in enumerate(priorities):
+            query_sampling_weights[i] = priority / total
+
+        return query_sampling_weights
+
+    def _periodic_eval(self, X, Y, samples, samples_type):
+        # TODO: do this step with multiple nets case too
+        pred = self.net(X).squeeze(1)
+        train_loss = self.loss(pred, Y)
+        self.stats[samples_type]["eval"]["qerr"][self.num_iter] = train_loss.item()
+        print("""\n{}: {}, num samples: {}, qerr: {}""".format(
+            samples_type, self.num_iter, len(X), train_loss.item()))
+
+        if (self.num_iter % self.eval_iter_jl == 0 \
+                and self.num_iter != 0):
+            jl_eval_start = time.time()
+            assert self.jl_use_postgres
+            est_card_costs, opt_costs, _, _ = join_loss(pred,
+                    samples, self.env, "EXHAUSTIVE", self.jl_use_postgres)
+
+            join_losses = np.array(est_card_costs) - np.array(opt_costs)
+            join_losses2 = np.array(est_card_costs) / np.array(opt_costs)
+
+            jl1 = np.mean(join_losses)
+            jl2 = np.mean(join_losses2)
+
+            # FIXME: remove all negative values, so weighted_prob can work
+            # fine. But there really shouldn't be any negative values here.
+            join_losses = np.maximum(join_losses, 0.00)
+
+            # TODO: add scheduler stuff here?
+
+            # FIXME: better logging files.
+            self.stats[samples_type]["eval"]["join-loss"][self.num_iter] = jl1
+            self.stats[samples_type]["eval"]["join-loss-all"][self.num_iter] = jl1
+
+            # TODO: add color to key values.
+            print("""\n{}: {}, num samples: {}, loss: {}, jl1 {},jl2 {},time: {}""".format(
+                samples_type, self.num_iter, len(X), train_loss.item(), jl1, jl2,
+                time.time()-jl_eval_start))
+
+            self.training_cache.dump()
+
+            # 0 is just uniform priorities, as we had initialized
+            if self.sampling_priority_alpha > 0:
+                print("going to update priorities, and sampling weights")
+                query_sampling_weights = self._update_sampling_weights(join_losses2)
+                subquery_sampling_weights = []
+                for si, sample in enumerate(self.training_samples):
+                    sq_weight = query_sampling_weights[si]
+                    num_subq = len(sample["subset_graph"].nodes())
+                    sq_weight /= num_subq
+                    wts = [sq_weight]*(num_subq)
+                    # add lists
+                    subquery_sampling_weights += wts
+                self.subquery_sampling_weights = subquery_sampling_weights
 
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
@@ -90,25 +291,79 @@ class NN(CardinalityEstimationAlg):
         self.db = db
         # get one true source of X,Y feature vector pairs, which won't be
         # reused.
-        self.Xtrain, self.Ytrain, self.index_mapping, \
-                self.num_table_mapping = self._get_feature_vectors(training_samples)
+        start = time.time()
+        self.training_samples = training_samples
+        self.Xtrain, self.Ytrain, self.train_num_table_mapping = \
+                self._get_feature_vectors(self.training_samples)
+        self.test_samples = test_samples
+        if test_samples is not None and len(test_samples) > 0:
+            self.Xtest, self.Ytest, self.test_num_table_mapping = \
+                self._get_feature_vectors(self.test_samples)
+            print("{} training, {} test subqueries".format(len(self.Xtrain),
+                len(self.Xtest)))
+        print("Took {} seconds to generate features".format(time.time()-start))
+
+        # FIXME: multiple table version
+        self.net, self.optimizer = self._init_nets()
+        self.num_iter = 0
+
+        # start off uniformly
+        self.subquery_sampling_weights = [1/len(self.Xtrain)]*len(self.Xtrain)
+
+        # create a new park env, and close at the end.
+        self.env = park.make('query_optimizer')
+
+        while True:
+            if (self.num_iter % 100 == 0):
+                # progress stuff
+                print(self.num_iter, end=",")
+                sys.stdout.flush()
+
+            if (self.num_iter % self.eval_iter == 0 and \
+                    self.num_iter != 0):
+                self._periodic_eval(self.Xtrain, self.Ytrain,
+                        self.training_samples, "train")
+                if test_samples is not None:
+                    self._periodic_eval(self.Xtest, self.Ytest,
+                            self.test_samples, "test")
+
+            idxs = np.random.choice(list(range(len(self.Xtrain))),
+                    self.mb_size,
+                    p=self.subquery_sampling_weights)
+
+            xbatch = self.Xtrain[idxs]
+            ybatch = self.Ytrain[idxs]
+            pred = self.net(xbatch).squeeze(1)
+            loss = self.loss(pred, ybatch)
+            self.optimizer.zero_grad()
+            loss.backward()
+
+            if self.clip_gradient is not None:
+                clip_grad_norm_(self.net.parameters(), self.clip_gradient)
+
+            self.optimizer.step()
+
+            self.num_iter += 1
+            if (self.num_iter > self.max_iter):
+                print("breaking because max iter done")
+                break
 
     def test(self, test_samples):
-        X = []
-        for sample in test_samples:
-            X.append(self.db.get_features(sample))
-        # just pass each sample through net and done!
-        X = to_variable(X).float()
-        pred = self.net(X)
-        pred = pred.squeeze(1)
-        return pred.cpu().detach().numpy()
+        pass
+        # X = []
+        # for sample in test_samples:
+            # X.append(self.db.get_features(sample))
+        # # just pass each sample through net and done!
+        # X = to_variable(X).float()
+        # pred = self.net(X)
+        # pred = pred.squeeze(1)
+        # return pred.cpu().detach().numpy()
 
 class NN2(CardinalityEstimationAlg):
     '''
     Default implementation of various neural network based methods.
     '''
     def __init__(self, *args, **kwargs):
-
         # TODO: make these all configurable
         self.feature_len = None
         self.feat_type = "dict_encoding"

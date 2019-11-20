@@ -203,7 +203,7 @@ def update_cards(est_cards, q, use_postgres=False,
 
     return cards
 
-def _fix_query(query):
+def fix_query(query):
     # FIXME: make this shit not be so dumb.
 
     # for calcite rules etc.
@@ -223,7 +223,84 @@ def _fix_query(query):
 
     return query
 
-def join_loss(pred, queries, old_env,
+def join_loss(pred, samples, old_env,
+        baseline, use_postgres, pdf=None):
+    '''
+    @pdf: None, or open pdf file to which the plans and cardinalities will be
+    plotted.
+    '''
+    if old_env is None:
+        env = park.make('query_optimizer')
+    else:
+        env = old_env
+
+    est_cardinalities = {}
+    true_cardinalities = {}
+    query_dict = {}
+    for qrep in samples:
+        qkey = str(deterministic_hash(qrep["sql"]))
+        query_dict[qkey] = fix_query(qrep["sql"])
+        est_cardinalities[qkey] = {}
+        true_cardinalities[qkey] = {}
+        for node, node_info in qrep["subset_graph"].nodes().items():
+            alias_key = ' '.join(node)
+            est_sel = pred[node_info["idx"]]
+            est_card = est_sel*node_info["cardinality"]["total"]
+            est_cardinalities[qkey][alias_key] = int(est_card)
+            true_cardinalities[qkey][alias_key] = node_info["cardinality"]["actual"]
+
+    est_card_costs_dict, opt_costs_dict, est_plans, opt_plans = \
+                env.compute_join_order_loss(query_dict,
+                        true_cardinalities, est_cardinalities,
+                        "EXHAUSTIVE", postgres=use_postgres)
+
+    if use_postgres:
+        all_opt_plans = set()
+        all_est_plans = set()
+
+        if est_plans and pdf:
+            print("going to plot query results for join-loss")
+            # for k in est_plans:
+            for i, q in enumerate(queries):
+                k = str(deterministic_hash(q.query))
+                opt_cost = opt_costs_dict[k]
+                est_cost = est_card_costs_dict[k]
+                # plot both optimal, and estimated plans
+                explain = est_plans[k]
+                leading = get_leading_hint(explain)
+                all_est_plans.add(leading)
+                title = "Estimator Plan: {}, estimator cost: {}, opt cost: {}".format(\
+                    i, est_cost, opt_cost)
+                estG = plot_explain_join_order(explain, true_cardinalities[k],
+                        cardinalities[k], pdf, title)
+                opt_explain = opt_plans[k]
+                opt_leading = get_leading_hint(opt_explain)
+                all_opt_plans.add(opt_leading)
+                title = "Optimal Plan: {}, estimator cost: {}, opt cost: {}".format(\
+                    i, est_cost, opt_cost)
+                optG = plot_explain_join_order(opt_explain, true_cardinalities[k],
+                        cardinalities[k], pdf, title)
+
+            print("num opt plans: {}, num est plans: {}".format(\
+                    len(all_opt_plans), len(all_est_plans)))
+    else:
+        assert est_plans is None
+
+    est_card_costs = []
+    opt_costs = []
+    # FIXME: maybe use dicts throughout?
+    # need to convert it back into arrays
+    for i, qrep in enumerate(samples):
+        key = str(deterministic_hash(qrep["sql"]))
+        est_card_costs.append(est_card_costs_dict[key])
+        opt_costs.append(opt_costs_dict[key])
+
+    if old_env is None:
+        env.clean()
+
+    return est_card_costs, opt_costs, est_plans, opt_plans
+
+def join_loss_old(pred, queries, old_env,
         baseline, use_postgres, pdf=None):
     '''
     @pdf: None, or open pdf file to which the plans and cardinalities will be
@@ -243,7 +320,7 @@ def join_loss(pred, queries, old_env,
     # each queries index is set to its name
     for i, q in enumerate(queries):
         key = str(deterministic_hash(q.query))
-        fixed_query = _fix_query(q.query)
+        fixed_query = fix_query(q.query)
         query_dict[str(deterministic_hash(q.query))] = fixed_query
 
     cardinalities = {}
