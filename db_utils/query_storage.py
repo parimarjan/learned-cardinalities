@@ -330,13 +330,13 @@ def get_template_samples(fn):
     elif "2b4.toml" in fn:
         num = 1000
     elif "4.toml" in fn:
-        num = 500
+        num = 600
     elif "3.toml" in fn:
         num = 100
     elif "7.toml" in fn:
-        num = 50
+        num = 170
     elif "7b.toml" in fn:
-        num = 353
+        num = 500
     elif "8.toml" in fn:
         num = 239
     elif "7c.toml" in fn:
