@@ -55,26 +55,21 @@ def get_alg(alg):
                         gen_bn_dist=args.gen_bn_dist)
     elif alg == "bn-exact":
         return BN(alg="exact-dp", num_bins=args.num_bins)
-    elif alg == "nn1":
-        return NN1(max_iter = args.max_iter)
     elif alg == "nn":
-        return NN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
+        return NN(max_iter = args.max_iter, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,
                 hidden_layer_multiple=args.hidden_layer_multiple,
-                    jl_start_iter=args.jl_start_iter, eval_iter =
-                    args.eval_iter, optimizer_name=args.optimizer_name,
+                    jl_start_iter=args.jl_start_iter,
+                    eval_iter = args.eval_iter,
+                    optimizer_name=args.optimizer_name,
                     adaptive_lr=args.adaptive_lr,
                     rel_qerr_loss=args.rel_qerr_loss,
                     clip_gradient=args.clip_gradient,
                     baseline=args.baseline_join_alg,
                     nn_cache_dir = args.nn_cache_dir,
-                    divide_mb_len = args.divide_mb_len,
-                    rel_jloss=args.rel_jloss,
                     loss_func = args.loss_func,
                     sampling=args.sampling,
-                    sampling_priority_method=args.sampling_priority_method,
                     sampling_priority_alpha = args.sampling_priority_alpha,
-                    adaptive_priority_alpha = args.adaptive_priority_alpha,
                     net_name = args.net_name,
                     reuse_env = args.reuse_env,
                     eval_iter_jl = args.eval_iter_jl,
@@ -253,18 +248,19 @@ def main():
 
         for qfn in qfns:
             qrep = load_sql_rep(qfn)
+            # FIXME: don't want to hardcode title here
             if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
-                continue
+                # things to update: total, pred_cols etc.
+                update_qrep(qrep, samples[0])
+                # json-ify the graphs
+                output = {}
+                output["sql"] = qrep["sql"]
+                output["join_graph"] = nx.adjacency_data(qrep["join_graph"])
+                output["subset_graph"] = nx.adjacency_data(qrep["subset_graph"])
+                # save it out to qfn
+                with open(qfn, 'wb') as fp:
+                    pickle.dump(output, fp, protocol=pickle.HIGHEST_PROTOCOL)
             samples.append(qrep)
-
-            # for node,info in qrep["subset_graph"].nodes().items():
-                # if "total" not in info["cardinality"]:
-                    # print("going to update total")
-                    # total = samples[0]["subset_graph"].nodes()[node]["cardinality"]["total"]
-                    # # save it?
-                    # qrep["subset_graph"].nodes()[node]["cardinality"]["total"] = total
-                # else:
-                    # break
 
         print("{} took {} seconds to load data".format(fn, time.time()-start))
 
@@ -483,15 +479,13 @@ def read_flags():
             default=20)
     parser.add_argument("--jl_variant", type=int, required=False,
             default=0)
+
     parser.add_argument("--sampling", type=str, required=False,
             default="subquery", help="weighted_query: reprioritize, subquery: uniform \
             over all queries")
-    parser.add_argument("--sampling_priority_method", type=str, required=False,
-            default="jl_ratio", help="jl_ratio OR jl_diff or jl_rank")
+
     parser.add_argument("--sampling_priority_alpha", type=float, required=False,
-            default=5.00, help="")
-    parser.add_argument("--adaptive_priority_alpha", type=int, required=False,
-            default=0)
+            default=0.00, help="")
 
     parser.add_argument("--loss_func", type=str, required=False,
             default="qloss")

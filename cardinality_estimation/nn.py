@@ -226,7 +226,7 @@ class NN(CardinalityEstimationAlg):
         refer to prioritized action replay
         '''
         priorities = np.power(priorities, self.sampling_priority_alpha)
-        total = np.sum(priorities)
+        total = float(np.sum(priorities))
         query_sampling_weights = np.zeros(len(priorities))
         for i, priority in enumerate(priorities):
             query_sampling_weights[i] = priority / total
@@ -241,8 +241,9 @@ class NN(CardinalityEstimationAlg):
         print("""\n{}: {}, num samples: {}, qerr: {}""".format(
             samples_type, self.num_iter, len(X), train_loss.item()))
 
-        if (self.num_iter % self.eval_iter_jl == 0 \
-                and self.num_iter != 0):
+        # if (self.num_iter % self.eval_iter_jl == 0 \
+                # and self.num_iter != 0):
+        if (self.num_iter % self.eval_iter_jl == 0):
             jl_eval_start = time.time()
             assert self.jl_use_postgres
             est_card_costs, opt_costs, _, _ = join_loss(pred,
@@ -273,14 +274,17 @@ class NN(CardinalityEstimationAlg):
 
             # 0 is just uniform priorities, as we had initialized
             if self.sampling_priority_alpha > 0:
-                print("going to update priorities, and sampling weights")
                 query_sampling_weights = self._update_sampling_weights(join_losses2)
+                assert np.allclose(sum(query_sampling_weights), 1.0)
                 subquery_sampling_weights = []
                 for si, sample in enumerate(self.training_samples):
-                    sq_weight = query_sampling_weights[si]
+                    sq_weight = float(query_sampling_weights[si])
                     num_subq = len(sample["subset_graph"].nodes())
                     sq_weight /= num_subq
                     wts = [sq_weight]*(num_subq)
+                    if not np.allclose(sum(wts), query_sampling_weights[si]):
+                        print("diff: ", sum(wts) - query_sampling_weights[si])
+                        pdb.set_trace()
                     # add lists
                     subquery_sampling_weights += wts
                 self.subquery_sampling_weights = subquery_sampling_weights
@@ -319,13 +323,17 @@ class NN(CardinalityEstimationAlg):
                 print(self.num_iter, end=",")
                 sys.stdout.flush()
 
-            if (self.num_iter % self.eval_iter == 0 and \
-                    self.num_iter != 0):
+            if (self.num_iter % self.eval_iter == 0):
                 self._periodic_eval(self.Xtrain, self.Ytrain,
                         self.training_samples, "train")
                 if test_samples is not None:
                     self._periodic_eval(self.Xtest, self.Ytest,
                             self.test_samples, "test")
+
+            if not np.allclose(sum(self.subquery_sampling_weights), 1.00):
+                diff = 1.00 - sum(self.subquery_sampling_weights)
+                random_idx = np.random.randint(0,len(self.subquery_sampling_weights))
+                self.subquery_sampling_weights[random_idx] += diff
 
             idxs = np.random.choice(list(range(len(self.Xtrain))),
                     self.mb_size,
@@ -636,8 +644,9 @@ class NN2(CardinalityEstimationAlg):
             # FIXME: should we do this for minibatch / or for train loss?
             scheduler.step(train_loss)
 
-        if (num_iter % self.eval_iter_jl == 0 \
-                and num_iter != 0):
+        # if (num_iter % self.eval_iter_jl == 0 \
+                # and num_iter != 0):
+        if (num_iter % self.eval_iter_jl == 0):
             jl_eval_start = time.time()
             est_card_costs, baseline_costs, est_plans, opt_plans = \
                     join_loss(pred, samples, env, self.baseline, self.jl_use_postgres)
@@ -1252,7 +1261,6 @@ class NumTablesNN(CardinalityEstimationAlg):
         this loss computation is not used for training, so we can just use
         qerror here.
         '''
-
         assert (num_iter % self.eval_iter == 0)
         Y = []
         pred = []

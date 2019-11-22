@@ -14,6 +14,34 @@ from networkx.readwrite import json_graph
 TODO: bring in the Query object format in here as well.
 '''
 
+def update_qrep(qrep, total_sample=None):
+    '''
+    @qrep: sql_query_rep format
+    @total_sample: from same template class, so subquery totals should be the
+    same for this one.
+
+    Will update qrep in place with "total" values for subset_graph nodes, and
+    pred_cols etc. for join_graph nodes.
+    '''
+    if total_sample is not None:
+        # if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
+        for node in qrep["subset_graph"].nodes():
+            total = total_sample["subset_graph"].nodes()[node]["cardinality"]["total"]
+            qrep["subset_graph"].nodes()[node]["cardinality"]["total"] = total
+
+    for node in qrep["join_graph"].nodes():
+        if "predicates" not in qrep["join_graph"].nodes()[node]:
+            join_graph.nodes[node]["pred_cols"] = []
+            join_graph.nodes[node]["pred_types"] = []
+            join_graph.nodes[node]["pred_vals"] = []
+            continue
+        subg = qrep["join_graph"].subgraph(node)
+        node_sql = nx_graph_to_query(subg)
+        pred_cols, pred_types, pred_vals = extract_predicates(node_sql)
+        qrep["join_graph"].nodes[node]["pred_cols"] = pred_cols
+        qrep["join_graph"].nodes[node]["pred_types"] = pred_types
+        qrep["join_graph"].nodes[node]["pred_vals"] = pred_vals
+
 def gen_queries(query_template, num_samples, args):
     '''
     @query_template: dict, or str, as used by QueryGenerator2 or
@@ -35,9 +63,23 @@ def load_sql_rep(fn):
     assert ".pkl" in fn
     with open(fn, "rb") as f:
         query = pickle.load(f)
-
-    query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
     query["subset_graph"] = json_graph.adjacency_graph(query["subset_graph"])
+    query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
+
+    # try:
+        # query["subset_graph"] = json_graph.adjacency_graph(query["subset_graph"])
+        # query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
+    # except:
+        # print("crash while loading")
+        # output = {}
+        # output["sql"] = query["sql"]
+        # output["join_graph"] = nx.adjacency_data(query["join_graph"])
+        # output["subset_graph"] = nx.adjacency_data(query["subset_graph"])
+        # # save it out to qfn
+        # with open(fn, 'wb') as fp:
+            # pickle.dump(output, fp, protocol=pickle.HIGHEST_PROTOCOL)
+        # return query
+
     return query
 
 def nx_graph_to_query_rep(G, true_count, total_count, pg_count):
