@@ -38,7 +38,7 @@ def convert_to_sql_rep(query, subqueries):
             join_graph.nodes[node]["pred_vals"] = []
             continue
         subg = join_graph.subgraph(node)
-        node_sql = nx_graph_to_query(subg)
+        # node_sql = nx_graph_to_query(subg)
         for subq in subqueries:
             subq_alias = [a for a in subq.aliases][0]
             if subq_alias == node:
