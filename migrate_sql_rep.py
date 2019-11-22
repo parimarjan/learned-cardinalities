@@ -103,7 +103,7 @@ def main():
             print("generated {} query sqls".format(len(query_strs)))
 
             # num_processes = int(num_processes / 2) + 1
-            num_processes = 4
+            num_processes = 16
             with Pool(processes=num_processes) as pool:
                 par_args = [(query, args.user, args.db_name, args.db_host,
                     args.port, args.pwd, False, True) for query in query_strs]
@@ -111,6 +111,12 @@ def main():
         else:
             samples, all_subqueries = load_all_queries(args, fn, subqueries=True)
             print("{} took {} seconds to load data".format(fn, time.time()-start))
+            # just fixes the missing fields etc. (like subq.aliases,
+            # pred_column_names) so that we can convert it to the sql_rep
+            # format
+            update_subq_preds(samples, all_subqueries, args.cache_dir)
+            print("update_subq_preds done")
+
             num_processes = multiprocessing.cpu_count()
             with Pool(processes=num_processes) as pool:
                 par_args = [(query, all_subqueries[i]) for
