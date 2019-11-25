@@ -241,21 +241,21 @@ def gen_query_objs(args, query_strs, query_obj_cache):
         hsql = deterministic_hash(sql)
         if hsql in query_obj_cache:
             curq = query_obj_cache[hsql]
-            if not hasattr(curq, "froms"):
-                print("NEED TO UPDATE QUERY STRUCT")
-                update_query_structure(curq)
-                query_obj_cache.archive[hsql] = curq
-            assert hasattr(curq, "froms")
+            # if not hasattr(curq, "froms"):
+                # print("NEED TO UPDATE QUERY STRUCT")
+                # update_query_structure(curq)
+                # query_obj_cache.archive[hsql] = curq
+            # assert hasattr(curq, "froms")
             # update the query structure as well if needed
             ret_queries.append(curq)
         elif hsql in query_obj_cache.archive:
             try:
                 curq = query_obj_cache.archive[hsql]
-                if not hasattr(curq, "froms"):
-                    print("NEED TO UPDATE QUERY STRUCT")
-                    update_query_structure(curq)
-                    query_obj_cache.archive[hsql] = curq
-                assert hasattr(curq, "froms")
+                # if not hasattr(curq, "froms"):
+                    # print("NEED TO UPDATE QUERY STRUCT")
+                    # update_query_structure(curq)
+                    # query_obj_cache.archive[hsql] = curq
+                # assert hasattr(curq, "froms")
                 # update the query structure as well if needed
                 ret_queries.append(curq)
             except:
@@ -543,6 +543,9 @@ def update_subq_preds(all_queries, all_subqueries, cache_dir):
             if subq.true_count > subq.total_count:
                 subq.total_count = subq.true_count
                 wrong_count += 1
+            if not hasattr(subq, "aliases"):
+                subq.froms, subq.aliases, subq.table_names = extract_from_clause(subq.query)
+
             if subq.pred_column_names is not None:
                 continue
             subq.pred_column_names = []

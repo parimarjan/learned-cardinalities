@@ -20,14 +20,14 @@ AND ct.id = mc.company_type_id
 AND kt.id = t.kind_id
 AND ci.person_id = n.id
 AND ci.role_id = rt.id
-AND t.production_year <= Xprod_year_up
-AND Xprod_year_low < t.production_year
-AND k.keyword IN (Xkeyword)
-AND cn.country_code IN (Xcompany_country)
-AND ct.kind IN (Xcompany_type)
-AND kt.kind IN (Xmovie_kind)
-AND rt.role IN (Xrole)
-AND n.gender IN (Xgender)
+AND (Xprod_year_up)
+AND (Xprod_year_low)
+AND (Xkeyword)
+AND (Xcompany_country)
+AND (Xcompany_type)
+AND (Xmovie_kind)
+AND (Xrole)
+AND (Xgender)
 '''
 
 # template 1
@@ -40,11 +40,11 @@ AND n.gender IN (Xgender)
   type = "list"
   columns = ["t.production_year"]
   keys = ["Xprod_year_low", "Xprod_year_up"]
+  pred_type = "range"
   dependencies = 0
   options = [[1925, 1975], [1975, 2015], [1875, 1975], [1925,
   2015], [1950, 1990], [1990, 2015]]
   sampling_method = "uniform"
-  pred_type = "range"
   min_samples = 1
   max_samples = 1
 
@@ -52,6 +52,7 @@ AND n.gender IN (Xgender)
   type = "sql"
   columns = ["kt.kind"]
   keys = ["Xmovie_kind"]
+  pred_type = "IN"
   dependencies = 1
 
   # we want to sample this based on the ALREADY selected value for company name /
@@ -60,8 +61,8 @@ AND n.gender IN (Xgender)
   SELECT kt.kind, count(*)
   FROM title as t, kind_type as kt
   WHERE t.kind_id = kt.id
-  AND t.production_year <= Xprod_year_up
-  AND Xprod_year_low < t.production_year
+  AND (Xprod_year_up)
+  AND (Xprod_year_low)
   GROUP BY kt.kind
   ORDER BY count(*) desc
   '''
@@ -76,6 +77,7 @@ AND n.gender IN (Xgender)
   columns = ["k.keyword"]
   keys = ["Xkeyword"]
   dependencies = 0
+  pred_type = "IN"
   sampling_method = "uniform"
 
   sqls = ["SELECT k.keyword, count(*) FROM keyword as k, movie_keyword as mk WHERE k.id = mk.keyword_id GROUP BY k.keyword HAVING count(*) > 5000" ,
@@ -88,6 +90,7 @@ AND n.gender IN (Xgender)
   type = "sql"
   columns = ["ct.kind", "cn.country_code"]
   keys = ["Xcompany_type", "Xcompany_country"]
+  pred_type = "IN"
   dependencies = 0
   sampling_method = "quantile"
   num_quantiles = 2
@@ -106,6 +109,7 @@ AND n.gender IN (Xgender)
   type = "sql"
   columns = ["n.gender", "rt.role"]
   keys = ["Xgender", "Xrole"]
+  pred_type = "IN"
   dependencies = 0
 
   sql = '''
@@ -146,6 +150,7 @@ AND n.gender IN (Xgender)
   type = "sql"
   columns = ["kt.kind"]
   keys = ["Xmovie_kind"]
+  pred_type = "IN"
   dependencies = 1
 
   # we want to sample this based on the ALREADY selected value for company name /
@@ -154,8 +159,8 @@ AND n.gender IN (Xgender)
   SELECT kt.kind, count(*)
   FROM title as t, kind_type as kt
   WHERE t.kind_id = kt.id
-  AND t.production_year <= Xprod_year_up
-  AND Xprod_year_low < t.production_year
+  AND (Xprod_year_up)
+  AND (Xprod_year_low)
   GROUP BY kt.kind
   ORDER BY count(*) desc
   '''
@@ -170,6 +175,7 @@ AND n.gender IN (Xgender)
   columns = ["k.keyword"]
   keys = ["Xkeyword"]
   dependencies = 0
+  pred_type = "IN"
   sampling_method = "uniform"
 
   sqls = ["SELECT k.keyword, count(*) FROM keyword as k, movie_keyword as mk WHERE k.id = mk.keyword_id GROUP BY k.keyword HAVING count(*) > 5000" ,
@@ -183,6 +189,7 @@ AND n.gender IN (Xgender)
   columns = ["ct.kind", "cn.country_code"]
   keys = ["Xcompany_type", "Xcompany_country"]
   dependencies = 0
+  pred_type = "IN"
   sampling_method = "quantile"
   num_quantiles = 2
 
@@ -201,6 +208,7 @@ AND n.gender IN (Xgender)
   columns = ["n.gender", "rt.role"]
   keys = ["Xgender", "Xrole"]
   dependencies = 0
+  pred_type = "IN"
 
   sql = '''
   SELECT n.gender, rt.role, count(*)
