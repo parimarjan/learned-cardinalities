@@ -320,15 +320,15 @@ def gen_query_objs(args, query_strs, query_obj_cache):
 def get_template_samples(fn):
     # number of samples to use from this template (fn)
     if "2.toml" in fn:
-        num = 1000
+        num = 500
     elif "2b1.toml" in fn:
-        num = 1000
+        num = 500
     elif "2b2.toml" in fn:
-        num = 1000
+        num = 500
     elif "2b3.toml" in fn:
-        num = 1000
+        num = 500
     elif "2b4.toml" in fn:
-        num = 1000
+        num = 500
     elif "4.toml" in fn:
         num = 600
     elif "3.toml" in fn:

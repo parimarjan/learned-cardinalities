@@ -30,6 +30,8 @@ from sklearn.ensemble import RandomForestRegressor
 from .custom_linear import CustomLinearModel
 from sqlalchemy import create_engine
 from .algs import *
+import sys
+import gc
 
 # sentinel value for NULLS
 NULL_VALUE = "-1"
@@ -211,15 +213,19 @@ class NN(CardinalityEstimationAlg):
                 samples[x[0]]["subset_graph"].nodes()[x[1]]["idx"] = len(X)
                 X.append(x[2])
                 Y.append(Ytmps[i][xi])
+            del(Xtmps[i])
+            del(Ytmps[i])
 
         assert len(X) == len(Y)
         print("feature vectors created!")
         # update the actual Xs, Ys, and mappings
         if torch:
-            X = to_variable(X).float()
-            Y = to_variable(Y).float()
+            Xtrain = to_variable(X).float()
+            Ytrain = to_variable(Y).float()
+            del(X)
+            del(Y)
 
-        return X,Y,num_table_mapping
+        return Xtrain,Ytrain,num_table_mapping
 
     def _update_sampling_weights(self, priorities):
         '''
@@ -306,6 +312,7 @@ class NN(CardinalityEstimationAlg):
             print("{} training, {} test subqueries".format(len(self.Xtrain),
                 len(self.Xtest)))
         print("Took {} seconds to generate features".format(time.time()-start))
+        gc.collect()
 
         # FIXME: multiple table version
         self.net, self.optimizer = self._init_nets()
@@ -330,7 +337,7 @@ class NN(CardinalityEstimationAlg):
                     self._periodic_eval(self.Xtest, self.Ytest,
                             self.test_samples, "test")
 
-            if not np.allclose(sum(self.subquery_sampling_weights), 1.00):
+            if 1.00 - sum(self.subquery_sampling_weights) != 0.00:
                 diff = 1.00 - sum(self.subquery_sampling_weights)
                 random_idx = np.random.randint(0,len(self.subquery_sampling_weights))
                 self.subquery_sampling_weights[random_idx] += diff
