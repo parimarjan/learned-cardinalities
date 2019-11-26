@@ -436,7 +436,7 @@ def read_flags():
             default=0)
 
     parser.add_argument("--optimizer_name", type=str, required=False,
-            default="sgd")
+            default="adam")
     parser.add_argument("--net_name", type=str, required=False,
             default="FCNN")
 

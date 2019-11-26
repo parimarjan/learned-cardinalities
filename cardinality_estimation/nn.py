@@ -68,6 +68,8 @@ class NN(CardinalityEstimationAlg):
             self.loss = weighted_loss
         else:
             assert False
+        self.net = None
+        self.optimizer = None
 
         nn_cache_dir = self.nn_cache_dir
 
@@ -221,7 +223,7 @@ class NN(CardinalityEstimationAlg):
                     net, opt = self._init_net(self.net_name, self.optimizer_name)
                     self.nets[num_table] = net
                     self.optimizers[num_table] = opt
-            print("initialized {} nets".format(len(self.train_num_table_mapping)))
+            print("initialized {} nets".format(len(self.nets)))
         else:
             self.net, self.optimizer = self._init_net(self.net_name, self.optimizer_name)
 
@@ -292,6 +294,8 @@ class NN(CardinalityEstimationAlg):
 
     def eval_samples(self, X, samples, samples_type):
         if self.nn_type == "num_tables":
+            assert self.net is None
+            assert self.optimizer is None
             all_preds = []
             if "train" in samples_type:
                 nt_map = self.train_num_table_mapping
@@ -370,6 +374,7 @@ class NN(CardinalityEstimationAlg):
 
     def train_step(self):
         if self.nn_type == "num_tables":
+            assert self.net is None
             # TODO: to parallelize
             nt_map = self.train_num_table_mapping
             for nt in nt_map:
@@ -385,6 +390,7 @@ class NN(CardinalityEstimationAlg):
                 xbatch = Xcur[idxs]
                 ybatch = Ycur[idxs]
                 pred = net(xbatch).squeeze(1)
+                assert pred.shape == ybatch.shape
                 loss = self.loss(pred, ybatch)
                 opt.zero_grad()
                 loss.backward()
@@ -413,6 +419,8 @@ class NN(CardinalityEstimationAlg):
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
         assert isinstance(training_samples[0], dict)
+        torch.set_num_threads(multiprocessing.cpu_count())
+        print("set torch num threads to: ", multiprocessing.cpu_count())
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
             max_discrete_featurizing_buckets = self.max_discrete_featurizing_buckets)

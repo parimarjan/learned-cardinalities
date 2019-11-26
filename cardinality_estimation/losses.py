@@ -13,9 +13,6 @@ CROSS_JOIN_CARD = 1313136191
 def node_match(n1, n2):
     return n1 == n2
 
-# def edge_match(e1, e2):
-    # return e1["join_direction"] == e2["join_direction"]
-
 def get_loss(loss):
     if loss == "abs":
         return compute_abs_loss
