@@ -76,7 +76,10 @@ def get_alg(alg):
                     eval_num_tables = args.eval_num_tables,
                     jl_use_postgres = args.jl_use_postgres,
                     num_tables_feature = args.num_tables_feature,
-                    max_discrete_featurizing_buckets = args.max_discrete_featurizing_buckets)
+                    max_discrete_featurizing_buckets =
+                            args.max_discrete_featurizing_buckets,
+                    nn_type = args.nn_type,
+                    group_models = args.group_models)
     elif alg == "nn2":
         assert False
         # return NN2(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
@@ -417,6 +420,8 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--jl_use_postgres", type=int,
             required=False, default=0)
+    parser.add_argument("--nn_type", type=str,
+            required=False, default="nn")
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
