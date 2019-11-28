@@ -40,7 +40,14 @@ class CardinalityEstimationAlg():
     def train(self, db, training_samples, **kwargs):
         pass
     def test(self, test_samples, **kwargs):
+        '''
+        @test_samples: [sql_rep objects]
+        @ret: [dicts]. Each element is a dictionary with cardinality estimate
+        for each subset graph node (subquery). Each key should be ' ' separated
+        list of aliases / table names
+        '''
         pass
+
     def num_parameters(self):
         '''
         size of the parameters needed so we can compare across different algorithms.
@@ -57,7 +64,15 @@ class Postgres(CardinalityEstimationAlg):
         pass
 
     def test(self, test_samples):
-        return np.array([(s.pg_count / float(s.total_count)) for s in test_samples])
+        assert isinstance(test_samples[0], dict)
+        preds = []
+        for sample in test_samples:
+            pred_dict = {}
+            for alias_key, info in sample["subset_graph"].nodes().items():
+                # alias_key = ' '.join(alias)
+                pred_dict[alias_key] = info["cardinality"]["expected"]
+            preds.append(pred_dict)
+        return preds
 
 
 class Random(CardinalityEstimationAlg):

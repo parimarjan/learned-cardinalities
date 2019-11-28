@@ -80,7 +80,8 @@ def get_alg(alg):
                             args.max_discrete_featurizing_buckets,
                     nn_type = args.nn_type,
                     group_models = args.group_models,
-                    adaptive_lr_patience = args.adaptive_lr_patience)
+                    adaptive_lr_patience = args.adaptive_lr_patience,
+                    mb_size = args.mb_size)
     elif alg == "nn3":
         assert False
         # return NumTablesNN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
@@ -136,16 +137,42 @@ def remove_doubles(query_strs):
         newq.append(q)
     return newq
 
-def eval_alg(alg, losses, queries, use_subqueries):
+def eval_alg(alg, losses, queries):
     '''
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
     '''
     np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
-    if use_subqueries:
-        all_queries = get_all_subqueries(queries)
-    else:
-        all_queries = queries
+
+    # first, just evaluate them all, and save results in queries
+    start = time.time()
+    yhats = alg.test(queries)
+    assert isinstance(yhats[0], dict)
+    eval_time = round(time.time() - start, 2)
+    print("evaluating alg took: {} seconds".format(eval_time))
+
+    loss_start = time.time()
+    for loss_func in losses:
+        losses = loss_func(queries, yhats, args=args)
+
+        # TODO: set global printoptions to round digits
+        print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+                .format(args.db_name, alg, len(queries),
+                    get_loss_name(loss_func.__name__),
+                    np.round(np.mean(losses),3),
+                    np.round(np.median(losses),3),
+                    np.round(np.percentile(losses,95),3),
+                    np.round(np.percentile(losses,99),3)))
+
+    print("loss computations took: {} seconds".format(time.time()-loss_start))
+
+def eval_alg_old(alg, losses, queries, use_subqueries):
+    '''
+    Applies alg to each query, and measures loss using `loss_func`.
+    Records each estimate, and loss in the query object.
+    '''
+    np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
+
     # first, just evaluate them all, and save results in queries
     start = time.time()
     yhats = alg.test(all_queries)
@@ -292,19 +319,21 @@ def main():
 
     for alg in algorithms:
         start = time.time()
-        if args.eval_test_while_training:
-            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    test_samples=test_queries)
-        else:
-            alg.train(db, train_queries, use_subqueries=args.use_subqueries)
+        # if args.eval_test_while_training:
+            # alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                    # test_samples=test_queries)
+        # else:
+            # alg.train(db, train_queries, use_subqueries=args.use_subqueries)
+        alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                test_samples=test_queries)
 
         train_times[alg.__str__()] = round(time.time() - start, 2)
 
         start = time.time()
-        eval_alg(alg, losses, train_queries, args.use_subqueries)
+        eval_alg(alg, losses, train_queries)
 
         if args.test:
-            eval_alg(alg, losses, test_queries, args.use_subqueries)
+            eval_alg(alg, losses, test_queries)
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
     if args.results_cache:
@@ -399,6 +428,8 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
             required=False, default="nn")
+    parser.add_argument("--mb_size", type=int, required=False,
+            default=128)
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
