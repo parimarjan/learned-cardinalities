@@ -27,7 +27,6 @@ import datetime
 import multiprocessing
 import xgboost as xgb
 from sklearn.ensemble import RandomForestRegressor
-from .custom_linear import CustomLinearModel
 from sqlalchemy import create_engine
 from .algs import *
 import sys
@@ -68,8 +67,10 @@ class NN(CardinalityEstimationAlg):
             self.loss = weighted_loss
         else:
             assert False
+
         self.net = None
         self.optimizer = None
+        self.scheduler = None
 
         nn_cache_dir = self.nn_cache_dir
 
@@ -210,22 +211,33 @@ class NN(CardinalityEstimationAlg):
         else:
             assert False
 
-        return net, optimizer
+
+        if self.adaptive_lr:
+            scheduler = ReduceLROnPlateau(optimizer, 'min',
+                    patience=self.adaptive_lr_patience,
+                            verbose=True, factor=0.1, eps=0.0001)
+        else:
+            scheduler = None
+
+        return net, optimizer, scheduler
 
     def init_nets(self):
         # TODO: num_tables version, need have multiple neural nets
         if self.nn_type == "num_tables":
             self.nets = {}
             self.optimizers = {}
+            self.schedulers = {}
             for num_table in self.train_num_table_mapping:
                 num_table = self._map_num_tables(num_table)
                 if num_table not in self.nets:
-                    net, opt = self._init_net(self.net_name, self.optimizer_name)
+                    net, opt, scheduler = self._init_net(self.net_name, self.optimizer_name)
                     self.nets[num_table] = net
                     self.optimizers[num_table] = opt
+                    self.schedulers[num_table] = scheduler
             print("initialized {} nets".format(len(self.nets)))
         else:
-            self.net, self.optimizer = self._init_net(self.net_name, self.optimizer_name)
+            self.net, self.optimizer, self.scheduler = \
+                    self._init_net(self.net_name, self.optimizer_name)
 
     def _get_feature_vectors(self, samples, torch=True):
         '''
@@ -319,9 +331,14 @@ class NN(CardinalityEstimationAlg):
         # pred = self.net(X).squeeze(1)
         pred = self.eval_samples(X, samples, samples_type)
         train_loss = self.loss(pred, Y)
+
         self.stats[samples_type]["eval"]["qerr"][self.num_iter] = train_loss.item()
         print("""\n{}: {}, num samples: {}, qerr: {}""".format(
             samples_type, self.num_iter, len(X), train_loss.item()))
+        if self.adaptive_lr and self.scheduler is not None:
+            self.scheduler.step(train_loss)
+
+        # TODO: num tables stats
 
         if (self.num_iter % self.eval_iter_jl == 0 \
                 and self.num_iter != 0):

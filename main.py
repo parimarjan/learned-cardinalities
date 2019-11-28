@@ -79,31 +79,8 @@ def get_alg(alg):
                     max_discrete_featurizing_buckets =
                             args.max_discrete_featurizing_buckets,
                     nn_type = args.nn_type,
-                    group_models = args.group_models)
-    elif alg == "nn2":
-        assert False
-        # return NN2(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
-                # num_hidden_layers=args.num_hidden_layers,
-                # hidden_layer_multiple=args.hidden_layer_multiple,
-                    # jl_start_iter=args.jl_start_iter, eval_iter =
-                    # args.eval_iter, optimizer_name=args.optimizer_name,
-                    # adaptive_lr=args.adaptive_lr,
-                    # rel_qerr_loss=args.rel_qerr_loss,
-                    # clip_gradient=args.clip_gradient,
-                    # baseline=args.baseline_join_alg,
-                    # nn_cache_dir = args.nn_cache_dir,
-                    # divide_mb_len = args.divide_mb_len,
-                    # rel_jloss=args.rel_jloss,
-                    # loss_func = args.loss_func,
-                    # sampling=args.sampling,
-                    # sampling_priority_method=args.sampling_priority_method,
-                    # sampling_priority_alpha = args.sampling_priority_alpha,
-                    # adaptive_priority_alpha = args.adaptive_priority_alpha,
-                    # net_name = args.net_name,
-                    # reuse_env = args.reuse_env,
-                    # eval_iter_jl = args.eval_iter_jl,
-                    # eval_num_tables = args.eval_num_tables,
-                    # jl_use_postgres = args.jl_use_postgres)
+                    group_models = args.group_models,
+                    adaptive_lr_patience = args.adaptive_lr_patience)
     elif alg == "nn3":
         assert False
         # return NumTablesNN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
@@ -419,12 +396,15 @@ def read_flags():
     parser.add_argument("--eval_test_while_training", type=int,
             required=False, default=1)
     parser.add_argument("--jl_use_postgres", type=int,
-            required=False, default=0)
+            required=False, default=1)
     parser.add_argument("--nn_type", type=str,
             required=False, default="nn")
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
+    parser.add_argument("--adaptive_lr_patience", type=int,
+            required=False, default=20)
+
     parser.add_argument("--viz_join_plans", type=int,
             required=False, default=0)
     parser.add_argument("--viz_fn", type=str,
