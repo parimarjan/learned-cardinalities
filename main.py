@@ -22,8 +22,10 @@ import pandas as pd
 import random
 import itertools
 import klepto
-from multiprocessing import Pool
-import multiprocessing
+# from multiprocessing import Pool
+# import multiprocessing
+import torch.multiprocessing as mp
+
 import numpy as np
 from db_utils.query_generator import QueryGenerator
 from db_utils.query_generator2 import QueryGenerator2
@@ -536,5 +538,7 @@ def read_flags():
 
     return parser.parse_args()
 
-args = read_flags()
-main()
+# need __name__ == "__main__" for torch multithreading haha
+if __name__ == "__main__":
+    args = read_flags()
+    main()

@@ -4,6 +4,7 @@ import park
 from utils.utils import *
 from cardinality_estimation.query import *
 import itertools
+import multiprocessing
 
 import matplotlib
 matplotlib.use('Agg')
@@ -103,7 +104,7 @@ def fix_query(query):
     return query
 
 def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
-        pdf=None):
+        pdf=None, num_processes=1):
     '''
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
@@ -115,7 +116,7 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
     est_costs, opt_costs, est_plans, opt_plans = \
                 env.compute_join_order_loss(sqls,
                         true_cardinalities, est_cardinalities,
-                        None, True)
+                        None, num_processes=num_processes, postgres=True)
 
     if est_plans and pdf:
         print("going to plot query results for join-loss")
@@ -176,8 +177,9 @@ def compute_join_order_loss(queries, preds, **kwargs):
 
     if args.jl_use_postgres:
         est_card_costs, opt_costs, est_plans, opt_plans = \
-                        join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
-                                pdf=join_viz_pdf)
+                        join_loss_pg(sqls, true_cardinalities,
+                                est_cardinalities, env, pdf=join_viz_pdf,
+                                num_processes=multiprocessing.cpu_count())
 
         all_opt_plans = set()
         all_est_plans = set()
