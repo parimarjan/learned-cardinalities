@@ -12,7 +12,7 @@ from utils.net import *
 from cardinality_estimation.losses import *
 import pandas as pd
 import json
-# from multiprocessing import Pool
+import multiprocessing
 from torch.multiprocessing import Pool as Pool2
 import torch.multiprocessing as mp
 try:
@@ -42,7 +42,7 @@ import gc
 def single_level_net_steps(net, opt, Xcur, Ycur, num_steps,
         mb_size, loss_func, clip_gradient):
     # TODO: make sure there are no wasteful copying
-    # torch.set_num_threads(4)
+    torch.set_num_threads(2)
     start = time.time()
     Xcur = to_variable(Xcur).float()
     Ycur = to_variable(Ycur).float()
@@ -84,7 +84,17 @@ class NN(CardinalityEstimationAlg):
         self.scheduler = None
 
         self.num_threads = 8
-        self.num_join_loss_processes = 8
+
+        # number of processes used for computing train and test join losses
+        # using park envs. These are computed simultaneously, while the next
+        # iterations of the neural net train.
+        self.num_join_loss_processes = 4
+
+        # TODO: right time to close these, at the end of all jobs
+        self.train_join_loss_pool = multiprocessing.pool.ThreadPool()
+        self.test_join_loss_pool = multiprocessing.pool.ThreadPool()
+        self.train_join_results = None
+        self.test_join_results = None
 
         nn_cache_dir = self.nn_cache_dir
 
@@ -333,13 +343,57 @@ class NN(CardinalityEstimationAlg):
             pred = self.net(X).squeeze(1)
         return pred
 
-    def _periodic_eval(self, X, Y, samples, samples_type):
+    def _update_join_results(self, results, samples_type):
+        if results is None:
+            return
+        jl_eval_start = time.time()
+        # can be a blocking call
+        (est_card_costs, opt_costs,_,_) = results.get()
+
+        # TODO: do we need both these?
+        join_losses = np.array(est_card_costs) - np.array(opt_costs)
+        join_losses2 = np.array(est_card_costs) / np.array(opt_costs)
+        jl1 = np.mean(join_losses)
+        jl2 = np.mean(join_losses2)
+
+        # FIXME: does this even happen?
+        join_losses = np.maximum(join_losses, 0.00)
+
+        self.stats[samples_type]["eval"]["join-loss"][self.num_iter] = jl1
+        self.stats[samples_type]["eval"]["est_jl"][self.num_iter] = est_card_costs
+        self.stats[samples_type]["eval"]["opt_jl"][0] = opt_costs
+
+        # # TODO: add color to key values.
+        print("""\n{}: {}, num samples: {}, jl1 {},jl2 {},time: {}""".format(
+            samples_type, self.num_iter - self.eval_iter_jl, len(join_losses), jl1, jl2,
+            time.time()-jl_eval_start))
+        self.training_cache.dump()
+
+        # 0 is just uniform priorities, as we had initialized
+        # if self.sampling_priority_alpha > 0 and self.num_iter > 0:
+            # query_sampling_weights = self._update_sampling_weights(join_losses2)
+            # assert np.allclose(sum(query_sampling_weights), 1.0)
+            # subquery_sampling_weights = []
+            # for si, sample in enumerate(self.training_samples):
+                # sq_weight = float(query_sampling_weights[si])
+                # num_subq = len(sample["subset_graph"].nodes())
+                # sq_weight /= num_subq
+                # wts = [sq_weight]*(num_subq)
+                # if not np.allclose(sum(wts), query_sampling_weights[si]):
+                    # print("diff: ", sum(wts) - query_sampling_weights[si])
+                    # pdb.set_trace()
+                # # add lists
+                # subquery_sampling_weights += wts
+            # self.subquery_sampling_weights = subquery_sampling_weights
+
+    def _periodic_eval(self, X, Y, samples, samples_type,
+            join_loss_pool, env):
         pred = self.eval_samples(X, samples, samples_type)
         train_loss = self.loss(pred, Y)
-
+        print("""{}: {}, num samples: {}, qerr: {}""".format(
+            samples_type, self.num_iter, len(X), train_loss.item()))
         self.stats[samples_type]["eval"]["qerr"][self.num_iter] = train_loss.item()
-        # print("""\n{}: {}, num samples: {}, qerr: {}""".format(
-            # samples_type, self.num_iter, len(X), train_loss.item()))
+
         if self.adaptive_lr and self.scheduler is not None:
             self.scheduler.step(train_loss)
 
@@ -366,58 +420,17 @@ class NN(CardinalityEstimationAlg):
                 est_cardinalities.append(ests)
                 true_cardinalities.append(trues)
 
-            est_card_costs, opt_costs, _, _ = join_loss_pg(sqls,
-                    true_cardinalities, est_cardinalities, self.env,
-                    num_processes = self.num_join_loss_processes)
-
-            join_losses = np.array(est_card_costs) - np.array(opt_costs)
-            join_losses2 = np.array(est_card_costs) / np.array(opt_costs)
-
-            jl1 = np.mean(join_losses)
-            jl2 = np.mean(join_losses2)
-
-            # FIXME: remove all negative values, so weighted_prob can work
-            # fine. But there really shouldn't be any negative values here.
-            join_losses = np.maximum(join_losses, 0.00)
-
-            # TODO: add scheduler stuff here?
-
-            # FIXME: better logging files.
-            self.stats[samples_type]["eval"]["join-loss"][self.num_iter] = jl1
-            self.stats[samples_type]["eval"]["est_jl"][self.num_iter] = est_card_costs
-            self.stats[samples_type]["eval"]["opt_jl"][0] = opt_costs
-
-            # TODO: add color to key values.
-            print("""\n{}: {}, num samples: {}, loss: {}, jl1 {},jl2 {},time: {}""".format(
-                samples_type, self.num_iter, len(X), train_loss.item(), jl1, jl2,
-                time.time()-jl_eval_start))
-
-            self.training_cache.dump()
-
-            # 0 is just uniform priorities, as we had initialized
-            if self.sampling_priority_alpha > 0 and self.num_iter > 0:
-                query_sampling_weights = self._update_sampling_weights(join_losses2)
-                assert np.allclose(sum(query_sampling_weights), 1.0)
-                subquery_sampling_weights = []
-                for si, sample in enumerate(self.training_samples):
-                    sq_weight = float(query_sampling_weights[si])
-                    num_subq = len(sample["subset_graph"].nodes())
-                    sq_weight /= num_subq
-                    wts = [sq_weight]*(num_subq)
-                    if not np.allclose(sum(wts), query_sampling_weights[si]):
-                        print("diff: ", sum(wts) - query_sampling_weights[si])
-                        pdb.set_trace()
-                    # add lists
-                    subquery_sampling_weights += wts
-                self.subquery_sampling_weights = subquery_sampling_weights
+            args = (sqls, true_cardinalities, est_cardinalities, env,
+                    None, self.num_join_loss_processes)
+            results = join_loss_pool.apply_async(join_loss_pg, args)
+            return results
+        return None
 
     def train_step(self, num_steps=1):
         if self.nn_type == "num_tables":
             assert self.net is None
-            # TODO: to parallelize
             nt_map = self.train_num_table_mapping
-            SINGLE_THREADED = False
-            if SINGLE_THREADED:
+            if self.single_threaded_nt:
                 for nt in nt_map:
                     start,end = nt_map[nt]
                     net_map = self._map_num_tables(nt)
@@ -452,8 +465,10 @@ class NN(CardinalityEstimationAlg):
                     par_args.append((net, opt, Xcur, Ycur, num_steps,
                         self.mb_size, self.loss, self.clip_gradient))
 
-                # num_processes = 4
-                num_processes = len(nt_map)
+                # launch single-threaded processes for each
+                # TODO: might be better to launch pool of 4 + 2T each, so we
+                # don't waste resources on levels that finish fast?
+                num_processes = 4
                 with Pool2(processes=num_processes) as pool:
                     pool.starmap(single_level_net_steps, par_args)
         else:
@@ -464,29 +479,20 @@ class NN(CardinalityEstimationAlg):
                         self.mb_size,
                         p=self.subquery_sampling_weights)
 
-                # TODO: test case to see if contiguous memory helps?
-                # idxs = np.zeros(self.mb_size)
-                # for i in range(self.mb_size):
-                    # idxs[i] = (i*self.num_iter + i) % len(self.Xtrain)
-
                 xbatch = self.Xtrain[idxs]
                 ybatch = self.Ytrain[idxs]
                 pred = self.net(xbatch).squeeze(1)
                 loss = self.loss(pred, ybatch)
                 self.optimizer.zero_grad()
                 loss.backward()
-
                 if self.clip_gradient is not None:
                     clip_grad_norm_(self.net.parameters(), self.clip_gradient)
-
                 self.optimizer.step()
 
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
         assert isinstance(training_samples[0], dict)
 
-        # torch.set_num_threads(self.num_threads)
-        # print("set torch num threads to: ", self.num_threads)
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
             max_discrete_featurizing_buckets = self.max_discrete_featurizing_buckets)
@@ -496,15 +502,19 @@ class NN(CardinalityEstimationAlg):
         self.training_samples = training_samples
         self.Xtrain, self.Ytrain, self.train_num_table_mapping = \
                 self._get_feature_vectors(self.training_samples)
+        # create a new park env, and close at the end.
+        self.env = park.make('query_optimizer')
+
         self.test_samples = test_samples
         if test_samples is not None and len(test_samples) > 0:
             self.Xtest, self.Ytest, self.test_num_table_mapping = \
                 self._get_feature_vectors(self.test_samples)
             print("{} training, {} test subqueries".format(len(self.Xtrain),
                 len(self.Xtest)))
+            self.test_env = park.make('query_optimizer')
+
         print("feature len: {}, generation time: {}".\
                 format(len(self.Xtrain[0]), time.time()-start))
-        # gc.collect()
 
         # FIXME: multiple table version
         self.init_nets()
@@ -513,33 +523,38 @@ class NN(CardinalityEstimationAlg):
         # start off uniformly
         self.subquery_sampling_weights = [1/len(self.Xtrain)]*len(self.Xtrain)
 
-        # create a new park env, and close at the end.
-        self.env = park.make('query_optimizer')
         prev_end = time.time()
         while True:
             if (self.num_iter % 100 == 0):
                 # progress stuff
                 it_time = time.time() - prev_end
                 prev_end = time.time()
-                # print("{} : {}".format(self.num_iter, it_time), end=",")
                 print("MB: {}, T:{}, I:{} : {}".format(\
                         self.mb_size, self.num_threads, self.num_iter, it_time))
                 sys.stdout.flush()
 
             if (self.num_iter % self.eval_iter == 0):
-                self._periodic_eval(self.Xtrain, self.Ytrain,
-                        self.training_samples, "train")
+                # we will wait on these results when we reach this point in the
+                # next iteration
+                self._update_join_results(self.train_join_results, "train")
+                self.train_join_results = self._periodic_eval(self.Xtrain, self.Ytrain,
+                        self.training_samples, "train",
+                        self.train_join_loss_pool, self.env)
+
+                # TODO: handle reweighing schemes here
+
                 if test_samples is not None:
-                    self._periodic_eval(self.Xtest, self.Ytest,
-                            self.test_samples, "test")
+                    self._update_join_results(self.test_join_results, "test")
+                    self.test_join_results = self._periodic_eval(self.Xtest,
+                            self.Ytest, self.test_samples, "test",
+                            self.test_join_loss_pool, self.test_env)
+                print("apply asyncs done, continuing to train...")
 
             if 1.00 - sum(self.subquery_sampling_weights) != 0.00:
                 diff = 1.00 - sum(self.subquery_sampling_weights)
                 random_idx = np.random.randint(0,len(self.subquery_sampling_weights))
                 self.subquery_sampling_weights[random_idx] += diff
 
-            # TODO: eval_iter
-            # TRAIN_STEPS = 100
             self.train_step(self.eval_iter)
             self.num_iter += self.eval_iter
 
@@ -549,14 +564,6 @@ class NN(CardinalityEstimationAlg):
 
     def test(self, test_samples):
         pass
-        # X = []
-        # for sample in test_samples:
-            # X.append(self.db.get_features(sample))
-        # # just pass each sample through net and done!
-        # X = to_variable(X).float()
-        # pred = self.net(X)
-        # pred = pred.squeeze(1)
-        # return pred.cpu().detach().numpy()
 
     def __str__(self):
         cls = self.__class__.__name__

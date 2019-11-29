@@ -329,12 +329,14 @@ def get_template_samples(fn):
         num = 500
     elif "2b4.toml" in fn:
         num = 500
-    # elif "2d2.toml" in fn:
-        # num = 2
+    elif "2d2.toml" in fn:
+        num = 485
+    elif "2d.toml" in fn:
+        num = 189
     elif "2U2.toml" in fn:
-        num = 440
+        num = 1159
     elif "4.toml" in fn:
-        num = 969
+        num = 1383
     elif "3.toml" in fn:
         num = 100
     elif "7.toml" in fn:
@@ -342,7 +344,7 @@ def get_template_samples(fn):
     elif "7b.toml" in fn:
         num = 560
     elif "8.toml" in fn:
-        num = 519
+        num = 548
     elif "7c.toml" in fn:
         num = 20
     else:

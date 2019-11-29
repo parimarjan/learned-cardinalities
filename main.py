@@ -83,34 +83,8 @@ def get_alg(alg):
                     nn_type = args.nn_type,
                     group_models = args.group_models,
                     adaptive_lr_patience = args.adaptive_lr_patience,
-                    mb_size = args.mb_size)
-    elif alg == "nn3":
-        assert False
-        # return NumTablesNN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
-                # num_hidden_layers=args.num_hidden_layers,
-                # hidden_layer_multiple=args.hidden_layer_multiple,
-                    # jl_start_iter=args.jl_start_iter, eval_iter =
-                    # args.eval_iter, optimizer_name=args.optimizer_name,
-                    # adaptive_lr=args.adaptive_lr,
-                    # rel_qerr_loss=args.rel_qerr_loss,
-                    # clip_gradient=args.clip_gradient,
-                    # baseline=args.baseline_join_alg,
-                    # nn_cache_dir = args.nn_cache_dir,
-                    # divide_mb_len = args.divide_mb_len,
-                    # rel_jloss=args.rel_jloss,
-                    # loss_func = args.loss_func,
-                    # sampling=args.sampling,
-                    # sampling_priority_method=args.sampling_priority_method,
-                    # sampling_priority_alpha = args.sampling_priority_alpha,
-                    # adaptive_priority_alpha = args.adaptive_priority_alpha,
-                    # net_name = args.net_name,
-                    # eval_iter_jl = args.eval_iter_jl,
-                    # num_tables_model = args.num_tables_model,
-                    # num_trees = args.rf_trees,
-                    # reuse_env = args.reuse_env,
-                    # eval_num_tables = args.eval_num_tables,
-                    # group_models = args.group_models,
-                    # jl_use_postgres = args.jl_use_postgres)
+                    mb_size = args.mb_size,
+                    single_threaded_nt = args.single_threaded_nt)
     elif alg == "ourpgm":
         if args.db_name == "imdb":
             return OurPGMMultiTable(alg_name = args.pgm_alg_name, backend = args.pgm_backend,
@@ -263,6 +237,14 @@ def main():
             qrep = load_sql_rep(qfn)
             # FIXME: don't want to hardcode title here
             if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
+                continue
+            samples.append(qrep)
+
+        # second loop, to update any samples with missing totals etc.
+        for qfn in qfns:
+            qrep = load_sql_rep(qfn)
+            # FIXME: don't want to hardcode title here
+            if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
                 # things to update: total, pred_cols etc.
                 update_qrep(qrep, samples[0])
                 # json-ify the graphs
@@ -273,7 +255,7 @@ def main():
                 # save it out to qfn
                 with open(qfn, 'wb') as fp:
                     pickle.dump(output, fp, protocol=pickle.HIGHEST_PROTOCOL)
-            samples.append(qrep)
+                samples.append(qrep)
 
         print("{} took {} seconds to load data".format(fn, time.time()-start))
 
@@ -371,6 +353,8 @@ def read_flags():
             default="./queries")
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
+    parser.add_argument("--single_threaded_nt", type=int, required=False,
+            default=0)
     parser.add_argument("--reuse_env", type=int, required=False,
             default=1)
     parser.add_argument("--num_tables_feature", type=int, required=False,
