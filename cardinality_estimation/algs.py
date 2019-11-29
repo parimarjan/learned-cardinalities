@@ -70,7 +70,7 @@ class Postgres(CardinalityEstimationAlg):
             pred_dict = {}
             for alias_key, info in sample["subset_graph"].nodes().items():
                 # alias_key = ' '.join(alias)
-                pred_dict[alias_key] = info["cardinality"]["expected"]
+                pred_dict[(alias_key)] = info["cardinality"]["expected"]
             preds.append(pred_dict)
         return preds
 

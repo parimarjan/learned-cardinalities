@@ -42,7 +42,7 @@ import gc
 def single_level_net_steps(net, opt, Xcur, Ycur, num_steps,
         mb_size, loss_func, clip_gradient):
     # TODO: make sure there are no wasteful copying
-    torch.set_num_threads(2)
+    torch.set_num_threads(1)
     start = time.time()
     Xcur = to_variable(Xcur).float()
     Ycur = to_variable(Ycur).float()
@@ -88,7 +88,7 @@ class NN(CardinalityEstimationAlg):
         # number of processes used for computing train and test join losses
         # using park envs. These are computed simultaneously, while the next
         # iterations of the neural net train.
-        self.num_join_loss_processes = 4
+        self.num_join_loss_processes = 8
 
         # TODO: right time to close these, at the end of all jobs
         self.train_join_loss_pool = multiprocessing.pool.ThreadPool()
@@ -389,15 +389,31 @@ class NN(CardinalityEstimationAlg):
     def _periodic_eval(self, X, Y, samples, samples_type,
             join_loss_pool, env):
         pred = self.eval_samples(X, samples, samples_type)
-        train_loss = self.loss(pred, Y)
+        train_loss = self.loss(pred, Y, avg=False)
+        loss_avg = train_loss.sum() / len(train_loss)
         print("""{}: {}, num samples: {}, qerr: {}""".format(
-            samples_type, self.num_iter, len(X), train_loss.item()))
-        self.stats[samples_type]["eval"]["qerr"][self.num_iter] = train_loss.item()
-
+            samples_type, self.num_iter, len(X), loss_avg.item()))
+        self.stats[samples_type]["eval"]["qerr"][self.num_iter] = loss_avg.item()
         if self.adaptive_lr and self.scheduler is not None:
             self.scheduler.step(train_loss)
 
-        # TODO: num tables stats
+        # TODO: simplify this.
+        if "train" in samples_type:
+            nt_map = self.train_num_table_mapping
+        else:
+            nt_map = self.test_num_table_mapping
+
+        for nt in nt_map:
+            if nt not in self.stats[samples_type]["tables_eval"]["qerr"]:
+                self.stats[samples_type]["tables_eval"]["qerr"][nt] = {}
+                self.stats[samples_type]["tables_eval"]["qerr-all"][nt] = {}
+            start,end = nt_map[nt]
+            cur_loss = train_loss[start:end].detach().numpy()
+
+            self.stats[samples_type]["tables_eval"]["qerr"][nt][self.num_iter] = \
+                np.mean(cur_loss)
+            self.stats[samples_type]["tables_eval"]["qerr-all"][nt][self.num_iter] = \
+                cur_loss
 
         if (self.num_iter % self.eval_iter_jl == 0):
             jl_eval_start = time.time()
