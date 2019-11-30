@@ -395,7 +395,7 @@ class NN(CardinalityEstimationAlg):
             samples_type, self.num_iter, len(X), loss_avg.item()))
         self.stats[samples_type]["eval"]["qerr"][self.num_iter] = loss_avg.item()
         if self.adaptive_lr and self.scheduler is not None:
-            self.scheduler.step(train_loss)
+            self.scheduler.step(loss_avg)
 
         # TODO: simplify this.
         if "train" in samples_type:
