@@ -109,6 +109,8 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
     plotted.
+
+    @ret:
     '''
     for i,sql in enumerate(sqls):
         sqls[i] = fix_query(sql)
@@ -117,6 +119,7 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
                 env.compute_join_order_loss(sqls,
                         true_cardinalities, est_cardinalities,
                         None, num_processes=num_processes, postgres=True)
+    assert isinstance(est_costs, np.ndarray)
 
     if est_plans and pdf:
         print("going to plot query results for join-loss")

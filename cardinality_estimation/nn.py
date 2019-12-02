@@ -21,7 +21,6 @@ except:
     pass
 
 import park
-
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
@@ -61,14 +60,25 @@ def single_level_net_steps(net, opt, Xcur, Ycur, num_steps,
             clip_grad_norm_(net.parameters(), clip_gradient)
         opt.step()
 
+PERCENTILES_TO_SAVE = [25, 50, 75, 90, 99]
+def percentile_help(q):
+    def f(arr):
+        return np.percentile(arr, q)
+    return f
+
 class NN(CardinalityEstimationAlg):
     def __init__(self, *args, **kwargs):
+        self.kwargs = kwargs
         for k, val in kwargs.items():
             self.__setattr__(k, val)
+        self.start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         # initialize stats collection stuff
-
-        # TODO: find appropriate name based on kwargs, dt etc.
-        # TODO: write out everything to text logging file
+        if self.nn_type == "microsoft":
+            self.mb_size = 2500
+        elif self.nn_type == "num_tables":
+            self.mb_size = 250
+        else:
+            assert False
 
         if self.loss_func == "qloss":
             self.loss = qloss_torch
@@ -83,7 +93,7 @@ class NN(CardinalityEstimationAlg):
         self.optimizer = None
         self.scheduler = None
 
-        self.num_threads = 8
+        # self.num_threads = 8
 
         # number of processes used for computing train and test join losses
         # using park envs. These are computed simultaneously, while the next
@@ -96,64 +106,26 @@ class NN(CardinalityEstimationAlg):
         self.train_join_results = None
         self.test_join_results = None
 
-        nn_cache_dir = self.nn_cache_dir
+        nn_results_dir = self.nn_results_dir
 
-        # caching related stuff
-        self.training_cache = klepto.archives.dir_archive(nn_cache_dir,
-                cached=True, serialized=True)
         # will keep storing all the training information in the cache / and
         # dump it at the end
         # self.key = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
-        dt = datetime.datetime.now()
-        self.key = "{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
-        self.key += "-" + str(deterministic_hash(str(kwargs)))[0:6]
 
-        self.stats = {}
-        self.training_cache[self.key] = self.stats
-
-        # all the configuration parameters are specified here
-        self.stats["kwargs"] = kwargs
-        self.stats["name"] = self.__str__()
-
-        # iteration : value
-        self.stats["gradients"] = {}
-        self.stats["lr"] = {}
-
-        # iteration : value + additional stuff, like query-string : sql
-        self.stats["mb-loss"] = {}
-
-        # iteration: qerr: val, jloss: val
-        self.stats["train"] = {}
-        self.stats["test"] = {}
-
-        self.stats["train"]["eval"] = {}
-        self.stats["train"]["eval"]["qerr"] = {}
-        self.stats["train"]["eval"]["join-loss"] = {}
-        self.stats["train"]["eval"]["est_jl"] = {}
-        self.stats["train"]["eval"]["opt_jl"] = {}
-        # self.stats["train"]["eval"]["join-loss-all"] = {}
-
-        self.stats["test"]["eval"] = {}
-        self.stats["test"]["eval"]["qerr"] = {}
-        self.stats["test"]["eval"]["join-loss"] = {}
-        # self.stats["test"]["eval"]["join-loss-all"] = {}
-        self.stats["test"]["eval"]["est_jl"] = {}
-        self.stats["test"]["eval"]["opt_jl"] = {}
-
-        self.stats["train"]["tables_eval"] = {}
-        # key will be int: num_table, and val: qerror
-        self.stats["train"]["tables_eval"]["qerr"] = {}
-        self.stats["train"]["tables_eval"]["qerr-all"] = {}
-
-        self.stats["test"]["tables_eval"] = {}
-        # key will be int: num_table, and val: qerror
-        self.stats["test"]["tables_eval"]["qerr"] = {}
-        self.stats["test"]["tables_eval"]["qerr-all"] = {}
-
-        # TODO: store these
-        self.stats["model_params"] = {}
-
-        self.stats["est_plans"] = {}
+        # We want to only summarize and store the statistics we care about
+        # header info:
+        #   iter: every eval_iter
+        #   loss_type: qerr, join-loss etc.
+        #   summary_type: mean, max, min, percentiles: 50,75th,90th,99th,25th
+        #   template: all, OR only for specific template
+        #   num_tables: all, OR t1,t2 etc.
+        #   num_samples: in the given class, whose stats are being summarized.
+        self.stats = defaultdict(list)
+        self.summary_funcs = [np.mean, np.max, np.min]
+        self.summary_types = ["mean", "max", "min"]
+        for q in PERCENTILES_TO_SAVE:
+            self.summary_funcs.append(percentile_help(q))
+            self.summary_types.append("percentile:{}".format(str(q)))
 
     def _map_num_tables(self, num_tables):
 
@@ -201,18 +173,6 @@ class NN(CardinalityEstimationAlg):
         elif net_name == "LinearRegression":
             net = LinearRegression(num_features,
                     1)
-        elif net_name == "Hydra":
-            net = Hydra(num_features,
-                    self.hidden_layer_multiple, 1,
-                    len(db.aliases), False)
-        elif net_name == "FatHydra":
-            net = FatHydra(num_features,
-                    self.hidden_layer_multiple, 1,
-                    len(db.aliases))
-        elif net_name == "HydraLinear":
-            net = Hydra(num_features,
-                    self.hidden_layer_multiple, 1,
-                    len(db.aliases), True)
         else:
             assert False
 
@@ -227,7 +187,6 @@ class NN(CardinalityEstimationAlg):
                     lr=self.lr, momentum=0.9)
         else:
             assert False
-
 
         if self.adaptive_lr:
             scheduler = ReduceLROnPlateau(optimizer, 'min',
@@ -251,7 +210,7 @@ class NN(CardinalityEstimationAlg):
                     self.nets[num_table] = net
                     self.optimizers[num_table] = opt
                     self.schedulers[num_table] = scheduler
-            print("initialized {} nets".format(len(self.nets)))
+            print("initialized {} nets for num_tables version".format(len(self.nets)))
         else:
             self.net, self.optimizer, self.scheduler = \
                     self._init_net(self.net_name, self.optimizer_name)
@@ -343,7 +302,8 @@ class NN(CardinalityEstimationAlg):
             pred = self.net(X).squeeze(1)
         return pred
 
-    def _update_join_results(self, results, samples_type):
+    def _update_join_results(self, results, samples, samples_type,
+            num_iter):
         if results is None:
             return
         jl_eval_start = time.time()
@@ -353,49 +313,101 @@ class NN(CardinalityEstimationAlg):
         # TODO: do we need both these?
         join_losses = np.array(est_card_costs) - np.array(opt_costs)
         join_losses2 = np.array(est_card_costs) / np.array(opt_costs)
-        jl1 = np.mean(join_losses)
-        jl2 = np.mean(join_losses2)
-
-        # FIXME: does this even happen?
         join_losses = np.maximum(join_losses, 0.00)
 
-        self.stats[samples_type]["eval"]["join-loss"][self.num_iter] = jl1
-        self.stats[samples_type]["eval"]["est_jl"][self.num_iter] = est_card_costs
-        self.stats[samples_type]["eval"]["opt_jl"][0] = opt_costs
+        self.add_row(join_losses, "jerr", num_iter, "all",
+                "all", samples_type)
+        for sample in samples:
+            template = sample["template_name"]
 
-        # # TODO: add color to key values.
-        print("""\n{}: {}, num samples: {}, jl1 {},jl2 {},time: {}""".format(
-            samples_type, self.num_iter - self.eval_iter_jl, len(join_losses), jl1, jl2,
-            time.time()-jl_eval_start))
-        self.training_cache.dump()
+        jl_mean = round(np.mean(join_losses), 2)
+        jl90 = round(np.percentile(join_losses, 90), 2)
+        jl2 = round(np.mean(join_losses2), 2)
 
-        # 0 is just uniform priorities, as we had initialized
-        # if self.sampling_priority_alpha > 0 and self.num_iter > 0:
-            # query_sampling_weights = self._update_sampling_weights(join_losses2)
-            # assert np.allclose(sum(query_sampling_weights), 1.0)
-            # subquery_sampling_weights = []
-            # for si, sample in enumerate(self.training_samples):
-                # sq_weight = float(query_sampling_weights[si])
-                # num_subq = len(sample["subset_graph"].nodes())
-                # sq_weight /= num_subq
-                # wts = [sq_weight]*(num_subq)
-                # if not np.allclose(sum(wts), query_sampling_weights[si]):
-                    # print("diff: ", sum(wts) - query_sampling_weights[si])
-                    # pdb.set_trace()
-                # # add lists
-                # subquery_sampling_weights += wts
-            # self.subquery_sampling_weights = subquery_sampling_weights
+        print("""{}: {}, N: {}, jl90: {}, jl_mean: {}, jl2: {},time: {}""".format(
+            samples_type, num_iter, len(join_losses), jl90, jl_mean, jl2,
+            round(time.time()-jl_eval_start, 2)))
+        sys.stdout.flush()
+        return est_card_costs, opt_costs
+
+    def add_row(self, losses, loss_type, num_iter, template,
+            num_tables, samples_type):
+        for i, func in enumerate(self.summary_funcs):
+            loss = func(losses)
+            row = [num_iter, loss_type, loss, self.summary_types[i],
+                    template, num_tables, len(losses)]
+            self.stats["num_iter"].append(num_iter)
+            self.stats["loss_type"].append(loss_type)
+            self.stats["loss"].append(loss)
+            self.stats["summary_type"].append(self.summary_types[i])
+            self.stats["template"].append(template)
+            self.stats["num_tables"].append(num_tables)
+            self.stats["num_samples"].append(len(losses))
+            self.stats["samples_type"].append(samples_type)
+
+    def get_exp_name(self):
+        '''
+        '''
+        days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+        weekno = datetime.datetime.today().weekday()
+        day = days[weekno]
+        time_hash = str(deterministic_hash(self.start_time))[0:3]
+        name = "{DAY}-{NN_TYPE}-{PRIORITY}-{HASH}".format(\
+                    DAY = day,
+                    NN_TYPE = self.nn_type,
+                    PRIORITY = self.sampling_priority_alpha,
+                    HASH = time_hash)
+        return name
+
+    def save_stats(self):
+        '''
+        '''
+        if not os.path.exists(self.nn_results_dir):
+            make_dir(self.nn_results_dir)
+        exp_name = self.get_exp_name()
+        fn = self.nn_results_dir + "/" + exp_name + ".pkl"
+        results = {}
+        results["stats"] = self.stats
+        results["config"] = self.kwargs
+        results["name"] = self.__str__()
+
+        with open(fn, 'wb') as fp:
+            pickle.dump(results, fp,
+                    protocol=pickle.HIGHEST_PROTOCOL)
 
     def _periodic_eval(self, X, Y, samples, samples_type,
             join_loss_pool, env):
         pred = self.eval_samples(X, samples, samples_type)
-        train_loss = self.loss(pred, Y, avg=False)
-        loss_avg = train_loss.sum() / len(train_loss)
-        print("""{}: {}, num samples: {}, qerr: {}""".format(
-            samples_type, self.num_iter, len(X), loss_avg.item()))
-        self.stats[samples_type]["eval"]["qerr"][self.num_iter] = loss_avg.item()
+        train_loss = self.loss(pred, Y, avg=False).detach().numpy()
+        loss_avg = round(np.sum(train_loss) / len(train_loss), 2)
+        print("""{}: {}, N: {}, qerr: {}""".format(
+            samples_type, self.num_iter, len(X), loss_avg))
         if self.adaptive_lr and self.scheduler is not None:
             self.scheduler.step(loss_avg)
+
+        self.add_row(train_loss, "qerr", self.num_iter, "all",
+                "all", samples_type)
+
+        start_t = time.time()
+        summary_data = defaultdict(list)
+        for sample in samples:
+            template = sample["template_name"]
+            for node, node_info in sample["subset_graph"].nodes().items():
+                loss = train_loss[node_info["idx"]]
+                num_tables = len(node)
+                summary_data["loss"].append(loss)
+                summary_data["num_tables"].append(num_tables)
+                summary_data["template"].append(template)
+
+        df = pd.DataFrame(summary_data)
+        for template in set(df["template"]):
+            tvals = df[df["template"] == template]
+            self.add_row(tvals["loss"].values, "qerr", self.num_iter,
+                    template, "all", samples_type)
+            for nt in set(tvals["num_tables"]):
+                nt_losses = tvals[tvals["num_tables"] == nt]
+                self.add_row(nt_losses["loss"].values, "qerr", self.num_iter, template,
+                        str(nt), samples_type)
 
         # TODO: simplify this.
         if "train" in samples_type:
@@ -404,16 +416,10 @@ class NN(CardinalityEstimationAlg):
             nt_map = self.test_num_table_mapping
 
         for nt in nt_map:
-            if nt not in self.stats[samples_type]["tables_eval"]["qerr"]:
-                self.stats[samples_type]["tables_eval"]["qerr"][nt] = {}
-                self.stats[samples_type]["tables_eval"]["qerr-all"][nt] = {}
             start,end = nt_map[nt]
-            cur_loss = train_loss[start:end].detach().numpy()
-
-            self.stats[samples_type]["tables_eval"]["qerr"][nt][self.num_iter] = \
-                np.mean(cur_loss)
-            self.stats[samples_type]["tables_eval"]["qerr-all"][nt][self.num_iter] = \
-                cur_loss
+            cur_losses = train_loss[start:end]
+            self.add_row(cur_losses, "qerr", self.num_iter, "all", str(nt),
+                    samples_type)
 
         if (self.num_iter % self.eval_iter_jl == 0):
             jl_eval_start = time.time()
@@ -439,7 +445,30 @@ class NN(CardinalityEstimationAlg):
             args = (sqls, true_cardinalities, est_cardinalities, env,
                     None, self.num_join_loss_processes)
             results = join_loss_pool.apply_async(join_loss_pg, args)
-            return results
+            if self.sampling_priority_alpha == 0.0 \
+                    or self.num_iter == 0 \
+                    or not "train" in samples_type:
+                return results
+            else:
+                # do sampling update based on results
+                est_costs, opt_costs = self._update_join_results(results,
+                                    samples, "train", self.num_iter)
+                jl_ratio = est_costs / opt_costs
+                query_sampling_weights = self._update_sampling_weights(jl_ratio)
+                assert np.allclose(sum(query_sampling_weights), 1.0)
+                subquery_sampling_weights = []
+                for si, sample in enumerate(self.training_samples):
+                    sq_weight = float(query_sampling_weights[si])
+                    num_subq = len(sample["subset_graph"].nodes())
+                    sq_weight /= num_subq
+                    wts = [sq_weight]*(num_subq)
+                    if not np.allclose(sum(wts), query_sampling_weights[si]):
+                        print("diff: ", sum(wts) - query_sampling_weights[si])
+                        pdb.set_trace()
+                    # add lists
+                    subquery_sampling_weights += wts
+                self.subquery_sampling_weights = subquery_sampling_weights
+                return None
         return None
 
     def train_step(self, num_steps=1):
@@ -508,6 +537,12 @@ class NN(CardinalityEstimationAlg):
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
         assert isinstance(training_samples[0], dict)
+        if not self.nn_type == "num_tables":
+            self.num_threads = multiprocessing.cpu_count()
+            print("setting num threads to: ", self.num_threads)
+            torch.set_num_threads(self.num_threads)
+        else:
+            self.num_threads = -1
 
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
@@ -542,6 +577,7 @@ class NN(CardinalityEstimationAlg):
         prev_end = time.time()
         while True:
             if (self.num_iter % 100 == 0):
+                pass
                 # progress stuff
                 it_time = time.time() - prev_end
                 prev_end = time.time()
@@ -552,19 +588,25 @@ class NN(CardinalityEstimationAlg):
             if (self.num_iter % self.eval_iter == 0):
                 # we will wait on these results when we reach this point in the
                 # next iteration
-                self._update_join_results(self.train_join_results, "train")
-                self.train_join_results = self._periodic_eval(self.Xtrain, self.Ytrain,
+                self._update_join_results(self.train_join_results,
                         self.training_samples, "train",
+                        self.num_iter-self.eval_iter)
+                self.train_join_results = self._periodic_eval(self.Xtrain,
+                        self.Ytrain, self.training_samples, "train",
                         self.train_join_loss_pool, self.env)
 
                 # TODO: handle reweighing schemes here
 
                 if test_samples is not None:
-                    self._update_join_results(self.test_join_results, "test")
+                    self._update_join_results(self.test_join_results,
+                            self.test_samples, "test",
+                            self.num_iter-self.eval_iter)
                     self.test_join_results = self._periodic_eval(self.Xtest,
                             self.Ytest, self.test_samples, "test",
                             self.test_join_loss_pool, self.test_env)
-                print("apply asyncs done, continuing to train...")
+
+            if self.num_iter % self.eval_iter == 0:
+                self.save_stats()
 
             if 1.00 - sum(self.subquery_sampling_weights) != 0.00:
                 diff = 1.00 - sum(self.subquery_sampling_weights)
@@ -583,7 +625,7 @@ class NN(CardinalityEstimationAlg):
 
     def __str__(self):
         cls = self.__class__.__name__
-        name = cls + self.nn_type
-        name += "lr-" + str(self.lr)
-        name += "sp-" + str(self.sampling_priority_alpha)
+        name = cls + "-" + self.nn_type
+        if self.sampling_priority_alpha > 0:
+            name += "priority-" + str(self.sampling_priority_alpha)
         return name
