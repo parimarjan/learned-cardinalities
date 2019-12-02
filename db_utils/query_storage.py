@@ -335,6 +335,8 @@ def get_template_samples(fn):
         num = 485
     elif "2d.toml" in fn:
         num = 446
+    elif "2dtitle.toml" in fn:
+        num = 115
     elif "2U2.toml" in fn:
         num = 1159
     elif "4.toml" in fn:
