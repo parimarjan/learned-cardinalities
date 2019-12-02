@@ -400,7 +400,7 @@ def read_flags():
     parser.add_argument("--data_dir", type=str, required=False,
             default="/data/pari/cards/")
     parser.add_argument("-n", "--num_samples_per_template", type=int,
-            required=False, default=1000)
+            required=False, default=-1)
     parser.add_argument("--max_iter", type=int,
             required=False, default=20001)
     parser.add_argument("--jl_start_iter", type=int,

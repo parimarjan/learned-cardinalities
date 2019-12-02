@@ -39,7 +39,7 @@ import sys
 import gc
 
 def single_level_net_steps(net, opt, Xcur, Ycur, num_steps,
-        mb_size, loss_func, clip_gradient):
+        mb_size, loss_func, clip_gradient, sampling_weights):
     # TODO: make sure there are no wasteful copying
     torch.set_num_threads(1)
     start = time.time()
@@ -48,7 +48,7 @@ def single_level_net_steps(net, opt, Xcur, Ycur, num_steps,
     for mini_iter in range(num_steps):
         # TODO: reweight sampling weights here
         idxs = np.random.choice(list(range(len(Xcur))),
-                mb_size)
+                mb_size, p = sampling_weights)
         xbatch = Xcur[idxs]
         ybatch = Ycur[idxs]
         pred = net(xbatch).squeeze(1)
@@ -268,17 +268,32 @@ class NN(CardinalityEstimationAlg):
 
         return Xtrain,Ytrain,num_table_mapping
 
+    def _normalize_priorities(self, priorities):
+        total = float(np.sum(priorities))
+        norm_priorities = np.zeros(len(priorities))
+        for i, priority in enumerate(priorities):
+            norm_priorities[i] = priority / total
+        # if they don't sum to 1...
+
+        if 1.00 - sum(norm_priorities) != 0.00:
+            diff = 1.00 - sum(norm_priorities)
+            random_idx = np.random.randint(0,len(norm_priorities))
+            norm_priorities[random_idx] += diff
+
+        return norm_priorities
+
     def _update_sampling_weights(self, priorities):
         '''
         refer to prioritized action replay
         '''
         priorities = np.power(priorities, self.sampling_priority_alpha)
-        total = float(np.sum(priorities))
-        query_sampling_weights = np.zeros(len(priorities))
-        for i, priority in enumerate(priorities):
-            query_sampling_weights[i] = priority / total
+        priorities = self._normalize_priorities(priorities)
+        # total = float(np.sum(priorities))
+        # query_sampling_weights = np.zeros(len(priorities))
+        # for i, priority in enumerate(priorities):
+            # query_sampling_weights[i] = priority / total
 
-        return query_sampling_weights
+        return priorities
 
     def eval_samples(self, X, samples, samples_type):
         if self.nn_type == "num_tables":
@@ -451,6 +466,7 @@ class NN(CardinalityEstimationAlg):
                 return results
             else:
                 # do sampling update based on results
+                print("update priorities..")
                 est_costs, opt_costs = self._update_join_results(results,
                                     samples, "train", self.num_iter)
                 jl_ratio = est_costs / opt_costs
@@ -506,9 +522,13 @@ class NN(CardinalityEstimationAlg):
                     opt = self.optimizers[net_map]
                     Xcur = self.Xtrain[start:end].cpu().detach().numpy()
                     Ycur = self.Ytrain[start:end].cpu().detach().numpy()
+                    sampling_wts = self.subquery_sampling_weights[start:end]
+                    sampling_wts = self._normalize_priorities(sampling_wts)
+
                     # TODO: make mb_size dependent on the level?
                     par_args.append((net, opt, Xcur, Ycur, num_steps,
-                        self.mb_size, self.loss, self.clip_gradient))
+                        self.mb_size, self.loss, self.clip_gradient,
+                        sampling_wts))
 
                 # launch single-threaded processes for each
                 # TODO: might be better to launch pool of 4 + 2T each, so we
@@ -627,5 +647,5 @@ class NN(CardinalityEstimationAlg):
         cls = self.__class__.__name__
         name = cls + "-" + self.nn_type
         if self.sampling_priority_alpha > 0.00:
-            name += "priority-" + str(self.sampling_priority_alpha)
+            name += "-pr:" + str(self.sampling_priority_alpha)
         return name
