@@ -68,7 +68,7 @@ def get_alg(alg):
                     rel_qerr_loss=args.rel_qerr_loss,
                     clip_gradient=args.clip_gradient,
                     baseline=args.baseline_join_alg,
-                    nn_cache_dir = args.nn_cache_dir,
+                    nn_results_dir = args.nn_results_dir,
                     loss_func = args.loss_func,
                     sampling=args.sampling,
                     sampling_priority_alpha = args.sampling_priority_alpha,
@@ -83,7 +83,6 @@ def get_alg(alg):
                     nn_type = args.nn_type,
                     group_models = args.group_models,
                     adaptive_lr_patience = args.adaptive_lr_patience,
-                    mb_size = args.mb_size,
                     single_threaded_nt = args.single_threaded_nt)
     elif alg == "ourpgm":
         if args.db_name == "imdb":
@@ -217,6 +216,8 @@ def main():
 
     fns = list(glob.glob(args.template_dir+"/*"))
     for fn in fns:
+        template_name = os.path.basename(fn)
+        print(template_name)
         start = time.time()
         # loading, or generating samples
         samples = []
@@ -236,26 +237,34 @@ def main():
         for qfn in qfns:
             qrep = load_sql_rep(qfn)
             # FIXME: don't want to hardcode title here
-            if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
-                continue
+            try:
+                if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
+                    continue
+            except:
+                pass
+            qrep["template_name"] = template_name
             samples.append(qrep)
 
         # second loop, to update any samples with missing totals etc.
         for qfn in qfns:
             qrep = load_sql_rep(qfn)
             # FIXME: don't want to hardcode title here
-            if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
-                # things to update: total, pred_cols etc.
-                update_qrep(qrep, samples[0])
-                # json-ify the graphs
-                output = {}
-                output["sql"] = qrep["sql"]
-                output["join_graph"] = nx.adjacency_data(qrep["join_graph"])
-                output["subset_graph"] = nx.adjacency_data(qrep["subset_graph"])
-                # save it out to qfn
-                with open(qfn, 'wb') as fp:
-                    pickle.dump(output, fp, protocol=pickle.HIGHEST_PROTOCOL)
-                samples.append(qrep)
+            try:
+                if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
+                    # things to update: total, pred_cols etc.
+                    update_qrep(qrep, samples[0])
+                    # json-ify the graphs
+                    output = {}
+                    output["sql"] = qrep["sql"]
+                    output["join_graph"] = nx.adjacency_data(qrep["join_graph"])
+                    output["subset_graph"] = nx.adjacency_data(qrep["subset_graph"])
+                    # save it out to qfn
+                    with open(qfn, 'wb') as fp:
+                        pickle.dump(output, fp, protocol=pickle.HIGHEST_PROTOCOL)
+                    qrep["template_name"] = template_name
+                    samples.append(qrep)
+            except:
+                pass
 
         print("{} took {} seconds to load data".format(fn, time.time()-start))
 
@@ -413,12 +422,12 @@ def read_flags():
     parser.add_argument("--jl_use_postgres", type=int,
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
-            required=False, default="nn")
-    parser.add_argument("--mb_size", type=int, required=False,
-            default=128)
+            required=False, default="microsoft")
+    # parser.add_argument("--mb_size", type=int, required=False,
+            # default=128)
 
     parser.add_argument("--adaptive_lr", type=int,
-            required=False, default=1)
+            required=False, default=0)
     parser.add_argument("--adaptive_lr_patience", type=int,
             required=False, default=20)
 
@@ -427,8 +436,8 @@ def read_flags():
     parser.add_argument("--viz_fn", type=str,
             required=False, default="./test")
 
-    parser.add_argument("--nn_cache_dir", type=str, required=False,
-            default="./nn_training_cache")
+    parser.add_argument("--nn_results_dir", type=str, required=False,
+            default="./nn_results")
     parser.add_argument("--divide_mb_len", type=int, required=False,
             default=0)
 
