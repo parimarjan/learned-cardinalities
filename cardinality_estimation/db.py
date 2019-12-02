@@ -46,9 +46,10 @@ class DB():
         #         stats["title"]["id"]["type"] = int
         #         stats["title"]["id"]["num_values"] = x
         self.column_stats = OrderedDict()
-        # self.max_discrete_feauturizing_buckets = 100
-        # self.max_discrete_feauturizing_buckets = 20
-        self.max_discrete_feauturizing_buckets = 10
+        # self.max_discrete_featurizing_buckets = 100
+        # self.max_discrete_featurizing_buckets = 20
+        # self.max_discrete_featurizing_buckets = 10
+        self.max_discrete_featurizing_buckets = None
 
         # generally, these would be range queries, but they can be "=", or "in"
         # queries as well, and we will support upto 10 such values
@@ -134,7 +135,8 @@ class DB():
         print("saved cache to disk")
         self.sql_cache.dump()
 
-    def init_featurizer(self, heuristic_features=True, num_tables_feature=True):
+    def init_featurizer(self, heuristic_features=True, num_tables_feature=True,
+            max_discrete_featurizing_buckets=10):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -147,6 +149,8 @@ class DB():
         E.g. TODO.
         '''
         # let's figure out the feature len based on db.stats
+        assert self.featurizer is None
+        self.max_discrete_featurizing_buckets = max_discrete_featurizing_buckets
         self.featurizer = {}
         self.num_tables = len(self.tables)
         self.num_tables_feature = num_tables_feature
@@ -158,8 +162,8 @@ class DB():
 
         for i, cmp_op in enumerate(self.cmp_ops):
             self.cmp_ops_onehot[cmp_op] = i
-
         assert self.feature_len == self.num_tables
+
         # FIXME: add join keys
         # self.feature_len += self.num_cols
 
@@ -170,14 +174,14 @@ class DB():
             # for operator type
             pred_len += len(self.cmp_ops)
             if is_float(info["min_value"]) and is_float(info["max_value"]) \
-                    and info["num_values"] >= self.max_discrete_feauturizing_buckets:
+                    and info["num_values"] >= self.max_discrete_featurizing_buckets:
                 # then use min-max normalization, no matter what
                 # only support range-queries, so lower / and upper predicate
                 pred_len += self.continuous_feature_size
                 continuous = True
             else:
                 # use 1-hot encoding
-                num_buckets = min(self.max_discrete_feauturizing_buckets,
+                num_buckets = min(self.max_discrete_featurizing_buckets,
                         info["num_values"])
                 pred_len += num_buckets
                 continuous = False
@@ -185,20 +189,19 @@ class DB():
             self.featurizer[col] = (self.feature_len, pred_len, continuous)
             self.feature_len += pred_len
 
-            if heuristic_features:
-                self.feature_len += 1
+        if heuristic_features:
+            self.feature_len += 1
 
-            # for num_tables present
-            if self.num_tables_feature:
-                self.feature_len += 1
+        # for num_tables present
+        if self.num_tables_feature:
+            self.feature_len += 1
 
     def get_features(self, query, heuristic_features=True):
         '''
         TODO: add different featurization options.
         @query: Query object
         '''
-        if self.featurizer is None:
-            self.init_featurizer(heuristic_features)
+        assert self.featurizer is not None
         feature_vector = np.zeros(self.feature_len)
         for table in query.table_names:
             idx, _, _ = self.featurizer[table]
@@ -260,7 +263,7 @@ class DB():
                         normalized_val = (v - min_val) / (max_val - min_val)
                         feature_vector[pred_idx_start+vi] = 1.00
                 else:
-                    num_buckets = min(self.max_discrete_feauturizing_buckets,
+                    num_buckets = min(self.max_discrete_featurizing_buckets,
                             col_info["num_values"])
                     assert num_pred_vals == num_buckets
                     # if num_pred_vals != num_buckets:
@@ -286,7 +289,7 @@ class DB():
 
                 if not continuous:
                     # FIXME: temporarily, just treat it as discrete data
-                    num_buckets = min(self.max_discrete_feauturizing_buckets,
+                    num_buckets = min(self.max_discrete_featurizing_buckets,
                             col_info["num_values"])
                     for v in val:
                         pred_idx = deterministic_hash(str(v)) % num_buckets
@@ -313,15 +316,13 @@ class DB():
             else:
                 assert False
 
-        pg_est = query.pg_count / query.total_count
-        if heuristic_features and self.num_tables_feature:
-            feature_vector[-2] = pg_est
+        if self.num_tables_feature:
+            feature_vector[-2] = len(query.aliases)
 
-        elif heuristic_features and not self.num_tables_feature:
+        pg_est = query.pg_count / query.total_count
+        if heuristic_features:
             feature_vector[-1] = pg_est
 
-        if self.num_tables_feature:
-            feature_vector[-1] = len(query.aliases)
 
         return feature_vector
 

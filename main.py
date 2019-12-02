@@ -22,8 +22,10 @@ import pandas as pd
 import random
 import itertools
 import klepto
-from multiprocessing import Pool
-import multiprocessing
+# from multiprocessing import Pool
+# import multiprocessing
+import torch.multiprocessing as mp
+
 import numpy as np
 from db_utils.query_generator import QueryGenerator
 from db_utils.query_generator2 import QueryGenerator2
@@ -74,56 +76,15 @@ def get_alg(alg):
                     reuse_env = args.reuse_env,
                     eval_iter_jl = args.eval_iter_jl,
                     eval_num_tables = args.eval_num_tables,
-                    jl_use_postgres = args.jl_use_postgres)
-    elif alg == "nn2":
-        return NN2(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
-                num_hidden_layers=args.num_hidden_layers,
-                hidden_layer_multiple=args.hidden_layer_multiple,
-                    jl_start_iter=args.jl_start_iter, eval_iter =
-                    args.eval_iter, optimizer_name=args.optimizer_name,
-                    adaptive_lr=args.adaptive_lr,
-                    rel_qerr_loss=args.rel_qerr_loss,
-                    clip_gradient=args.clip_gradient,
-                    baseline=args.baseline_join_alg,
-                    nn_cache_dir = args.nn_cache_dir,
-                    divide_mb_len = args.divide_mb_len,
-                    rel_jloss=args.rel_jloss,
-                    loss_func = args.loss_func,
-                    sampling=args.sampling,
-                    sampling_priority_method=args.sampling_priority_method,
-                    sampling_priority_alpha = args.sampling_priority_alpha,
-                    adaptive_priority_alpha = args.adaptive_priority_alpha,
-                    net_name = args.net_name,
-                    reuse_env = args.reuse_env,
-                    eval_iter_jl = args.eval_iter_jl,
-                    eval_num_tables = args.eval_num_tables,
-                    jl_use_postgres = args.jl_use_postgres)
-    elif alg == "nn3":
-        return NumTablesNN(max_iter = args.max_iter, jl_variant=args.jl_variant, lr=args.lr,
-                num_hidden_layers=args.num_hidden_layers,
-                hidden_layer_multiple=args.hidden_layer_multiple,
-                    jl_start_iter=args.jl_start_iter, eval_iter =
-                    args.eval_iter, optimizer_name=args.optimizer_name,
-                    adaptive_lr=args.adaptive_lr,
-                    rel_qerr_loss=args.rel_qerr_loss,
-                    clip_gradient=args.clip_gradient,
-                    baseline=args.baseline_join_alg,
-                    nn_cache_dir = args.nn_cache_dir,
-                    divide_mb_len = args.divide_mb_len,
-                    rel_jloss=args.rel_jloss,
-                    loss_func = args.loss_func,
-                    sampling=args.sampling,
-                    sampling_priority_method=args.sampling_priority_method,
-                    sampling_priority_alpha = args.sampling_priority_alpha,
-                    adaptive_priority_alpha = args.adaptive_priority_alpha,
-                    net_name = args.net_name,
-                    eval_iter_jl = args.eval_iter_jl,
-                    num_tables_model = args.num_tables_model,
-                    num_trees = args.rf_trees,
-                    reuse_env = args.reuse_env,
-                    eval_num_tables = args.eval_num_tables,
+                    jl_use_postgres = args.jl_use_postgres,
+                    num_tables_feature = args.num_tables_feature,
+                    max_discrete_featurizing_buckets =
+                            args.max_discrete_featurizing_buckets,
+                    nn_type = args.nn_type,
                     group_models = args.group_models,
-                    jl_use_postgres = args.jl_use_postgres)
+                    adaptive_lr_patience = args.adaptive_lr_patience,
+                    mb_size = args.mb_size,
+                    single_threaded_nt = args.single_threaded_nt)
     elif alg == "ourpgm":
         if args.db_name == "imdb":
             return OurPGMMultiTable(alg_name = args.pgm_alg_name, backend = args.pgm_backend,
@@ -152,16 +113,42 @@ def remove_doubles(query_strs):
         newq.append(q)
     return newq
 
-def eval_alg(alg, losses, queries, use_subqueries):
+def eval_alg(alg, losses, queries):
     '''
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
     '''
     np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
-    if use_subqueries:
-        all_queries = get_all_subqueries(queries)
-    else:
-        all_queries = queries
+
+    # first, just evaluate them all, and save results in queries
+    start = time.time()
+    yhats = alg.test(queries)
+    assert isinstance(yhats[0], dict)
+    eval_time = round(time.time() - start, 2)
+    print("evaluating alg took: {} seconds".format(eval_time))
+
+    loss_start = time.time()
+    for loss_func in losses:
+        losses = loss_func(queries, yhats, args=args)
+
+        # TODO: set global printoptions to round digits
+        print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+                .format(args.db_name, alg, len(queries),
+                    get_loss_name(loss_func.__name__),
+                    np.round(np.mean(losses),3),
+                    np.round(np.median(losses),3),
+                    np.round(np.percentile(losses,95),3),
+                    np.round(np.percentile(losses,99),3)))
+
+    print("loss computations took: {} seconds".format(time.time()-loss_start))
+
+def eval_alg_old(alg, losses, queries, use_subqueries):
+    '''
+    Applies alg to each query, and measures loss using `loss_func`.
+    Records each estimate, and loss in the query object.
+    '''
+    np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
+
     # first, just evaluate them all, and save results in queries
     start = time.time()
     yhats = alg.test(all_queries)
@@ -250,6 +237,14 @@ def main():
             qrep = load_sql_rep(qfn)
             # FIXME: don't want to hardcode title here
             if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
+                continue
+            samples.append(qrep)
+
+        # second loop, to update any samples with missing totals etc.
+        for qfn in qfns:
+            qrep = load_sql_rep(qfn)
+            # FIXME: don't want to hardcode title here
+            if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
                 # things to update: total, pred_cols etc.
                 update_qrep(qrep, samples[0])
                 # json-ify the graphs
@@ -260,7 +255,7 @@ def main():
                 # save it out to qfn
                 with open(qfn, 'wb') as fp:
                     pickle.dump(output, fp, protocol=pickle.HIGHEST_PROTOCOL)
-            samples.append(qrep)
+                samples.append(qrep)
 
         print("{} took {} seconds to load data".format(fn, time.time()-start))
 
@@ -308,19 +303,21 @@ def main():
 
     for alg in algorithms:
         start = time.time()
-        if args.eval_test_while_training:
-            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    test_samples=test_queries)
-        else:
-            alg.train(db, train_queries, use_subqueries=args.use_subqueries)
+        # if args.eval_test_while_training:
+            # alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                    # test_samples=test_queries)
+        # else:
+            # alg.train(db, train_queries, use_subqueries=args.use_subqueries)
+        alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                test_samples=test_queries)
 
         train_times[alg.__str__()] = round(time.time() - start, 2)
 
         start = time.time()
-        eval_alg(alg, losses, train_queries, args.use_subqueries)
+        eval_alg(alg, losses, train_queries)
 
         if args.test:
-            eval_alg(alg, losses, test_queries, args.use_subqueries)
+            eval_alg(alg, losses, test_queries)
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
     if args.results_cache:
@@ -356,8 +353,14 @@ def read_flags():
             default="./queries")
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
+    parser.add_argument("--single_threaded_nt", type=int, required=False,
+            default=0)
     parser.add_argument("--reuse_env", type=int, required=False,
             default=1)
+    parser.add_argument("--num_tables_feature", type=int, required=False,
+            default=1)
+    parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
+            default=10)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
     parser.add_argument("--gen_queries", type=int, required=False,
@@ -408,10 +411,17 @@ def read_flags():
     parser.add_argument("--eval_test_while_training", type=int,
             required=False, default=1)
     parser.add_argument("--jl_use_postgres", type=int,
-            required=False, default=0)
+            required=False, default=1)
+    parser.add_argument("--nn_type", type=str,
+            required=False, default="nn")
+    parser.add_argument("--mb_size", type=int, required=False,
+            default=128)
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=1)
+    parser.add_argument("--adaptive_lr_patience", type=int,
+            required=False, default=20)
+
     parser.add_argument("--viz_join_plans", type=int,
             required=False, default=0)
     parser.add_argument("--viz_fn", type=str,
@@ -423,7 +433,7 @@ def read_flags():
             default=0)
 
     parser.add_argument("--optimizer_name", type=str, required=False,
-            default="sgd")
+            default="adam")
     parser.add_argument("--net_name", type=str, required=False,
             default="FCNN")
 
@@ -512,5 +522,7 @@ def read_flags():
 
     return parser.parse_args()
 
-args = read_flags()
-main()
+# need __name__ == "__main__" for torch multithreading haha
+if __name__ == "__main__":
+    args = read_flags()
+    main()
