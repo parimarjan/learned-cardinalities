@@ -626,6 +626,6 @@ class NN(CardinalityEstimationAlg):
     def __str__(self):
         cls = self.__class__.__name__
         name = cls + "-" + self.nn_type
-        if self.sampling_priority_alpha > 0:
+        if self.sampling_priority_alpha > 0.00:
             name += "priority-" + str(self.sampling_priority_alpha)
         return name
