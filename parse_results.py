@@ -163,9 +163,9 @@ def main():
     # plot_table_errors(df, "jerr", "all", "train", "mean", pdf)
     # plot_table_errors(df, "jerr", "all", "test", "mean", pdf)
 
-    # for template in templates:
-        # plot_table_errors(df, "qerr", template, "train", "mean", pdf)
-        # plot_table_errors(df, "qerr", template, "test", "mean", pdf)
+    for template in templates:
+        plot_table_errors(df, "qerr", template, "train", "mean", pdf)
+        plot_table_errors(df, "qerr", template, "test", "mean", pdf)
 
     pdf.close()
 

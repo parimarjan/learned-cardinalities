@@ -402,13 +402,13 @@ def read_flags():
     parser.add_argument("-n", "--num_samples_per_template", type=int,
             required=False, default=1000)
     parser.add_argument("--max_iter", type=int,
-            required=False, default=100000)
+            required=False, default=20001)
     parser.add_argument("--jl_start_iter", type=int,
             required=False, default=200)
     parser.add_argument("--eval_iter", type=int,
-            required=False, default=1000)
+            required=False, default=200)
     parser.add_argument("--eval_iter_jl", type=int,
-            required=False, default=5000)
+            required=False, default=200)
     parser.add_argument("--lr", type=float,
             required=False, default=0.001)
     parser.add_argument("--clip_gradient", type=float,
@@ -483,7 +483,7 @@ def read_flags():
     parser.add_argument("--algs", type=str, required=False,
             default="postgres")
     parser.add_argument("--losses", type=str, required=False,
-            default="abs,rel,qerr", help="comma separated list of loss names")
+            default="qerr,join-loss", help="comma separated list of loss names")
     parser.add_argument("--result_dir", type=str, required=False,
             default="./results/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,
