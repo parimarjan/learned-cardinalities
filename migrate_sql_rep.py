@@ -103,7 +103,7 @@ def main():
             print("generated {} query sqls".format(len(query_strs)))
 
             # num_processes = int(num_processes / 2) + 1
-            num_processes = 16
+            num_processes = 1
             with Pool(processes=num_processes) as pool:
                 par_args = [(query, args.user, args.db_name, args.db_host,
                     args.port, args.pwd, False, True) for query in query_strs]

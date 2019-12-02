@@ -280,8 +280,10 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     sql_result_cache = None
     all_query_objs = []
     start = time.time()
+    # num_processes = int(min(len(unknown_query_strs),
+        # multiprocessing.cpu_count() / 2))
     num_processes = int(min(len(unknown_query_strs),
-        multiprocessing.cpu_count() / 2))
+        multiprocessing.cpu_count()))
     num_processes = max(num_processes, 1)
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
