@@ -79,10 +79,10 @@ AND (Xit1)
   AND (Xgender)
   GROUP BY
   ci.note, rt.role, n.name_pcode_nf
-  HAVING COUNT(*) > 2000
+  HAVING COUNT(*) > 100
   ORDER BY
   COUNT(*) DESC;
   '''
 
   min_samples = 5
-  max_samples = 15
+  max_samples = 25
