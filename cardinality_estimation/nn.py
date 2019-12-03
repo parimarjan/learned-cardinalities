@@ -93,7 +93,13 @@ class NN(CardinalityEstimationAlg):
         self.optimizer = None
         self.scheduler = None
 
+        # TODO: delete these unused stuff
         # self.num_threads = 8
+        # self.base_sampling_priority = self.sampling_priority_alpha
+
+        # each element is a list of priorities
+        self.past_priorities = []
+
 
         # number of processes used for computing train and test join losses
         # using park envs. These are computed simultaneously, while the next
@@ -288,10 +294,17 @@ class NN(CardinalityEstimationAlg):
         '''
         priorities = np.power(priorities, self.sampling_priority_alpha)
         priorities = self._normalize_priorities(priorities)
-        # total = float(np.sum(priorities))
-        # query_sampling_weights = np.zeros(len(priorities))
-        # for i, priority in enumerate(priorities):
-            # query_sampling_weights[i] = priority / total
+
+        AVG_PRIORITIES = False
+        NUM_LAST = 5
+        if AVG_PRIORITIES:
+            self.past_priorities.append(priorities)
+            if len(self.past_priorities) > NUM_LAST:
+                new_priorities = np.zeros(len(priorities))
+                for i in range(1,NUM_LAST+1):
+                    new_priorities += self.past_priorities[-i]
+                print("average priorities created!")
+                priorities = self._normalize_priorities(new_priorities)
 
         return priorities
 
