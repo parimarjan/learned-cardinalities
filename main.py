@@ -70,7 +70,7 @@ def get_alg(alg):
                     baseline=args.baseline_join_alg,
                     nn_results_dir = args.nn_results_dir,
                     loss_func = args.loss_func,
-                    sampling=args.sampling,
+                    sampling_priority_type = args.sampling_priority_type,
                     sampling_priority_alpha = args.sampling_priority_alpha,
                     net_name = args.net_name,
                     reuse_env = args.reuse_env,
@@ -244,6 +244,7 @@ def main():
                 pass
             qrep["template_name"] = template_name
             samples.append(qrep)
+        print("num subqueries: ", len(samples[0]["subset_graph"].nodes()))
 
         # second loop, to update any samples with missing totals etc.
         for qfn in qfns:
@@ -499,9 +500,8 @@ def read_flags():
     parser.add_argument("--jl_variant", type=int, required=False,
             default=0)
 
-    parser.add_argument("--sampling", type=str, required=False,
-            default="subquery", help="weighted_query: reprioritize, subquery: uniform \
-            over all queries")
+    parser.add_argument("--sampling_priority_type", type=str, required=False,
+            default="query", help="")
 
     parser.add_argument("--sampling_priority_alpha", type=float, required=False,
             default=0.00, help="")

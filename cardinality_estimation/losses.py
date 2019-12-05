@@ -114,7 +114,6 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
     '''
     for i,sql in enumerate(sqls):
         sqls[i] = fix_query(sql)
-
     est_costs, opt_costs, est_plans, opt_plans = \
                 env.compute_join_order_loss(sqls,
                         true_cardinalities, est_cardinalities,

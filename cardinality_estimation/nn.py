@@ -288,10 +288,6 @@ class NN(CardinalityEstimationAlg):
         '''
         priorities = np.power(priorities, self.sampling_priority_alpha)
         priorities = self._normalize_priorities(priorities)
-        # total = float(np.sum(priorities))
-        # query_sampling_weights = np.zeros(len(priorities))
-        # for i, priority in enumerate(priorities):
-            # query_sampling_weights[i] = priority / total
 
         return priorities
 
@@ -390,6 +386,50 @@ class NN(CardinalityEstimationAlg):
             pickle.dump(results, fp,
                     protocol=pickle.HIGHEST_PROTOCOL)
 
+    def _subquery_join_losses(self, samples, pred):
+        print("subquery join losses!")
+
+        for qrep in samples:
+            # going to compute all the join losses for this qrep
+            est_cardinalities = []
+            true_cardinalities = []
+            sqls = []
+            subsets = qrep["subset_graph"].nodes()
+            for node, node_info in subsets.items():
+                ests = {}
+                trues = {}
+                subgraph = qrep["join_graph"].subgraph(node)
+                sql = nx_graph_to_query(subgraph)
+                descendants = nx.descendants(qrep["subset_graph"], node)
+                for desc in descendants:
+                    alias_key = ' '.join(desc)
+                    node_info = subsets[desc]
+                    est_sel = pred[node_info["idx"]]
+                    est_card = est_sel*node_info["cardinality"]["total"]
+                    ests[alias_key] = int(est_card)
+                    trues[alias_key] = node_info["cardinality"]["actual"]
+
+                sqls.append(sql)
+                est_cardinalities.append(ests)
+                true_cardinalities.append(trues)
+
+            assert len(sqls) == len(est_cardinalities)
+
+            pdb.set_trace()
+            # parallel
+            # args = (sqls, true_cardinalities, est_cardinalities, self.env,
+                    # None, 16)
+            # results = self.train_join_loss_pool.apply(join_loss_pg, args)
+            # print(results[0])
+
+            # single threaded
+            for sqli,sql in enumerate(sqls):
+                jls = join_loss_pg([sqls[sqli]], [true_cardinalities[sqli]],
+                        [est_cardinalities[sqli]], self.env, None, 16)
+                # print(jls)
+
+            pdb.set_trace()
+
     def _periodic_eval(self, X, Y, samples, samples_type,
             join_loss_pool, env):
         pred = self.eval_samples(X, samples, samples_type)
@@ -439,6 +479,8 @@ class NN(CardinalityEstimationAlg):
         if (self.num_iter % self.eval_iter_jl == 0):
             jl_eval_start = time.time()
             assert self.jl_use_postgres
+            if self.sampling_priority_type == "subquery":
+                self._subquery_join_losses(samples, pred)
 
             # TODO: do we need this awkward loop. decompose?
             est_cardinalities = []
@@ -460,8 +502,11 @@ class NN(CardinalityEstimationAlg):
             args = (sqls, true_cardinalities, est_cardinalities, env,
                     None, self.num_join_loss_processes)
             results = join_loss_pool.apply_async(join_loss_pg, args)
+
+            # simplify...
             if self.sampling_priority_alpha == 0.0 \
-                    or self.num_iter == 0 \
+                    or self.sampling_priority_type != "query" \
+                    or self.num_iter <= 1000 \
                     or not "train" in samples_type:
                 return results
             else:
@@ -470,20 +515,14 @@ class NN(CardinalityEstimationAlg):
                 est_costs, opt_costs = self._update_join_results(results,
                                     samples, "train", self.num_iter)
                 jl_ratio = est_costs / opt_costs
-                query_sampling_weights = self._update_sampling_weights(jl_ratio)
-                assert np.allclose(sum(query_sampling_weights), 1.0)
-                subquery_sampling_weights = []
+                subquery_sampling_weights = \
+                        np.zeros(len(self.subquery_sampling_weights))
                 for si, sample in enumerate(self.training_samples):
-                    sq_weight = float(query_sampling_weights[si])
-                    num_subq = len(sample["subset_graph"].nodes())
-                    sq_weight /= num_subq
-                    wts = [sq_weight]*(num_subq)
-                    if not np.allclose(sum(wts), query_sampling_weights[si]):
-                        print("diff: ", sum(wts) - query_sampling_weights[si])
-                        pdb.set_trace()
-                    # add lists
-                    subquery_sampling_weights += wts
-                self.subquery_sampling_weights = subquery_sampling_weights
+                    sq_weight = float(jl_ratio[si])
+                    for node, node_info in qrep["subset_graph"].nodes().items():
+                        subquery_sampling_weights[node_info["idx"]] = sq_weight
+                self.subquery_sampling_weights = \
+                        self._update_sampling_weights(subquery_sampling_weights)
                 return None
         return None
 
