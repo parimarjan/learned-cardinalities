@@ -1,0 +1,209 @@
+title = "Template 2"
+
+# making all filter choices uniform on toml2
+
+[base_sql]
+sql = '''SELECT COUNT(*) FROM title as t,
+kind_type as kt,
+info_type as it1,
+movie_info as mi1,
+movie_info as mi2,
+info_type as it2,
+cast_info as ci,
+role_type as rt,
+name as n
+WHERE
+t.id = ci.movie_id
+AND t.id = mi1.movie_id
+AND t.id = mi2.movie_id
+AND mi1.movie_id = mi2.movie_id
+AND mi1.info_type_id = it1.id
+AND mi2.info_type_id = it2.id
+AND (Xit1)
+AND (Xit2)
+AND t.kind_id = kt.id
+AND ci.person_id = n.id
+AND ci.role_id = rt.id
+AND (Xmi1)
+AND (Xmi2)
+AND (Xmovie_kind)
+AND (Xrole)
+AND (Xgender)
+AND (Xprod_year_up)
+AND (Xprod_year_low)
+'''
+
+# template 1
+[[templates]]
+
+  name = "1a"
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+  type = "list"
+  columns = ["t.production_year"]
+  keys = ["Xprod_year_low", "Xprod_year_up"]
+  dependencies = 0
+  options = [[1925, 1975], [1975, 2015], [1875, 1975], [1925,
+  2015], [1950, 1990], [1990, 2015]]
+  sampling_method = "uniform"
+  pred_type = "range"
+  min_samples = 1
+  max_samples = 1
+
+  [[templates.predicates]]
+  type = "sql"
+  columns = ["it1.id"]
+  keys = ["Xit1"]
+  dependencies = 1
+  pred_type = "in"
+
+  sql = '''
+  SELECT it.id, count(*)
+	FROM movie_info as mi, info_type as it, title as t
+	WHERE t.id = mi.movie_id
+	AND mi.info_type_id = it.id
+	GROUP BY it.id
+  ORDER BY COUNT(*) DESC
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 1
+  min_samples = 1
+  max_samples = 1
+
+  [[templates.predicates]]
+  type = "sql"
+  columns = ["it2.id"]
+  keys = ["Xit2"]
+  dependencies = 1
+  pred_type = "in"
+
+  # slight hack: reusing it1 name in this sql to select elements for it2
+  sql = '''
+  SELECT it1.id, count(*)
+	FROM movie_info as mi, info_type as it1, title as t
+	WHERE t.id = mi.movie_id
+	AND mi.info_type_id = it1.id
+  AND NOT (Xit1)
+  GROUP BY it1.id
+  ORDER BY COUNT(*) DESC
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 1
+  min_samples = 1
+  max_samples = 1
+
+  [[templates.predicates]]
+
+  # Length of these lists should be the same
+  type = "sql" # sample from given sql, sample from given list
+  columns = ["mi1.info"]
+  keys = ["Xmi1"]
+  dependencies = 1
+  pred_type = "IN"
+
+  sql = '''
+  SELECT mi1.info, count(*)
+  FROM movie_info as mi1,
+  info_type as it1,
+  title as t
+  WHERE t.id = mi1.movie_id
+  AND mi1.info_type_id = it1.id
+  AND (Xit1)
+  GROUP BY mi1.info
+  HAVING count(*) > 50
+  ORDER BY count(*) desc
+  '''
+  sampling_method = "quantile"
+  num_quantiles = 1
+  min_samples = 5
+  max_samples = 15
+
+  [[templates.predicates]]
+
+  # Length of these lists should be the same
+  type = "sql" # sample from given sql, sample from given list
+  columns = ["mi2.info"]
+  keys = ["Xmi2"]
+  dependencies = 1
+  pred_type = "IN"
+
+  sql = '''
+  SELECT mi2.info, count(*)
+  FROM movie_info as mi2,
+  info_type as it2,
+  title as t
+  WHERE t.id = mi2.movie_id
+  AND mi2.info_type_id = it2.id
+  AND (Xit2)
+  GROUP BY mi2.info
+  HAVING count(*) > 50
+  ORDER BY count(*) desc
+  '''
+  sampling_method = "quantile"
+  num_quantiles = 1
+  min_samples = 5
+  max_samples = 15
+
+  [[templates.predicates]]
+  type = "sql"
+  columns = ["kt.kind"]
+  keys = ["Xmovie_kind"]
+  dependencies = 1
+  pred_type = "in"
+
+  # we want to sample this based on the ALREADY selected value for company name /
+  # company type
+  sql = '''
+  SELECT kt.kind, count(*)
+  FROM kind_type as kt
+  GROUP BY kt.kind
+  ORDER BY count(*) desc
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 1
+  min_samples = 1
+  max_samples = 15
+
+  [[templates.predicates]]
+
+  type = "sql"
+  columns = ["n.gender"]
+  keys = ["Xgender"]
+  dependencies = 0
+  pred_type = "IN"
+
+  sql = '''
+  SELECT n.gender, count(*)
+  FROM name as n
+  GROUP BY n.gender
+  ORDER BY count(*) desc
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 1
+  min_samples = 1
+  max_samples = 3
+
+  [[templates.predicates]]
+
+  type = "sql"
+  columns = ["rt.role"]
+  keys = ["Xrole"]
+  dependencies = 0
+  pred_type = "in"
+
+  sql = '''
+  SELECT rt.role, count(*)
+  FROM role_type as rt
+  GROUP BY rt.role
+  ORDER BY count(*) desc
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 1
+  min_samples = 1
+  max_samples = 5
