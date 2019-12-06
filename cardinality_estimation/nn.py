@@ -284,11 +284,10 @@ class NN(CardinalityEstimationAlg):
         # if they don't sum to 1...
 
         if 1.00 - sum(norm_priorities) != 0.00:
-            print("diff was: ", 1.00 - sum(norm_priorities))
             diff = 1.00 - sum(norm_priorities)
             while True:
                 random_idx = np.random.randint(0,len(norm_priorities))
-                if diff < 0.00 and norm_priorities[random_idx] > abs(diff):
+                if diff < 0.00 and norm_priorities[random_idx] < abs(diff):
                     continue
                 else:
                     norm_priorities[random_idx] += diff
