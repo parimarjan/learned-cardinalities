@@ -280,8 +280,10 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     sql_result_cache = None
     all_query_objs = []
     start = time.time()
+    # num_processes = int(min(len(unknown_query_strs),
+        # multiprocessing.cpu_count() / 2))
     num_processes = int(min(len(unknown_query_strs),
-        multiprocessing.cpu_count() / 2))
+        multiprocessing.cpu_count()))
     num_processes = max(num_processes, 1)
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
@@ -329,18 +331,28 @@ def get_template_samples(fn):
         num = 500
     elif "2b4.toml" in fn:
         num = 500
+    elif "2d2.toml" in fn:
+        num = 485
+    elif "2d.toml" in fn:
+        num = 446
+    elif "2dtitle.toml" in fn:
+        num = 298
+    elif "2U2.toml" in fn:
+        num = 1159
     elif "4.toml" in fn:
-        num = 600
+        num = 1383
     elif "3.toml" in fn:
         num = 100
     elif "7.toml" in fn:
         num = 170
     elif "7b.toml" in fn:
-        num = 500
+        num = 560
     elif "8.toml" in fn:
-        num = 239
+        num = 548
     elif "7c.toml" in fn:
         num = 20
+    elif "5.toml" in fn:
+        num = 516
     else:
         assert False
 
