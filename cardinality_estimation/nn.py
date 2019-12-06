@@ -269,16 +269,24 @@ class NN(CardinalityEstimationAlg):
         return Xtrain,Ytrain,num_table_mapping
 
     def _normalize_priorities(self, priorities):
-        total = float(np.sum(priorities))
+        total = np.float64(np.sum(priorities))
         norm_priorities = np.zeros(len(priorities))
-        for i, priority in enumerate(priorities):
-            norm_priorities[i] = priority / total
+        # for i, priority in enumerate(priorities):
+            # norm_priorities[i] = priority / total
+        norm_priorities = np.divide(priorities, total)
+
         # if they don't sum to 1...
 
         if 1.00 - sum(norm_priorities) != 0.00:
+            print("diff was: ", 1.00 - sum(norm_priorities))
             diff = 1.00 - sum(norm_priorities)
-            random_idx = np.random.randint(0,len(norm_priorities))
-            norm_priorities[random_idx] += diff
+            while True:
+                random_idx = np.random.randint(0,len(norm_priorities))
+                if diff < 0.00 and norm_priorities[random_idx] > abs(diff):
+                    continue
+                else:
+                    norm_priorities[random_idx] += diff
+                    break
 
         return norm_priorities
 
@@ -506,7 +514,7 @@ class NN(CardinalityEstimationAlg):
             # simplify...
             if self.sampling_priority_alpha == 0.0 \
                     or self.sampling_priority_type != "query" \
-                    or self.num_iter <= 1000 \
+                    or self.num_iter <= 100 \
                     or not "train" in samples_type:
                 return results
             else:
@@ -519,8 +527,14 @@ class NN(CardinalityEstimationAlg):
                         np.zeros(len(self.subquery_sampling_weights))
                 for si, sample in enumerate(self.training_samples):
                     sq_weight = float(jl_ratio[si])
-                    for node, node_info in qrep["subset_graph"].nodes().items():
+                    for node, node_info in sample["subset_graph"].nodes().items():
                         subquery_sampling_weights[node_info["idx"]] = sq_weight
+                assert 0.00 not in np.unique(subquery_sampling_weights)
+                # print("before _update sampling weights")
+                # print(max(subquery_sampling_weights))
+                # print(min(subquery_sampling_weights))
+                # print(np.unique(subquery_sampling_weights))
+                # pdb.set_trace()
                 self.subquery_sampling_weights = \
                         self._update_sampling_weights(subquery_sampling_weights)
                 return None
@@ -666,11 +680,6 @@ class NN(CardinalityEstimationAlg):
 
             if self.num_iter % self.eval_iter == 0:
                 self.save_stats()
-
-            if 1.00 - sum(self.subquery_sampling_weights) != 0.00:
-                diff = 1.00 - sum(self.subquery_sampling_weights)
-                random_idx = np.random.randint(0,len(self.subquery_sampling_weights))
-                self.subquery_sampling_weights[random_idx] += diff
 
             self.train_step(self.eval_iter)
             self.num_iter += self.eval_iter

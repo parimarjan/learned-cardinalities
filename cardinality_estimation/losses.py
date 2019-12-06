@@ -10,6 +10,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from collections import defaultdict
 
 EPSILON = 0.000001
 REL_LOSS_EPSILON = EPSILON
@@ -148,7 +149,13 @@ def compute_join_order_loss(queries, preds, **kwargs):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
+    @queries: list of qrep objects.
+    @preds: list of dicts
     '''
+    assert isinstance(queries, list)
+    assert isinstance(preds, list)
+    assert isinstance(queries[0], dict)
+
     env = park.make('query_optimizer')
     # TODO: do pdf stuff here
     args = kwargs["args"]
@@ -164,7 +171,6 @@ def compute_join_order_loss(queries, preds, **kwargs):
     true_cardinalities = []
     sqls = []
     for i, qrep in enumerate(queries):
-        assert isinstance(qrep, dict)
         sqls.append(qrep["sql"])
         ests = {}
         trues = {}
@@ -183,21 +189,42 @@ def compute_join_order_loss(queries, preds, **kwargs):
                                 est_cardinalities, env, pdf=join_viz_pdf,
                                 num_processes=multiprocessing.cpu_count())
 
-        all_opt_plans = set()
-        all_est_plans = set()
+        all_opt_plans = defaultdict(list)
+        all_est_plans = defaultdict(list)
+        num_opt_plans = []
+        num_est_plans = []
         for i, _ in enumerate(opt_costs):
             opt_cost = opt_costs[i]
             est_cost = est_card_costs[i]
             # plot both optimal, and estimated plans
             explain = est_plans[i]
             leading = get_leading_hint(explain)
-            all_est_plans.add(leading)
             opt_explain = opt_plans[i]
             opt_leading = get_leading_hint(opt_explain)
-            all_opt_plans.add(opt_leading)
+            sql = queries[i]["sql"]
+            template = queries[i]["template_name"]
+
+            all_est_plans[leading].append((template, deterministic_hash(sql), sql))
+            all_opt_plans[opt_leading].append((template, deterministic_hash(sql), sql))
 
         print("num opt plans: {}, num est plans: {}".format(\
                 len(all_opt_plans), len(all_est_plans)))
+        # print(all_opt_plans.keys())
+        # for k,v in all_opt_plans.items():
+            # num_opt_plans.append(len(v))
+        # for k,v in all_est_plans.items():
+            # num_est_plans.append(len(v))
+
+        # print(sorted(num_opt_plans, reverse=True)[0:10])
+        # print(sorted(num_est_plans, reverse=True)[0:10])
+
+        # with open("opt_plan_summaries.pkl", 'wb') as fp:
+            # pickle.dump(all_opt_plans, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+        # with open("est_plan_summaries.pkl", 'wb') as fp:
+            # pickle.dump(all_est_plans, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+        # pdb.set_trace()
     else:
         print("TODO: add calcite based cost model")
         assert False
