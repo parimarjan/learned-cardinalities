@@ -11,6 +11,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from collections import defaultdict
+import datetime
 
 EPSILON = 0.000001
 REL_LOSS_EPSILON = EPSILON
@@ -115,7 +116,7 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
     '''
     for i,sql in enumerate(sqls):
         sqls[i] = fix_query(sql)
-    est_costs, opt_costs, est_plans, opt_plans = \
+    est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
                 env.compute_join_order_loss(sqls,
                         true_cardinalities, est_cardinalities,
                         None, num_processes=num_processes, postgres=True)
@@ -143,7 +144,22 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
         print("num opt plans: {}, num est plans: {}".format(\
                 len(all_opt_plans), len(all_est_plans)))
 
-    return est_costs, opt_costs, est_plans, opt_plans
+    return est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls
+
+def get_join_results_name(alg_name):
+    join_dir = "./join_results"
+    make_dir(join_dir)
+    days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+    weekno = datetime.datetime.today().weekday()
+    day = days[weekno]
+    time_hash = str(deterministic_hash(time.time()))[0:3]
+    name = "{DIR}/{DAY}-{ALG}-{HASH}".format(\
+                DIR = join_dir,
+                DAY = day,
+                ALG = alg_name,
+                HASH = time_hash)
+    return name
+
 
 def compute_join_order_loss(queries, preds, **kwargs):
     '''
@@ -159,6 +175,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
     env = park.make('query_optimizer')
     # TODO: do pdf stuff here
     args = kwargs["args"]
+    alg_name = kwargs["name"]
+
     if args.viz_join_plans:
         pdf_fn = args.viz_fn + os.path.basename(args.template_dir) \
                     + alg.__str__() + ".pdf"
@@ -184,7 +202,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
         true_cardinalities.append(trues)
 
     if args.jl_use_postgres:
-        est_card_costs, opt_costs, est_plans, opt_plans = \
+        est_card_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
                         join_loss_pg(sqls, true_cardinalities,
                                 est_cardinalities, env, pdf=join_viz_pdf,
                                 num_processes=multiprocessing.cpu_count())
@@ -209,6 +227,36 @@ def compute_join_order_loss(queries, preds, **kwargs):
 
         print("num opt plans: {}, num est plans: {}".format(\
                 len(all_opt_plans), len(all_est_plans)))
+
+        # FIXME: simplify, make nicer etc. get per query qerr information
+        join_results_fn = get_join_results_name(alg_name)
+        join_results = defaultdict(list)
+        for i, qrep in enumerate(queries):
+            join_results["sql"].append(qrep["sql"])
+            join_results["template"].append(qrep["template_name"])
+            join_results["alg"].append(alg_name)
+            join_results["cost"].append(est_card_costs[i])
+            join_results["runtime"].append(None)
+            join_results["exec_sql"].append(est_sqls[i])
+
+        with open(join_results_fn + ".pkl", 'wb') as fp:
+            pickle.dump(join_results, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+        # add true cardinality guy
+        join_results_fn = get_join_results_name("true")
+        join_results = defaultdict(list)
+        for i, qrep in enumerate(queries):
+            join_results["sql"].append(qrep["sql"])
+            join_results["template"].append(qrep["template_name"])
+            join_results["alg"].append("true")
+            join_results["cost"].append(opt_costs[i])
+            join_results["runtime"].append(None)
+            join_results["exec_sql"].append(opt_sqls[i])
+
+        with open(join_results_fn + ".pkl", 'wb') as fp:
+            pickle.dump(join_results, fp, protocol=pickle.HIGHEST_PROTOCOL)
+
+        ## saving per bucket summaries
         # print(all_opt_plans.keys())
         # for k,v in all_opt_plans.items():
             # num_opt_plans.append(len(v))

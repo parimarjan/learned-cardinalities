@@ -112,7 +112,7 @@ def remove_doubles(query_strs):
         newq.append(q)
     return newq
 
-def eval_alg(alg, losses, queries):
+def eval_alg(alg, losses, queries, samples_type):
     '''
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
@@ -127,58 +127,10 @@ def eval_alg(alg, losses, queries):
     print("evaluating alg took: {} seconds".format(eval_time))
 
     loss_start = time.time()
+    alg_name = alg.__str__() + "-" + samples_type
     for loss_func in losses:
-        losses = loss_func(queries, yhats, args=args)
-
-        # TODO: set global printoptions to round digits
-        print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-                .format(args.db_name, alg, len(queries),
-                    get_loss_name(loss_func.__name__),
-                    np.round(np.mean(losses),3),
-                    np.round(np.median(losses),3),
-                    np.round(np.percentile(losses,95),3),
-                    np.round(np.percentile(losses,99),3)))
-
-    print("loss computations took: {} seconds".format(time.time()-loss_start))
-
-def eval_alg_old(alg, losses, queries, use_subqueries):
-    '''
-    Applies alg to each query, and measures loss using `loss_func`.
-    Records each estimate, and loss in the query object.
-    '''
-    np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
-
-    # first, just evaluate them all, and save results in queries
-    start = time.time()
-    yhats = alg.test(all_queries)
-    eval_time = round(time.time() - start, 2)
-    print("evaluating alg took: {} seconds".format(eval_time))
-
-    loss_start = time.time()
-    for loss_func in losses:
-        loss_name = get_loss_name(loss_func.__name__)
-        if "join" in loss_name:
-            if args.viz_join_plans:
-                pdf_fn = args.viz_fn + os.path.basename(args.template_dir) \
-                            + alg.__str__() + ".pdf"
-                print("writing out join plan visualizations to ", pdf_fn)
-                join_viz_pdf = PdfPages(pdf_fn)
-            else:
-                join_viz_pdf = None
-
-            losses = loss_func(alg, queries, args.use_subqueries,
-                    baseline=args.baseline_join_alg,
-                    compute_runtime=args.compute_runtime,
-                    use_postgres = args.jl_use_postgres,
-                    pdf = join_viz_pdf)
-            if join_viz_pdf:
-                join_viz_pdf.close()
-
-            assert len(losses) == len(queries)
-        else:
-            losses = loss_func(alg, queries, args.use_subqueries,
-                    baseline=args.baseline_join_alg)
-            assert len(losses) == len(all_queries)
+        losses = loss_func(queries, yhats, name=alg_name,
+                args=args)
 
         # TODO: set global printoptions to round digits
         print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
@@ -324,10 +276,10 @@ def main():
         train_times[alg.__str__()] = round(time.time() - start, 2)
 
         start = time.time()
-        eval_alg(alg, losses, train_queries)
+        eval_alg(alg, losses, train_queries, "train")
 
         if args.test:
-            eval_alg(alg, losses, test_queries)
+            eval_alg(alg, losses, test_queries, "test")
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
     if args.results_cache:
