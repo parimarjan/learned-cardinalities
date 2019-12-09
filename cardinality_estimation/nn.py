@@ -343,7 +343,7 @@ class NN(CardinalityEstimationAlg):
             return
         jl_eval_start = time.time()
         # can be a blocking call
-        (est_card_costs, opt_costs,_,_) = results.get()
+        (est_card_costs, opt_costs,_,_,_,_) = results.get()
 
         # TODO: do we need both these?
         join_losses = np.array(est_card_costs) - np.array(opt_costs)
