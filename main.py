@@ -2,7 +2,10 @@ from cardinality_estimation.db import DB
 
 from cardinality_estimation.query import *
 from cardinality_estimation.algs import *
-from cardinality_estimation.bayesian import *
+try:
+    from cardinality_estimation.bayesian import *
+except:
+    pass
 from cardinality_estimation.nn import *
 
 from cardinality_estimation.losses import *
