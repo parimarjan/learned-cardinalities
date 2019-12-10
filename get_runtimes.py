@@ -9,6 +9,7 @@ import os
 import pandas as pd
 from collections import defaultdict
 from utils.utils import *
+import sys
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -42,6 +43,7 @@ def execute_sql(sql, template="sql"):
     explain = cursor.fetchall()
     end = time.time()
     print("{} took {} seconds".format(template, end-start))
+    sys.stdout.flush()
 
     return explain, end-start
 
