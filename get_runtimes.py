@@ -72,7 +72,7 @@ def main():
                 continue
             if row["sql_key"] in cur_runtimes["sql_key"]:
                 print("should never have repeated for execution")
-                pdb.set_trace()
+                continue
             if "template" in row:
                 exp_analyze, rt = execute_sql(row["exec_sql"], row["template"])
             else:
