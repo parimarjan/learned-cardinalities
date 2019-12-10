@@ -72,6 +72,10 @@ class NN(CardinalityEstimationAlg):
         for k, val in kwargs.items():
             self.__setattr__(k, val)
         self.start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+        weekno = datetime.datetime.today().weekday()
+        self.start_day = days[weekno]
+
         # initialize stats collection stuff
         if self.nn_type == "microsoft":
             self.mb_size = 2500
@@ -315,23 +319,17 @@ class NN(CardinalityEstimationAlg):
 
         return priorities
 
-    def eval_samples(self, X, samples, samples_type):
+    def eval_samples(self, X, nt_map):
         if self.nn_type == "num_tables":
             assert self.net is None
             assert self.optimizer is None
             all_preds = []
-            if "train" in samples_type:
-                nt_map = self.train_num_table_mapping
-            else:
-                nt_map = self.test_num_table_mapping
-
             for nt in nt_map:
                 start,end = nt_map[nt]
                 Xcur = X[start:end]
                 net_map = self._map_num_tables(nt)
                 pred = self.nets[net_map](Xcur).squeeze(1)
                 all_preds.append(pred)
-
             pred = torch.cat(all_preds)
         else:
             pred = self.net(X).squeeze(1)
@@ -383,12 +381,9 @@ class NN(CardinalityEstimationAlg):
     def get_exp_name(self):
         '''
         '''
-        days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
-        weekno = datetime.datetime.today().weekday()
-        day = days[weekno]
         time_hash = str(deterministic_hash(self.start_time))[0:3]
         name = "{DAY}-{NN_TYPE}-{PRIORITY}-{HASH}".format(\
-                    DAY = day,
+                    DAY = self.start_day,
                     NN_TYPE = self.nn_type,
                     PRIORITY = self.sampling_priority_alpha,
                     HASH = time_hash)
@@ -456,7 +451,11 @@ class NN(CardinalityEstimationAlg):
 
     def _periodic_eval(self, X, Y, samples, samples_type,
             join_loss_pool, env):
-        pred = self.eval_samples(X, samples, samples_type)
+        if "train" in samples_type:
+            pred = self.eval_samples(X, self.train_num_table_mapping)
+        else:
+            pred = self.eval_samples(X, self.test_num_table_mapping)
+
         train_loss = self.loss(pred, Y, avg=False).detach().numpy()
         loss_avg = round(np.sum(train_loss) / len(train_loss), 2)
         print("""{}: {}, N: {}, qerr: {}""".format(
@@ -705,7 +704,17 @@ class NN(CardinalityEstimationAlg):
                 break
 
     def test(self, test_samples):
-        pass
+        # generate preds in the form needed
+        X, _, nt_map = self._get_feature_vectors(test_samples)
+        sel_preds = self.eval_samples(X, nt_map).detach().cpu().numpy()
+        preds = []
+        for sample in test_samples:
+            pred_dict = {}
+            for alias_key, info in sample["subset_graph"].nodes().items():
+                pred = sel_preds[info["idx"]]
+                pred_dict[(alias_key)] = info["cardinality"]["total"]*pred
+            preds.append(pred_dict)
+        return preds
 
     def __str__(self):
         cls = self.__class__.__name__

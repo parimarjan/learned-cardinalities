@@ -74,6 +74,25 @@ class Postgres(CardinalityEstimationAlg):
             preds.append(pred_dict)
         return preds
 
+    def __str__(self):
+        return "postgres"
+
+class TrueCardinalities(CardinalityEstimationAlg):
+    def __init__(self):
+        pass
+
+    def test(self, test_samples):
+        assert isinstance(test_samples[0], dict)
+        preds = []
+        for sample in test_samples:
+            pred_dict = {}
+            for alias_key, info in sample["subset_graph"].nodes().items():
+                pred_dict[(alias_key)] = info["cardinality"]["actual"]
+            preds.append(pred_dict)
+        return preds
+
+    def __str__(self):
+        return "true"
 
 class Random(CardinalityEstimationAlg):
     def test(self, test_samples):

@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from collections import defaultdict
 import datetime
+import pandas as pd
 
 EPSILON = 0.000001
 REL_LOSS_EPSILON = EPSILON
@@ -126,14 +127,14 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
         print("going to plot query results for join-loss")
         for i, _ in enumerate(opt_costs):
             opt_cost = opt_costs[i]
-            est_cost = est_card_costs[i]
+            est_cost = est_costs[i]
             # plot both optimal, and estimated plans
             explain = est_plans[i]
             leading = get_leading_hint(explain)
             title = "Estimator Plan: {}, estimator cost: {}, opt cost: {}".format(\
                 i, est_cost, opt_cost)
-            estG = plot_explain_join_order(explain, true_cardinalities[k],
-                    cardinalities[k], pdf, title)
+            estG = plot_explain_join_order(explain, true_cardinalities[i],
+                    cardinalities[i], pdf, title)
             opt_explain = opt_plans[i]
             opt_leading = get_leading_hint(opt_explain)
             title = "Optimal Plan: {}, estimator cost: {}, opt cost: {}".format(\
@@ -160,14 +161,31 @@ def get_join_results_name(alg_name):
                 HASH = time_hash)
     return name
 
-
 def compute_join_order_loss(queries, preds, **kwargs):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
     @queries: list of qrep objects.
     @preds: list of dicts
+
+    @output: updates ./results/join_order_loss.pkl file
     '''
+    def add_joinresult_row(sql_key, exec_sql, cost, explain,
+            plan):
+        '''
+        '''
+        # TODO: add postgresql conf details too in check?
+        if sql_key in costs["sql_key"].values:
+            return
+
+        cur_costs["sql_key"].append(sql_key)
+        cur_costs["explain"].append(explain)
+        cur_costs["plan"].append(plan)
+        cur_costs["exec_sql"].append(exec_sql)
+        cur_costs["cost"].append(cost)
+        cur_costs["postgresql_conf"].append(None)
+        cur_costs["samples_type"].append(samples_type)
+
     assert isinstance(queries, list)
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
@@ -176,18 +194,27 @@ def compute_join_order_loss(queries, preds, **kwargs):
     # TODO: do pdf stuff here
     args = kwargs["args"]
     alg_name = kwargs["name"]
+    samples_type = kwargs["samples_type"]
+    costs_dir_tmp = "{RESULT_DIR}/{ALG}/"
+    costs_dir = costs_dir_tmp.format(RESULT_DIR = args.result_dir,
+                                   ALG = alg_name)
+    make_dir(costs_dir)
+    costs_fn = costs_dir + "costs.pkl"
+    costs = load_object(costs_fn)
+    if costs is None:
+        columns = ["sql_key", "explain","plan","exec_sql","cost",
+                "postgresql_conf", "samples_type"]
+        costs = pd.DataFrame(columns=columns)
 
-    if args.viz_join_plans:
-        pdf_fn = args.viz_fn + os.path.basename(args.template_dir) \
-                    + alg.__str__() + ".pdf"
-        print("writing out join plan visualizations to ", pdf_fn)
-        join_viz_pdf = PdfPages(pdf_fn)
-    else:
-        join_viz_pdf = None
+    cur_costs = defaultdict(list)
+
+    assert isinstance(costs, pd.DataFrame)
 
     est_cardinalities = []
     true_cardinalities = []
     sqls = []
+
+    # TODO: save alg based predictions too
     for i, qrep in enumerate(queries):
         sqls.append(qrep["sql"])
         ests = {}
@@ -202,80 +229,23 @@ def compute_join_order_loss(queries, preds, **kwargs):
         true_cardinalities.append(trues)
 
     if args.jl_use_postgres:
-        est_card_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
+        est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
                         join_loss_pg(sqls, true_cardinalities,
-                                est_cardinalities, env, pdf=join_viz_pdf,
+                                est_cardinalities, env, pdf=None,
                                 num_processes=multiprocessing.cpu_count())
 
-        all_opt_plans = defaultdict(list)
-        all_est_plans = defaultdict(list)
-        num_opt_plans = []
-        num_est_plans = []
-        for i, _ in enumerate(opt_costs):
-            opt_cost = opt_costs[i]
-            est_cost = est_card_costs[i]
-            # plot both optimal, and estimated plans
-            explain = est_plans[i]
-            leading = get_leading_hint(explain)
-            opt_explain = opt_plans[i]
-            opt_leading = get_leading_hint(opt_explain)
-            sql = queries[i]["sql"]
-            template = queries[i]["template_name"]
-
-            all_est_plans[leading].append((template, deterministic_hash(sql), sql))
-            all_opt_plans[opt_leading].append((template, deterministic_hash(sql), sql))
-
-        print("num opt plans: {}, num est plans: {}".format(\
-                len(all_opt_plans), len(all_est_plans)))
-
-        # FIXME: simplify, make nicer etc. get per query qerr information
-        join_results_fn = get_join_results_name(alg_name)
-        join_results = defaultdict(list)
         for i, qrep in enumerate(queries):
-            join_results["sql"].append(qrep["sql"])
-            join_results["template"].append(qrep["template_name"])
-            join_results["alg"].append(alg_name)
-            join_results["cost"].append(est_card_costs[i])
-            join_results["runtime"].append(None)
-            join_results["exec_sql"].append(est_sqls[i])
-
-        with open(join_results_fn + ".pkl", 'wb') as fp:
-            pickle.dump(join_results, fp, protocol=pickle.HIGHEST_PROTOCOL)
-
-        # add true cardinality guy
-        join_results_fn = get_join_results_name("true")
-        join_results = defaultdict(list)
-        for i, qrep in enumerate(queries):
-            join_results["sql"].append(qrep["sql"])
-            join_results["template"].append(qrep["template_name"])
-            join_results["alg"].append("true")
-            join_results["cost"].append(opt_costs[i])
-            join_results["runtime"].append(None)
-            join_results["exec_sql"].append(opt_sqls[i])
-
-        with open(join_results_fn + ".pkl", 'wb') as fp:
-            pickle.dump(join_results, fp, protocol=pickle.HIGHEST_PROTOCOL)
-
-        ## saving per bucket summaries
-        # print(all_opt_plans.keys())
-        # for k,v in all_opt_plans.items():
-            # num_opt_plans.append(len(v))
-        # for k,v in all_est_plans.items():
-            # num_est_plans.append(len(v))
-
-        # print(sorted(num_opt_plans, reverse=True)[0:10])
-        # print(sorted(num_est_plans, reverse=True)[0:10])
-
-        # with open("opt_plan_summaries.pkl", 'wb') as fp:
-            # pickle.dump(all_opt_plans, fp, protocol=pickle.HIGHEST_PROTOCOL)
-
-        # with open("est_plan_summaries.pkl", 'wb') as fp:
-            # pickle.dump(all_est_plans, fp, protocol=pickle.HIGHEST_PROTOCOL)
-
-        # pdb.set_trace()
+            sql_key = str(deterministic_hash(qrep["sql"]))
+            add_joinresult_row(sql_key, est_sqls[i], est_costs[i],
+                    est_plans[i], get_leading_hint(est_plans[i]))
     else:
         print("TODO: add calcite based cost model")
         assert False
 
+    cur_df = pd.DataFrame(cur_costs)
+
+    combined_df = pd.concat([costs, cur_df], ignore_index=True)
+    save_object(costs_fn, combined_df)
+
     env.clean()
-    return np.array(est_card_costs) - np.array(opt_costs)
+    return np.array(est_costs) - np.array(opt_costs)

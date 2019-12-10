@@ -52,6 +52,8 @@ def get_alg(alg):
         return Linear()
     elif alg == "postgres":
         return Postgres()
+    elif alg == "true":
+        return TrueCardinalities()
     elif alg == "random":
         return Random()
     elif alg == "chow":
@@ -130,10 +132,10 @@ def eval_alg(alg, losses, queries, samples_type):
     print("evaluating alg took: {} seconds".format(eval_time))
 
     loss_start = time.time()
-    alg_name = alg.__str__() + "-" + samples_type
+    alg_name = alg.__str__()
     for loss_func in losses:
         losses = loss_func(queries, yhats, name=alg_name,
-                args=args)
+                args=args, samples_type=samples_type)
 
         # TODO: set global printoptions to round digits
         print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
@@ -268,14 +270,8 @@ def main():
 
     for alg in algorithms:
         start = time.time()
-        # if args.eval_test_while_training:
-            # alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    # test_samples=test_queries)
-        # else:
-            # alg.train(db, train_queries, use_subqueries=args.use_subqueries)
         alg.train(db, train_queries, use_subqueries=args.use_subqueries,
                 test_samples=test_queries)
-
         train_times[alg.__str__()] = round(time.time() - start, 2)
 
         start = time.time()
@@ -284,19 +280,6 @@ def main():
         if args.test:
             eval_alg(alg, losses, test_queries, "test")
         eval_times[alg.__str__()] = round(time.time() - start, 2)
-
-    if args.results_cache:
-        results = {}
-        results["training_queries"] = train_queries
-        results["test_queries"] = test_queries
-        results["args"] = args
-        results["train_times"] = train_times
-        results["eval_times"] = eval_times
-
-        results_cache = klepto.archives.dir_archive(args.results_cache)
-        dt = datetime.datetime.now()
-        exp_name = args.exp_name + "-{}-{}-{}-{}".format(dt.day, dt.hour, dt.minute, dt.second)
-        results_cache.archive[exp_name] = results
 
 def gen_exp_hash():
     return str(deterministic_hash(str(args)))
@@ -312,8 +295,6 @@ def gen_samples_hash():
 
 def read_flags():
     # parser = argparse.ArgumentParser()
-    parser.add_argument("--results_cache", type=str, required=False,
-            default=None)
     parser.add_argument("--query_directory", type=str, required=False,
             default="./queries")
     parser.add_argument("--num_tables_model", type=str, required=False,
@@ -394,6 +375,9 @@ def read_flags():
 
     parser.add_argument("--nn_results_dir", type=str, required=False,
             default="./nn_results")
+    parser.add_argument("--results_dir", type=str, required=False,
+            default="./results")
+
     parser.add_argument("--divide_mb_len", type=int, required=False,
             default=0)
 
