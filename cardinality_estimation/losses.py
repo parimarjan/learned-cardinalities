@@ -19,6 +19,20 @@ REL_LOSS_EPSILON = EPSILON
 QERR_MIN_EPS = EPSILON
 CROSS_JOIN_CARD = 1313136191
 
+def join_op_stats(explains):
+    num_joins_opt = defaultdict(int)
+    for i, _ in enumerate(explains):
+        explain = explains[i]
+        node_types = extract_values(explain[0][0], "Node Type")
+        for nt in node_types:
+            if "Nest" in nt:
+                num_joins_opt["nested"] += 1
+            elif "Merge" in nt:
+                num_joins_opt["merge"] += 1
+            elif "Hash" in nt:
+                num_joins_opt["hash"] += 1
+    return num_joins_opt
+
 def node_match(n1, n2):
     return n1 == n2
 
@@ -171,7 +185,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
     @output: updates ./results/join_order_loss.pkl file
     '''
     def add_joinresult_row(sql_key, exec_sql, cost, explain,
-            plan):
+            plan, template):
         '''
         '''
         # TODO: add postgresql conf details too in check?
@@ -185,6 +199,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
         cur_costs["cost"].append(cost)
         cur_costs["postgresql_conf"].append(None)
         cur_costs["samples_type"].append(samples_type)
+        cur_costs["template"].append(template)
 
     assert isinstance(queries, list)
     assert isinstance(preds, list)
@@ -203,7 +218,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
     costs = load_object(costs_fn)
     if costs is None:
         columns = ["sql_key", "explain","plan","exec_sql","cost",
-                "postgresql_conf", "samples_type"]
+                "postgresql_conf", "samples_type", "template"]
         costs = pd.DataFrame(columns=columns)
 
     cur_costs = defaultdict(list)
@@ -215,8 +230,9 @@ def compute_join_order_loss(queries, preds, **kwargs):
     sqls = []
 
     # TODO: save alg based predictions too
+    print("compute_join_order_loss")
     for i, qrep in enumerate(queries):
-        sqls.append(qrep["sql"])
+        sqls.append(qrep["join_sql"])
         ests = {}
         trues = {}
         predq = preds[i]
@@ -237,7 +253,14 @@ def compute_join_order_loss(queries, preds, **kwargs):
         for i, qrep in enumerate(queries):
             sql_key = str(deterministic_hash(qrep["sql"]))
             add_joinresult_row(sql_key, est_sqls[i], est_costs[i],
-                    est_plans[i], get_leading_hint(est_plans[i]))
+                    est_plans[i], get_leading_hint(est_plans[i]),
+                    qrep["template_name"])
+        est_ops = join_op_stats(est_plans)
+        true_ops = join_op_stats(opt_plans)
+        print("est_ops: ", est_ops)
+        print("true_ops: ", true_ops)
+        pdb.set_trace()
+
     else:
         print("TODO: add calcite based cost model")
         assert False
