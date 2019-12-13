@@ -94,6 +94,84 @@ class TrueCardinalities(CardinalityEstimationAlg):
     def __str__(self):
         return "true"
 
+class TrueRank(CardinalityEstimationAlg):
+    def __init__(self):
+        pass
+
+    def test(self, test_samples):
+        assert isinstance(test_samples[0], dict)
+        preds = []
+        for sample in test_samples:
+            pred_dict = {}
+            all_cards = []
+            for alias_key, info in sample["subset_graph"].nodes().items():
+                # pred_dict[(alias_key)] = info["cardinality"]["actual"]
+                card = info["cardinality"]["actual"]
+                exp = info["cardinality"]["expected"]
+                all_cards.append([alias_key, card, exp])
+            all_cards.sort(key = lambda x : x[1])
+
+            for i, (alias_key, true_est, pgest) in enumerate(all_cards):
+                if i == 0:
+                    pred_dict[(alias_key)] = pgest
+                    continue
+                prev_est = all_cards[i-1][2]
+                prev_alias = all_cards[i-1][0]
+                if pgest >= prev_est:
+                    pred_dict[(alias_key)] = pgest
+                else:
+                    updated_est = prev_est
+                    # updated_est = prev_est + 1000
+                    # updated_est = true_est
+                    all_cards[i][2] = updated_est
+                    pred_dict[(alias_key)] = updated_est
+
+            preds.append(pred_dict)
+        return preds
+
+    def __str__(self):
+        return "true_rank"
+
+class TrueRankTables(CardinalityEstimationAlg):
+    def __init__(self):
+        pass
+
+    def test(self, test_samples):
+        assert isinstance(test_samples[0], dict)
+        preds = []
+        for sample in test_samples:
+            pred_dict = {}
+            all_cards_nt = defaultdict(list)
+            for alias_key, info in sample["subset_graph"].nodes().items():
+                # pred_dict[(alias_key)] = info["cardinality"]["actual"]
+                card = info["cardinality"]["actual"]
+                exp = info["cardinality"]["expected"]
+                nt = len(alias_key)
+                all_cards_nt[nt].append([alias_key,card,exp])
+
+            for _,all_cards in all_cards_nt.items():
+                all_cards.sort(key = lambda x : x[1])
+                for i, (alias_key, true_est, pgest) in enumerate(all_cards):
+                    if i == 0:
+                        pred_dict[(alias_key)] = pgest
+                        continue
+                    prev_est = all_cards[i-1][2]
+                    prev_alias = all_cards[i-1][0]
+                    if pgest >= prev_est:
+                        pred_dict[(alias_key)] = pgest
+                    else:
+                        updated_est = prev_est
+                        # updated_est = prev_est + 1000
+                        # updated_est = true_est
+                        all_cards[i][2] = updated_est
+                        pred_dict[(alias_key)] = updated_est
+
+            preds.append(pred_dict)
+        return preds
+
+    def __str__(self):
+        return "true_rank_tables"
+
 class Random(CardinalityEstimationAlg):
     def test(self, test_samples):
         # TODO: needs to go over all subqueries

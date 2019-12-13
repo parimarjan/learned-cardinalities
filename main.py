@@ -54,6 +54,10 @@ def get_alg(alg):
         return Postgres()
     elif alg == "true":
         return TrueCardinalities()
+    elif alg == "true_rank":
+        return TrueRank()
+    elif alg == "true_rank_tables":
+        return TrueRankTables()
     elif alg == "random":
         return Random()
     elif alg == "chow":
@@ -88,7 +92,8 @@ def get_alg(alg):
                     nn_type = args.nn_type,
                     group_models = args.group_models,
                     adaptive_lr_patience = args.adaptive_lr_patience,
-                    single_threaded_nt = args.single_threaded_nt)
+                    single_threaded_nt = args.single_threaded_nt,
+                    nn_weights_init_pg = args.nn_weights_init_pg)
     elif alg == "ourpgm":
         if args.db_name == "imdb":
             return OurPGMMultiTable(alg_name = args.pgm_alg_name, backend = args.pgm_backend,
@@ -226,6 +231,30 @@ def main():
 
         print("{} took {} seconds to load data".format(fn, time.time()-start))
 
+        ## trying to check other aggregation functions
+        # print("modifying count(*) to min")
+        # for i, qrep in enumerate(samples):
+            # qrep["join_sql"] = qrep["sql"]
+            # # # select different column
+            # query = convert_sql_rep_to_query_rep(qrep)
+            # agg_column = query.pred_column_names[random.randint\
+                    # (0,len(query.pred_column_names))-1]
+            # agg_pred = "min({})".format(agg_column)
+            # # groupme attempt:
+            # # col_preds = "t.title,n.name"
+            # # agg_pred = col_preds
+
+            # qrep["join_sql"] = qrep["join_sql"].replace("count(*)", agg_pred)
+            # qrep["join_sql"] = qrep["join_sql"].replace("COUNT(*)", agg_pred)
+            # qrep["join_sql"] = qrep["join_sql"].replace("count (*)", agg_pred)
+            # qrep["join_sql"] = qrep["join_sql"].replace("COUNT (*)", agg_pred)
+            # qrep["join_sql"].replace(";", "")
+            # FIXME: this seems to not work
+            # qrep["join_sql"] += " group by {}".format(col_preds)
+            # qrep["join_sql"] += " order by {}".format(agg_column)
+            # print(qrep["join_sql"])
+            # pdb.set_trace()
+
         if not found_db:
             for sample in samples:
                 # not all samples may share all predicates etc. so updating
@@ -299,6 +328,8 @@ def read_flags():
             default="./queries")
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
+    parser.add_argument("--nn_weights_init_pg", type=int, required=False,
+            default=0)
     parser.add_argument("--single_threaded_nt", type=int, required=False,
             default=0)
     parser.add_argument("--reuse_env", type=int, required=False,
