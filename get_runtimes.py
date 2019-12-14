@@ -8,10 +8,21 @@ import subprocess as sp
 import os
 import pandas as pd
 from collections import defaultdict
-from utils.utils import *
+# from utils.utils import *
 import sys
 
 TIMEOUT_CONSTANT = 3609
+
+def save_object(file_name, data):
+    with open(file_name, "wb") as f:
+        res = f.write(pickle.dumps(data))
+
+def load_object(file_name):
+    res = None
+    if os.path.exists(file_name):
+        with open(file_name, "rb") as f:
+            res = pickle.loads(f.read())
+    return res
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -106,7 +117,8 @@ def main():
 
         df = pd.concat([runtimes, pd.DataFrame(cur_runtimes)], ignore_index=True)
         save_object(rt_fn, df)
-        print("saved df")
+        print("DONE")
+        sys.stdout.flush()
 
 args = read_flags()
 main()
