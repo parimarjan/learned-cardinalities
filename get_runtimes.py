@@ -11,6 +11,8 @@ from collections import defaultdict
 from utils.utils import *
 import sys
 
+TIMEOUT_CONSTANT = 3609
+
 def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results_dir", type=str, required=False,
@@ -37,9 +39,28 @@ def execute_sql(sql, template="sql"):
     cursor.execute("SET geqo_threshold = {}".format(16))
     cursor.execute("SET join_collapse_limit = {}".format(1))
     cursor.execute("SET from_collapse_limit = {}".format(1))
+    cursor.execute("SET statement_timeout = {}".format(3600))
 
     start = time.time()
-    cursor.execute(sql)
+
+    try:
+        cursor.execute(sql)
+    except Exception as e:
+        # print("query failed to execute: ", sql)
+        # FIXME: better way to do this.
+        cursor.execute("ROLLBACK")
+        con.commit()
+        cursor.close()
+        con.close()
+        if not "timeout" in str(e):
+            print("failed to execute for reason other than timeout")
+            print(e)
+            print(sql)
+            return None, TIMEOUT_CONSTANT
+        else:
+            print("failed because of timeout!")
+            return None, TIMEOUT_CONSTANT
+
     explain = cursor.fetchall()
     end = time.time()
     print("{} took {} seconds".format(template, end-start))
