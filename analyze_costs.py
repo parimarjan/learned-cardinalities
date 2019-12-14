@@ -1,3 +1,83 @@
+import pickle
+import glob
+import pdb
+import argparse
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+import seaborn as sns
+from collections import defaultdict
+import os
+from utils.utils import *
+
+def read_flags():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--results_dir", type=str, required=False,
+            default="./results1")
+    parser.add_argument("--worst_rt_costs_dir", type=str, required=False,
+            default=None)
+    return parser.parse_args()
+
+def output_worst_costs(wsql_keys):
+    for alg_dir in os.listdir(args.results_dir):
+        if alg_dir not in ["postgres", "true"]:
+            continue
+        costs_dir = args.results_dir + "/" + alg_dir
+        costs_fn = costs_dir + "/" + "costs.pkl"
+        costs = load_object(costs_fn)
+        wdir = args.worst_rt_costs_dir + "/" + alg_dir
+        make_dir(wdir)
+        wfn = wdir + "/" + "costs.pkl"
+        costs = costs[costs["sql_key"].isin(wsql_keys)]
+        save_object(wfn, costs)
+
+def main():
+    result_dir = args.results_dir
+    comb_rts = None
+    all_wsql_keys = []
+    for alg_dir in os.listdir(result_dir):
+        if alg_dir not in ["postgres", "true"]:
+            continue
+        costs_fn = result_dir + "/" + alg_dir + "/" + "costs.pkl"
+        rt_fn = result_dir + "/" + alg_dir + "/" + "runtimes.pkl"
+        costs = load_object(costs_fn)
+        # costs = costs[~costs["template"].isin(["2U3.toml"])]
+        rts = load_object(rt_fn)
+        if rts is None:
+            continue
+        # write out worst runtimes
+        if args.worst_rt_costs_dir:
+            wfn = args.worst_rt_costs_dir + "/" + alg_dir + "/" + "costs.pkl"
+            wrts = rts.sort_values(by=["runtime"], ascending=False)
+            # print(rts[0:10])
+            print(wrts[0:10]["runtime"])
+            wsql_keys = list(set(wrts[0:100]["sql_key"]))
+            all_wsql_keys += wsql_keys
+
+        rts = rts.merge(costs, on="sql_key")
+        rts = rts[["sql_key", "runtime","template"]]
+
+        rts = rts.rename(columns={"runtime":alg_dir})
+        if comb_rts is None:
+            comb_rts = rts
+        else:
+            comb_rts = comb_rts.merge(rts, on="sql_key")
+
+    if args.worst_rt_costs_dir:
+        output_worst_costs(all_wsql_keys)
+
+    print(comb_rts.describe())
+    comb_rts_true = comb_rts.sort_values(by=["true"], ascending=False)
+    print(comb_rts_true)
+    pdb.set_trace()
+    comb_rts_pg = comb_rts.sort_values(by=["postgres"], ascending=False)
+    print(comb_rts_pg)
+    pdb.set_trace()
+
+args = read_flags()
+main()
 
 ### analyzing costs
 # TODO: do this based on result logs

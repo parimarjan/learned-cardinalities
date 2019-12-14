@@ -123,7 +123,10 @@ def main():
     combined_data = defaultdict(list)
     for fn in fns:
         with open(fn, "rb") as f:
-            exp_data = pickle.load(f)
+            try:
+                exp_data = pickle.load(f)
+            except:
+                continue
         stats = exp_data["stats"]
         config = exp_data["config"]
         if exclude_exp(config, stats):
@@ -157,15 +160,15 @@ def main():
     # pdb.set_trace()
     # templates = df["template"]
 
-    plot_table_errors(df, "qerr", "all", "train", "mean", pdf)
-    plot_table_errors(df, "qerr", "all", "test", "mean", pdf)
+    # plot_table_errors(df, "qerr", "all", "train", "mean", pdf)
+    # plot_table_errors(df, "qerr", "all", "test", "mean", pdf)
 
     # plot_table_errors(df, "jerr", "all", "train", "mean", pdf)
     # plot_table_errors(df, "jerr", "all", "test", "mean", pdf)
 
-    for template in templates:
-        plot_table_errors(df, "qerr", template, "train", "mean", pdf)
-        plot_table_errors(df, "qerr", template, "test", "mean", pdf)
+    # for template in templates:
+        # plot_table_errors(df, "qerr", template, "train", "mean", pdf)
+        # plot_table_errors(df, "qerr", template, "test", "mean", pdf)
 
     pdf.close()
 

@@ -288,7 +288,7 @@ def gen_query_objs(args, query_strs, query_obj_cache):
     with Pool(processes=num_processes) as pool:
         args = [(cur_query, args.user, args.db_host, args.port,
             args.pwd, args.db_name, None,
-            args.execution_cache_threshold, sql_result_cache, 1800000, i) for
+            args.execution_cache_threshold, sql_result_cache, int(1800000/2), i) for
             i, cur_query in enumerate(unknown_query_strs)]
         all_query_objs = pool.starmap(sql_to_query_object, args)
 
