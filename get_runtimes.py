@@ -100,12 +100,11 @@ def main():
                 exp_analyze, rt = execute_sql(row["exec_sql"])
             add_runtime_row(row["sql_key"], rt, exp_analyze)
 
-            if i % 5 == 0:
-                rts = cur_runtimes["runtime"]
-                print("Alg:{}, N:{}, AvgRt: {}".format(alg_dir, len(rts),
-                    sum(rts) / len(rts)))
-                df = pd.concat([runtimes, pd.DataFrame(cur_runtimes)], ignore_index=True)
-                save_object(rt_fn, df)
+            rts = cur_runtimes["runtime"]
+            print("Alg:{}, N:{}, AvgRt: {}".format(alg_dir, len(rts),
+                sum(rts) / len(rts)))
+            df = pd.concat([runtimes, pd.DataFrame(cur_runtimes)], ignore_index=True)
+            save_object(rt_fn, df)
 
         df = pd.concat([runtimes, pd.DataFrame(cur_runtimes)], ignore_index=True)
         save_object(rt_fn, df)
