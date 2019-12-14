@@ -39,15 +39,13 @@ def execute_sql(sql, template="sql"):
     cursor.execute("SET geqo_threshold = {}".format(16))
     cursor.execute("SET join_collapse_limit = {}".format(1))
     cursor.execute("SET from_collapse_limit = {}".format(1))
-    cursor.execute("SET statement_timeout = {}".format(3600))
+    cursor.execute("SET statement_timeout = {}".format(3600000))
 
     start = time.time()
 
     try:
         cursor.execute(sql)
     except Exception as e:
-        # print("query failed to execute: ", sql)
-        # FIXME: better way to do this.
         cursor.execute("ROLLBACK")
         con.commit()
         cursor.close()
