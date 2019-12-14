@@ -108,7 +108,7 @@ class NN(CardinalityEstimationAlg):
         # number of processes used for computing train and test join losses
         # using park envs. These are computed simultaneously, while the next
         # iterations of the neural net train.
-        self.num_join_loss_processes = 8
+        self.num_join_loss_processes = 4
 
         # TODO: right time to close these, at the end of all jobs
         self.train_join_loss_pool = multiprocessing.pool.ThreadPool()
@@ -185,6 +185,18 @@ class NN(CardinalityEstimationAlg):
                     1)
         else:
             assert False
+
+        if self.nn_weights_init_pg:
+            print(net)
+            new_weights = {}
+            for key, weights in net.state_dict().items():
+                print(key, len(weights))
+                new_weights[key] = torch.zeros(weights.shape)
+                if "bias" not in key:
+                    new_weights[key][-1][-1] = 1.00
+
+            net.load_state_dict(new_weights)
+            print("state dict updated to pg init")
 
         if optimizer_name == "ams":
             optimizer = torch.optim.Adam(net.parameters(), lr=self.lr,
@@ -433,8 +445,6 @@ class NN(CardinalityEstimationAlg):
                 true_cardinalities.append(trues)
 
             assert len(sqls) == len(est_cardinalities)
-
-            pdb.set_trace()
             # parallel
             # args = (sqls, true_cardinalities, est_cardinalities, self.env,
                     # None, 16)
@@ -447,7 +457,6 @@ class NN(CardinalityEstimationAlg):
                         [est_cardinalities[sqli]], self.env, None, 16)
                 # print(jls)
 
-            pdb.set_trace()
 
     def _periodic_eval(self, X, Y, samples, samples_type,
             join_loss_pool, env):
