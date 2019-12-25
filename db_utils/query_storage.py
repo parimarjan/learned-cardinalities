@@ -17,7 +17,7 @@ def get_all_totals(qrep):
     @ret: dict, nodes : total
     '''
     user, pwd, db, db_host, port = get_default_con_creds()
-    totals = {}
+    ret = {}
     par_args = []
     par_subsets = []
     for subset, info in qrep["subset_graph"].nodes().items():
@@ -25,17 +25,20 @@ def get_all_totals(qrep):
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg)
         tsql = get_total_count_query(subsql)
-        tsql = "EXPLAIN " + tsql
         par_args.append((tsql, user, db_host, port, pwd, db, []))
         par_subsets.append(subset)
 
     num_processes = multiprocessing.cpu_count()
     with Pool(processes=num_processes) as pool:
-        cards = pool.starmap(execute_query, par_args)
+        results = pool.starmap(execute_query, par_args)
 
-    # execute_query(exec_sqls[0], user, db_host, port, pwd, db, [])
-    pdb.set_trace()
+    for i, res in enumerate(results):
+        assert res is not None
+        total_count = res[0][0]
+        ret[par_subsets[i]] = total_count
+
     print("executed successfully!")
+    return ret
 
 def update_qrep(qrep, total_sample=None):
     '''

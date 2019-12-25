@@ -51,8 +51,6 @@ for k,v in template_map.items():
     cur_qnum[v] = 0
 
 for tdir in os.listdir(inp_dir):
-    # print(tdir)
-    # old_tmp = tdir.replace(".toml", "")
     if tdir not in template_map:
         continue
     new_tmp = template_map[tdir]
