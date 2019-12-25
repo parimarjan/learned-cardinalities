@@ -10,9 +10,32 @@ from multiprocessing import Pool
 from cardinality_estimation.db import DB
 from networkx.readwrite import json_graph
 
-'''
-TODO: bring in the Query object format in here as well.
-'''
+from sql_rep.utils import execute_query
+
+def get_all_totals(qrep):
+    '''
+    @ret: dict, nodes : total
+    '''
+    user, pwd, db, db_host, port = get_default_con_creds()
+    totals = {}
+    par_args = []
+    par_subsets = []
+    for subset, info in qrep["subset_graph"].nodes().items():
+        cards = info["cardinality"]
+        sg = qrep["join_graph"].subgraph(subset)
+        subsql = nx_graph_to_query(sg)
+        tsql = get_total_count_query(subsql)
+        tsql = "EXPLAIN " + tsql
+        par_args.append((tsql, user, db_host, port, pwd, db, []))
+        par_subsets.append(subset)
+
+    num_processes = multiprocessing.cpu_count()
+    with Pool(processes=num_processes) as pool:
+        cards = pool.starmap(execute_query, par_args)
+
+    # execute_query(exec_sqls[0], user, db_host, port, pwd, db, [])
+    pdb.set_trace()
+    print("executed successfully!")
 
 def update_qrep(qrep, total_sample=None):
     '''
@@ -332,9 +355,9 @@ def get_template_samples(fn):
     elif "2b4.toml" in fn:
         num = 500
     elif "2d2.toml" in fn:
-        num = 485
+        num = 730
     elif "2d.toml" in fn:
-        num = 446
+        num = 900
     elif "2dtitle.toml" in fn:
         num = 298
     elif "2U2.toml" in fn:

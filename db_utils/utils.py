@@ -87,6 +87,34 @@ EDGE_COLORS = {}
 EDGE_COLORS["left"] = "b"
 EDGE_COLORS["right"] = "r"
 
+def get_default_con_creds():
+    if "user" in os.environ:
+        user = os.environ["LC_PG_USER"]
+    else:
+        user = getpass.getuser()
+
+    if "LC_PG_PWD" in os.environ:
+        pwd = os.environ["LC_PG_PWD"]
+    else:
+        pwd = ""
+
+    if "LC_PG_DB" in os.environ:
+        db = os.environ["LC_PG_DB"]
+    else:
+        db = "imdb"
+
+    if "LC_PG_HOST" in os.environ:
+        db_host = os.environ["LC_PG_HOST"]
+    else:
+        db_host = "localhost"
+
+    if "LC_PG_PORT" in os.environ:
+        port = int(os.environ["LC_PG_PORT"])
+    else:
+        port = 5432
+
+    return user, pwd, db, db_host, port
+
 def _find_all_tables(plan):
     '''
     '''
@@ -100,9 +128,6 @@ def _find_all_tables(plan):
 
 def extract_aliases2(plan):
     aliases = extract_values(plan, "Alias")
-    # aliases.sort()
-    # print(aliases)
-    # pdb.set_trace()
     return aliases
 
 def get_leading_hint(explain):

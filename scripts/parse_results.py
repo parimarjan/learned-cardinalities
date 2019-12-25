@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 from collections import defaultdict
+import numpy as np
 
 MAX_ERRS = {"qerr": 50.00, "jerr":1000000}
 SUMMARY_FUNCS = ["mean", "percentile:50"]
@@ -63,12 +64,37 @@ def plot_table_errors(df, lt, template, samples_type, summary_type, pdf):
     pdf.savefig()
     plt.clf()
 
-def plot_subplot(ax, df, max_loss):
-    # ax = sns.lineplot(x="iter", y="loss", hue="cl_name",
-            # data=df, hue_order=ALG_ORDER)
-    ax = sns.lineplot(x="num_iter", y="loss", hue="cl_name",
-            data=df)
-    ax.set_ylim(bottom=0, top=max_loss)
+def est(arr):
+    return arr[-1]
+
+def plot_feature_bins(df, num_tables, template,
+        summary_type, loss_type, samples_type, pdf):
+
+    df = df[df["num_tables"] == num_tables]
+    df = df[df["template"] == template]
+    df = df[df["summary_type"] == summary_type]
+    df = df[df["loss_type"] == loss_type]
+    df = df[df["samples_type"] == samples_type]
+    print(df)
+    cls = df["cl_name"]
+    simple_cl = []
+    for cl in cls:
+        if "pr" in cl or "num_table" in cl:
+            simple_cl.append("priority")
+        else:
+            simple_cl.append("microsoft")
+    df["simple_cl"] = simple_cl
+    if "train" in samples_type:
+        est_func = est
+    else:
+        est_func = np.min
+
+    sns.barplot(x="bins", y = "loss", data=df, hue = "simple_cl",
+            estimator=est_func, ci=None)
+    plt.title("{}: {}".\
+            format(samples_type, loss_type))
+    pdf.savefig()
+    plt.clf()
 
 def plot_generalization_fig(df, num_tables, template,
         summary_type, loss_type, pdf):
@@ -83,10 +109,8 @@ def plot_generalization_fig(df, num_tables, template,
     df = df[df["summary_type"] == summary_type]
     df = df[df["loss_type"] == loss_type]
 
-    if loss_type == "join-loss":
-        max_loss = min(MAX_ERRS[loss_type], max(df["loss"] + 100000))
-    else:
-        max_loss = min(MAX_ERRS[loss_type], max(df["loss"]))
+    max_loss = min(MAX_ERRS[loss_type], max(df["loss"]))
+    min_loss = min(df["loss"])
 
     df_train = df[df["samples_type"] == "train"]
 
@@ -95,8 +119,7 @@ def plot_generalization_fig(df, num_tables, template,
     ax = fig.add_subplot(2, 1, 1)
     ax = sns.lineplot(x="num_iter", y="loss", hue="cl_name",
             data=df_train)
-    plot_subplot(ax, df_train, max_loss)
-    ax.set_ylim(bottom=0, top=max_loss)
+    ax.set_ylim(bottom=min_loss, top=max_loss)
     plt.title("{}: {}".\
             format("train", loss_type))
     ax.get_legend().remove()
@@ -105,7 +128,7 @@ def plot_generalization_fig(df, num_tables, template,
     ax = fig.add_subplot(2, 1, 2)
     ax = sns.lineplot(x="num_iter", y="loss", hue="cl_name",
             data=df_test)
-    ax.set_ylim(bottom=0, top=max_loss)
+    ax.set_ylim(bottom=min_loss, top=max_loss)
     # TODO: add global stats here
     # num_samples, lr etc.
     plt.title("{}: {}".\
@@ -114,13 +137,12 @@ def plot_generalization_fig(df, num_tables, template,
     ax.get_legend().remove()
     fig.legend(handles, labels, loc='upper left')
 
-
     plt.tight_layout()
     pdf.savefig()
 
 def main():
     fns = glob.glob(args.results_dir + "/*.pkl")
-    combined_data = defaultdict(list)
+    all_stats = []
     for fn in fns:
         with open(fn, "rb") as f:
             try:
@@ -133,10 +155,12 @@ def main():
             continue
         cl_name = get_classifier_name(config, exp_data["name"])
         stats["cl_name"] = [cl_name]*len(stats["num_iter"])
-        for k,v in stats.items():
-            combined_data[k] += v
+        stats["bins"] = [config["max_discrete_featurizing_buckets"]]*len(stats["num_iter"])
+        print(set(stats["bins"]))
+        stats = pd.DataFrame(stats)
+        all_stats.append(stats)
 
-    df = pd.DataFrame(combined_data)
+    df = pd.concat(all_stats, ignore_index=True)
 
     '''
     Plots we want:
@@ -151,9 +175,12 @@ def main():
         - template_name, jerr: train
         - template_name, jerr: test
     '''
+
     # TODO: better name
     pdf = PdfPages("training_curves.pdf")
-    templates = set(df["template"])
+    # plot_feature_bins(df, "all", "all", "mean", "jerr", "train", pdf)
+    # plot_feature_bins(df, "all", "all", "mean", "jerr", "test", pdf)
+
     plot_generalization_fig(df, "all", "all", "mean", "qerr", pdf)
     plot_generalization_fig(df, "all", "all", "mean", "jerr", pdf)
 
