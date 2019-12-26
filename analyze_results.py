@@ -91,8 +91,8 @@ def main():
     all_dfs = []
     key_intersects = None
     for alg_dir in os.listdir(result_dir):
-        # if alg_dir not in ["true", "postgres"]:
-            # continue
+        if alg_dir not in ["true"]:
+            continue
         costs_fn = result_dir + "/" + alg_dir + "/" + "costs.pkl"
         rt_fn = result_dir + "/" + alg_dir + "/" + "runtimes.pkl"
         costs = load_object(costs_fn)
@@ -125,6 +125,8 @@ def main():
     df = df[df["sql_key"].isin(key_intersects)]
     print("samples reduced from {} to {} because not all runtime there"\
             .format(orig_size, len(df)))
+
+    pdb.set_trace()
 
     pdf = PdfPages("results.pdf")
 
