@@ -93,7 +93,9 @@ def get_alg(alg):
                     group_models = args.group_models,
                     adaptive_lr_patience = args.adaptive_lr_patience,
                     single_threaded_nt = args.single_threaded_nt,
-                    nn_weights_init_pg = args.nn_weights_init_pg)
+                    nn_weights_init_pg = args.nn_weights_init_pg,
+                    avg_jl_priority = args.avg_jl_priority,
+                    hidden_layer_size = args.hidden_layer_size)
     elif alg == "ourpgm":
         if args.db_name == "imdb":
             return OurPGMMultiTable(alg_name = args.pgm_alg_name, backend = args.pgm_backend,
@@ -272,6 +274,11 @@ def main():
         train_queries += cur_train_queries
         test_queries += cur_test_queries
 
+    # shuffle train, test queries so join loss computation can be parallelized
+    # better: otherwise all queries from templates that take a long time would
+    # go to same worker
+    random.shuffle(train_queries)
+    random.shuffle(test_queries)
     print("train queries: {}, test queries: {}".format(len(train_queries),
         len(test_queries)))
     if not found_db:
@@ -391,8 +398,9 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
             required=False, default="microsoft")
-    # parser.add_argument("--mb_size", type=int, required=False,
-            # default=128)
+
+    parser.add_argument("--avg_jl_priority", type=int, required=False,
+            default=0)
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=0)
@@ -421,6 +429,8 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--hidden_layer_multiple", type=float,
             required=False, default=0.5)
+    parser.add_argument("--hidden_layer_size", type=int,
+            required=False, default=None)
 
     # synthetic data flags
     parser.add_argument("--gen_synth_data", type=int, required=False,

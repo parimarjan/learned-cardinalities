@@ -18,6 +18,11 @@ import sys
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+def shuffle_list(*ls):
+  l = list(zip(*ls))
+  random.shuffle(l)
+  return zip(*l)
+
 def extract_values(obj, key):
     """Recursively pull values of specified key from nested JSON."""
     arr = []

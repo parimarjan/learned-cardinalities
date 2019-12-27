@@ -5,6 +5,7 @@ from utils.utils import *
 from cardinality_estimation.query import *
 import itertools
 import multiprocessing
+import random
 
 import matplotlib
 matplotlib.use('Agg')
@@ -232,7 +233,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
     # TODO: save alg based predictions too
     print("compute_join_order_loss")
     for i, qrep in enumerate(queries):
-        sqls.append(qrep["join_sql"])
+        sqls.append(qrep["sql"])
         ests = {}
         trues = {}
         predq = preds[i]
@@ -255,11 +256,13 @@ def compute_join_order_loss(queries, preds, **kwargs):
             add_joinresult_row(sql_key, est_sqls[i], est_costs[i],
                     est_plans[i], get_leading_hint(est_plans[i]),
                     qrep["template_name"])
-        est_ops = join_op_stats(est_plans)
-        true_ops = join_op_stats(opt_plans)
-        print("est_ops: ", est_ops)
-        print("true_ops: ", true_ops)
-        pdb.set_trace()
+
+        # temporary:
+        # est_ops = join_op_stats(est_plans)
+        # true_ops = join_op_stats(opt_plans)
+        # print("est_ops: ", est_ops)
+        # print("true_ops: ", true_ops)
+        # pdb.set_trace()
 
     else:
         print("TODO: add calcite based cost model")
@@ -271,4 +274,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
     save_object(costs_fn, combined_df)
 
     env.clean()
+
+    losses = np.array(est_costs) - np.array(opt_costs)
+    print(losses[np.argmax(losses)])
+    # pdb.set_trace()
     return np.array(est_costs) - np.array(opt_costs)

@@ -108,7 +108,10 @@ class NN(CardinalityEstimationAlg):
         # number of processes used for computing train and test join losses
         # using park envs. These are computed simultaneously, while the next
         # iterations of the neural net train.
-        self.num_join_loss_processes = 4
+        if self.max_discrete_featurizing_buckets > 10:
+            self.num_join_loss_processes = 4
+        else:
+            self.num_join_loss_processes = 8
 
         # TODO: right time to close these, at the end of all jobs
         self.train_join_loss_pool = multiprocessing.pool.ThreadPool()
@@ -179,7 +182,8 @@ class NN(CardinalityEstimationAlg):
             # do training
             net = SimpleRegression(num_features,
                     self.hidden_layer_multiple, 1,
-                    num_hidden_layers=self.num_hidden_layers)
+                    num_hidden_layers=self.num_hidden_layers,
+                    hidden_layer_size=self.hidden_layer_size)
         elif net_name == "LinearRegression":
             net = LinearRegression(num_features,
                     1)
@@ -319,12 +323,13 @@ class NN(CardinalityEstimationAlg):
         priorities = self._normalize_priorities(priorities)
 
         AVG_PRIORITIES = False
-        NUM_LAST = 5
-        if AVG_PRIORITIES:
+        NUM_LAST = 4
+        if self.avg_jl_priority:
             self.past_priorities.append(priorities)
-            if len(self.past_priorities) > NUM_LAST:
+            if len(self.past_priorities) > 1:
                 new_priorities = np.zeros(len(priorities))
-                for i in range(1,NUM_LAST+1):
+                num_past = min(NUM_LAST, len(self.past_priorities))
+                for i in range(1,num_past+1):
                     new_priorities += self.past_priorities[-i]
                 print("average priorities created!")
                 priorities = self._normalize_priorities(new_priorities)
@@ -631,6 +636,21 @@ class NN(CardinalityEstimationAlg):
                     clip_grad_norm_(self.net.parameters(), self.clip_gradient)
                 self.optimizer.step()
 
+    def num_parameters(self):
+        def _calc_size(net):
+            model_parameters = net.parameters()
+            params = sum([np.prod(p.size()) for p in model_parameters])
+            # convert to MB
+            return params*4 / 1e6
+
+        if self.nn_type == "microsoft":
+            num_params = _calc_size(self.net)
+        elif self.nn_type == "num_tables":
+            num_params = 0
+            for _,net in self.nets.items():
+                num_params += _calc_size(net)
+        return num_params
+
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
         assert isinstance(training_samples[0], dict)
@@ -655,6 +675,7 @@ class NN(CardinalityEstimationAlg):
 
         self.test_samples = test_samples
         if test_samples is not None and len(test_samples) > 0:
+            # random.shuffle(test_samples)
             self.Xtest, self.Ytest, self.test_num_table_mapping = \
                 self._get_feature_vectors(self.test_samples)
             print("{} training, {} test subqueries".format(len(self.Xtrain),
@@ -666,6 +687,8 @@ class NN(CardinalityEstimationAlg):
 
         # FIXME: multiple table version
         self.init_nets()
+        model_size = self.num_parameters()
+        print("model size: {} MB".format(model_size))
         self.num_iter = 0
 
         # start off uniformly
@@ -726,8 +749,20 @@ class NN(CardinalityEstimationAlg):
         return preds
 
     def __str__(self):
-        cls = self.__class__.__name__
-        name = cls + "-" + self.nn_type
+        if self.nn_type == "microsoft":
+            name = "msft"
+        elif self.nn_type == "num_tables":
+            name = "nt"
+        else:
+            name = self.__class__.__name__
+
+        if self.max_discrete_featurizing_buckets:
+            name += "-df:" + str(self.max_discrete_featurizing_buckets)
         if self.sampling_priority_alpha > 0.00:
             name += "-pr:" + str(self.sampling_priority_alpha)
+        if self.hidden_layer_size:
+            name += "-hls:" + str(self.hidden_layer_size)
+        if self.sampling_priority_type != "query":
+            name += "-spt:" + self.sampling_priority_type
+
         return name

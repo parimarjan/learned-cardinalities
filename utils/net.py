@@ -39,9 +39,13 @@ class LinearRegression(torch.nn.Module):
 class SimpleRegression(torch.nn.Module):
     # TODO: add more stuff?
     def __init__(self, input_width, hidden_width_multiple,
-            n_output, num_hidden_layers=1):
+            n_output, num_hidden_layers=1, hidden_layer_size=None):
         super(SimpleRegression, self).__init__()
-        n_hidden = int(input_width * hidden_width_multiple)
+        if hidden_layer_size is None:
+            n_hidden = int(input_width * hidden_width_multiple)
+        else:
+            n_hidden = hidden_layer_size
+
         self.layers = []
         self.layer1 = nn.Sequential(
             nn.Linear(input_width, n_hidden, bias=True),
