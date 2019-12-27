@@ -11,7 +11,7 @@ import seaborn as sns
 from collections import defaultdict
 import numpy as np
 
-MAX_ERRS = {"qerr": 50.00, "jerr":1000000}
+MAX_ERRS = {"qerr": 10.00, "jerr":1500000}
 SUMMARY_FUNCS = ["mean", "percentile:50"]
 
 def read_flags():

@@ -97,10 +97,6 @@ class NN(CardinalityEstimationAlg):
         self.optimizer = None
         self.scheduler = None
 
-        # TODO: delete these unused stuff
-        # self.num_threads = 8
-        # self.base_sampling_priority = self.sampling_priority_alpha
-
         # each element is a list of priorities
         self.past_priorities = []
 
@@ -248,7 +244,7 @@ class NN(CardinalityEstimationAlg):
 
         @ret:
             X: feature vector for every query and its subquery. sorted by
-            num_tables in each query: (0:N-1 --> 1 table, N:N2 --> 2 table, and
+            num_tables: (0:N-1 --> 1 table, N:N2 --> 2 table, and
             so on)
             Y: corresponding selectivities.
             num_table_mapping: num_tables : (start, end)
