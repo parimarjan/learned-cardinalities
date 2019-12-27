@@ -294,7 +294,6 @@ class NN(CardinalityEstimationAlg):
 
     def train_one_epoch(self):
         for idx, (xbatch, ybatch) in enumerate(self.training_loader):
-            print(idx, len(xbatch))
             # TODO: add handling for num_tables
             pred = self.net(xbatch).squeeze(1)
             loss = self.loss(pred, ybatch)

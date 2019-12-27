@@ -122,13 +122,13 @@ def get_regex_match_words(words, regex):
 def clear_terminal_output():
     os.system('clear')
 
-def to_variable(arr, use_cuda=True):
+def to_variable(arr, use_cuda=True, requires_grad=False):
     if isinstance(arr, list) or isinstance(arr, tuple):
         arr = np.array(arr)
     if isinstance(arr, np.ndarray):
-        arr = Variable(torch.from_numpy(arr), requires_grad=True).to(device)
+        arr = Variable(torch.from_numpy(arr), requires_grad=requires_grad).to(device)
     else:
-        arr = Variable(arr, requires_grad=True).to(device)
+        arr = Variable(arr, requires_grad=requires_grad).to(device)
 
     # if torch.cuda.is_available() and use_cuda:
         # print("returning cuda array!")
