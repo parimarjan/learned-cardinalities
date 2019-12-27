@@ -383,6 +383,8 @@ def get_template_samples(fn):
         num = 516
     elif "6.toml" in fn:
         num = 1017
+    elif "9.toml" in fn:
+        num = 180
     else:
         assert False
 
