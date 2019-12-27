@@ -13,12 +13,12 @@ from cardinality_estimation.losses import *
 import pandas as pd
 import json
 import multiprocessing
-# from torch.multiprocessing import Pool as Pool2
-# import torch.multiprocessing as mp
-# try:
-    # mp.set_start_method("spawn")
-# except:
-    # pass
+from torch.multiprocessing import Pool as Pool2
+import torch.multiprocessing as mp
+try:
+    mp.set_start_method("spawn")
+except:
+    pass
 
 import park
 import matplotlib.pyplot as plt
@@ -308,11 +308,13 @@ class NN(CardinalityEstimationAlg):
         assert isinstance(training_samples[0], dict)
         if not self.nn_type == "num_tables":
             self.num_threads = multiprocessing.cpu_count()
-            print("setting num threads to: ", self.num_threads)
-            torch.set_num_threads(self.num_threads)
+            # torch.set_num_threads(self.num_threads)
         else:
-            self.num_threads = -1
+            # self.num_threads = -1
+            self.num_threads = multiprocessing.cpu_count()
 
+        print("setting num threads to: ", self.num_threads)
+        torch.set_num_threads(self.num_threads)
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
                 max_discrete_featurizing_buckets =
@@ -323,7 +325,7 @@ class NN(CardinalityEstimationAlg):
         self.num_features = len(self.training_set[0][0])
         # TODO: add appropriate parameters
         self.training_loader = data.DataLoader(self.training_set,
-                batch_size=self.mb_size, shuffle=False, num_workers=1)
+                batch_size=self.mb_size, shuffle=True, num_workers=0)
 
         # TODO: add separate dataset, dataloaders for evaluation
         # if test_samples is not None and len(test_samples) > 0:
@@ -335,11 +337,10 @@ class NN(CardinalityEstimationAlg):
         self.init_nets()
         model_size = self.num_parameters()
         print("""training samples: {}, feature length: {}, model size: {},
-        max_discrete_buckets: {}, hidden_layer_size: {}
-                """.format(len(self.training_set), self.num_features,
-                    model_size, self.max_discrete_featurizing_buckets,
+        max_discrete_buckets: {}, hidden_layer_size: {}""".\
+                format(len(self.training_set), self.num_features, model_size,
+                    self.max_discrete_featurizing_buckets,
                     self.hidden_layer_size))
-
 
         for epoch in range(self.max_iter):
             # TODO: do periodic_eval, re-prioritization etc.
