@@ -7,6 +7,7 @@ try:
 except:
     pass
 from cardinality_estimation.nn import *
+# from cardinality_estimation.nn_old import *
 
 from cardinality_estimation.losses import *
 from cardinality_estimation.data_loader import *
@@ -27,7 +28,7 @@ import itertools
 import klepto
 # from multiprocessing import Pool
 # import multiprocessing
-import torch.multiprocessing as mp
+# import torch.multiprocessing as mp
 
 import numpy as np
 from db_utils.query_generator import QueryGenerator
@@ -377,7 +378,7 @@ def read_flags():
     parser.add_argument("-n", "--num_samples_per_template", type=int,
             required=False, default=-1)
     parser.add_argument("--max_iter", type=int,
-            required=False, default=20001)
+            required=False, default=10000)
     parser.add_argument("--jl_start_iter", type=int,
             required=False, default=200)
     parser.add_argument("--eval_iter", type=int,
