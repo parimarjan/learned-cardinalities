@@ -256,14 +256,6 @@ def compute_join_order_loss(queries, preds, **kwargs):
             add_joinresult_row(sql_key, est_sqls[i], est_costs[i],
                     est_plans[i], get_leading_hint(est_plans[i]),
                     qrep["template_name"])
-
-        # temporary:
-        # est_ops = join_op_stats(est_plans)
-        # true_ops = join_op_stats(opt_plans)
-        # print("est_ops: ", est_ops)
-        # print("true_ops: ", true_ops)
-        # pdb.set_trace()
-
     else:
         print("TODO: add calcite based cost model")
         assert False

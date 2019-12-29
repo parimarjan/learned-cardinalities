@@ -84,10 +84,7 @@ class NN(CardinalityEstimationAlg):
         # number of processes used for computing train and test join losses
         # using park envs. These are computed simultaneously, while the next
         # iterations of the neural net train.
-        if self.max_discrete_featurizing_buckets > 10:
-            self.num_join_loss_processes = 4
-        else:
-            self.num_join_loss_processes = 8
+        self.num_join_loss_processes = multiprocessing.cpu_count()
 
         # TODO: right time to close these, at the end of all jobs
         self.train_join_loss_pool = multiprocessing.pool.ThreadPool()
@@ -110,7 +107,7 @@ class NN(CardinalityEstimationAlg):
         #   template: all, OR only for specific template
         #   num_tables: all, OR t1,t2 etc.
         #   num_samples: in the given class, whose stats are being summarized.
-        self.stats = defaultdict(list)
+        self.cur_stats = defaultdict(list)
         self.summary_funcs = [np.mean, np.max, np.min]
         self.summary_types = ["mean", "max", "min"]
         for q in PERCENTILES_TO_SAVE:
@@ -218,34 +215,20 @@ class NN(CardinalityEstimationAlg):
             self.net, self.optimizer, self.scheduler = \
                     self._init_net(self.net_name, self.optimizer_name)
 
-    def eval_samples(self, samples_type):
-        if self.nn_type == "num_tables":
-            pass
-            # assert self.net is None
-            # assert self.optimizer is None
-            # all_preds = []
-            # for nt in nt_map:
-                # start,end = nt_map[nt]
-                # Xcur = X[start:end]
-                # net_map = self._map_num_tables(nt)
-                # pred = self.nets[net_map](Xcur).squeeze(1)
-                # all_preds.append(pred)
-            # pred = torch.cat(all_preds)
-        else:
-            if "train" in samples_type:
-                loader = self.eval_train_loader
-            else:
-                loader = self.eval_test_loader
-            all_preds = []
-            all_y = []
-            for idx, (xbatch, ybatch) in enumerate(loader):
-                pred = self.net(xbatch).squeeze(1)
-                all_preds.append(pred)
-                all_y.append(ybatch)
-            pred = torch.cat(all_preds)
-            y = torch.cat(all_y)
+    def _eval_samples(self, loader):
+        all_preds = []
+        all_y = []
+        for idx, (xbatch, ybatch) in enumerate(loader):
+            pred = self.net(xbatch).squeeze(1)
+            all_preds.append(pred)
+            all_y.append(ybatch)
+        pred = torch.cat(all_preds)
+        y = torch.cat(all_y)
+        return pred,y
 
-        return pred, y
+    def eval_samples(self, samples_type):
+        loader = self.eval_loaders[samples_type]
+        return self._eval_samples(loader)
 
     def add_row(self, losses, loss_type, epoch, template,
             num_tables, samples_type):
@@ -253,14 +236,14 @@ class NN(CardinalityEstimationAlg):
             loss = func(losses)
             row = [epoch, loss_type, loss, self.summary_types[i],
                     template, num_tables, len(losses)]
-            self.stats["epoch"].append(epoch)
-            self.stats["loss_type"].append(loss_type)
-            self.stats["loss"].append(loss)
-            self.stats["summary_type"].append(self.summary_types[i])
-            self.stats["template"].append(template)
-            self.stats["num_tables"].append(num_tables)
-            self.stats["num_samples"].append(len(losses))
-            self.stats["samples_type"].append(samples_type)
+            self.cur_stats["epoch"].append(epoch)
+            self.cur_stats["loss_type"].append(loss_type)
+            self.cur_stats["loss"].append(loss)
+            self.cur_stats["summary_type"].append(self.summary_types[i])
+            self.cur_stats["template"].append(template)
+            self.cur_stats["num_tables"].append(num_tables)
+            self.cur_stats["num_samples"].append(len(losses))
+            self.cur_stats["samples_type"].append(samples_type)
 
     def get_exp_name(self):
         '''
@@ -275,7 +258,10 @@ class NN(CardinalityEstimationAlg):
 
     def save_stats(self):
         '''
+        replaces the results file.
         '''
+        # TODO: maybe reset cur_stats
+        self.stats = pd.DataFrame(self.cur_stats)
         if not os.path.exists(self.nn_results_dir):
             make_dir(self.nn_results_dir)
         exp_name = self.get_exp_name()
@@ -320,7 +306,7 @@ class NN(CardinalityEstimationAlg):
         pred, Y = self.eval_samples(samples_type)
         losses = self.loss(pred, Y).detach().numpy()
         loss_avg = round(np.sum(losses) / len(losses), 2)
-        # TODO: better print, use self.stats and print after evals
+        # TODO: better print, use self.cur_stats and print after evals
         print("""{}: {}, N: {}, qerr: {}""".format(
             samples_type, self.epoch, len(Y), loss_avg))
         if self.adaptive_lr and self.scheduler is not None:
@@ -328,19 +314,13 @@ class NN(CardinalityEstimationAlg):
 
         self.add_row(losses, "qerr", self.epoch, "all",
                 "all", samples_type)
-        if "train" in samples_type:
-            samples = self.training_samples
-        else:
-            samples = self.test_samples
+        samples = self.samples[samples_type]
 
-        start_t = time.time()
         summary_data = defaultdict(list)
-
         query_idx = 0
         for sample in samples:
             template = sample["template_name"]
             for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
-                # loss = train_loss[node_info["idx"]]
                 num_tables = len(node)
                 idx = query_idx + subq_idx
                 loss = losses[idx]
@@ -368,7 +348,6 @@ class NN(CardinalityEstimationAlg):
                 and self.epoch != 0):
             jl_eval_start = time.time()
             assert self.jl_use_postgres
-            print("do join error computation!")
             # if self.sampling_priority_type == "subquery":
                 # self._subquery_join_losses(samples, pred)
 
@@ -401,8 +380,10 @@ class NN(CardinalityEstimationAlg):
             join_losses = np.array(est_costs) - np.array(opt_costs)
             join_losses = np.maximum(join_losses, 0.00)
 
-            self.add_row(join_losses, "jerr", num_iter, "all",
+            self.add_row(join_losses, "jerr", self.epoch, "all",
                     "all", samples_type)
+            print("{}, join losses mean: {}", samples_type,
+                    np.mean(join_losses))
 
             summary_data = defaultdict(list)
 
@@ -437,54 +418,87 @@ class NN(CardinalityEstimationAlg):
                 self.max_discrete_featurizing_buckets)
         # create a new park env, and close at the end.
         self.env = park.make('query_optimizer')
-        self.training_samples = training_samples
-        self.training_set = QueryDataset(training_samples, db)
-        self.num_features = len(self.training_set[0][0])
+        self.samples = {}
+        self.eval_loaders = {}
+        self.samples["train"] = training_samples
+        training_set = QueryDataset(training_samples, db)
+        self.num_features = len(training_set[0][0])
 
         # TODO: only for priority case, this should be updated after every
         # epoch
-        # weight = 1 / len(self.training_set)
-        # weights = torch.DoubleTensor([weight]*len(self.training_set))
+        # weight = 1 / len(training_set)
+        # weights = torch.DoubleTensor([weight]*len(training_set))
         # sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
                 # len(weights))
 
-        self.training_loader = data.DataLoader(self.training_set,
+        self.training_loader = data.DataLoader(training_set,
                 batch_size=self.mb_size, shuffle=True, num_workers=0)
-        self.eval_train_loader = data.DataLoader(self.training_set,
-                batch_size=len(self.training_set), shuffle=False,num_workers=0)
+        eval_train_loader = data.DataLoader(training_set,
+                batch_size=len(training_set), shuffle=False,num_workers=0)
+        self.eval_loaders["train"] = eval_train_loader
 
         # TODO: add separate dataset, dataloaders for evaluation
-        self.test_samples = test_samples
+        self.samples["test"] = test_samples
         if test_samples is not None and len(test_samples) > 0:
             # TODO: add test dataloader
-            self.test_set = QueryDataset(test_samples, db)
-            self.eval_test_loader = data.DataLoader(self.test_set,
-                    batch_size=len(self.test_set), shuffle=False,num_workers=0)
+            test_set = QueryDataset(test_samples, db)
+            eval_test_loader = data.DataLoader(test_set,
+                    batch_size=len(test_set), shuffle=False,num_workers=0)
+            self.eval_loaders["test"] = eval_test_loader
 
         # TODO: initialize self.num_features
         self.init_nets()
         model_size = self.num_parameters()
         print("""training samples: {}, feature length: {}, model size: {},
         max_discrete_buckets: {}, hidden_layer_size: {}""".\
-                format(len(self.training_set), self.num_features, model_size,
+                format(len(training_set), self.num_features, model_size,
                     self.max_discrete_featurizing_buckets,
                     self.hidden_layer_size))
 
         for self.epoch in range(self.max_epochs):
             # TODO: do periodic_eval, re-prioritization etc.
             if self.epoch % self.eval_epoch == 0:
+                eval_start = time.time()
                 self.periodic_eval("train")
-                if self.test_samples is not None:
+                if self.samples["test"] is not None:
                     self.periodic_eval("test")
+                self.save_stats()
+                print("eval time: ", time.time()-eval_start)
+
+                # print summaries
+                # cur_df = self.stats[self.stats["epoch"] == self.epoch]
+                # cur_df = self.stats[self.stats["summary_type"] == "mean"]
+                # train_df = self.stats[self.stats["samples_type"] == "train"]
+                # print(cur_df)
+                # print("""epoch: {}, train_qerr: {}, test_qerr: {},
+                # train_jerr: {}, test_jerr: {}""".format(
+                    # self.epoch, 0, 0, 0, 9))
+
 
             epoch_start = time.time()
             self.train_one_epoch()
             print("epoch {} took {} seconds".format(self.epoch,
                 time.time()-epoch_start))
-            self.save_stats()
 
     def test(self, test_samples):
-        return None
+        dataset = QueryDataset(test_samples, self.db)
+        loader = data.DataLoader(dataset,
+                batch_size=len(dataset), shuffle=False,num_workers=0)
+        pred, _ = self._eval_samples(loader)
+        pred = pred.detach().numpy()
+        ret = []
+        query_idx = 0
+        for sample in test_samples:
+            ests = {}
+            for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+                cards = sample["subset_graph"].nodes()[node]["cardinality"]
+                idx = query_idx + subq_idx
+                est_sel = pred[idx]
+                ests[node] = est_sel * cards["total"]
+            ret.append(ests)
+            query_idx += len(sample["subset_graph"].nodes())
+
+        return ret
 
     def __str__(self):
         if self.nn_type == "microsoft":
