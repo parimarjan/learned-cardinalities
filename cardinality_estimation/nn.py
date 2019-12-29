@@ -356,11 +356,10 @@ class NN(CardinalityEstimationAlg):
             true_cardinalities = []
             sqls = []
             query_idx = 0
-            for qrep in samples:
-                sqls.append(qrep["sql"])
+            for sample in samples:
+                sqls.append(sample["sql"])
                 ests = {}
                 trues = {}
-                # for node, node_info in qrep["subset_graph"].nodes().items():
                 for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
                     cards = sample["subset_graph"].nodes()[node]["cardinality"]
                     alias_key = ' '.join(node)
@@ -371,7 +370,7 @@ class NN(CardinalityEstimationAlg):
                     trues[alias_key] = cards["actual"]
                 est_cardinalities.append(ests)
                 true_cardinalities.append(trues)
-                query_idx += len(qrep["subset_graph"].nodes())
+                query_idx += len(sample["subset_graph"].nodes())
 
             (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
                     true_cardinalities, est_cardinalities, self.env, None,
@@ -382,8 +381,8 @@ class NN(CardinalityEstimationAlg):
 
             self.add_row(join_losses, "jerr", self.epoch, "all",
                     "all", samples_type)
-            print("{}, join losses mean: {}", samples_type,
-                    np.mean(join_losses))
+            print("{}, join losses mean: {}".format(samples_type,
+                    np.mean(join_losses)))
 
             summary_data = defaultdict(list)
 
