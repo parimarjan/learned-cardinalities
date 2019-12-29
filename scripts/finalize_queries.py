@@ -4,6 +4,7 @@ import pdb
 sys.path.append(".")
 from db_utils.utils import *
 from db_utils.query_storage import *
+import networkx as nx
 
 def get_timeouts(qrep):
     timeouts = 0
@@ -16,6 +17,28 @@ def get_timeouts(qrep):
             timeouts += 1
 
     return timeouts
+
+def fix_qrep(qrep):
+    # json-ify the graphs
+    qrep["subset_graph"] = nx.adjacency_data(nx.OrderedDiGraph(qrep["subset_graph"]))
+    for nd in qrep["join_graph"].nodes(data=True):
+        data = nd[1]
+        for i, col in enumerate(data["pred_cols"]):
+            # add pred related feature
+            cmp_op = data["pred_types"][i]
+            if cmp_op == "in" or \
+                    "like" in cmp_op or \
+                    cmp_op == "eq":
+                val = data["pred_vals"][i]
+                if isinstance(val, dict):
+                    val = [val["literal"]]
+                elif not hasattr(val, "__len__"):
+                    val = [val]
+                elif isinstance(val[0], dict):
+                    val = val[0]["literal"]
+                val = set(val)
+                data["pred_vals"][i] = val
+    qrep["join_graph"] = nx.adjacency_data(qrep["join_graph"])
 
 def get_samples_per_plan(df):
     keys = []
@@ -79,6 +102,8 @@ for tdir in os.listdir(inp_dir):
     if tdir not in template_map:
         continue
     new_tmp = template_map[tdir]
+    os.makedirs(out_dir + "/queries/" + new_tmp, exist_ok=True)
+    os.makedirs(out_dir + "/runtime_queries/" + new_tmp, exist_ok=True)
     fns = os.listdir(inp_dir + "/" + tdir)
     # num_samples = get_template_samples(tdir)
     # fns = fns[0:num_samples]
@@ -108,16 +133,17 @@ for tdir in os.listdir(inp_dir):
             skipped_queries += 1
             continue
 
+        fix_qrep(qrep)
         cur_qnum[new_tmp] += 1
         new_fn = new_tmp + str(cur_qnum[new_tmp]) + ".pkl"
         total_added += 1
-        out_name = out_dir + sample_dir + new_fn
+        out_name = out_dir + sample_dir + new_tmp + "/" + new_fn
         with open(out_name, 'wb') as fp:
             pickle.dump(qrep, fp, protocol=pickle.HIGHEST_PROTOCOL)
 
         if rt_dir is not None:
             num_rt += 1
-            out_name2 = out_dir + rt_dir + new_fn
+            out_name2 = out_dir + rt_dir + new_tmp + "/" + new_fn
             with open(out_name2, 'wb') as fp:
                 pickle.dump(qrep, fp, protocol=pickle.HIGHEST_PROTOCOL)
 

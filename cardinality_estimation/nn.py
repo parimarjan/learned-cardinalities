@@ -104,7 +104,7 @@ class NN(CardinalityEstimationAlg):
 
         # We want to only summarize and store the statistics we care about
         # header info:
-        #   iter: every eval_iter
+        #   iter: every eval_epoch
         #   loss_type: qerr, join-loss etc.
         #   summary_type: mean, max, min, percentiles: 50,75th,90th,99th,25th
         #   template: all, OR only for specific template
@@ -218,7 +218,7 @@ class NN(CardinalityEstimationAlg):
             self.net, self.optimizer, self.scheduler = \
                     self._init_net(self.net_name, self.optimizer_name)
 
-    def eval_samples(self, X, nt_map):
+    def eval_samples(self, samples_type):
         if self.nn_type == "num_tables":
             pass
             # assert self.net is None
@@ -232,16 +232,28 @@ class NN(CardinalityEstimationAlg):
                 # all_preds.append(pred)
             # pred = torch.cat(all_preds)
         else:
-            pred = self.net(X).squeeze(1)
-        return pred
+            if "train" in samples_type:
+                loader = self.eval_train_loader
+            else:
+                loader = self.eval_test_loader
+            all_preds = []
+            all_y = []
+            for idx, (xbatch, ybatch) in enumerate(loader):
+                pred = self.net(xbatch).squeeze(1)
+                all_preds.append(pred)
+                all_y.append(ybatch)
+            pred = torch.cat(all_preds)
+            y = torch.cat(all_y)
 
-    def add_row(self, losses, loss_type, num_iter, template,
+        return pred, y
+
+    def add_row(self, losses, loss_type, epoch, template,
             num_tables, samples_type):
         for i, func in enumerate(self.summary_funcs):
             loss = func(losses)
-            row = [num_iter, loss_type, loss, self.summary_types[i],
+            row = [epoch, loss_type, loss, self.summary_types[i],
                     template, num_tables, len(losses)]
-            self.stats["num_iter"].append(num_iter)
+            self.stats["epoch"].append(epoch)
             self.stats["loss_type"].append(loss_type)
             self.stats["loss"].append(loss)
             self.stats["summary_type"].append(self.summary_types[i])
@@ -296,12 +308,116 @@ class NN(CardinalityEstimationAlg):
         for idx, (xbatch, ybatch) in enumerate(self.training_loader):
             # TODO: add handling for num_tables
             pred = self.net(xbatch).squeeze(1)
-            loss = self.loss(pred, ybatch)
+            losses = self.loss(pred, ybatch)
+            loss = losses.sum() / len(losses)
             self.optimizer.zero_grad()
             loss.backward()
             if self.clip_gradient is not None:
                 clip_grad_norm_(self.net.parameters(), self.clip_gradient)
             self.optimizer.step()
+
+    def periodic_eval(self, samples_type):
+        pred, Y = self.eval_samples(samples_type)
+        losses = self.loss(pred, Y).detach().numpy()
+        loss_avg = round(np.sum(losses) / len(losses), 2)
+        # TODO: better print, use self.stats and print after evals
+        print("""{}: {}, N: {}, qerr: {}""".format(
+            samples_type, self.epoch, len(Y), loss_avg))
+        if self.adaptive_lr and self.scheduler is not None:
+            self.scheduler.step(loss_avg)
+
+        self.add_row(losses, "qerr", self.epoch, "all",
+                "all", samples_type)
+        if "train" in samples_type:
+            samples = self.training_samples
+        else:
+            samples = self.test_samples
+
+        start_t = time.time()
+        summary_data = defaultdict(list)
+
+        query_idx = 0
+        for sample in samples:
+            template = sample["template_name"]
+            for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+                # loss = train_loss[node_info["idx"]]
+                num_tables = len(node)
+                idx = query_idx + subq_idx
+                loss = losses[idx]
+                summary_data["loss"].append(loss)
+                summary_data["num_tables"].append(num_tables)
+                summary_data["template"].append(template)
+            query_idx += len(sample["subset_graph"].nodes())
+
+        df = pd.DataFrame(summary_data)
+        for template in set(df["template"]):
+            tvals = df[df["template"] == template]
+            self.add_row(tvals["loss"].values, "qerr", self.epoch,
+                    template, "all", samples_type)
+            for nt in set(tvals["num_tables"]):
+                nt_losses = tvals[tvals["num_tables"] == nt]
+                self.add_row(nt_losses["loss"].values, "qerr", self.epoch, template,
+                        str(nt), samples_type)
+
+        for nt in set(df["num_tables"]):
+            nt_losses = df[df["num_tables"] == nt]
+            self.add_row(nt_losses["loss"].values, "qerr", self.epoch, "all",
+                    str(nt), samples_type)
+
+        if (self.epoch % self.eval_epoch_jerr == 0 \
+                and self.epoch != 0):
+            jl_eval_start = time.time()
+            assert self.jl_use_postgres
+            print("do join error computation!")
+            # if self.sampling_priority_type == "subquery":
+                # self._subquery_join_losses(samples, pred)
+
+            # TODO: do we need this awkward loop. decompose?
+            est_cardinalities = []
+            true_cardinalities = []
+            sqls = []
+            query_idx = 0
+            for qrep in samples:
+                sqls.append(qrep["sql"])
+                ests = {}
+                trues = {}
+                # for node, node_info in qrep["subset_graph"].nodes().items():
+                for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+                    cards = sample["subset_graph"].nodes()[node]["cardinality"]
+                    alias_key = ' '.join(node)
+                    idx = query_idx + subq_idx
+                    est_sel = pred[idx]
+                    est_card = est_sel*cards["total"]
+                    ests[alias_key] = int(est_card)
+                    trues[alias_key] = cards["actual"]
+                est_cardinalities.append(ests)
+                true_cardinalities.append(trues)
+                query_idx += len(qrep["subset_graph"].nodes())
+
+            (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
+                    true_cardinalities, est_cardinalities, self.env, None,
+                    self.num_join_loss_processes)
+
+            join_losses = np.array(est_costs) - np.array(opt_costs)
+            join_losses = np.maximum(join_losses, 0.00)
+
+            self.add_row(join_losses, "jerr", num_iter, "all",
+                    "all", samples_type)
+
+            summary_data = defaultdict(list)
+
+            query_idx = 0
+            for i, sample in enumerate(samples):
+                template = sample["template_name"]
+                summary_data["template"].append(template)
+                summary_data["loss"].append(join_losses[i])
+            df = pd.DataFrame(summary_data)
+            for template in set(df["template"]):
+                tvals = df[df["template"] == template]
+                self.add_row(tvals["loss"].values, "jerr", self.epoch,
+                        template, "all", samples_type)
+
+            # TODO: what to do with prioritization?
 
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
@@ -311,7 +427,7 @@ class NN(CardinalityEstimationAlg):
             # torch.set_num_threads(self.num_threads)
         else:
             # self.num_threads = -1
-            self.num_threads = multiprocessing.cpu_count()
+            self.num_threads = multiprocessing.cpu_count(epoch)
 
         print("setting num threads to: ", self.num_threads)
         torch.set_num_threads(self.num_threads)
@@ -321,17 +437,29 @@ class NN(CardinalityEstimationAlg):
                 self.max_discrete_featurizing_buckets)
         # create a new park env, and close at the end.
         self.env = park.make('query_optimizer')
+        self.training_samples = training_samples
         self.training_set = QueryDataset(training_samples, db)
         self.num_features = len(self.training_set[0][0])
-        # TODO: add appropriate parameters
+
+        # TODO: only for priority case, this should be updated after every
+        # epoch
+        # weight = 1 / len(self.training_set)
+        # weights = torch.DoubleTensor([weight]*len(self.training_set))
+        # sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
+                # len(weights))
+
         self.training_loader = data.DataLoader(self.training_set,
                 batch_size=self.mb_size, shuffle=True, num_workers=0)
+        self.eval_train_loader = data.DataLoader(self.training_set,
+                batch_size=len(self.training_set), shuffle=False,num_workers=0)
 
         # TODO: add separate dataset, dataloaders for evaluation
-        # if test_samples is not None and len(test_samples) > 0:
-            # # TODO: add test dataloader
-            # self.test_set = QueryDataset(test_samples)
-            # self.test_env = park.make('query_optimizer')
+        self.test_samples = test_samples
+        if test_samples is not None and len(test_samples) > 0:
+            # TODO: add test dataloader
+            self.test_set = QueryDataset(test_samples, db)
+            self.eval_test_loader = data.DataLoader(self.test_set,
+                    batch_size=len(self.test_set), shuffle=False,num_workers=0)
 
         # TODO: initialize self.num_features
         self.init_nets()
@@ -342,12 +470,16 @@ class NN(CardinalityEstimationAlg):
                     self.max_discrete_featurizing_buckets,
                     self.hidden_layer_size))
 
-        for epoch in range(self.max_iter):
+        for self.epoch in range(self.max_epochs):
             # TODO: do periodic_eval, re-prioritization etc.
-            print("epoch: ", epoch)
+            if self.epoch % self.eval_epoch == 0:
+                self.periodic_eval("train")
+                if self.test_samples is not None:
+                    self.periodic_eval("test")
+
             epoch_start = time.time()
             self.train_one_epoch()
-            print("epoch {} took {} seconds".format(epoch,
+            print("epoch {} took {} seconds".format(self.epoch,
                 time.time()-epoch_start))
             self.save_stats()
 

@@ -475,7 +475,6 @@ class NN(CardinalityEstimationAlg):
 
         self.add_row(train_loss, "qerr", self.num_iter, "all",
                 "all", samples_type)
-
         start_t = time.time()
         summary_data = defaultdict(list)
         for sample in samples:

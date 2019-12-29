@@ -24,21 +24,22 @@ class QueryDataset(data.Dataset):
         @samples: sql_rep format representation for query and all its
         subqueries.
         '''
+        start = time.time()
         X = []
         Y = []
 
-        for i, sample in enumerate(samples):
-            # FIXME: do more efficient way without converting to Query
-            query = convert_sql_rep_to_query_rep(sample)
-            for subq in query.subqueries:
-                features = self.db.get_features(subq)
-                aliases = tuple(sorted(subq.aliases))
-                assert aliases in sample["subset_graph"].nodes()
-                X.append(features)
-                Y.append(subq.true_sel)
+        # FIXME: just need to do this once for each query
+        for i, qrep in enumerate(samples):
+            for nodes, info in qrep["subset_graph"].nodes().items():
+                pg_sel = info["cardinality"]["expected"] / info["cardinality"]["total"]
+                X.append(self.db.get_features(qrep["join_graph"].subgraph(nodes),
+                    pg_sel))
+                true_sel = info["cardinality"]["actual"] / info["cardinality"]["total"]
+                Y.append(true_sel)
 
         X = to_variable(X, requires_grad=False).float()
         Y = to_variable(Y, requires_grad=False).float()
+        print("gen feature vectors took: ", time.time()-start)
         return X,Y
 
     def __len__(self):

@@ -68,24 +68,23 @@ def get_alg(alg):
     elif alg == "bn-exact":
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
-        return NN(max_iter = args.max_iter, lr=args.lr,
+        return NN(max_epochs = args.max_epochs, lr=args.lr,
                 num_hidden_layers=args.num_hidden_layers,
                 hidden_layer_multiple=args.hidden_layer_multiple,
-                    jl_start_iter=args.jl_start_iter,
-                    eval_iter = args.eval_iter,
+                    eval_epoch = args.eval_epoch,
                     optimizer_name=args.optimizer_name,
                     adaptive_lr=args.adaptive_lr,
-                    rel_qerr_loss=args.rel_qerr_loss,
+                    # rel_qerr_loss=args.rel_qerr_loss,
                     clip_gradient=args.clip_gradient,
-                    baseline=args.baseline_join_alg,
+                    # baseline=args.baseline_join_alg,
                     nn_results_dir = args.nn_results_dir,
                     loss_func = args.loss_func,
                     sampling_priority_type = args.sampling_priority_type,
                     sampling_priority_alpha = args.sampling_priority_alpha,
                     net_name = args.net_name,
-                    reuse_env = args.reuse_env,
-                    eval_iter_jl = args.eval_iter_jl,
-                    eval_num_tables = args.eval_num_tables,
+                    # reuse_env = args.reuse_env,
+                    eval_epoch_jerr = args.eval_epoch_jerr,
+                    # eval_num_tables = args.eval_num_tables,
                     jl_use_postgres = args.jl_use_postgres,
                     num_tables_feature = args.num_tables_feature,
                     max_discrete_featurizing_buckets =
@@ -93,7 +92,7 @@ def get_alg(alg):
                     nn_type = args.nn_type,
                     group_models = args.group_models,
                     adaptive_lr_patience = args.adaptive_lr_patience,
-                    single_threaded_nt = args.single_threaded_nt,
+                    # single_threaded_nt = args.single_threaded_nt,
                     nn_weights_init_pg = args.nn_weights_init_pg,
                     avg_jl_priority = args.avg_jl_priority,
                     hidden_layer_size = args.hidden_layer_size)
@@ -157,17 +156,9 @@ def eval_alg(alg, losses, queries, samples_type):
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
 def main():
-    # TODO: separate out 1-table stuff
-    if args.gen_synth_data:
-        gen_synth_data(args)
-    elif "osm" in args.db_name:
-        load_osm_data(args)
-    elif "dmv" in args.db_name:
-        load_dmv_data(args)
-
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
-    db_key = deterministic_hash("db-" + args.template_dir)
+    db_key = deterministic_hash("db-" + args.query_templates)
     found_db = db_key in misc_cache.archive
     # found_db = False
     if found_db:
@@ -178,19 +169,24 @@ def main():
                 args.db_name)
     train_queries = []
     test_queries = []
+    query_templates = args.query_templates.split(",")
 
-    fns = list(glob.glob(args.template_dir+"/*"))
-    for fn in fns:
-        template_name = os.path.basename(fn)
-        print(template_name)
+    fns = list(glob.glob(args.query_directory + "/queries/*"))
+    for qdir in fns:
+        template_name = os.path.basename(qdir)
+        if args.query_templates != "all":
+            if template_name not in query_templates:
+                print("skipping template ", template_name)
+                continue
+
         start = time.time()
         # loading, or generating samples
         samples = []
-        qdir = args.query_directory + "/" + os.path.basename(fn)
         qfns = list(glob.glob(qdir+"/*"))
-        if args.num_samples_per_template == -2:
+        if args.num_samples_per_template == -1:
             qfns = qfns
-        elif args.num_samples_per_template == -1:
+        elif args.num_samples_per_template == -2:
+            assert False
             num_samples = get_template_samples(fn)
             qfns = qfns[0:num_samples]
         elif args.num_samples_per_template < len(qfns):
@@ -201,68 +197,18 @@ def main():
 
         for qfn in qfns:
             qrep = load_sql_rep(qfn)
-            # FIXME: don't want to hardcode title here
-            try:
-                if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
-                    continue
-            except:
-                pass
+            qrep["name"] = qfn
             qrep["template_name"] = template_name
             samples.append(qrep)
-        print("num subqueries: ", len(samples[0]["subset_graph"].nodes()))
-
-        # second loop, to update any samples with missing totals etc.
-        for qfn in qfns:
-            qrep = load_sql_rep(qfn)
-            # FIXME: don't want to hardcode title here
-            try:
-                if "total" not in qrep["subset_graph"].nodes()[tuple("t")]["cardinality"]:
-                    # things to update: total, pred_cols etc.
-                    update_qrep(qrep, samples[0])
-                    # json-ify the graphs
-                    output = {}
-                    output["sql"] = qrep["sql"]
-                    output["join_graph"] = nx.adjacency_data(qrep["join_graph"])
-                    output["subset_graph"] = nx.adjacency_data(qrep["subset_graph"])
-                    # save it out to qfn
-                    with open(qfn, 'wb') as fp:
-                        pickle.dump(output, fp, protocol=pickle.HIGHEST_PROTOCOL)
-                    qrep["template_name"] = template_name
-                    samples.append(qrep)
-            except:
-                pass
-
-        print("{} took {} seconds to load data".format(fn, time.time()-start))
-
-        ## trying to check other aggregation functions
-        # print("modifying count(*) to min")
-        # for i, qrep in enumerate(samples):
-            # qrep["join_sql"] = qrep["sql"]
-            # # # select different column
-            # query = convert_sql_rep_to_query_rep(qrep)
-            # agg_column = query.pred_column_names[random.randint\
-                    # (0,len(query.pred_column_names))-1]
-            # agg_pred = "min({})".format(agg_column)
-            # # groupme attempt:
-            # # col_preds = "t.title,n.name"
-            # # agg_pred = col_preds
-
-            # qrep["join_sql"] = qrep["join_sql"].replace("count(*)", agg_pred)
-            # qrep["join_sql"] = qrep["join_sql"].replace("COUNT(*)", agg_pred)
-            # qrep["join_sql"] = qrep["join_sql"].replace("count (*)", agg_pred)
-            # qrep["join_sql"] = qrep["join_sql"].replace("COUNT (*)", agg_pred)
-            # qrep["join_sql"].replace(";", "")
-            # FIXME: this seems to not work
-            # qrep["join_sql"] += " group by {}".format(col_preds)
-            # qrep["join_sql"] += " order by {}".format(agg_column)
-            # print(qrep["join_sql"])
-            # pdb.set_trace()
+        print("template: {}, num subqueries: {}, loading time: {}".format(
+            template_name, len(samples[0]["subset_graph"].nodes()),
+            time.time()-start))
 
         if not found_db:
             for sample in samples:
                 # not all samples may share all predicates etc. so updating
                 # them all. stats will not be recomputed for repeated columns
-                ## FIXME:
+                # FIXME:
                 db.update_db_stats(convert_sql_rep_to_query_rep(sample))
 
         if args.test:
@@ -333,7 +279,9 @@ def gen_samples_hash():
 def read_flags():
     # parser = argparse.ArgumentParser()
     parser.add_argument("--query_directory", type=str, required=False,
-            default="./queries")
+            default="./our_dataset")
+    parser.add_argument("--query_templates", type=str, required=False,
+            default="all")
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
     parser.add_argument("--nn_weights_init_pg", type=int, required=False,
@@ -377,14 +325,12 @@ def read_flags():
             default="/data/pari/cards/")
     parser.add_argument("-n", "--num_samples_per_template", type=int,
             required=False, default=-1)
-    parser.add_argument("--max_iter", type=int,
-            required=False, default=10000)
-    parser.add_argument("--jl_start_iter", type=int,
-            required=False, default=200)
-    parser.add_argument("--eval_iter", type=int,
-            required=False, default=200)
-    parser.add_argument("--eval_iter_jl", type=int,
-            required=False, default=200)
+    parser.add_argument("--max_epochs", type=int,
+            required=False, default=100)
+    parser.add_argument("--eval_epoch", type=int,
+            required=False, default=1)
+    parser.add_argument("--eval_epoch_jerr", type=int,
+            required=False, default=10)
     parser.add_argument("--lr", type=float,
             required=False, default=0.001)
     parser.add_argument("--clip_gradient", type=float,

@@ -135,7 +135,7 @@ class DB():
         print("saved cache to disk")
         self.sql_cache.dump()
 
-    def init_featurizer(self, heuristic_features=True, num_tables_feature=True,
+    def init_featurizer(self, heuristic_features=True, num_tables_feature=False,
             max_discrete_featurizing_buckets=10):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
@@ -150,22 +150,20 @@ class DB():
         '''
         # let's figure out the feature len based on db.stats
         assert self.featurizer is None
+        # only need to know the number of tables for table features
+        self.table_featurizer = {}
+        for i, table in enumerate(self.tables):
+            self.table_featurizer[table] = i
+
+        # TODO: join features
+
         self.max_discrete_featurizing_buckets = max_discrete_featurizing_buckets
         self.featurizer = {}
-        self.num_tables = len(self.tables)
-        self.num_tables_feature = num_tables_feature
         self.num_cols = len(self.column_stats)
-        self.feature_len = 0
-        for table in self.tables:
-            self.featurizer[table] = (self.feature_len, 1, False)
-            self.feature_len += 1
 
+        self.feature_len = 0
         for i, cmp_op in enumerate(self.cmp_ops):
             self.cmp_ops_onehot[cmp_op] = i
-        assert self.feature_len == self.num_tables
-
-        # FIXME: add join keys
-        # self.feature_len += self.num_cols
 
         # to find the number of features, need to go over every column, and
         # choose how many spots to keep for them
@@ -193,10 +191,98 @@ class DB():
             self.feature_len += 1
 
         # for num_tables present
-        if self.num_tables_feature:
+        if num_tables_feature:
             self.feature_len += 1
 
-    def get_features(self, query, heuristic_features=True):
+    def get_features(self, subgraph, true_sel=None):
+        '''
+        @subgraph:
+        '''
+        tables_vector = np.zeros(len(self.table_featurizer))
+        preds_vector = np.zeros(self.feature_len)
+
+        for nd in subgraph.nodes(data=True):
+            node = nd[0]
+            data = nd[1]
+            tables_vector[self.table_featurizer[data["real_name"]]] = 1.00
+
+            for i, col in enumerate(data["pred_cols"]):
+                # add pred related feature
+                val = data["pred_vals"][i]
+                cmp_op = data["pred_types"][i]
+                cmp_op_idx, num_vals, continuous = self.featurizer[col]
+                cmp_idx = self.cmp_ops_onehot[cmp_op]
+                preds_vector[cmp_op_idx+cmp_idx] = 1.00
+
+                pred_idx_start = cmp_op_idx + len(self.cmp_ops)
+                num_pred_vals = num_vals - len(self.cmp_ops)
+                col_info = self.column_stats[col]
+                assert num_pred_vals >= 2
+                assert num_pred_vals <= col_info["num_values"]
+                if cmp_op == "in" or \
+                        "like" in cmp_op or \
+                        cmp_op == "eq":
+
+                    if continuous:
+                        assert len(val) <= self.continuous_feature_size
+                        min_val = float(col_info["min_value"])
+                        max_val = float(col_info["max_value"])
+                        for vi, v in enumerate(val):
+                            v = float(v)
+                            normalized_val = (v - min_val) / (max_val - min_val)
+                            preds_vector[pred_idx_start+vi] = 1.00
+                    else:
+                        num_buckets = min(self.max_discrete_featurizing_buckets,
+                                col_info["num_values"])
+                        assert num_pred_vals == num_buckets
+                        # turn to 1 all the qualifying indexes in the 1-hot vector
+                        for v in val:
+                            pred_idx = deterministic_hash(v) % num_buckets
+                            preds_vector[pred_idx_start+pred_idx] = 1.00
+
+                elif cmp_op in RANGE_PREDS:
+                    assert cmp_op == "lt"
+
+                    # does not have to be MIN / MAX, if there are very few values
+                    # OR if the predicate is on string data, e.g., BETWEEN 'A' and 'F'
+
+                    if not continuous:
+                        # FIXME: temporarily, just treat it as discrete data
+                        num_buckets = min(self.max_discrete_featurizing_buckets,
+                                col_info["num_values"])
+                        for v in val:
+                            pred_idx = deterministic_hash(str(v)) % num_buckets
+                            preds_vector[pred_idx_start+pred_idx] = 1.00
+                    else:
+                        # do min-max stuff
+                        assert len(val) == 2
+
+                        min_val = float(col_info["min_value"])
+                        max_val = float(col_info["max_value"])
+                        min_max = [min_val, max_val]
+                        for vi, v in enumerate(val):
+                            # handling the case when one end of the range is
+                            # missing
+                            if v is None and vi == 0:
+                                v = min_val
+                            elif v is None and vi == 1:
+                                v = max_val
+
+                            cur_val = float(v)
+                            norm_val = (cur_val - min_val) / (max_val - min_val)
+                            norm_val = max(norm_val, 0.00)
+                            norm_val = min(norm_val, 1.00)
+                            preds_vector[pred_idx_start+vi] = norm_val
+
+        # based on edges, add the join conditions
+
+        # TODO: combine all vectors, or not.
+        if true_sel is not None:
+            preds_vector[-1] = true_sel
+
+        return preds_vector
+
+    def get_features_old(self, query, heuristic_features=True):
         '''
         TODO: add different featurization options.
         @query: Query object
@@ -366,8 +452,8 @@ class DB():
         for cmp_op in query.cmp_ops:
             self.cmp_ops.add(cmp_op)
 
-        # self.aliases.update(query.aliases)
-        # self.tables.update(query.table_names)
+        # self.joins = extract_join_clause(query)
+
         for i, alias in enumerate(query.aliases):
             if alias not in self.aliases:
                 self.aliases[alias] = query.table_names[i]
