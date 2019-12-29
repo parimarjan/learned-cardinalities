@@ -69,6 +69,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                reprioritize_epoch = args.reprioritize_epoch,
                 num_hidden_layers=args.num_hidden_layers,
                 hidden_layer_multiple=args.hidden_layer_multiple,
                     eval_epoch = args.eval_epoch,
@@ -429,9 +430,10 @@ def read_flags():
 
     parser.add_argument("--sampling_priority_type", type=str, required=False,
             default="query", help="")
-
     parser.add_argument("--sampling_priority_alpha", type=float, required=False,
             default=0.00, help="")
+    parser.add_argument("--reprioritize_epoch", type=float, required=False,
+            default=1, help="")
 
     parser.add_argument("--loss_func", type=str, required=False,
             default="qloss")

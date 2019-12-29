@@ -39,7 +39,6 @@ class QueryDataset(data.Dataset):
 
         X = to_variable(X, requires_grad=False).float()
         Y = to_variable(Y, requires_grad=False).float()
-        print("gen feature vectors took: ", time.time()-start)
         return X,Y
 
     def __len__(self):

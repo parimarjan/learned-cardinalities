@@ -86,13 +86,6 @@ class NN(CardinalityEstimationAlg):
         # iterations of the neural net train.
         self.num_join_loss_processes = multiprocessing.cpu_count()
 
-        # TODO: right time to close these, at the end of all jobs
-        self.train_join_loss_pool = multiprocessing.pool.ThreadPool()
-        self.test_join_loss_pool = multiprocessing.pool.ThreadPool()
-        # will be returned by pool.map_async
-        self.train_join_results = None
-        self.test_join_results = None
-
         nn_results_dir = self.nn_results_dir
 
         # will keep storing all the training information in the cache / and
@@ -348,30 +341,10 @@ class NN(CardinalityEstimationAlg):
                 and self.epoch != 0):
             jl_eval_start = time.time()
             assert self.jl_use_postgres
-            # if self.sampling_priority_type == "subquery":
-                # self._subquery_join_losses(samples, pred)
 
             # TODO: do we need this awkward loop. decompose?
-            est_cardinalities = []
-            true_cardinalities = []
-            sqls = []
-            query_idx = 0
-            for sample in samples:
-                sqls.append(sample["sql"])
-                ests = {}
-                trues = {}
-                for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
-                    cards = sample["subset_graph"].nodes()[node]["cardinality"]
-                    alias_key = ' '.join(node)
-                    idx = query_idx + subq_idx
-                    est_sel = pred[idx]
-                    est_card = est_sel*cards["total"]
-                    ests[alias_key] = int(est_card)
-                    trues[alias_key] = cards["actual"]
-                est_cardinalities.append(ests)
-                true_cardinalities.append(trues)
-                query_idx += len(sample["subset_graph"].nodes())
-
+            sqls, true_cardinalities, est_cardinalities = \
+                    self.get_query_estimates(pred, samples)
             (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
                     true_cardinalities, est_cardinalities, self.env, None,
                     self.num_join_loss_processes)
@@ -399,6 +372,75 @@ class NN(CardinalityEstimationAlg):
 
             # TODO: what to do with prioritization?
 
+    def _normalize_priorities(self, priorities):
+        total = np.float64(np.sum(priorities))
+        norm_priorities = np.zeros(len(priorities))
+        # for i, priority in enumerate(priorities):
+            # norm_priorities[i] = priority / total
+        norm_priorities = np.divide(priorities, total)
+
+        # if they don't sum to 1...
+
+        if 1.00 - sum(norm_priorities) != 0.00:
+            diff = 1.00 - sum(norm_priorities)
+            while True:
+                random_idx = np.random.randint(0,len(norm_priorities))
+                if diff < 0.00 and norm_priorities[random_idx] < abs(diff):
+                    continue
+                else:
+                    norm_priorities[random_idx] += diff
+                    break
+
+        return norm_priorities
+
+    def _update_sampling_weights(self, priorities):
+        '''
+        refer to prioritized action replay
+        '''
+        priorities = np.power(priorities, self.sampling_priority_alpha)
+        priorities = self._normalize_priorities(priorities)
+
+        AVG_PRIORITIES = False
+        NUM_LAST = 4
+        if self.avg_jl_priority:
+            self.past_priorities.append(priorities)
+            if len(self.past_priorities) > 1:
+                new_priorities = np.zeros(len(priorities))
+                num_past = min(NUM_LAST, len(self.past_priorities))
+                for i in range(1,num_past+1):
+                    new_priorities += self.past_priorities[-i]
+                print("average priorities created!")
+                priorities = self._normalize_priorities(new_priorities)
+
+        return priorities
+
+    def get_query_estimates(self, pred, samples):
+        '''
+        @ret:
+        '''
+        sqls = []
+        true_cardinalities = []
+        est_cardinalities = []
+        query_idx = 0
+        for sample in samples:
+            sqls.append(sample["sql"])
+            ests = {}
+            trues = {}
+            for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+                cards = sample["subset_graph"].nodes()[node]["cardinality"]
+                # alias_key = ' '.join(node)
+                alias_key = node
+                idx = query_idx + subq_idx
+                est_sel = pred[idx]
+                est_card = est_sel*cards["total"]
+                ests[alias_key] = int(est_card)
+                trues[alias_key] = cards["actual"]
+            est_cardinalities.append(ests)
+            true_cardinalities.append(trues)
+            query_idx += len(sample["subset_graph"].nodes())
+
+        return sqls, true_cardinalities, est_cardinalities
+
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
         assert isinstance(training_samples[0], dict)
@@ -417,33 +459,50 @@ class NN(CardinalityEstimationAlg):
                 self.max_discrete_featurizing_buckets)
         # create a new park env, and close at the end.
         self.env = park.make('query_optimizer')
-        self.samples = {}
-        self.eval_loaders = {}
-        self.samples["train"] = training_samples
         training_set = QueryDataset(training_samples, db)
+        self.training_samples = training_samples
         self.num_features = len(training_set[0][0])
 
         # TODO: only for priority case, this should be updated after every
         # epoch
-        # weight = 1 / len(training_set)
-        # weights = torch.DoubleTensor([weight]*len(training_set))
-        # sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
-                # len(weights))
+        if self.sampling_priority_alpha > 0.00:
+            # start with uniform weight
+            weight = 1 / len(training_set)
+            weights = torch.DoubleTensor([weight]*len(training_set))
+            sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
+                    num_samples=len(weights))
+            self.training_loader = data.DataLoader(training_set,
+                    batch_size=self.mb_size, shuffle=False, num_workers=0,
+                    sampler = sampler)
+            priority_loader = data.DataLoader(training_set,
+                    batch_size=25000, shuffle=False, num_workers=0)
+        else:
+            self.training_loader = data.DataLoader(training_set,
+                    batch_size=self.mb_size, shuffle=True, num_workers=0)
 
-        self.training_loader = data.DataLoader(training_set,
-                batch_size=self.mb_size, shuffle=True, num_workers=0)
-        eval_train_loader = data.DataLoader(training_set,
+        # evaluation set, smaller
+        self.samples = {}
+        self.eval_loaders = {}
+        eval_training_samples = random.sample(training_samples,
+                int(len(training_samples) / 10))
+        self.samples["train"] = eval_training_samples
+        eval_train_set = QueryDataset(eval_training_samples, db)
+        eval_train_loader = data.DataLoader(eval_train_set,
                 batch_size=len(training_set), shuffle=False,num_workers=0)
         self.eval_loaders["train"] = eval_train_loader
 
         # TODO: add separate dataset, dataloaders for evaluation
-        self.samples["test"] = test_samples
         if test_samples is not None and len(test_samples) > 0:
+            test_samples = random.sample(test_samples, int(len(test_samples) /
+                    10))
+            self.samples["test"] = test_samples
             # TODO: add test dataloader
             test_set = QueryDataset(test_samples, db)
             eval_test_loader = data.DataLoader(test_set,
                     batch_size=len(test_set), shuffle=False,num_workers=0)
             self.eval_loaders["test"] = eval_test_loader
+        else:
+            self.samples["test"] = None
 
         # TODO: initialize self.num_features
         self.init_nets()
@@ -473,11 +532,38 @@ class NN(CardinalityEstimationAlg):
                 # train_jerr: {}, test_jerr: {}""".format(
                     # self.epoch, 0, 0, 0, 9))
 
-
             epoch_start = time.time()
             self.train_one_epoch()
-            print("epoch {} took {} seconds".format(self.epoch,
-                time.time()-epoch_start))
+
+            if self.sampling_priority_alpha > 0 \
+                    and self.epoch % self.reprioritize_epoch == 0:
+                if self.sampling_priority_type == "query":
+                    # TODO: decompose
+                    pred, _ = self._eval_samples(priority_loader)
+                    sqls, true_cardinalities, est_cardinalities = \
+                            self.get_query_estimates(pred,
+                                    self.training_samples)
+                    (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
+                            true_cardinalities, est_cardinalities, self.env, None,
+                            self.num_join_loss_processes)
+                    jerr_ratio = est_costs / opt_costs
+                    weights = np.zeros(len(priority_loader))
+                    query_idx = 0
+                    for si, sample in enumerate(self.training_samples):
+                        sq_weight = float(jl_ratio[si])
+                        for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
+                            weights[query_idx+subq_idx] = sq_weight
+                        query_idx += 1
+                    weights = self._update_sampling_priority(weights)
+                    weights = torch.DoubleTensor(weights)
+                    sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
+                            num_samples=len(weights))
+                    self.training_loader = data.DataLoader(training_set,
+                            batch_size=self.mb_size, shuffle=False, num_workers=0,
+                            sampler = sampler)
+                else:
+                    assert False
+
 
     def test(self, test_samples):
         dataset = QueryDataset(test_samples, self.db)
@@ -485,19 +571,9 @@ class NN(CardinalityEstimationAlg):
                 batch_size=len(dataset), shuffle=False,num_workers=0)
         pred, _ = self._eval_samples(loader)
         pred = pred.detach().numpy()
-        ret = []
-        query_idx = 0
-        for sample in test_samples:
-            ests = {}
-            for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
-                cards = sample["subset_graph"].nodes()[node]["cardinality"]
-                idx = query_idx + subq_idx
-                est_sel = pred[idx]
-                ests[node] = est_sel * cards["total"]
-            ret.append(ests)
-            query_idx += len(sample["subset_graph"].nodes())
+        _,_, ests = self.get_query_estimates(pred, test_samples)
 
-        return ret
+        return ests
 
     def __str__(self):
         if self.nn_type == "microsoft":

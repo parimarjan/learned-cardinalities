@@ -554,7 +554,6 @@ class NN(CardinalityEstimationAlg):
                     sq_weight = float(jl_ratio[si])
                     for node, node_info in sample["subset_graph"].nodes().items():
                         subquery_sampling_weights[node_info["idx"]] = sq_weight
-                assert 0.00 not in np.unique(subquery_sampling_weights)
                 # print("before _update sampling weights")
                 # print(max(subquery_sampling_weights))
                 # print(min(subquery_sampling_weights))
