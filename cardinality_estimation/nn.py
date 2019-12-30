@@ -50,6 +50,52 @@ def percentile_help(q):
         return np.percentile(arr, q)
     return f
 
+def compute_subquery_priorities(qrep, pred, env):
+    '''
+    Will use join error computation on the subqueries of @qrep to assign
+    priorities to each subquery.
+
+    Separate function to support calling this in parallel. Single threaded,
+    because we don't want to iterate over all subqueries.
+    @ret: priorities list for each subquery.
+    '''
+    assert len(pred) == len(qrep["subset_graph"].nodes())
+
+    nodes = list(qrep["subset_graph"].nodes())
+    nodes.sort(key=lambda x: len(x), reverse=True)
+
+    # sort by length, and go from longer to shorter. return array based on
+    # original ordering.
+    for node in nodes:
+        node_info = qrep["subset_graph"].nodes()[node]
+        ests = {}
+        trues = {}
+        subgraph = qrep["join_graph"].subgraph(node)
+        sql = nx_graph_to_query(subgraph)
+        print(sql)
+        # we need to go over descendants to get all the required cardinalities
+        descendants = nx.descendants(qrep["subset_graph"], node)
+        for desc in descendants:
+            alias_key = ' '.join(desc)
+            node_info = qrep["subset_graph"].nodes()[desc]
+            est_sel = pred_dict[desc]
+            est_card = est_sel*node_info["cardinality"]["total"]
+            ests[alias_key] = int(est_card)
+            trues[alias_key] = node_info["cardinality"]["actual"]
+
+        (est_costs, opt_costs,_,_,_,_) = \
+                join_loss_pg([sql], [trues], [ests], env, None, 1)
+
+        # now, decide what to do next with these.
+        assert len(est_costs) == 1
+        jerr_diff = est_costs[0] - opt_costs[0]
+        jerr_ratio = est_costs[0] / opt_costs[0]
+        print(jerr_diff, jerr_ratio)
+
+        pdb.set_trace()
+
+    # convert back to the order we need
+
 class NN(CardinalityEstimationAlg):
     def __init__(self, *args, **kwargs):
         self.kwargs = kwargs
@@ -575,7 +621,10 @@ class NN(CardinalityEstimationAlg):
                     assert len(weights) == len(training_set)
                     query_idx = 0
                     for si, sample in enumerate(self.training_samples):
-                        sq_weight = float(jerr_ratio[si])
+                        if self.priority_query_len_scale:
+                            sq_weight = float(jerr_ratio[si]) / len(sample["subset_graph"].nodes())
+                        else:
+                            sq_weight = float(jerr_ratio[si])
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight
                         query_idx += len(sample["subset_graph"].nodes())
@@ -587,6 +636,11 @@ class NN(CardinalityEstimationAlg):
                     self.training_loader = data.DataLoader(training_set,
                             batch_size=self.mb_size, shuffle=False, num_workers=0,
                             sampler = sampler)
+                elif self.sampling_priority_type == "subquery":
+                    weights = np.zeros(len(training_samples))
+                    compute_subquery_priorities(self.training_samples[0],
+                            self.env)
+
                 else:
                     assert False
 
@@ -630,5 +684,8 @@ class NN(CardinalityEstimationAlg):
             name += "-hls:" + str(self.hidden_layer_size)
         if self.sampling_priority_type != "query":
             name += "-spt:" + self.sampling_priority_type
+
+        if self.priority_query_len_scale:
+            name += "-qscale"
 
         return name

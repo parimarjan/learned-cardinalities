@@ -80,6 +80,7 @@ def get_alg(alg):
                     loss_func = args.loss_func,
                     sampling_priority_type = args.sampling_priority_type,
                     sampling_priority_alpha = args.sampling_priority_alpha,
+                    priority_query_len_scale = args.priority_query_len_scale,
                     net_name = args.net_name,
                     # reuse_env = args.reuse_env,
                     eval_epoch_jerr = args.eval_epoch_jerr,
@@ -354,7 +355,6 @@ def read_flags():
 
     parser.add_argument("--avg_jl_priority", type=int, required=False,
             default=1)
-
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=0)
     parser.add_argument("--adaptive_lr_patience", type=int,
@@ -435,6 +435,8 @@ def read_flags():
     parser.add_argument("--sampling_priority_alpha", type=float, required=False,
             default=0.00, help="")
     parser.add_argument("--reprioritize_epoch", type=float, required=False,
+            default=1, help="")
+    parser.add_argument("--priority_query_len_scale", type=float, required=False,
             default=1, help="")
 
     parser.add_argument("--loss_func", type=str, required=False,
