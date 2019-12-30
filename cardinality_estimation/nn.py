@@ -15,6 +15,9 @@ import json
 import multiprocessing
 from torch.multiprocessing import Pool as Pool2
 import torch.multiprocessing as mp
+# from utils.tf_summaries import TensorboardSummaries
+from tensorflow import summary as tf_summary
+
 try:
     mp.set_start_method("spawn")
 except:
@@ -237,6 +240,14 @@ class NN(CardinalityEstimationAlg):
             self.cur_stats["num_tables"].append(num_tables)
             self.cur_stats["num_samples"].append(len(losses))
             self.cur_stats["samples_type"].append(samples_type)
+            if self.summary_types[i] == "mean":
+                stat_name = self.tf_stat_fmt.format(
+                        samples_type = samples_type,
+                        loss_type = loss_type,
+                        num_tables = num_tables,
+                        template = template)
+                with self.tf_summary_writer.as_default():
+                    tf_summary.scalar(stat_name, loss, step=epoch)
 
     def get_exp_name(self):
         '''
@@ -440,6 +451,12 @@ class NN(CardinalityEstimationAlg):
 
         return sqls, true_cardinalities, est_cardinalities
 
+    def initialize_tfboard(self):
+        exp_name = self.get_exp_name()
+        log_dir = "tfboard_logs/" + exp_name
+        self.tf_summary_writer = tf_summary.create_file_writer(log_dir)
+        self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
+
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None):
         assert isinstance(training_samples[0], dict)
@@ -450,6 +467,7 @@ class NN(CardinalityEstimationAlg):
             # self.num_threads = -1
             self.num_threads = multiprocessing.cpu_count(epoch)
 
+        self.initialize_tfboard()
         print("setting num threads to: ", self.num_threads)
         torch.set_num_threads(self.num_threads)
         self.db = db
@@ -513,7 +531,6 @@ class NN(CardinalityEstimationAlg):
                     self.hidden_layer_size))
 
         for self.epoch in range(self.max_epochs):
-            # TODO: do periodic_eval, re-prioritization etc.
             if self.epoch % self.eval_epoch == 0:
                 eval_start = time.time()
                 self.periodic_eval("train")
@@ -582,7 +599,7 @@ class NN(CardinalityEstimationAlg):
 
         all_ests = []
         query_idx = 0
-        for sample in samples:
+        for sample in test_samples:
             ests = {}
             for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]

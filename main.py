@@ -26,9 +26,6 @@ import pandas as pd
 import random
 import itertools
 import klepto
-# from multiprocessing import Pool
-# import multiprocessing
-# import torch.multiprocessing as mp
 
 import numpy as np
 from db_utils.query_generator import QueryGenerator
@@ -196,13 +193,17 @@ def main():
             print("queries should be generated using appropriate script")
             assert False
 
+        if args.debug_set:
+            qfns = random.sample(qfns, int(len(qfns) / 10))
+
         for qfn in qfns:
             qrep = load_sql_rep(qfn)
             qrep["name"] = qfn
             qrep["template_name"] = template_name
             samples.append(qrep)
-        print("template: {}, num subqueries: {}, loading time: {}".format(
+        print("template: {}, subqueries: {}, queries: {}, loading time: {}".format(
             template_name, len(samples[0]["subset_graph"].nodes()),
+            len(samples),
             time.time()-start))
 
         if not found_db:
@@ -283,6 +284,8 @@ def read_flags():
             default="./our_dataset")
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
+    parser.add_argument("--debug_set", type=int, required=False,
+            default=0)
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
     parser.add_argument("--nn_weights_init_pg", type=int, required=False,
@@ -364,9 +367,6 @@ def read_flags():
             default="./nn_results")
     parser.add_argument("--results_dir", type=str, required=False,
             default="./results")
-
-    parser.add_argument("--divide_mb_len", type=int, required=False,
-            default=0)
 
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="adam")
