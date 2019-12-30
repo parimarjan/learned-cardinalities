@@ -500,8 +500,9 @@ class NN(CardinalityEstimationAlg):
         # evaluation set, smaller
         self.samples = {}
         self.eval_loaders = {}
+        random.seed(1234)
         eval_training_samples = random.sample(training_samples,
-                int(len(training_samples) / 10))
+                int(len(training_samples) / 5))
         self.samples["train"] = eval_training_samples
         eval_train_set = QueryDataset(eval_training_samples, db)
         eval_train_loader = data.DataLoader(eval_train_set,
@@ -511,7 +512,7 @@ class NN(CardinalityEstimationAlg):
         # TODO: add separate dataset, dataloaders for evaluation
         if test_samples is not None and len(test_samples) > 0:
             test_samples = random.sample(test_samples, int(len(test_samples) /
-                    10))
+                    5))
             self.samples["test"] = test_samples
             # TODO: add test dataloader
             test_set = QueryDataset(test_samples, db)

@@ -67,6 +67,7 @@ def get_alg(alg):
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 reprioritize_epoch = args.reprioritize_epoch,
+                debug_set = args.debug_set,
                 num_hidden_layers=args.num_hidden_layers,
                 hidden_layer_multiple=args.hidden_layer_multiple,
                     eval_epoch = args.eval_epoch,
@@ -194,6 +195,7 @@ def main():
             assert False
 
         if args.debug_set:
+            random.seed(args.random_seed)
             qfns = random.sample(qfns, int(len(qfns) / 10))
 
         for qfn in qfns:
