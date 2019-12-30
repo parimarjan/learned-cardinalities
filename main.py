@@ -348,7 +348,7 @@ def read_flags():
             required=False, default="microsoft")
 
     parser.add_argument("--avg_jl_priority", type=int, required=False,
-            default=0)
+            default=1)
 
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=0)

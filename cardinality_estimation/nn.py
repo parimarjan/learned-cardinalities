@@ -409,7 +409,6 @@ class NN(CardinalityEstimationAlg):
                 num_past = min(NUM_LAST, len(self.past_priorities))
                 for i in range(1,num_past+1):
                     new_priorities += self.past_priorities[-i]
-                print("average priorities created!")
                 priorities = self._normalize_priorities(new_priorities)
 
         return priorities
@@ -428,8 +427,8 @@ class NN(CardinalityEstimationAlg):
             trues = {}
             for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]
-                # alias_key = ' '.join(node)
-                alias_key = node
+                alias_key = ' '.join(node)
+                # alias_key = node
                 idx = query_idx + subq_idx
                 est_sel = pred[idx]
                 est_card = est_sel*cards["total"]
@@ -539,6 +538,7 @@ class NN(CardinalityEstimationAlg):
                     and self.epoch % self.reprioritize_epoch == 0:
                 if self.sampling_priority_type == "query":
                     # TODO: decompose
+                    pr_start = time.time()
                     pred, _ = self._eval_samples(priority_loader)
                     sqls, true_cardinalities, est_cardinalities = \
                             self.get_query_estimates(pred,
@@ -547,14 +547,22 @@ class NN(CardinalityEstimationAlg):
                             true_cardinalities, est_cardinalities, self.env, None,
                             self.num_join_loss_processes)
                     jerr_ratio = est_costs / opt_costs
-                    weights = np.zeros(len(priority_loader))
+                    jerr = est_costs - opt_costs
+                    print("epoch: {}, jerr_ratio: {}, jerr: {}, time: {}"\
+                            .format(self.epoch,
+                                np.round(np.mean(jerr_ratio), 2),
+                                np.round(np.mean(jerr), 2),
+                                time.time()-pr_start))
+                    weights = np.zeros(len(training_set))
+                    assert len(weights) == len(training_set)
                     query_idx = 0
                     for si, sample in enumerate(self.training_samples):
-                        sq_weight = float(jl_ratio[si])
+                        sq_weight = float(jerr_ratio[si])
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight
-                        query_idx += 1
-                    weights = self._update_sampling_priority(weights)
+                        query_idx += len(sample["subset_graph"].nodes())
+
+                    weights = self._update_sampling_weights(weights)
                     weights = torch.DoubleTensor(weights)
                     sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
                             num_samples=len(weights))
@@ -571,9 +579,22 @@ class NN(CardinalityEstimationAlg):
                 batch_size=len(dataset), shuffle=False,num_workers=0)
         pred, _ = self._eval_samples(loader)
         pred = pred.detach().numpy()
-        _,_, ests = self.get_query_estimates(pred, test_samples)
 
-        return ests
+        all_ests = []
+        query_idx = 0
+        for sample in samples:
+            ests = {}
+            for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+                cards = sample["subset_graph"].nodes()[node]["cardinality"]
+                alias_key = node
+                idx = query_idx + subq_idx
+                est_sel = pred[idx]
+                est_card = est_sel*cards["total"]
+                ests[alias_key] = int(est_card)
+            all_ests.append(ests)
+            query_idx += len(sample["subset_graph"].nodes())
+
+        return all_ests
 
     def __str__(self):
         if self.nn_type == "microsoft":
