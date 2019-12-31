@@ -314,7 +314,7 @@ class NN(CardinalityEstimationAlg):
     def _eval_samples(self, loader):
         all_preds = []
         all_y = []
-        for idx, (xbatch, ybatch) in enumerate(loader):
+        for idx, (xbatch, ybatch,_) in enumerate(loader):
             pred = self.net(xbatch).squeeze(1)
             all_preds.append(pred)
             all_y.append(ybatch)
@@ -397,7 +397,7 @@ class NN(CardinalityEstimationAlg):
         return num_params
 
     def train_one_epoch(self):
-        for idx, (xbatch, ybatch) in enumerate(self.training_loader):
+        for idx, (xbatch, ybatch,_) in enumerate(self.training_loader):
             # TODO: add handling for num_tables
             pred = self.net(xbatch).squeeze(1)
             losses = self.loss(pred, ybatch)
@@ -584,7 +584,8 @@ class NN(CardinalityEstimationAlg):
                 self.max_discrete_featurizing_buckets)
         # create a new park env, and close at the end.
         self.env = park.make('query_optimizer')
-        training_set = QueryDataset(training_samples, db)
+        training_set = QueryDataset(training_samples, db,
+                self.featurization_type)
         self.training_samples = training_samples
         self.num_features = len(training_set[0][0])
 
@@ -609,12 +610,11 @@ class NN(CardinalityEstimationAlg):
         self.samples = {}
         self.eval_loaders = {}
         random.seed(1234)
-        # eval_training_samples = random.sample(training_samples,
-                # int(len(training_samples) / 5))
-        eval_training_samples = training_samples
-        print("eval training samples set to all samples")
+        eval_training_samples = random.sample(training_samples,
+                int(len(training_samples) / 5))
         self.samples["train"] = eval_training_samples
-        eval_train_set = QueryDataset(eval_training_samples, db)
+        eval_train_set = QueryDataset(eval_training_samples, db,
+                self.featurization_type)
         eval_train_loader = data.DataLoader(eval_train_set,
                 batch_size=len(training_set), shuffle=False,num_workers=0)
         self.eval_loaders["train"] = eval_train_loader
@@ -625,7 +625,8 @@ class NN(CardinalityEstimationAlg):
                     5))
             self.samples["test"] = test_samples
             # TODO: add test dataloader
-            test_set = QueryDataset(test_samples, db)
+            test_set = QueryDataset(test_samples, db,
+                    self.featurization_type)
             eval_test_loader = data.DataLoader(test_set,
                     batch_size=len(test_set), shuffle=False,num_workers=0)
             self.eval_loaders["test"] = eval_test_loader
@@ -716,19 +717,12 @@ class NN(CardinalityEstimationAlg):
 
 
     def test(self, test_samples):
-        dataset = QueryDataset(test_samples, self.db)
+        dataset = QueryDataset(test_samples, self.db,
+                self.featurization_type)
         loader = data.DataLoader(dataset,
                 batch_size=len(dataset), shuffle=False,num_workers=0)
-        pred, y = self._eval_samples(loader)
-        loss = self.loss(pred, y).detach().numpy()
-        print("test loss: ", np.mean(loss))
+        pred, _ = self._eval_samples(loader)
         pred = pred.detach().numpy()
-        y = y.detach().numpy()
-        epsilons = np.array([QERR_MIN_EPS]*len(y))
-        ytrue = np.maximum(y, epsilons)
-        yhat = np.maximum(pred, epsilons)
-        errors = np.maximum((ytrue / yhat), (yhat / ytrue))
-
         all_ests = []
         query_idx = 0
         for sample in test_samples:
