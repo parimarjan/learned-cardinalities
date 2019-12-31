@@ -303,7 +303,7 @@ def weighted_loss(yhat, ytrue):
     loss2 = qloss_torch(yhat, ytrue)
     return loss1 + loss2
 
-def rel_loss_torch(pred, ytrue, avg=True):
+def rel_loss_torch(pred, ytrue):
     '''
     Loss function for neural network training. Should use the
     compute_relative_loss formula, but deal with appropriate pytorch types.
@@ -313,11 +313,7 @@ def rel_loss_torch(pred, ytrue, avg=True):
     assert len(pred) == len(ytrue)
     epsilons = to_variable([REL_LOSS_EPSILON]*len(pred)).float()
     errors = torch.abs(pred-ytrue) / (torch.max(epsilons, ytrue))
-    if avg:
-        error = (errors.sum()) / len(pred)
-    else:
-        error = errors
-    return error
+    return errors
 
 def rel_loss(pred, ytrue, avg=True):
     '''

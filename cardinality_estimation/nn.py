@@ -532,7 +532,7 @@ class NN(CardinalityEstimationAlg):
         '''
         @ret:
         '''
-        if not isinstance(pred, np.array):
+        if not isinstance(pred, np.ndarray):
             pred = pred.detach().numpy()
         sqls = []
         true_cardinalities = []
@@ -559,8 +559,9 @@ class NN(CardinalityEstimationAlg):
         return sqls, true_cardinalities, est_cardinalities
 
     def initialize_tfboard(self):
-        exp_name = self.get_exp_name()
-        log_dir = "tfboard_logs/" + exp_name
+        # exp_name = self.get_exp_name()
+        name = self.__str__()
+        log_dir = "tfboard_logs/" + name
         self.tf_summary_writer = tf_summary.create_file_writer(log_dir)
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
 
@@ -609,10 +610,10 @@ class NN(CardinalityEstimationAlg):
         self.samples = {}
         self.eval_loaders = {}
         random.seed(1234)
-        # eval_training_samples = random.sample(training_samples,
-                # int(len(training_samples) / 5))
-        eval_training_samples = training_samples
-        print("eval training samples set to all samples")
+        eval_training_samples = random.sample(training_samples,
+                int(len(training_samples) / 5))
+        # eval_training_samples = training_samples
+        # print("eval training samples set to all samples")
         self.samples["train"] = eval_training_samples
         eval_train_set = QueryDataset(eval_training_samples, db)
         eval_train_loader = data.DataLoader(eval_train_set,
@@ -757,12 +758,11 @@ class NN(CardinalityEstimationAlg):
             name += "-df:" + str(self.max_discrete_featurizing_buckets)
         if self.sampling_priority_alpha > 0.00:
             name += "-pr:" + str(self.sampling_priority_alpha)
-        if self.hidden_layer_size:
-            name += "-hls:" + str(self.hidden_layer_size)
+        name += "-nn_size:" + str(self.num_hidden_layers) + ":" + str(self.hidden_layer_size)
+        # if self.hidden_layer_size:
+            # name += "-hls:" + str(self.hidden_layer_size)
         if self.sampling_priority_type != "query":
             name += "-spt:" + self.sampling_priority_type
 
-        # if self.priority_query_len_scale:
-            # name += "-qscale"
-
+        name += "-loss:" + self.loss_func
         return name

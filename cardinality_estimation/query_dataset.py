@@ -60,12 +60,12 @@ class QueryDataset(data.Dataset):
 
                 pred_feat_dict[node] = pred_features
 
-            # edge_data = qrep["join_graph"].edges(data=True)
-            # for edge in edge_data:
-                # info = edge[2]
-                # edge_features = self.db.get_join_features(info["join_condition"])
-                # edge_key = info["join_condition"]
-                # edge_feat_dict[edge_key] = edge_features
+            edge_data = qrep["join_graph"].edges(data=True)
+            for edge in edge_data:
+                info = edge[2]
+                edge_features = self.db.get_join_features(info["join_condition"])
+                edge_key = info["join_condition"]
+                edge_feat_dict[edge_key] = edge_features
 
             for nodes, info in qrep["subset_graph"].nodes().items():
                 pg_sel = float(info["cardinality"]["expected"]) / info["cardinality"]["total"]
@@ -78,10 +78,10 @@ class QueryDataset(data.Dataset):
                     pred_features += pred_feat_dict[node]
                     table_features += table_feat_dict[node]
 
-                # sg = qrep["join_graph"].subgraph(nodes)
-                # for edge in sg.edges(data=True):
-                    # edge_key = edge[2]["join_condition"]
-                    # join_features += edge_feat_dict[edge_key]
+                sg = qrep["join_graph"].subgraph(nodes)
+                for edge in sg.edges(data=True):
+                    edge_key = edge[2]["join_condition"]
+                    join_features += edge_feat_dict[edge_key]
 
                 if self.heuristic_features:
                     assert pred_features[-1] == 0.00
