@@ -66,6 +66,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                tfboard = args.tfboard,
                 reprioritize_epoch = args.reprioritize_epoch,
                 debug_set = args.debug_set,
                 num_hidden_layers=args.num_hidden_layers,
@@ -437,6 +438,8 @@ def read_flags():
     parser.add_argument("--reprioritize_epoch", type=float, required=False,
             default=1, help="")
     parser.add_argument("--priority_query_len_scale", type=float, required=False,
+            default=1, help="")
+    parser.add_argument("--tfboard", type=float, required=False,
             default=1, help="")
 
     parser.add_argument("--loss_func", type=str, required=False,

@@ -13,10 +13,11 @@ from cardinality_estimation.losses import *
 import pandas as pd
 import json
 import multiprocessing
-from torch.multiprocessing import Pool as Pool2
-import torch.multiprocessing as mp
+# from torch.multiprocessing import Pool as Pool2
+# import torch.multiprocessing as mp
 # from utils.tf_summaries import TensorboardSummaries
 from tensorflow import summary as tf_summary
+from multiprocessing.pool import ThreadPool
 
 try:
     mp.set_start_method("spawn")
@@ -51,6 +52,55 @@ def percentile_help(q):
     return f
 
 def compute_subquery_priorities(qrep, pred, env):
+    priorities = np.ones(len(qrep["subset_graph"].nodes()))
+    priority_dict = {}
+    start = time.time()
+
+    ests = {}
+    trues = {}
+    for i, node in enumerate(qrep["subset_graph"].nodes()):
+        if len(node) > 4:
+            continue
+        alias_key = ' '.join(node)
+        node_info = qrep["subset_graph"].nodes()[node]
+        est_sel = pred[i]
+        est_card = est_sel*node_info["cardinality"]["total"]
+        ests[alias_key] = int(est_card)
+        trues[alias_key] = node_info["cardinality"]["actual"]
+
+    for i, node in enumerate(qrep["subset_graph"].nodes()):
+        if len(node) != 4:
+            continue
+        node_info = qrep["subset_graph"].nodes()[node]
+        # ests = {}
+        # trues = {}
+        subgraph = qrep["join_graph"].subgraph(node)
+        sql = nx_graph_to_query(subgraph)
+        # we need to go over descendants to get all the required cardinalities
+        (est_costs, opt_costs,_,_,_,_) = \
+                join_loss_pg([sql], [trues], [ests], env, None, 1)
+
+        # now, decide what to do next with these.
+        assert len(est_costs) == 1
+        jerr_diff = est_costs[0] - opt_costs[0]
+        jerr_ratio = est_costs[0] / opt_costs[0]
+        # print(node, jerr_diff, jerr_ratio)
+        if jerr_diff < 20000:
+            continue
+        if jerr_ratio < 1.5:
+            continue
+        descendants = nx.descendants(qrep["subset_graph"], node)
+        for desc in descendants:
+            if desc not in priority_dict:
+                priority_dict[desc] = 0.00
+            priority_dict[desc] += jerr_ratio
+
+    for i, node in enumerate(qrep["subset_graph"].nodes()):
+        if node in priority_dict:
+            priorities[i] += priority_dict[node]
+    return priorities
+
+def compute_subquery_priorities2(qrep, pred, env):
     '''
     Will use join error computation on the subqueries of @qrep to assign
     priorities to each subquery.
@@ -59,20 +109,24 @@ def compute_subquery_priorities(qrep, pred, env):
     because we don't want to iterate over all subqueries.
     @ret: priorities list for each subquery.
     '''
-    assert len(pred) == len(qrep["subset_graph"].nodes())
+    pred_dict = {}
+    for i, node in enumerate(qrep["subset_graph"].nodes()):
+        pred_dict[node] = pred[i]
 
     nodes = list(qrep["subset_graph"].nodes())
     nodes.sort(key=lambda x: len(x), reverse=True)
 
     # sort by length, and go from longer to shorter. return array based on
     # original ordering.
+    start = time.time()
     for node in nodes:
+        if len(node) == 1:
+            continue
         node_info = qrep["subset_graph"].nodes()[node]
         ests = {}
         trues = {}
         subgraph = qrep["join_graph"].subgraph(node)
         sql = nx_graph_to_query(subgraph)
-        print(sql)
         # we need to go over descendants to get all the required cardinalities
         descendants = nx.descendants(qrep["subset_graph"], node)
         for desc in descendants:
@@ -90,9 +144,9 @@ def compute_subquery_priorities(qrep, pred, env):
         assert len(est_costs) == 1
         jerr_diff = est_costs[0] - opt_costs[0]
         jerr_ratio = est_costs[0] / opt_costs[0]
-        print(jerr_diff, jerr_ratio)
 
-        pdb.set_trace()
+    print("took: ", time.time() - start)
+    pdb.set_trace()
 
     # convert back to the order we need
 
@@ -286,7 +340,9 @@ class NN(CardinalityEstimationAlg):
             self.cur_stats["num_tables"].append(num_tables)
             self.cur_stats["num_samples"].append(len(losses))
             self.cur_stats["samples_type"].append(samples_type)
-            if self.summary_types[i] == "mean":
+            if self.summary_types[i] == "mean" and \
+                    (template == "all" or num_tables == "all") \
+                    and self.tfboard:
                 stat_name = self.tf_stat_fmt.format(
                         samples_type = samples_type,
                         loss_type = loss_type,
@@ -346,6 +402,8 @@ class NN(CardinalityEstimationAlg):
             pred = self.net(xbatch).squeeze(1)
             losses = self.loss(pred, ybatch)
             loss = losses.sum() / len(losses)
+            # if idx % 10 == 0:
+                # print(loss.item())
             self.optimizer.zero_grad()
             loss.backward()
             if self.clip_gradient is not None:
@@ -513,7 +571,8 @@ class NN(CardinalityEstimationAlg):
             # self.num_threads = -1
             self.num_threads = multiprocessing.cpu_count(epoch)
 
-        self.initialize_tfboard()
+        if self.tfboard:
+            self.initialize_tfboard()
         print("setting num threads to: ", self.num_threads)
         torch.set_num_threads(self.num_threads)
         self.db = db
@@ -549,6 +608,7 @@ class NN(CardinalityEstimationAlg):
         random.seed(1234)
         eval_training_samples = random.sample(training_samples,
                 int(len(training_samples) / 5))
+        # eval_training_samples = training_samples
         self.samples["train"] = eval_training_samples
         eval_train_set = QueryDataset(eval_training_samples, db)
         eval_train_loader = data.DataLoader(eval_train_set,
@@ -584,7 +644,6 @@ class NN(CardinalityEstimationAlg):
                 if self.samples["test"] is not None:
                     self.periodic_eval("test")
                 self.save_stats()
-                print("eval time: ", time.time()-eval_start)
 
                 # print summaries
                 # cur_df = self.stats[self.stats["epoch"] == self.epoch]
@@ -600,10 +659,11 @@ class NN(CardinalityEstimationAlg):
 
             if self.sampling_priority_alpha > 0 \
                     and self.epoch % self.reprioritize_epoch == 0:
+                pred, _ = self._eval_samples(priority_loader)
+                pred = pred.detach().numpy()
                 if self.sampling_priority_type == "query":
                     # TODO: decompose
                     pr_start = time.time()
-                    pred, _ = self._eval_samples(priority_loader)
                     sqls, true_cardinalities, est_cardinalities = \
                             self.get_query_estimates(pred,
                                     self.training_samples)
@@ -620,29 +680,46 @@ class NN(CardinalityEstimationAlg):
                     weights = np.zeros(len(training_set))
                     assert len(weights) == len(training_set)
                     query_idx = 0
+                    JOIN_DIFF = False
                     for si, sample in enumerate(self.training_samples):
-                        if self.priority_query_len_scale:
-                            sq_weight = float(jerr_ratio[si]) / len(sample["subset_graph"].nodes())
+                        if JOIN_DIFF:
+                            sq_weight = jerr[si]
+                        elif jerr[si] < 20000:
+                            sq_weight = 1.00
                         else:
                             sq_weight = float(jerr_ratio[si])
+
+                        if self.priority_query_len_scale:
+                            sq_weight /= len(sample["subset_graph"].nodes())
+
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight
                         query_idx += len(sample["subset_graph"].nodes())
 
-                    weights = self._update_sampling_weights(weights)
-                    weights = torch.DoubleTensor(weights)
-                    sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
-                            num_samples=len(weights))
-                    self.training_loader = data.DataLoader(training_set,
-                            batch_size=self.mb_size, shuffle=False, num_workers=0,
-                            sampler = sampler)
                 elif self.sampling_priority_type == "subquery":
-                    weights = np.zeros(len(training_samples))
-                    compute_subquery_priorities(self.training_samples[0],
-                            self.env)
-
+                    start = time.time()
+                    # weights = np.zeros(len(training_samples))
+                    par_args = []
+                    query_idx = 0
+                    for _, qrep in enumerate(self.training_samples):
+                        sqs = len(qrep["subset_graph"].nodes())
+                        par_args.append((qrep, pred[query_idx:query_idx+sqs],
+                            self.env))
+                        query_idx += sqs
+                    with ThreadPool(processes=multiprocessing.cpu_count()) as pool:
+                        all_priorities = pool.starmap(compute_subquery_priorities, par_args)
+                    print("subquery sampling took: ", time.time() - start)
+                    weights = np.concatenate(all_priorities)
+                    assert len(weights) == len(training_set)
                 else:
                     assert False
+                weights = self._update_sampling_weights(weights)
+                weights = torch.DoubleTensor(weights)
+                sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
+                        num_samples=len(weights))
+                self.training_loader = data.DataLoader(training_set,
+                        batch_size=self.mb_size, shuffle=False, num_workers=0,
+                        sampler = sampler)
 
 
     def test(self, test_samples):
@@ -665,6 +742,7 @@ class NN(CardinalityEstimationAlg):
                 ests[alias_key] = int(est_card)
             all_ests.append(ests)
             query_idx += len(sample["subset_graph"].nodes())
+        assert len(query_idx) == len(dataset)
 
         return all_ests
 
@@ -685,7 +763,7 @@ class NN(CardinalityEstimationAlg):
         if self.sampling_priority_type != "query":
             name += "-spt:" + self.sampling_priority_type
 
-        if self.priority_query_len_scale:
-            name += "-qscale"
+        # if self.priority_query_len_scale:
+            # name += "-qscale"
 
         return name

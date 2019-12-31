@@ -98,7 +98,6 @@ def compute_qerror(queries, preds, **kwargs):
     ytrue = np.maximum(ytrue, epsilons)
     yhat = np.maximum(yhat, epsilons)
     errors = np.maximum((ytrue / yhat), (yhat / ytrue))
-    print("compute qerr done!")
     return errors
 
 def fix_query(query):
