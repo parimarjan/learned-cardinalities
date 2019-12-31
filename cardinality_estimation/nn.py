@@ -532,6 +532,8 @@ class NN(CardinalityEstimationAlg):
         '''
         @ret:
         '''
+        if not isinstance(pred, np.array):
+            pred = pred.detach().numpy()
         sqls = []
         true_cardinalities = []
         est_cardinalities = []
@@ -547,7 +549,8 @@ class NN(CardinalityEstimationAlg):
                 idx = query_idx + subq_idx
                 est_sel = pred[idx]
                 est_card = est_sel*cards["total"]
-                ests[alias_key] = int(est_card)
+                # ests[alias_key] = int(est_card)
+                ests[alias_key] = est_card
                 trues[alias_key] = cards["actual"]
             est_cardinalities.append(ests)
             true_cardinalities.append(trues)
@@ -606,9 +609,10 @@ class NN(CardinalityEstimationAlg):
         self.samples = {}
         self.eval_loaders = {}
         random.seed(1234)
-        eval_training_samples = random.sample(training_samples,
-                int(len(training_samples) / 5))
-        # eval_training_samples = training_samples
+        # eval_training_samples = random.sample(training_samples,
+                # int(len(training_samples) / 5))
+        eval_training_samples = training_samples
+        print("eval training samples set to all samples")
         self.samples["train"] = eval_training_samples
         eval_train_set = QueryDataset(eval_training_samples, db)
         eval_train_loader = data.DataLoader(eval_train_set,
@@ -638,24 +642,13 @@ class NN(CardinalityEstimationAlg):
                     self.hidden_layer_size))
 
         for self.epoch in range(self.max_epochs):
+            self.train_one_epoch()
             if self.epoch % self.eval_epoch == 0:
                 eval_start = time.time()
                 self.periodic_eval("train")
                 if self.samples["test"] is not None:
                     self.periodic_eval("test")
                 self.save_stats()
-
-                # print summaries
-                # cur_df = self.stats[self.stats["epoch"] == self.epoch]
-                # cur_df = self.stats[self.stats["summary_type"] == "mean"]
-                # train_df = self.stats[self.stats["samples_type"] == "train"]
-                # print(cur_df)
-                # print("""epoch: {}, train_qerr: {}, test_qerr: {},
-                # train_jerr: {}, test_jerr: {}""".format(
-                    # self.epoch, 0, 0, 0, 9))
-
-            epoch_start = time.time()
-            self.train_one_epoch()
 
             if self.sampling_priority_alpha > 0 \
                     and self.epoch % self.reprioritize_epoch == 0:
@@ -726,8 +719,15 @@ class NN(CardinalityEstimationAlg):
         dataset = QueryDataset(test_samples, self.db)
         loader = data.DataLoader(dataset,
                 batch_size=len(dataset), shuffle=False,num_workers=0)
-        pred, _ = self._eval_samples(loader)
+        pred, y = self._eval_samples(loader)
+        loss = self.loss(pred, y).detach().numpy()
+        print("test loss: ", np.mean(loss))
         pred = pred.detach().numpy()
+        y = y.detach().numpy()
+        epsilons = np.array([QERR_MIN_EPS]*len(y))
+        ytrue = np.maximum(y, epsilons)
+        yhat = np.maximum(pred, epsilons)
+        errors = np.maximum((ytrue / yhat), (yhat / ytrue))
 
         all_ests = []
         query_idx = 0
@@ -739,11 +739,10 @@ class NN(CardinalityEstimationAlg):
                 idx = query_idx + subq_idx
                 est_sel = pred[idx]
                 est_card = est_sel*cards["total"]
-                ests[alias_key] = int(est_card)
+                ests[alias_key] = est_card
             all_ests.append(ests)
             query_idx += len(sample["subset_graph"].nodes())
-        assert len(query_idx) == len(dataset)
-
+        assert query_idx == len(dataset)
         return all_ests
 
     def __str__(self):

@@ -34,7 +34,7 @@ class QueryDataset(data.Dataset):
                 pg_sel = info["cardinality"]["expected"] / info["cardinality"]["total"]
                 X.append(self.db.get_features(qrep["join_graph"].subgraph(nodes),
                     pg_sel))
-                true_sel = info["cardinality"]["actual"] / info["cardinality"]["total"]
+                true_sel = float(info["cardinality"]["actual"]) / info["cardinality"]["total"]
                 Y.append(true_sel)
 
         X = to_variable(X, requires_grad=False).float()

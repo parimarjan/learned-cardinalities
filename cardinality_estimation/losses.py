@@ -94,6 +94,8 @@ def compute_qerror(queries, preds, **kwargs):
     assert len(preds) == len(queries)
     assert isinstance(preds[0], dict)
     ytrue, yhat, _ = _get_sel_arrays(queries, preds)
+    ytrue = np.array(ytrue)
+    yhat = np.array(yhat)
     epsilons = np.array([QERR_MIN_EPS]*len(yhat))
     ytrue = np.maximum(ytrue, epsilons)
     yhat = np.maximum(yhat, epsilons)
@@ -230,7 +232,6 @@ def compute_join_order_loss(queries, preds, **kwargs):
     sqls = []
 
     # TODO: save alg based predictions too
-    print("compute_join_order_loss")
     for i, qrep in enumerate(queries):
         sqls.append(qrep["sql"])
         ests = {}
@@ -240,7 +241,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
             est_card = predq[node]
             alias_key = ' '.join(node)
             trues[alias_key] = node_info["cardinality"]["actual"]
-            ests[alias_key] = int(est_card)
+            # ests[alias_key] = int(est_card)
+            ests[alias_key] = est_card
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)
 
