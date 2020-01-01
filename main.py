@@ -338,7 +338,7 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_jerr", type=int,
-            required=False, default=10)
+            required=False, default=1)
     parser.add_argument("--lr", type=float,
             required=False, default=0.001)
     parser.add_argument("--clip_gradient", type=float,
@@ -379,9 +379,9 @@ def read_flags():
     parser.add_argument("--num_hidden_layers", type=int,
             required=False, default=1)
     parser.add_argument("--hidden_layer_multiple", type=float,
-            required=False, default=0.5)
-    parser.add_argument("--hidden_layer_size", type=int,
             required=False, default=None)
+    parser.add_argument("--hidden_layer_size", type=int,
+            required=False, default=100)
 
     # synthetic data flags
     parser.add_argument("--gen_synth_data", type=int, required=False,
