@@ -210,45 +210,9 @@ class NN(CardinalityEstimationAlg):
             self.summary_funcs.append(percentile_help(q))
             self.summary_types.append("percentile:{}".format(str(q)))
 
-    def _map_num_tables(self, num_tables):
-
-        if self.group_models >= 0:
-            if num_tables >= 12:
-                tables = 12
-            else:
-                tables = num_tables
-        else:
-            tables = num_tables
-
-        if self.group_models == 1:
-            # so 1 and 2 get mapped to 1
-            tables += 1
-            tables = int((tables / 2))
-            return tables
-        elif self.group_models == 2:
-            if tables <= 2:
-                return 1
-            else:
-                return 2
-        elif self.group_models == 3:
-            # return true values for all tables except the middle ones
-            if tables in [5,6,7,8,9,10]:
-                # should start with 1
-                return tables - 4
-            else:
-                return -1
-
-        elif self.group_models < 0:
-            if tables <= abs(self.group_models):
-                return -1
-            else:
-                return 1
-        else:
-            return tables
-
-    def _init_net(self, net_name, optimizer_name):
-        num_features = self.num_features
+    def _init_net(self, net_name, optimizer_name, sample):
         if net_name == "FCNN":
+            num_features = len(sample)
             # do training
             net = SimpleRegression(num_features,
                     self.hidden_layer_multiple, 1,
@@ -257,6 +221,11 @@ class NN(CardinalityEstimationAlg):
         elif net_name == "LinearRegression":
             net = LinearRegression(num_features,
                     1)
+        elif net_name == "SetConv":
+            print(sample)
+            pdb.set_trace()
+            net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
+                    self.hidden_layer_size)
         else:
             assert False
 
@@ -307,6 +276,9 @@ class NN(CardinalityEstimationAlg):
                     self.optimizers[num_table] = opt
                     self.schedulers[num_table] = scheduler
             print("initialized {} nets for num_tables version".format(len(self.nets)))
+        elif self.nn_type == "mscn":
+            self.net, self.optimizer, self.scheduler = \
+                    self._init_net("SetConv", self.optimizer_name)
         else:
             self.net, self.optimizer, self.scheduler = \
                     self._init_net(self.net_name, self.optimizer_name)
