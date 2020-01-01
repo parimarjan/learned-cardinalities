@@ -5,7 +5,7 @@ from db_utils.utils import *
 from db_utils.query_storage import *
 
 class QueryDataset(data.Dataset):
-    def __init__(self, qreps, db, featurization_type = "combined",
+    def __init__(self, qreps, db, featurization_type,
             heuristic_features=True):
         '''
         @samples: [] sqlrep query dictionaries, which represent a query and all
@@ -23,7 +23,7 @@ class QueryDataset(data.Dataset):
         self.featurization_type = featurization_type
         # TODO: we want to avoid this, and convert them on the fly. Just keep
         # some indexing information around.
-        self.X, self.Y = self._get_feature_vectors(qreps)
+        self.X, self.Y, self.info = self._get_feature_vectors(qreps)
         self.num_samples = len(self.X)
 
     def _get_feature_vectors(self, samples):
@@ -35,6 +35,7 @@ class QueryDataset(data.Dataset):
         start = time.time()
         X = []
         Y = []
+        sample_info = []
 
         for i, qrep in enumerate(samples):
             node_data = qrep["join_graph"].nodes(data=True)
@@ -64,7 +65,7 @@ class QueryDataset(data.Dataset):
             for edge in edge_data:
                 info = edge[2]
                 edge_features = self.db.get_join_features(info["join_condition"])
-                edge_key = info["join_condition"]
+                edge_key = (edge[0], edge[1])
                 edge_feat_dict[edge_key] = edge_features
 
             for nodes, info in qrep["subset_graph"].nodes().items():
@@ -77,36 +78,33 @@ class QueryDataset(data.Dataset):
                     # no overlap between these arrays
                     pred_features += pred_feat_dict[node]
                     table_features += table_feat_dict[node]
-
-                sg = qrep["join_graph"].subgraph(nodes)
-                for edge in sg.edges(data=True):
-                    edge_key = edge[2]["join_condition"]
-                    join_features += edge_feat_dict[edge_key]
-
                 if self.heuristic_features:
                     assert pred_features[-1] == 0.00
                     pred_features[-1] = pg_sel
 
+                # TODO: optimize...
+                for node1 in nodes:
+                    for node2 in nodes:
+                        if (node1, node2) in edge_feat_dict:
+                            join_features += edge_feat_dict[(node1, node2)]
+
                 # now, store features
-                X.append(np.concatenate((table_features, pred_features,
-                    join_features)))
+                if self.featurization_type == "combined":
+                    X.append(np.concatenate((table_features, join_features,
+                        pred_features)))
+                else:
+                    X.append((table_features, join_features, pred_features))
                 Y.append(true_sel)
+                cur_info = {}
+                cur_info["num_tables"] = len(nodes)
+                cur_info["total"] = info["cardinality"]["total"]
+                sample_info.append(cur_info)
 
         print("get features took: ", time.time() - start)
-        pdb.set_trace()
-
-        # FIXME: just need to do this once for each query
-        # for i, qrep in enumerate(samples):
-            # for nodes, info in qrep["subset_graph"].nodes().items():
-                # pg_sel = info["cardinality"]["expected"] / info["cardinality"]["total"]
-                # X.append(self.db.get_features(qrep["join_graph"].subgraph(nodes),
-                    # pg_sel))
-                # true_sel = float(info["cardinality"]["actual"]) / info["cardinality"]["total"]
-                # Y.append(true_sel)
 
         X = to_variable(X, requires_grad=False).float()
         Y = to_variable(Y, requires_grad=False).float()
-        return X,Y
+        return X,Y,sample_info
 
     def __len__(self):
         return self.num_samples
@@ -114,4 +112,4 @@ class QueryDataset(data.Dataset):
     def __getitem__(self, index):
         '''
         '''
-        return self.X[index], self.Y[index]
+        return self.X[index], self.Y[index], self.info[index]

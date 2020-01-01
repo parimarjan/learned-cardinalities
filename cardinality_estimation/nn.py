@@ -161,10 +161,13 @@ class NN(CardinalityEstimationAlg):
         self.start_day = days[weekno]
 
         # initialize stats collection stuff
+        self.mb_size = 2500
         if self.nn_type == "microsoft":
-            self.mb_size = 2500
+            self.featurization_type = "combined"
         elif self.nn_type == "num_tables":
-            self.mb_size = 250
+            self.featurization_type = "combined"
+        elif self.nn_type == "mscn":
+            self.featurization_type = "mscn"
         else:
             assert False
 
@@ -314,7 +317,7 @@ class NN(CardinalityEstimationAlg):
     def _eval_samples(self, loader):
         all_preds = []
         all_y = []
-        for idx, (xbatch, ybatch) in enumerate(loader):
+        for idx, (xbatch, ybatch,_) in enumerate(loader):
             pred = self.net(xbatch).squeeze(1)
             all_preds.append(pred)
             all_y.append(ybatch)
@@ -397,7 +400,7 @@ class NN(CardinalityEstimationAlg):
         return num_params
 
     def train_one_epoch(self):
-        for idx, (xbatch, ybatch) in enumerate(self.training_loader):
+        for idx, (xbatch, ybatch,_) in enumerate(self.training_loader):
             # TODO: add handling for num_tables
             pred = self.net(xbatch).squeeze(1)
             losses = self.loss(pred, ybatch)
@@ -585,7 +588,8 @@ class NN(CardinalityEstimationAlg):
                 self.max_discrete_featurizing_buckets)
         # create a new park env, and close at the end.
         self.env = park.make('query_optimizer')
-        training_set = QueryDataset(training_samples, db)
+        training_set = QueryDataset(training_samples, db,
+                self.featurization_type)
         self.training_samples = training_samples
         self.num_features = len(training_set[0][0])
 
@@ -609,13 +613,16 @@ class NN(CardinalityEstimationAlg):
         # evaluation set, smaller
         self.samples = {}
         self.eval_loaders = {}
-        random.seed(1234)
+        random.seed(2112)
+        if self.debug_set:
+            eval_samples_size_divider = 1
+        else:
+            eval_samples_size_divider = 10
         eval_training_samples = random.sample(training_samples,
-                int(len(training_samples) / 5))
-        # eval_training_samples = training_samples
-        # print("eval training samples set to all samples")
+                int(len(training_samples) / eval_samples_size_divider))
         self.samples["train"] = eval_training_samples
-        eval_train_set = QueryDataset(eval_training_samples, db)
+        eval_train_set = QueryDataset(eval_training_samples, db,
+                self.featurization_type)
         eval_train_loader = data.DataLoader(eval_train_set,
                 batch_size=len(training_set), shuffle=False,num_workers=0)
         self.eval_loaders["train"] = eval_train_loader
@@ -623,10 +630,11 @@ class NN(CardinalityEstimationAlg):
         # TODO: add separate dataset, dataloaders for evaluation
         if test_samples is not None and len(test_samples) > 0:
             test_samples = random.sample(test_samples, int(len(test_samples) /
-                    5))
+                    eval_samples_size_divider))
             self.samples["test"] = test_samples
             # TODO: add test dataloader
-            test_set = QueryDataset(test_samples, db)
+            test_set = QueryDataset(test_samples, db,
+                    self.featurization_type)
             eval_test_loader = data.DataLoader(test_set,
                     batch_size=len(test_set), shuffle=False,num_workers=0)
             self.eval_loaders["test"] = eval_test_loader
@@ -678,11 +686,11 @@ class NN(CardinalityEstimationAlg):
                     for si, sample in enumerate(self.training_samples):
                         if JOIN_DIFF:
                             sq_weight = jerr[si]
-                        elif jerr[si] < 20000:
-                            sq_weight = 1.00
-                        else:
-                            sq_weight = float(jerr_ratio[si])
+                        # elif jerr[si] < 20000:
+                            # sq_weight = 1.00
+                        # else:
 
+                        sq_weight = float(jerr_ratio[si])
                         if self.priority_query_len_scale:
                             sq_weight /= len(sample["subset_graph"].nodes())
 
@@ -717,19 +725,12 @@ class NN(CardinalityEstimationAlg):
 
 
     def test(self, test_samples):
-        dataset = QueryDataset(test_samples, self.db)
+        dataset = QueryDataset(test_samples, self.db,
+                self.featurization_type)
         loader = data.DataLoader(dataset,
                 batch_size=len(dataset), shuffle=False,num_workers=0)
-        pred, y = self._eval_samples(loader)
-        loss = self.loss(pred, y).detach().numpy()
-        print("test loss: ", np.mean(loss))
+        pred, _ = self._eval_samples(loader)
         pred = pred.detach().numpy()
-        y = y.detach().numpy()
-        epsilons = np.array([QERR_MIN_EPS]*len(y))
-        ytrue = np.maximum(y, epsilons)
-        yhat = np.maximum(pred, epsilons)
-        errors = np.maximum((ytrue / yhat), (yhat / ytrue))
-
         all_ests = []
         query_idx = 0
         for sample in test_samples:
@@ -751,6 +752,8 @@ class NN(CardinalityEstimationAlg):
             name = "msft"
         elif self.nn_type == "num_tables":
             name = "nt"
+        elif self.nn_type == "mscn":
+            name = "mscn"
         else:
             name = self.__class__.__name__
 
@@ -758,11 +761,13 @@ class NN(CardinalityEstimationAlg):
             name += "-df:" + str(self.max_discrete_featurizing_buckets)
         if self.sampling_priority_alpha > 0.00:
             name += "-pr:" + str(self.sampling_priority_alpha)
-        name += "-nn_size:" + str(self.num_hidden_layers) + ":" + str(self.hidden_layer_size)
-        # if self.hidden_layer_size:
-            # name += "-hls:" + str(self.hidden_layer_size)
+        name += "-nn:" + str(self.num_hidden_layers) + ":" + str(self.hidden_layer_size)
+
         if self.sampling_priority_type != "query":
             name += "-spt:" + self.sampling_priority_type
+        if not self.priority_query_len_scale:
+            name += "-psqls:0"
 
-        name += "-loss:" + self.loss_func
+        if self.loss_func != "qloss":
+            name += "-loss:" + self.loss_func
         return name
