@@ -3,10 +3,11 @@ from torch.utils import data
 from utils.utils import *
 from db_utils.utils import *
 from db_utils.query_storage import *
+from collections import defaultdict
 
 class QueryDataset(data.Dataset):
     def __init__(self, qreps, db, featurization_type,
-            heuristic_features=True):
+            heuristic_features):
         '''
         @samples: [] sqlrep query dictionaries, which represent a query and all
         of its subqueries.
@@ -24,7 +25,7 @@ class QueryDataset(data.Dataset):
         # TODO: we want to avoid this, and convert them on the fly. Just keep
         # some indexing information around.
         self.X, self.Y, self.info = self._get_feature_vectors(qreps)
-        self.num_samples = len(self.X)
+        self.num_samples = len(self.Y)
 
     def _get_feature_vectors(self, samples):
         '''
@@ -33,7 +34,11 @@ class QueryDataset(data.Dataset):
         '''
         print("start _get_feature_vectors")
         start = time.time()
-        X = []
+        if self.featurization_type == "combined":
+            X = []
+        else:
+            X = defaultdict(list)
+
         Y = []
         sample_info = []
 
@@ -93,7 +98,10 @@ class QueryDataset(data.Dataset):
                     X.append(np.concatenate((table_features, join_features,
                         pred_features)))
                 else:
-                    X.append((table_features, join_features, pred_features))
+                    X["table"].append(table_features)
+                    X["join"].append(join_features)
+                    X["pred"].append(pred_features)
+                    # X.append((table_features, join_features, pred_features))
                 Y.append(true_sel)
                 cur_info = {}
                 cur_info["num_tables"] = len(nodes)
@@ -102,7 +110,12 @@ class QueryDataset(data.Dataset):
 
         print("get features took: ", time.time() - start)
 
-        X = to_variable(X, requires_grad=False).float()
+        if self.featurization_type == "combined":
+            X = to_variable(X, requires_grad=False).float()
+        else:
+            for k,v in X.items():
+                X[k] = to_variable(v, requires_grad=False).float()
+
         Y = to_variable(Y, requires_grad=False).float()
         return X,Y,sample_info
 
@@ -112,4 +125,8 @@ class QueryDataset(data.Dataset):
     def __getitem__(self, index):
         '''
         '''
-        return self.X[index], self.Y[index], self.info[index]
+        if self.featurization_type == "combined":
+            return self.X[index], self.Y[index], self.info[index]
+        else:
+            return (self.X["table"][index], self.X["pred"][index],
+                    self.X["join"][index], self.Y[index], self.info[index])

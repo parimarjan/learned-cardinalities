@@ -68,6 +68,7 @@ def get_alg(alg):
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 tfboard = args.tfboard,
                 reprioritize_epoch = args.reprioritize_epoch,
+                heuristic_features = args.heuristic_features,
                 debug_set = args.debug_set,
                 num_hidden_layers=args.num_hidden_layers,
                 hidden_layer_multiple=args.hidden_layer_multiple,
@@ -302,6 +303,8 @@ def read_flags():
             default=1)
     parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
             default=10)
+    parser.add_argument("--heuristic_features", type=int, required=False,
+            default=1)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
     parser.add_argument("--gen_queries", type=int, required=False,

@@ -163,11 +163,11 @@ class NN(CardinalityEstimationAlg):
         # initialize stats collection stuff
         self.mb_size = 2500
         if self.nn_type == "microsoft":
-            self.featurization_type = "combined"
+            self.featurization_scheme = "combined"
         elif self.nn_type == "num_tables":
-            self.featurization_type = "combined"
+            self.featurization_scheme = "combined"
         elif self.nn_type == "mscn":
-            self.featurization_type = "mscn"
+            self.featurization_scheme = "mscn"
         else:
             assert False
 
@@ -215,7 +215,7 @@ class NN(CardinalityEstimationAlg):
 
     def _init_net(self, net_name, optimizer_name, sample):
         if net_name == "FCNN":
-            num_features = len(sample)
+            num_features = len(sample[0])
             # do training
             net = SimpleRegression(num_features,
                     self.hidden_layer_multiple, 1,
@@ -225,8 +225,6 @@ class NN(CardinalityEstimationAlg):
             net = LinearRegression(num_features,
                     1)
         elif net_name == "SetConv":
-            print(sample)
-            pdb.set_trace()
             net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
                     self.hidden_layer_size)
         else:
@@ -265,7 +263,7 @@ class NN(CardinalityEstimationAlg):
 
         return net, optimizer, scheduler
 
-    def init_nets(self):
+    def init_nets(self, sample):
         # TODO: num_tables version, need have multiple neural nets
         if self.nn_type == "num_tables":
             self.nets = {}
@@ -274,19 +272,20 @@ class NN(CardinalityEstimationAlg):
             for num_table in self.train_num_table_mapping:
                 num_table = self._map_num_tables(num_table)
                 if num_table not in self.nets:
-                    net, opt, scheduler = self._init_net(self.net_name, self.optimizer_name)
+                    net, opt, scheduler = self._init_net(self.net_name,
+                            self.optimizer_name, sample)
                     self.nets[num_table] = net
                     self.optimizers[num_table] = opt
                     self.schedulers[num_table] = scheduler
             print("initialized {} nets for num_tables version".format(len(self.nets)))
         elif self.nn_type == "mscn":
             self.net, self.optimizer, self.scheduler = \
-                    self._init_net("SetConv", self.optimizer_name)
+                    self._init_net("SetConv", self.optimizer_name, sample)
         else:
             self.net, self.optimizer, self.scheduler = \
-                    self._init_net(self.net_name, self.optimizer_name)
+                    self._init_net(self.net_name, self.optimizer_name, sample)
 
-    def _eval_samples(self, loader):
+    def _eval_combined(self, loader):
         all_preds = []
         all_y = []
         for idx, (xbatch, ybatch,_) in enumerate(loader):
@@ -296,6 +295,23 @@ class NN(CardinalityEstimationAlg):
         pred = torch.cat(all_preds)
         y = torch.cat(all_y)
         return pred,y
+
+    def _eval_mscn(self, loader):
+        all_preds = []
+        all_y = []
+        for idx, (tbatch,pbatch,jbatch, ybatch,_) in enumerate(loader):
+            pred = self.net(tbatch,pbatch,jbatch).squeeze(1)
+            all_preds.append(pred)
+            all_y.append(ybatch)
+        pred = torch.cat(all_preds)
+        y = torch.cat(all_y)
+        return pred,y
+
+    def _eval_samples(self, loader):
+        if self.featurization_scheme == "combined":
+            return self._eval_combined(loader)
+        elif self.featurization_scheme == "mscn":
+            return self._eval_mscn(loader)
 
     def eval_samples(self, samples_type):
         loader = self.eval_loaders[samples_type]
@@ -363,15 +379,15 @@ class NN(CardinalityEstimationAlg):
             # convert to MB
             return params*4 / 1e6
 
-        if self.nn_type == "microsoft":
-            num_params = _calc_size(self.net)
-        elif self.nn_type == "num_tables":
+        if self.nn_type == "num_tables":
             num_params = 0
             for _,net in self.nets.items():
                 num_params += _calc_size(net)
+        else:
+            num_params = _calc_size(self.net)
         return num_params
 
-    def train_one_epoch(self):
+    def _train_combined_net(self):
         for idx, (xbatch, ybatch,_) in enumerate(self.training_loader):
             # TODO: add handling for num_tables
             pred = self.net(xbatch).squeeze(1)
@@ -384,6 +400,28 @@ class NN(CardinalityEstimationAlg):
             if self.clip_gradient is not None:
                 clip_grad_norm_(self.net.parameters(), self.clip_gradient)
             self.optimizer.step()
+
+    def _train_mscn(self):
+        for idx, (tbatch, pbatch, jbatch, ybatch,_) in enumerate(self.training_loader):
+            # TODO: add handling for num_tables
+            pred = self.net(tbatch,pbatch,jbatch).squeeze(1)
+            losses = self.loss(pred, ybatch)
+            loss = losses.sum() / len(losses)
+            # if idx % 10 == 0:
+                # print(loss.item())
+            self.optimizer.zero_grad()
+            loss.backward()
+            if self.clip_gradient is not None:
+                clip_grad_norm_(self.net.parameters(), self.clip_gradient)
+            self.optimizer.step()
+
+    def train_one_epoch(self):
+        if self.featurization_scheme == "combined":
+            self._train_combined_net()
+        elif self.featurization_scheme == "mscn":
+            self._train_mscn()
+        else:
+            assert False
 
     def periodic_eval(self, samples_type):
         pred, Y = self.eval_samples(samples_type)
@@ -557,11 +595,12 @@ class NN(CardinalityEstimationAlg):
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
                 max_discrete_featurizing_buckets =
-                self.max_discrete_featurizing_buckets)
+                self.max_discrete_featurizing_buckets,
+                heuristic_features = self.heuristic_features)
         # create a new park env, and close at the end.
         self.env = park.make('query_optimizer')
         training_set = QueryDataset(training_samples, db,
-                self.featurization_type)
+                self.featurization_scheme, self.heuristic_features)
         self.training_samples = training_samples
         self.num_features = len(training_set[0][0])
 
@@ -594,7 +633,7 @@ class NN(CardinalityEstimationAlg):
                 int(len(training_samples) / eval_samples_size_divider))
         self.samples["train"] = eval_training_samples
         eval_train_set = QueryDataset(eval_training_samples, db,
-                self.featurization_type)
+                self.featurization_scheme, self.heuristic_features)
         eval_train_loader = data.DataLoader(eval_train_set,
                 batch_size=len(training_set), shuffle=False,num_workers=0)
         self.eval_loaders["train"] = eval_train_loader
@@ -606,7 +645,7 @@ class NN(CardinalityEstimationAlg):
             self.samples["test"] = test_samples
             # TODO: add test dataloader
             test_set = QueryDataset(test_samples, db,
-                    self.featurization_type)
+                    self.featurization_scheme, self.heuristic_features)
             eval_test_loader = data.DataLoader(test_set,
                     batch_size=len(test_set), shuffle=False,num_workers=0)
             self.eval_loaders["test"] = eval_test_loader
@@ -614,7 +653,7 @@ class NN(CardinalityEstimationAlg):
             self.samples["test"] = None
 
         # TODO: initialize self.num_features
-        self.init_nets()
+        self.init_nets(training_set[0])
         model_size = self.num_parameters()
         print("""training samples: {}, feature length: {}, model size: {},
         max_discrete_buckets: {}, hidden_layer_size: {}""".\
@@ -698,7 +737,7 @@ class NN(CardinalityEstimationAlg):
 
     def test(self, test_samples):
         dataset = QueryDataset(test_samples, self.db,
-                self.featurization_type)
+                self.featurization_scheme, self.heuristic_features)
         loader = data.DataLoader(dataset,
                 batch_size=len(dataset), shuffle=False,num_workers=0)
         pred, _ = self._eval_samples(loader)
@@ -742,4 +781,7 @@ class NN(CardinalityEstimationAlg):
 
         if self.loss_func != "qloss":
             name += "-loss:" + self.loss_func
+        if not self.avg_jl_priority:
+            name += "-no_avg_priority"
+
         return name
