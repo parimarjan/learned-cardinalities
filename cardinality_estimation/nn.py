@@ -695,17 +695,13 @@ class NN(CardinalityEstimationAlg):
                     weights = np.zeros(len(training_set))
                     assert len(weights) == len(training_set)
                     query_idx = 0
-                    JOIN_DIFF = False
                     for si, sample in enumerate(self.training_samples):
-                        if JOIN_DIFF:
-                            sq_weight = jerr[si]
-                        # elif jerr[si] < 20000:
-                            # sq_weight = 1.00
-                        # else:
-
-                        sq_weight = float(jerr_ratio[si])
-                        if self.priority_query_len_scale:
-                            sq_weight /= len(sample["subset_graph"].nodes())
+                        # if JOIN_DIFF:
+                            # sq_weight = jerr[si]
+                        # sq_weight = float(jerr_ratio[si])
+                        # if self.priority_query_len_scale:
+                            # sq_weight /= len(sample["subset_graph"].nodes())
+                        sq_weight = jerr[si] / 1000000.00
 
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight

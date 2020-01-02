@@ -16,7 +16,7 @@ import datetime
 import pandas as pd
 import networkx as nx
 
-EPSILON = 0.0000000001
+EPSILON = 0.000000001
 REL_LOSS_EPSILON = EPSILON
 QERR_MIN_EPS = EPSILON
 CROSS_JOIN_CARD = 1313136191
