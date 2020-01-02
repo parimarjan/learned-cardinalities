@@ -89,22 +89,9 @@ def load_sql_rep(fn):
     assert ".pkl" in fn
     with open(fn, "rb") as f:
         query = pickle.load(f)
-    query["subset_graph"] = json_graph.adjacency_graph(query["subset_graph"])
+    query["subset_graph"] = \
+            nx.OrderedDiGraph(json_graph.adjacency_graph(query["subset_graph"]))
     query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
-
-    # try:
-        # query["subset_graph"] = json_graph.adjacency_graph(query["subset_graph"])
-        # query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
-    # except:
-        # print("crash while loading")
-        # output = {}
-        # output["sql"] = query["sql"]
-        # output["join_graph"] = nx.adjacency_data(query["join_graph"])
-        # output["subset_graph"] = nx.adjacency_data(query["subset_graph"])
-        # # save it out to qfn
-        # with open(fn, 'wb') as fp:
-            # pickle.dump(output, fp, protocol=pickle.HIGHEST_PROTOCOL)
-        # return query
 
     return query
 

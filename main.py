@@ -136,7 +136,7 @@ def eval_alg(alg, losses, queries, samples_type):
     # first, just evaluate them all, and save results in queries
     start = time.time()
     yhats = alg.test(queries)
-    assert isinstance(yhats[0], dict)
+    # assert isinstance(yhats[0], dict)
     eval_time = round(time.time() - start, 2)
     print("evaluating alg took: {} seconds".format(eval_time))
 

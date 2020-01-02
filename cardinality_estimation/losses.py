@@ -14,8 +14,9 @@ from matplotlib.backends.backend_pdf import PdfPages
 from collections import defaultdict
 import datetime
 import pandas as pd
+import networkx as nx
 
-EPSILON = 0.000001
+EPSILON = 0.0000000001
 REL_LOSS_EPSILON = EPSILON
 QERR_MIN_EPS = EPSILON
 CROSS_JOIN_CARD = 1313136191
@@ -36,6 +37,35 @@ def join_op_stats(explains):
 
 def node_match(n1, n2):
     return n1 == n2
+
+def qerr_loss_stats(samples, preds, ytrue):
+    '''
+    @samples: [] qrep objects.
+    @preds: selectivity predictions for each
+
+    @ret: dataframe summarizing all the stats
+    '''
+    # assert "ordered" in type(samples[0]["subset_graph"])
+    print(type(samples[0]["subset_graph"]))
+    assert isinstance(samples[0]["subset_graph"], nx.OrderedDiGraph)
+    pdb.set_trace()
+    summary_data = defaultdict(list)
+    query_idx = 0
+    for sample in samples:
+        template = sample["template_name"]
+        for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+            num_tables = len(node)
+            idx = query_idx + subq_idx
+            loss = losses[idx]
+            summary_data["loss"].append(loss)
+            summary_data["num_tables"].append(num_tables)
+            summary_data["template"].append(template)
+        query_idx += len(sample["subset_graph"].nodes())
+
+    df = pd.DataFrame(summary_data)
+
+    # create new df summarizing the relevant results
+    pdb.set_trace()
 
 def get_loss(loss):
     if loss == "abs":
@@ -70,7 +100,9 @@ def _get_sel_arrays(queries, preds):
             total = qrep[alias]["cardinality"]["total"]
             totals.append(total)
             ytrue.append(float(actual) / total)
-            yhat.append(pred / total)
+            yhat.append(float(pred) / total)
+            # ytrue.append(float(actual))
+            # yhat.append(float(pred))
     return ytrue, yhat, totals
 
 # TODO: put the yhat, ytrue parts in db_utils
@@ -91,12 +123,14 @@ def compute_abs_loss(queries, preds, **kwargs):
     return errors
 
 def compute_qerror(queries, preds, **kwargs):
+    # qerr_loss_stats(queries, preds, ytrue)
     assert len(preds) == len(queries)
     assert isinstance(preds[0], dict)
     ytrue, yhat, _ = _get_sel_arrays(queries, preds)
     ytrue = np.array(ytrue)
     yhat = np.array(yhat)
     epsilons = np.array([QERR_MIN_EPS]*len(yhat))
+    # epsilons = np.array([1]*len(yhat))
     ytrue = np.maximum(ytrue, epsilons)
     yhat = np.maximum(yhat, epsilons)
     errors = np.maximum((ytrue / yhat), (yhat / ytrue))
@@ -139,27 +173,28 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
                         None, num_processes=num_processes, postgres=True)
     assert isinstance(est_costs, np.ndarray)
 
-    if est_plans and pdf:
-        print("going to plot query results for join-loss")
-        for i, _ in enumerate(opt_costs):
-            opt_cost = opt_costs[i]
-            est_cost = est_costs[i]
-            # plot both optimal, and estimated plans
-            explain = est_plans[i]
-            leading = get_leading_hint(explain)
-            title = "Estimator Plan: {}, estimator cost: {}, opt cost: {}".format(\
-                i, est_cost, opt_cost)
-            estG = plot_explain_join_order(explain, true_cardinalities[i],
-                    cardinalities[i], pdf, title)
-            opt_explain = opt_plans[i]
-            opt_leading = get_leading_hint(opt_explain)
-            title = "Optimal Plan: {}, estimator cost: {}, opt cost: {}".format(\
-                i, est_cost, opt_cost)
-            optG = plot_explain_join_order(opt_explain, true_cardinalities[k],
-                    cardinalities[k], pdf, title)
+    # TODO: put this in the parsing scripts
+    # if est_plans and pdf:
+        # print("going to plot query results for join-loss")
+        # for i, _ in enumerate(opt_costs):
+            # opt_cost = opt_costs[i]
+            # est_cost = est_costs[i]
+            # # plot both optimal, and estimated plans
+            # explain = est_plans[i]
+            # leading = get_leading_hint(explain)
+            # title = "Estimator Plan: {}, estimator cost: {}, opt cost: {}".format(\
+                # i, est_cost, opt_cost)
+            # estG = plot_explain_join_order(explain, true_cardinalities[i],
+                    # cardinalities[i], pdf, title)
+            # opt_explain = opt_plans[i]
+            # opt_leading = get_leading_hint(opt_explain)
+            # title = "Optimal Plan: {}, estimator cost: {}, opt cost: {}".format(\
+                # i, est_cost, opt_cost)
+            # optG = plot_explain_join_order(opt_explain, true_cardinalities[k],
+                    # cardinalities[k], pdf, title)
 
-        print("num opt plans: {}, num est plans: {}".format(\
-                len(all_opt_plans), len(all_est_plans)))
+        # print("num opt plans: {}, num est plans: {}".format(\
+                # len(all_opt_plans), len(all_est_plans)))
 
     return est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls
 
@@ -181,12 +216,12 @@ def compute_join_order_loss(queries, preds, **kwargs):
     '''
     TODO: also updates each query object with the relevant stats that we want
     to plot.
-    @queries: list of qrep objects.
+    @queries: list of qrep objects
     @preds: list of dicts
 
     @output: updates ./results/join_order_loss.pkl file
     '''
-    def add_joinresult_row(sql_key, exec_sql, cost, explain,
+    def add_joinresult_row(sql_key, exec_sql, cost,
             plan, template):
         '''
         '''
@@ -195,7 +230,6 @@ def compute_join_order_loss(queries, preds, **kwargs):
             return
 
         cur_costs["sql_key"].append(sql_key)
-        cur_costs["explain"].append(explain)
         cur_costs["plan"].append(plan)
         cur_costs["exec_sql"].append(exec_sql)
         cur_costs["cost"].append(cost)
@@ -255,7 +289,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
         for i, qrep in enumerate(queries):
             sql_key = str(deterministic_hash(qrep["sql"]))
             add_joinresult_row(sql_key, est_sqls[i], est_costs[i],
-                    est_plans[i], get_leading_hint(est_plans[i]),
+                    get_leading_hint(est_plans[i]),
                     qrep["template_name"])
     else:
         print("TODO: add calcite based cost model")

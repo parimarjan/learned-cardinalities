@@ -436,7 +436,6 @@ class NN(CardinalityEstimationAlg):
         self.add_row(losses, "qerr", self.epoch, "all",
                 "all", samples_type)
         samples = self.samples[samples_type]
-
         summary_data = defaultdict(list)
         query_idx = 0
         for sample in samples:
@@ -744,12 +743,16 @@ class NN(CardinalityEstimationAlg):
 
 
     def test(self, test_samples):
+        '''
+        @test_samples: [] sql_representation dicts
+        '''
         dataset = QueryDataset(test_samples, self.db,
                 self.featurization_scheme, self.heuristic_features)
         loader = data.DataLoader(dataset,
                 batch_size=len(dataset), shuffle=False,num_workers=0)
         pred, _ = self._eval_samples(loader)
         pred = pred.detach().numpy()
+        # return pred
         all_ests = []
         query_idx = 0
         for sample in test_samples:
