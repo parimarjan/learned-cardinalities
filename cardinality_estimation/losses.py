@@ -15,7 +15,7 @@ from collections import defaultdict
 import datetime
 import pandas as pd
 
-EPSILON = 0.000001
+EPSILON = 0.000000001
 REL_LOSS_EPSILON = EPSILON
 QERR_MIN_EPS = EPSILON
 CROSS_JOIN_CARD = 1313136191
