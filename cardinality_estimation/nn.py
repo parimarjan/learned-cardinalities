@@ -748,7 +748,6 @@ class NN(CardinalityEstimationAlg):
                 batch_size=len(dataset), shuffle=False,num_workers=0)
         pred, _ = self._eval_samples(loader)
         pred = pred.detach().numpy()
-        # return pred
         all_ests = []
         query_idx = 0
         for sample in test_samples:
@@ -783,15 +782,13 @@ class NN(CardinalityEstimationAlg):
 
         if self.sampling_priority_type != "query":
             name += "-spt:" + self.sampling_priority_type
-        if not self.priority_query_len_scale:
-            name += "-psqls:0"
+        # if not self.priority_query_len_scale:
+            # name += "-psqls:0"
         if not self.avg_jl_priority:
             name += "-no_pr_avg"
 
         if self.loss_func != "qloss":
             name += "-loss:" + self.loss_func
-        if not self.avg_jl_priority:
-            name += "-no_avg_priority"
         if not self.heuristic_features:
             name += "-no_pg_ests"
 

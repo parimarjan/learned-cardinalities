@@ -21,6 +21,19 @@ REL_LOSS_EPSILON = EPSILON
 QERR_MIN_EPS = EPSILON
 CROSS_JOIN_CARD = 1313136191
 
+PERCENTILES_TO_SAVE = [25, 50, 75, 90, 99]
+def percentile_help(q):
+    def f(arr):
+        return np.percentile(arr, q)
+    return f
+summary_funcs = [np.mean, np.max, np.min]
+summary_types = ["mean", "max", "min"]
+for q in PERCENTILES_TO_SAVE:
+    summary_funcs.append(percentile_help(q))
+    summary_types.append("percentile:{}".format(str(q)))
+
+RESULTS_DIR_TMP = "{RESULT_DIR}/{ALG}/"
+
 def join_op_stats(explains):
     num_joins_opt = defaultdict(int)
     for i, _ in enumerate(explains):
@@ -38,17 +51,36 @@ def join_op_stats(explains):
 def node_match(n1, n2):
     return n1 == n2
 
-def qerr_loss_stats(samples, preds, ytrue):
+def qerr_loss_stats(samples, losses, samples_type,
+        epoch):
     '''
     @samples: [] qrep objects.
     @preds: selectivity predictions for each
 
     @ret: dataframe summarizing all the stats
     '''
+    def add_row(losses, loss_type, epoch, template,
+            num_tables, samples_type, stats):
+        for i, func in enumerate(summary_funcs):
+            loss = func(losses)
+            row = [epoch, loss_type, loss, summary_types[i],
+                    template, num_tables, len(losses)]
+            stats["epoch"].append(epoch)
+            stats["loss_type"].append(loss_type)
+            stats["loss"].append(loss)
+            stats["summary_type"].append(summary_types[i])
+            stats["template"].append(template)
+            stats["num_tables"].append(num_tables)
+            stats["num_samples"].append(len(losses))
+            stats["samples_type"].append(samples_type)
+
+    stats = defaultdict(list)
     # assert "ordered" in type(samples[0]["subset_graph"])
     print(type(samples[0]["subset_graph"]))
     assert isinstance(samples[0]["subset_graph"], nx.OrderedDiGraph)
-    pdb.set_trace()
+
+    add_row(losses, "qerr", epoch, "all", "all", samples_type,
+            stats)
     summary_data = defaultdict(list)
     query_idx = 0
     for sample in samples:
@@ -65,7 +97,21 @@ def qerr_loss_stats(samples, preds, ytrue):
     df = pd.DataFrame(summary_data)
 
     # create new df summarizing the relevant results
-    pdb.set_trace()
+    for template in set(df["template"]):
+        tvals = df[df["template"] == template]
+        add_row(tvals["loss"].values, "qerr", epoch,
+                template, "all", samples_type, stats)
+        for nt in set(tvals["num_tables"]):
+            nt_losses = tvals[tvals["num_tables"] == nt]
+            add_row(nt_losses["loss"].values, "qerr", epoch, template, str(nt),
+                    samples_type, stats)
+
+    for nt in set(df["num_tables"]):
+        nt_losses = df[df["num_tables"] == nt]
+        add_row(nt_losses["loss"].values, "qerr", epoch, "all", str(nt),
+                samples_type, stats)
+
+    return pd.DataFrame(stats)
 
 def get_loss(loss):
     if loss == "abs":
@@ -101,8 +147,6 @@ def _get_sel_arrays(queries, preds):
             totals.append(total)
             ytrue.append(float(actual) / total)
             yhat.append(float(pred) / total)
-            # ytrue.append(float(actual))
-            # yhat.append(float(pred))
     return ytrue, yhat, totals
 
 # TODO: put the yhat, ytrue parts in db_utils
@@ -123,17 +167,34 @@ def compute_abs_loss(queries, preds, **kwargs):
     return errors
 
 def compute_qerror(queries, preds, **kwargs):
-    # qerr_loss_stats(queries, preds, ytrue)
     assert len(preds) == len(queries)
     assert isinstance(preds[0], dict)
+    args = kwargs["args"]
+    alg_name = kwargs["name"]
+    samples_type = kwargs["samples_type"]
+
     ytrue, yhat, _ = _get_sel_arrays(queries, preds)
     ytrue = np.array(ytrue)
     yhat = np.array(yhat)
     epsilons = np.array([QERR_MIN_EPS]*len(yhat))
-    # epsilons = np.array([1]*len(yhat))
     ytrue = np.maximum(ytrue, epsilons)
     yhat = np.maximum(yhat, epsilons)
     errors = np.maximum((ytrue / yhat), (yhat / ytrue))
+    df = qerr_loss_stats(queries, errors,
+            samples_type, -1)
+
+    # here, we assume that the alg name is unique enough, for their results to
+    # be grouped together
+    rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
+                                   ALG = alg_name)
+    make_dir(rdir)
+    fn = rdir + "/" + "qerr.pkl"
+    # update the qerrors here
+    old_results = load_object(fn)
+    if old_results is not None:
+        df = pd.concat([old_results, df], ignore_index=True)
+
+    save_object(fn, df)
     return errors
 
 def fix_query(query):
@@ -250,7 +311,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
     costs_dir = costs_dir_tmp.format(RESULT_DIR = args.result_dir,
                                    ALG = alg_name)
     make_dir(costs_dir)
-    costs_fn = costs_dir + "costs.pkl"
+    costs_fn = costs_dir + "jerr.pkl"
     costs = load_object(costs_fn)
     if costs is None:
         columns = ["sql_key", "explain","plan","exec_sql","cost",
@@ -303,6 +364,4 @@ def compute_join_order_loss(queries, preds, **kwargs):
     env.clean()
 
     losses = np.array(est_costs) - np.array(opt_costs)
-    print(losses[np.argmax(losses)])
-    # pdb.set_trace()
     return np.array(est_costs) - np.array(opt_costs)
