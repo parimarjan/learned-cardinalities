@@ -32,7 +32,6 @@ class QueryDataset(data.Dataset):
         @samples: sql_rep format representation for query and all its
         subqueries.
         '''
-        print("start _get_feature_vectors")
         start = time.time()
         if self.featurization_type == "combined":
             X = []

@@ -441,7 +441,7 @@ def read_flags():
     parser.add_argument("--reprioritize_epoch", type=float, required=False,
             default=1, help="")
     parser.add_argument("--priority_query_len_scale", type=float, required=False,
-            default=1, help="")
+            default=0, help="")
     parser.add_argument("--tfboard", type=float, required=False,
             default=1, help="")
 

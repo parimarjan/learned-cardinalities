@@ -528,7 +528,6 @@ class NN(CardinalityEstimationAlg):
         priorities = np.power(priorities, self.sampling_priority_alpha)
         priorities = self._normalize_priorities(priorities)
 
-        AVG_PRIORITIES = False
         NUM_LAST = 4
         if self.avg_jl_priority:
             self.past_priorities.append(priorities)
@@ -602,7 +601,11 @@ class NN(CardinalityEstimationAlg):
         training_set = QueryDataset(training_samples, db,
                 self.featurization_scheme, self.heuristic_features)
         self.training_samples = training_samples
-        self.num_features = len(training_set[0][0])
+        if self.featurization_scheme == "combined":
+            self.num_features = len(training_set[0][0])
+        else:
+            self.num_features = len(training_set[0][0]) + \
+                    len(training_set[0][1]) + len(training_set[0][2])
 
         # TODO: only for priority case, this should be updated after every
         # epoch
@@ -662,13 +665,13 @@ class NN(CardinalityEstimationAlg):
                     self.hidden_layer_size))
 
         for self.epoch in range(self.max_epochs):
-            self.train_one_epoch()
             if self.epoch % self.eval_epoch == 0:
                 eval_start = time.time()
                 self.periodic_eval("train")
                 if self.samples["test"] is not None:
                     self.periodic_eval("test")
                 self.save_stats()
+            self.train_one_epoch()
 
             if self.sampling_priority_alpha > 0 \
                     and self.epoch % self.reprioritize_epoch == 0:
@@ -726,6 +729,11 @@ class NN(CardinalityEstimationAlg):
                     assert len(weights) == len(training_set)
                 else:
                     assert False
+
+                # WEIGHTS_MINUS_ONE = False
+                # if WEIGHTS_MINUS_ONE:
+                    # weights -= 1.00
+
                 weights = self._update_sampling_weights(weights)
                 weights = torch.DoubleTensor(weights)
                 sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
@@ -778,10 +786,14 @@ class NN(CardinalityEstimationAlg):
             name += "-spt:" + self.sampling_priority_type
         if not self.priority_query_len_scale:
             name += "-psqls:0"
+        if not self.avg_jl_priority:
+            name += "-no_pr_avg"
 
         if self.loss_func != "qloss":
             name += "-loss:" + self.loss_func
         if not self.avg_jl_priority:
             name += "-no_avg_priority"
+        if not self.heuristic_features:
+            name += "-no_pg_ests"
 
         return name
