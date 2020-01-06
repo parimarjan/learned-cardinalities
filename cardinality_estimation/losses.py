@@ -16,7 +16,7 @@ import datetime
 import pandas as pd
 import networkx as nx
 
-EPSILON = 0.000000001
+EPSILON = 0.0000000001
 REL_LOSS_EPSILON = EPSILON
 QERR_MIN_EPS = EPSILON
 CROSS_JOIN_CARD = 1313136191
@@ -144,6 +144,9 @@ def _get_sel_arrays(queries, preds):
         for alias, pred in pred_subsets.items():
             actual = qrep[alias]["cardinality"]["actual"]
             total = qrep[alias]["cardinality"]["total"]
+            # print("adding 1 to actual")
+            # actual += 1
+            # pred += 1
             totals.append(total)
             ytrue.append(float(actual) / total)
             yhat.append(float(pred) / total)

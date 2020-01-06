@@ -260,8 +260,12 @@ def main():
 
     for alg in algorithms:
         start = time.time()
-        alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                test_samples=test_queries)
+        if args.eval_test_while_training:
+            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                    test_samples=test_queries)
+        else:
+            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                    test_samples=None)
         train_times[alg.__str__()] = round(time.time() - start, 2)
 
         start = time.time()

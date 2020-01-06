@@ -257,7 +257,7 @@ class NN(CardinalityEstimationAlg):
         if self.adaptive_lr:
             scheduler = ReduceLROnPlateau(optimizer, 'min',
                     patience=self.adaptive_lr_patience,
-                            verbose=True, factor=0.1, eps=0.0001)
+                            verbose=True, factor=0.1, eps=self.lr)
         else:
             scheduler = None
 
