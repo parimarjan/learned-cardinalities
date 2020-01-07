@@ -696,11 +696,6 @@ class NN(CardinalityEstimationAlg):
                     assert len(weights) == len(training_set)
                     query_idx = 0
                     for si, sample in enumerate(self.training_samples):
-                        # if JOIN_DIFF:
-                            # sq_weight = jerr[si]
-                        # sq_weight = float(jerr_ratio[si])
-                        # if self.priority_query_len_scale:
-                            # sq_weight /= len(sample["subset_graph"].nodes())
                         sq_weight = jerr[si] / 1000000.00
 
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
@@ -709,7 +704,6 @@ class NN(CardinalityEstimationAlg):
 
                 elif self.sampling_priority_type == "subquery":
                     start = time.time()
-                    # weights = np.zeros(len(training_samples))
                     par_args = []
                     query_idx = 0
                     for _, qrep in enumerate(self.training_samples):
@@ -725,10 +719,6 @@ class NN(CardinalityEstimationAlg):
                 else:
                     assert False
 
-                # WEIGHTS_MINUS_ONE = False
-                # if WEIGHTS_MINUS_ONE:
-                    # weights -= 1.00
-
                 weights = self._update_sampling_weights(weights)
                 weights = torch.DoubleTensor(weights)
                 sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
@@ -737,6 +727,9 @@ class NN(CardinalityEstimationAlg):
                         batch_size=self.mb_size, shuffle=False, num_workers=0,
                         sampler = sampler)
 
+        del(training_set.X)
+        del(training_set.Y)
+        del(training_set.info)
 
     def test(self, test_samples):
         '''
@@ -747,6 +740,9 @@ class NN(CardinalityEstimationAlg):
         loader = data.DataLoader(dataset,
                 batch_size=len(dataset), shuffle=False,num_workers=0)
         pred, _ = self._eval_samples(loader)
+        del(dataset.X)
+        del(dataset.Y)
+        del(dataset.info)
         pred = pred.detach().numpy()
         all_ests = []
         query_idx = 0
