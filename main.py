@@ -142,9 +142,10 @@ def eval_alg(alg, losses, queries, samples_type):
 
     loss_start = time.time()
     alg_name = alg.__str__()
+    exp_name = alg.get_exp_name()
     for loss_func in losses:
         losses = loss_func(queries, yhats, name=alg_name,
-                args=args, samples_type=samples_type)
+                args=args, samples_type=samples_type, exp_name = exp_name)
 
         # TODO: set global printoptions to round digits
         print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\

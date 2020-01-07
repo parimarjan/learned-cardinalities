@@ -171,9 +171,29 @@ def compute_abs_loss(queries, preds, **kwargs):
 def compute_qerror(queries, preds, **kwargs):
     assert len(preds) == len(queries)
     assert isinstance(preds[0], dict)
+
     args = kwargs["args"]
-    alg_name = kwargs["name"]
+    # alg_name = kwargs["name"]
+    exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
+
+    # here, we assume that the alg name is unique enough, for their results to
+    # be grouped together
+    rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
+                                   ALG = exp_name)
+    make_dir(rdir)
+
+    # first, save all the predictions
+    pred_dict = {}
+    for i, qrep in enumerate(queries):
+        pred_dict[qrep["name"]] = preds[i]
+
+    pred_fn = rdir + "/preds.pkl"
+    # update the qerrors here
+    old_results = load_object(pred_fn)
+    if old_results is not None:
+        pred_dict.update(old_results)
+    save_object(pred_fn, pred_dict)
 
     ytrue, yhat, _ = _get_sel_arrays(queries, preds)
     ytrue = np.array(ytrue)
@@ -185,12 +205,10 @@ def compute_qerror(queries, preds, **kwargs):
     df = qerr_loss_stats(queries, errors,
             samples_type, -1)
 
-    # here, we assume that the alg name is unique enough, for their results to
-    # be grouped together
-    rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
-                                   ALG = alg_name)
-    make_dir(rdir)
     fn = rdir + "/" + "qerr.pkl"
+    args_fn = rdir + "/" + "args.pkl"
+    save_object(args_fn, args)
+
     # update the qerrors here
     old_results = load_object(fn)
     if old_results is not None:

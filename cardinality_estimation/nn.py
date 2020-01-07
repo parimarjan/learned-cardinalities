@@ -346,9 +346,9 @@ class NN(CardinalityEstimationAlg):
         '''
         '''
         time_hash = str(deterministic_hash(self.start_time))[0:3]
-        name = "{DAY}-{NN_TYPE}-{PRIORITY}-{HASH}".format(\
+        name = "{DAY}-{NN}-{PRIORITY}-{HASH}".format(\
                     DAY = self.start_day,
-                    NN_TYPE = self.nn_type,
+                    NN = self.__str__(),
                     PRIORITY = self.sampling_priority_alpha,
                     HASH = time_hash)
         return name
