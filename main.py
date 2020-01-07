@@ -158,6 +158,7 @@ def eval_alg(alg, losses, queries, samples_type):
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
 def main():
+    # TODO: stop using klepto
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
     db_key = deterministic_hash("db-" + args.query_templates)
@@ -201,15 +202,24 @@ def main():
             random.seed(args.random_seed)
             qfns = random.sample(qfns, int(len(qfns) / 10))
 
+        skipped = 0
         for qfn in qfns:
             qrep = load_sql_rep(qfn)
+            zero_query = False
+            for _,info in qrep["subset_graph"].nodes().items():
+                if info["cardinality"]["actual"] == 0:
+                    zero_query = True
+                    break
+            if zero_query:
+                skipped += 1
+                continue
             qrep["name"] = qfn
             qrep["template_name"] = template_name
             samples.append(qrep)
-        print("template: {}, subqueries: {}, queries: {}, loading time: {}".format(
-            template_name, len(samples[0]["subset_graph"].nodes()),
-            len(samples),
-            time.time()-start))
+        print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
+                ", loading time: {}").format( template_name, skipped,
+                    len(samples[0]["subset_graph"].nodes()), len(samples),
+                    time.time()-start))
 
         if not found_db:
             for sample in samples:
@@ -228,21 +238,25 @@ def main():
         train_queries += cur_train_queries
         test_queries += cur_test_queries
 
+    # ys = []
+    # for sample in train_queries:
+    # ys += get_all_cardinalities(train_queries)
+    # ys += get_all_cardinalities(test_queries)
+    # ys = np.array(ys)
+    # logys = np.log(ys)
+    # pdb.set_trace()
     # shuffle train, test queries so join loss computation can be parallelized
     # better: otherwise all queries from templates that take a long time would
     # go to same worker
     random.shuffle(train_queries)
     random.shuffle(test_queries)
-    print("train queries: {}, test queries: {}".format(len(train_queries),
-        len(test_queries)))
+
     if not found_db:
         misc_cache.archive[db_key] = db
 
     if len(train_queries) == 0:
         # debugging, so doesn't crash
         train_queries = test_queries
-
-    result = defaultdict(list)
 
     algorithms = []
     losses = []
@@ -251,9 +265,8 @@ def main():
     for loss_name in args.losses.split(","):
         losses.append(get_loss(loss_name))
 
-    print("going to run algorithms: ", args.algs)
-    print("num train queries: ", len(train_queries))
-    print("num test queries: ", len(test_queries))
+    print("algs: {}, train queries: {}, test queries: {}".format(\
+            args.algs, len(train_queries), len(test_queries)))
 
     train_times = {}
     eval_times = {}

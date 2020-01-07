@@ -12,6 +12,19 @@ from networkx.readwrite import json_graph
 
 from sql_rep.utils import execute_query
 
+def get_all_cardinalities(samples):
+    cards = []
+    for qrep in samples:
+        for node, info in qrep["subset_graph"].nodes().items():
+            cards.append(info["cardinality"]["actual"])
+            if cards[-1] == 0:
+                # print(qrep["sql"])
+                # print(node)
+                # print(qrep["template_name"])
+                # print(info["cardinality"])
+                assert False
+    return cards
+
 def get_all_totals(qrep):
     '''
     @ret: dict, nodes : total

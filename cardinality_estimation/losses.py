@@ -76,7 +76,6 @@ def qerr_loss_stats(samples, losses, samples_type,
 
     stats = defaultdict(list)
     # assert "ordered" in type(samples[0]["subset_graph"])
-    print(type(samples[0]["subset_graph"]))
     assert isinstance(samples[0]["subset_graph"], nx.OrderedDiGraph)
 
     add_row(losses, "qerr", epoch, "all", "all", samples_type,
