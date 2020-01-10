@@ -134,7 +134,7 @@ def get_loss_name(loss_name):
     elif "rel" in loss_name:
         return "rel"
 
-def _get_sel_arrays(queries, preds):
+def _get_all_cardinalities(queries, preds):
     ytrue = []
     yhat = []
     totals = []
@@ -143,12 +143,11 @@ def _get_sel_arrays(queries, preds):
         for alias, pred in pred_subsets.items():
             actual = qrep[alias]["cardinality"]["actual"]
             total = qrep[alias]["cardinality"]["total"]
-            # print("adding 1 to actual")
-            # actual += 1
-            # pred += 1
             totals.append(total)
-            ytrue.append(float(actual) / total)
-            yhat.append(float(pred) / total)
+            # ytrue.append(float(actual) / total)
+            # yhat.append(float(pred) / total)
+            ytrue.append(float(actual))
+            yhat.append(float(pred))
     return ytrue, yhat, totals
 
 # TODO: put the yhat, ytrue parts in db_utils
@@ -156,15 +155,14 @@ def compute_relative_loss(queries, preds, **kwargs):
     '''
     as in the quicksel paper.
     '''
-    ytrue, yhat, _ = _get_sel_arrays(queries, preds)
+    ytrue, yhat, _ = _get_all_cardinalities(queries, preds)
     epsilons = np.array([REL_LOSS_EPSILON]*len(yhat))
     ytrue = np.maximum(ytrue, epsilons)
     errors = np.abs(ytrue - yhat) / ytrue
     return errors
 
 def compute_abs_loss(queries, preds, **kwargs):
-    ytrue, yhat, totals = _get_sel_arrays(queries, preds)
-    yhat_total = np.multiply(yhat, totals)
+    ytrue, yhat, totals = _get_all_cardinalities(queries, preds)
     errors = np.abs(yhat_total - ytrue)
     return errors
 
@@ -173,7 +171,6 @@ def compute_qerror(queries, preds, **kwargs):
     assert isinstance(preds[0], dict)
 
     args = kwargs["args"]
-    # alg_name = kwargs["name"]
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
 
@@ -183,24 +180,13 @@ def compute_qerror(queries, preds, **kwargs):
                                    ALG = exp_name)
     make_dir(rdir)
 
-    # first, save all the predictions
-    pred_dict = {}
-    for i, qrep in enumerate(queries):
-        pred_dict[qrep["name"]] = preds[i]
-
-    pred_fn = rdir + "/preds.pkl"
-    # update the qerrors here
-    old_results = load_object(pred_fn)
-    if old_results is not None:
-        pred_dict.update(old_results)
-    save_object(pred_fn, pred_dict)
-
-    ytrue, yhat, _ = _get_sel_arrays(queries, preds)
+    ytrue, yhat, _ = _get_all_cardinalities(queries, preds)
     ytrue = np.array(ytrue)
     yhat = np.array(yhat)
-    epsilons = np.array([QERR_MIN_EPS]*len(yhat))
-    ytrue = np.maximum(ytrue, epsilons)
-    yhat = np.maximum(yhat, epsilons)
+    assert 0.00 not in ytrue
+    assert 0.00 not in yhat
+    assert len(ytrue) == len(yhat)
+
     errors = np.maximum((ytrue / yhat), (yhat / ytrue))
     df = qerr_loss_stats(queries, errors,
             samples_type, -1)

@@ -28,6 +28,7 @@ import xgboost as xgb
 from sklearn.ensemble import RandomForestRegressor
 from .custom_linear import CustomLinearModel
 from sqlalchemy import create_engine
+import datetime
 
 # sentinel value for NULLS
 NULL_VALUE = "-1"
@@ -37,6 +38,7 @@ class CardinalityEstimationAlg():
     def __init__(self, *args, **kwargs):
         # TODO: set each of the kwargs as variables
         pass
+
     def train(self, db, training_samples, **kwargs):
         pass
     def test(self, test_samples, **kwargs):
@@ -47,6 +49,10 @@ class CardinalityEstimationAlg():
         list of aliases / table names
         '''
         pass
+
+    def get_exp_name(self):
+        name = self.__str__()
+        return name
 
     def num_parameters(self):
         '''
@@ -60,8 +66,8 @@ class CardinalityEstimationAlg():
         pass
 
 class Postgres(CardinalityEstimationAlg):
-    def __init__(self, num_tables_true=0, regex_true=False):
-        pass
+    # def __init__(self, num_tables_true=0, regex_true=False):
+        # pass
 
     def test(self, test_samples):
         assert isinstance(test_samples[0], dict)
@@ -351,9 +357,12 @@ def qloss(yhat, ytrue, avg=True):
 
 def qloss_torch(yhat, ytrue):
     assert yhat.shape == ytrue.shape
+
     epsilons = to_variable([QERR_MIN_EPS]*len(yhat)).float()
+
     ytrue = torch.max(ytrue, epsilons)
     yhat = torch.max(yhat, epsilons)
+
     errors = torch.max( (ytrue / yhat), (yhat / ytrue))
     return errors
 

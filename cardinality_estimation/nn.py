@@ -428,8 +428,8 @@ class NN(CardinalityEstimationAlg):
         losses = self.loss(pred, Y).detach().numpy()
         loss_avg = round(np.sum(losses) / len(losses), 2)
         # TODO: better print, use self.cur_stats and print after evals
-        print("""{}: {}, N: {}, qerr: {}""".format(
-            samples_type, self.epoch, len(Y), loss_avg))
+        # print("""{}: {}, N: {}, qerr: {}""".format(
+            # samples_type, self.epoch, len(Y), loss_avg))
         if self.adaptive_lr and self.scheduler is not None:
             self.scheduler.step(loss_avg)
 
@@ -595,10 +595,25 @@ class NN(CardinalityEstimationAlg):
                 max_discrete_featurizing_buckets =
                 self.max_discrete_featurizing_buckets,
                 heuristic_features = self.heuristic_features)
+
+        if self.normalization_type == "mscn":
+            y = np.array(get_all_cardinalities(training_samples))
+            y = np.log(y)
+            self.max_val = np.max(y)
+            self.min_val = np.min(y)
+            print("min val: ", self.min_val)
+            print("max val: ", self.max_val)
+        else:
+            assert self.normalization_type == "pg_total_selectivity"
+            self.min_val, self.max_val = None, None
+
         # create a new park env, and close at the end.
         self.env = park.make('query_optimizer')
         training_set = QueryDataset(training_samples, db,
-                self.featurization_scheme, self.heuristic_features)
+                self.featurization_scheme, self.heuristic_features,
+                self.preload_features, self.normalization_type,
+                min_val = self.min_val,
+                max_val = self.max_val)
         self.training_samples = training_samples
         if self.featurization_scheme == "combined":
             self.num_features = len(training_set[0][0])
@@ -635,7 +650,10 @@ class NN(CardinalityEstimationAlg):
                 int(len(training_samples) / eval_samples_size_divider))
         self.samples["train"] = eval_training_samples
         eval_train_set = QueryDataset(eval_training_samples, db,
-                self.featurization_scheme, self.heuristic_features)
+                self.featurization_scheme, self.heuristic_features,
+                self.preload_features, self.normalization_type,
+                min_val = self.min_val,
+                max_val = self.max_val)
         eval_train_loader = data.DataLoader(eval_train_set,
                 batch_size=len(training_set), shuffle=False,num_workers=0)
         self.eval_loaders["train"] = eval_train_loader
@@ -647,7 +665,10 @@ class NN(CardinalityEstimationAlg):
             self.samples["test"] = test_samples
             # TODO: add test dataloader
             test_set = QueryDataset(test_samples, db,
-                    self.featurization_scheme, self.heuristic_features)
+                    self.featurization_scheme, self.heuristic_features,
+                    self.preload_features, self.normalization_type,
+                    min_val = self.min_val,
+                    max_val = self.max_val)
             eval_test_loader = data.DataLoader(test_set,
                     batch_size=len(test_set), shuffle=False,num_workers=0)
             self.eval_loaders["test"] = eval_test_loader
@@ -664,6 +685,7 @@ class NN(CardinalityEstimationAlg):
                     self.hidden_layer_size))
 
         for self.epoch in range(self.max_epochs):
+            start = time.time()
             if self.epoch % self.eval_epoch == 0:
                 eval_start = time.time()
                 self.periodic_eval("train")
@@ -671,6 +693,7 @@ class NN(CardinalityEstimationAlg):
                     self.periodic_eval("test")
                 self.save_stats()
             self.train_one_epoch()
+            # print("epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
                     and self.epoch % self.reprioritize_epoch == 0:
@@ -727,23 +750,31 @@ class NN(CardinalityEstimationAlg):
                         batch_size=self.mb_size, shuffle=False, num_workers=0,
                         sampler = sampler)
 
-        del(training_set.X)
-        del(training_set.Y)
-        del(training_set.info)
+        # if self.preload_features:
+            # del(training_set.X)
+            # del(training_set.Y)
+            # del(training_set.info)
 
     def test(self, test_samples):
         '''
         @test_samples: [] sql_representation dicts
         '''
         dataset = QueryDataset(test_samples, self.db,
-                self.featurization_scheme, self.heuristic_features)
+                self.featurization_scheme, self.heuristic_features,
+                self.preload_features, self.normalization_type,
+                min_val = self.min_val,
+                max_val = self.max_val)
         loader = data.DataLoader(dataset,
                 batch_size=len(dataset), shuffle=False,num_workers=0)
-        pred, _ = self._eval_samples(loader)
-        del(dataset.X)
-        del(dataset.Y)
-        del(dataset.info)
+        pred, y = self._eval_samples(loader)
+        if self.preload_features:
+            del(dataset.X)
+            del(dataset.Y)
+            del(dataset.info)
+        loss = self.loss(pred, y).detach().numpy()
+
         pred = pred.detach().numpy()
+
         all_ests = []
         query_idx = 0
         for sample in test_samples:
@@ -752,8 +783,14 @@ class NN(CardinalityEstimationAlg):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]
                 alias_key = node
                 idx = query_idx + subq_idx
-                est_sel = pred[idx]
-                est_card = est_sel*cards["total"]
+                if self.normalization_type == "mscn":
+                    est_card = np.exp((pred[idx] + \
+                        self.min_val)*(self.max_val-self.min_val))
+                elif self.normalization_type == "pg_total_selectivity":
+                    est_sel = pred[idx]
+                    est_card = est_sel*cards["total"]
+                else:
+                    assert False
                 ests[alias_key] = est_card
             all_ests.append(ests)
             query_idx += len(sample["subset_graph"].nodes())
