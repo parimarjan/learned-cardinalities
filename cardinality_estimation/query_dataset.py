@@ -6,8 +6,9 @@ from db_utils.query_storage import *
 from collections import defaultdict
 
 class QueryDataset(data.Dataset):
-    def __init__(self, qreps, db, featurization_type,
-            heuristic_features):
+    def __init__(self, samples, db, featurization_type,
+            heuristic_features, preload_features,
+            normalization_type, min_val=None, max_val=None):
         '''
         @samples: [] sqlrep query dictionaries, which represent a query and all
         of its subqueries.
@@ -19,13 +20,98 @@ class QueryDataset(data.Dataset):
         index should uniquely map to a subquery.
         '''
         self.db = db
-        self.qreps = qreps
+        self.samples = samples
         self.heuristic_features = heuristic_features
         self.featurization_type = featurization_type
+        self.preload_features = preload_features
+        self.normalization_type = normalization_type
+        self.min_val = min_val
+        self.max_val = max_val
+        if self.normalization_type == "mscn":
+            assert min_val is not None
+            assert max_val is not None
+
         # TODO: we want to avoid this, and convert them on the fly. Just keep
         # some indexing information around.
-        self.X, self.Y, self.info = self._get_feature_vectors(qreps)
-        self.num_samples = len(self.Y)
+        if self.preload_features:
+            self.X, self.Y, self.info = self._get_feature_vectors(samples)
+            self.num_samples = len(self.Y)
+        else:
+            self.subq_to_query_idx, self.qstart_idxs = self._update_idxs(samples)
+            self.num_samples = len(self.subq_to_query_idx)
+
+    def _update_idxs(self, samples):
+        qidx = 0
+        idx_map = {}
+        idx_starts = []
+        for i, qrep in enumerate(samples):
+            # TODO: can also save these values and generate features when
+            # needed, without wasting memory
+            idx_starts.append(qidx)
+            for sidx, _ in enumerate(qrep["subset_graph"].nodes(data=True)):
+                idx_map[qidx + sidx] = i
+
+            qidx += len(qrep["subset_graph"].nodes())
+        return idx_map, idx_starts
+
+    def _get_feature_vector(self, qrep, nodes):
+        '''
+        '''
+        card_info = qrep["subset_graph"].nodes()[nodes]
+        pg_sel = float(card_info["cardinality"]["expected"]) / card_info["cardinality"]["total"]
+        true_sel = float(card_info["cardinality"]["actual"]) / card_info["cardinality"]["total"]
+        pred_features = np.zeros(self.db.pred_features_len)
+        table_features = np.zeros(len(self.db.tables))
+        join_features = np.zeros(len(self.db.joins))
+
+        node_data = qrep["join_graph"].nodes(data=True)
+        for node in nodes:
+            # no overlap between these arrays
+            info = node_data[node]
+            table_features += self.db.get_table_features(info["real_name"])
+            pg_est = None
+            # FIXME: depends on normalization type
+            if self.heuristic_features:
+                node_key = tuple([node])
+                cards = qrep["subset_graph"].nodes()[node_key]["cardinality"]
+                pg_est = float(cards["expected"]) / cards["total"]
+            if len(info["pred_cols"]) == 0:
+                cur_pred_features = np.zeros(self.db.pred_features_len)
+            else:
+                cur_pred_features = self.db.get_pred_features(info["pred_cols"][0],
+                        info["pred_vals"][0], info["pred_types"][0], pg_est)
+            if self.heuristic_features:
+                assert cur_pred_features[-1] == 0.00
+                cur_pred_features[-1] = pg_sel
+            pred_features += cur_pred_features
+
+        edge_data = qrep["join_graph"].edges(data=True)
+        for edge in edge_data:
+            if edge[0] in nodes and edge[1] in nodes:
+                info = edge[2]
+                cur_edge_features = self.db.get_join_features(info["join_condition"])
+                join_features += cur_edge_features
+
+        if self.normalization_type == "pg_total_selectivity":
+            y = to_variable(np.array([true_sel])).float()[0]
+        else:
+            assert False
+
+        cur_info = {}
+        if self.featurization_type == "combined":
+            x = np.concatenate([table_features, join_features, pred_features])
+            x = to_variable(x).float()
+            return x,y,cur_info
+        else:
+            return to_variable(table_features).float(), \
+                   to_variable(pred_features).float(), \
+                   to_variable(join_features).float(), y, cur_info
+
+    def normalize_val(self, val, total):
+        if self.normalization_type == "mscn":
+            return (np.log(val) - self.min_val) / (self.max_val - self.min_val)
+        else:
+            return float(val) / total
 
     def _get_feature_vectors(self, samples):
         '''
@@ -52,17 +138,20 @@ class QueryDataset(data.Dataset):
                 table_features = self.db.get_table_features(info["real_name"])
                 table_feat_dict[node] = table_features
                 # TODO: pass in the cardinality as well.
-                pg_est = None
+                heuristic_est = None
                 if self.heuristic_features:
                     node_key = tuple([node])
                     cards = qrep["subset_graph"].nodes()[node_key]["cardinality"]
-                    pg_est = float(cards["expected"]) / cards["total"]
+                    # heuristic_est = float(cards["expected"]) / cards["total"]
+                    heuristic_est = self.normalize_val(cards["expected"],
+                            cards["total"])
+
                 if len(info["pred_cols"]) == 0:
                     pred_features = np.zeros(self.db.pred_features_len)
                 else:
                     pred_features = self.db.get_pred_features(info["pred_cols"][0],
-                            info["pred_vals"][0], info["pred_types"][0], pg_est)
-
+                            info["pred_vals"][0], info["pred_types"][0],
+                            heuristic_est)
                 pred_feat_dict[node] = pred_features
 
             edge_data = qrep["join_graph"].edges(data=True)
@@ -73,8 +162,10 @@ class QueryDataset(data.Dataset):
                 edge_feat_dict[edge_key] = edge_features
 
             for nodes, info in qrep["subset_graph"].nodes().items():
-                pg_sel = float(info["cardinality"]["expected"]) / info["cardinality"]["total"]
-                true_sel = float(info["cardinality"]["actual"]) / info["cardinality"]["total"]
+                pg_est = info["cardinality"]["expected"]
+                true_val = info["cardinality"]["actual"]
+                total = info["cardinality"]["total"]
+
                 pred_features = np.zeros(self.db.pred_features_len)
                 table_features = np.zeros(len(self.db.tables))
                 join_features = np.zeros(len(self.db.joins))
@@ -84,7 +175,7 @@ class QueryDataset(data.Dataset):
                     table_features += table_feat_dict[node]
                 if self.heuristic_features:
                     assert pred_features[-1] == 0.00
-                    pred_features[-1] = pg_sel
+                    pred_features[-1] = self.normalize_val(pg_est, total)
 
                 # TODO: optimize...
                 for node1 in nodes:
@@ -100,11 +191,11 @@ class QueryDataset(data.Dataset):
                     X["table"].append(table_features)
                     X["join"].append(join_features)
                     X["pred"].append(pred_features)
-                    # X.append((table_features, join_features, pred_features))
-                Y.append(true_sel)
+
+                Y.append(self.normalize_val(true_val, total))
                 cur_info = {}
                 cur_info["num_tables"] = len(nodes)
-                cur_info["total"] = info["cardinality"]["total"]
+                cur_info["total"] = total
                 sample_info.append(cur_info)
 
         print("get features took: ", time.time() - start)
@@ -124,8 +215,17 @@ class QueryDataset(data.Dataset):
     def __getitem__(self, index):
         '''
         '''
-        if self.featurization_type == "combined":
-            return self.X[index], self.Y[index], self.info[index]
+        if self.preload_features:
+            if self.featurization_type == "combined":
+                return self.X[index], self.Y[index], self.info[index]
+            else:
+                return (self.X["table"][index], self.X["pred"][index],
+                        self.X["join"][index], self.Y[index], self.info[index])
         else:
-            return (self.X["table"][index], self.X["pred"][index],
-                    self.X["join"][index], self.Y[index], self.info[index])
+            qidx = self.subq_to_query_idx[index]
+            idx_start = self.qstart_idxs[qidx]
+            subq_idx = index - idx_start
+            qrep = self.samples[qidx]
+            return self._get_feature_vector(qrep,
+                    list(qrep["subset_graph"].nodes())[subq_idx])
+

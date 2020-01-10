@@ -67,6 +67,8 @@ def get_alg(alg):
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 tfboard = args.tfboard,
+                normalization_type = args.normalization_type,
+                preload_features = args.preload_features,
                 reprioritize_epoch = args.reprioritize_epoch,
                 heuristic_features = args.heuristic_features,
                 debug_set = args.debug_set,
@@ -183,6 +185,10 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
+        if "7a" in qdir:
+            print("skipping query 7a")
+            continue
+
         start = time.time()
         # loading, or generating samples
         samples = []
@@ -239,13 +245,6 @@ def main():
         train_queries += cur_train_queries
         test_queries += cur_test_queries
 
-    # ys = []
-    # for sample in train_queries:
-    # ys += get_all_cardinalities(train_queries)
-    # ys += get_all_cardinalities(test_queries)
-    # ys = np.array(ys)
-    # logys = np.log(ys)
-    # pdb.set_trace()
     # shuffle train, test queries so join loss computation can be parallelized
     # better: otherwise all queries from templates that take a long time would
     # go to same worker
@@ -309,6 +308,11 @@ def read_flags():
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
+    parser.add_argument("--preload_features", type=int, required=False,
+            default=1)
+    parser.add_argument("--normalization_type", type=str, required=False,
+            default="pg_total_selectivity")
+
     parser.add_argument("--num_tables_model", type=str, required=False,
             default="nn")
     parser.add_argument("--nn_weights_init_pg", type=int, required=False,
