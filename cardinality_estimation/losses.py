@@ -51,6 +51,21 @@ def join_op_stats(explains):
 def node_match(n1, n2):
     return n1 == n2
 
+def add_row(losses, loss_type, epoch, template,
+        num_tables, samples_type, stats):
+    for i, func in enumerate(summary_funcs):
+        loss = func(losses)
+        # row = [epoch, loss_type, loss, summary_types[i],
+                # template, num_tables, len(losses)]
+        stats["epoch"].append(epoch)
+        stats["loss_type"].append(loss_type)
+        stats["loss"].append(loss)
+        stats["summary_type"].append(summary_types[i])
+        stats["template"].append(template)
+        stats["num_tables"].append(num_tables)
+        stats["num_samples"].append(len(losses))
+        stats["samples_type"].append(samples_type)
+
 def qerr_loss_stats(samples, losses, samples_type,
         epoch):
     '''
@@ -59,21 +74,6 @@ def qerr_loss_stats(samples, losses, samples_type,
 
     @ret: dataframe summarizing all the stats
     '''
-    def add_row(losses, loss_type, epoch, template,
-            num_tables, samples_type, stats):
-        for i, func in enumerate(summary_funcs):
-            loss = func(losses)
-            row = [epoch, loss_type, loss, summary_types[i],
-                    template, num_tables, len(losses)]
-            stats["epoch"].append(epoch)
-            stats["loss_type"].append(loss_type)
-            stats["loss"].append(loss)
-            stats["summary_type"].append(summary_types[i])
-            stats["template"].append(template)
-            stats["num_tables"].append(num_tables)
-            stats["num_samples"].append(len(losses))
-            stats["samples_type"].append(samples_type)
-
     stats = defaultdict(list)
     # assert "ordered" in type(samples[0]["subset_graph"])
     assert isinstance(samples[0]["subset_graph"], nx.OrderedDiGraph)
