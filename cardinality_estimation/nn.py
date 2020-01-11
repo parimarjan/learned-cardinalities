@@ -177,6 +177,10 @@ class NN(CardinalityEstimationAlg):
             self.loss = rel_loss_torch
         elif self.loss_func == "weighted":
             self.loss = weighted_loss
+        elif self.loss_func == "abs":
+            self.loss = abs_loss_torch
+        elif self.loss_func == "mse":
+            self.loss = torch.nn.MSELoss(reduction="none")
         else:
             assert False
 
@@ -426,7 +430,7 @@ class NN(CardinalityEstimationAlg):
     def periodic_eval(self, samples_type):
         pred, Y = self.eval_samples(samples_type)
         losses = self.loss(pred, Y).detach().numpy()
-        loss_avg = round(np.sum(losses) / len(losses), 2)
+        loss_avg = round(np.sum(losses) / len(losses), 6)
         # TODO: better print, use self.cur_stats and print after evals
         print("""{}: {}, N: {}, qerr: {}""".format(
             samples_type, self.epoch, len(Y), loss_avg))

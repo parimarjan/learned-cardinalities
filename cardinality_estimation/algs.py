@@ -382,18 +382,9 @@ def abs_loss(yhat, ytrue, avg=True):
 
     return error
 
-def abs_loss_torch(yhat, ytrue, avg=True):
+def abs_loss_torch(yhat, ytrue):
     '''
     numpy version.
     '''
-    # ytrue = torch.max(ytrue, epsilons)
-    # yhat = torch.max(yhat, epsilons)
-
-    # TODO: check this
     errors = torch.abs(ytrue - yhat)
-    if avg:
-        error = errors.sum() / len(yhat)
-    else:
-        return errors
-
-    return error
+    return errors
