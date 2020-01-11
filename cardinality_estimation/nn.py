@@ -20,7 +20,7 @@ from tensorflow import summary as tf_summary
 from multiprocessing.pool import ThreadPool
 
 try:
-    mp.set_start_method("spawn")
+    mp.set_start_method("forkserver")
 except:
     pass
 
@@ -428,8 +428,8 @@ class NN(CardinalityEstimationAlg):
         losses = self.loss(pred, Y).detach().numpy()
         loss_avg = round(np.sum(losses) / len(losses), 2)
         # TODO: better print, use self.cur_stats and print after evals
-        # print("""{}: {}, N: {}, qerr: {}""".format(
-            # samples_type, self.epoch, len(Y), loss_avg))
+        print("""{}: {}, N: {}, qerr: {}""".format(
+            samples_type, self.epoch, len(Y), loss_avg))
         if self.adaptive_lr and self.scheduler is not None:
             self.scheduler.step(loss_avg)
 
@@ -655,7 +655,7 @@ class NN(CardinalityEstimationAlg):
                 min_val = self.min_val,
                 max_val = self.max_val)
         eval_train_loader = data.DataLoader(eval_train_set,
-                batch_size=len(training_set), shuffle=False,num_workers=0)
+                batch_size=10000, shuffle=False,num_workers=0)
         self.eval_loaders["train"] = eval_train_loader
 
         # TODO: add separate dataset, dataloaders for evaluation
@@ -670,7 +670,7 @@ class NN(CardinalityEstimationAlg):
                     min_val = self.min_val,
                     max_val = self.max_val)
             eval_test_loader = data.DataLoader(test_set,
-                    batch_size=len(test_set), shuffle=False,num_workers=0)
+                    batch_size=10000, shuffle=False,num_workers=0)
             self.eval_loaders["test"] = eval_test_loader
         else:
             self.samples["test"] = None
@@ -765,14 +765,13 @@ class NN(CardinalityEstimationAlg):
                 min_val = self.min_val,
                 max_val = self.max_val)
         loader = data.DataLoader(dataset,
-                batch_size=len(dataset), shuffle=False,num_workers=0)
+                batch_size=1000, shuffle=False,num_workers=0)
         pred, y = self._eval_samples(loader)
         if self.preload_features:
             del(dataset.X)
             del(dataset.Y)
             del(dataset.info)
-        loss = self.loss(pred, y).detach().numpy()
-
+        # loss = self.loss(pred, y).detach().numpy()
         pred = pred.detach().numpy()
 
         all_ests = []

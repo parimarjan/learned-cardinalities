@@ -381,6 +381,8 @@ def read_flags():
 
     parser.add_argument("--avg_jl_priority", type=int, required=False,
             default=1)
+    parser.add_argument("--jl_indexes", type=int, required=False,
+            default=1)
     parser.add_argument("--adaptive_lr", type=int,
             required=False, default=0)
     parser.add_argument("--adaptive_lr_patience", type=int,
