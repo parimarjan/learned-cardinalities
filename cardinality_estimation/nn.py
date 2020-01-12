@@ -51,7 +51,7 @@ def percentile_help(q):
         return np.percentile(arr, q)
     return f
 
-def compute_subquery_priorities(qrep, pred, env):
+def compute_subquery_priorities(qrep, pred, env, use_indexes=True):
     priorities = np.ones(len(qrep["subset_graph"].nodes()))
     priority_dict = {}
     start = time.time()
@@ -78,7 +78,8 @@ def compute_subquery_priorities(qrep, pred, env):
         sql = nx_graph_to_query(subgraph)
         # we need to go over descendants to get all the required cardinalities
         (est_costs, opt_costs,_,_,_,_) = \
-                join_loss_pg([sql], [trues], [ests], env, None, 1)
+                join_loss_pg([sql], [trues], [ests], env, use_indexes,
+                        None, 1)
 
         # now, decide what to do next with these.
         assert len(est_costs) == 1
@@ -138,7 +139,8 @@ def compute_subquery_priorities2(qrep, pred, env):
             trues[alias_key] = node_info["cardinality"]["actual"]
 
         (est_costs, opt_costs,_,_,_,_) = \
-                join_loss_pg([sql], [trues], [ests], env, None, 1)
+                join_loss_pg([sql], [trues], [ests], env, use_indexes,
+                        None, 1)
 
         # now, decide what to do next with these.
         assert len(est_costs) == 1
@@ -477,7 +479,8 @@ class NN(CardinalityEstimationAlg):
             sqls, true_cardinalities, est_cardinalities = \
                     self.get_query_estimates(pred, samples)
             (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
-                    true_cardinalities, est_cardinalities, self.env, None,
+                    true_cardinalities, est_cardinalities, self.env,
+                    self.jl_indexes, None,
                     self.num_join_loss_processes)
 
             join_losses = np.array(est_costs) - np.array(opt_costs)
@@ -710,7 +713,8 @@ class NN(CardinalityEstimationAlg):
                             self.get_query_estimates(pred,
                                     self.training_samples)
                     (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
-                            true_cardinalities, est_cardinalities, self.env, None,
+                            true_cardinalities, est_cardinalities, self.env,
+                            self.jl_indexes, None,
                             self.num_join_loss_processes)
                     jerr_ratio = est_costs / opt_costs
                     jerr = est_costs - opt_costs

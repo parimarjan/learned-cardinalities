@@ -224,7 +224,7 @@ def fix_query(query):
     return query
 
 def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
-        pdf=None, num_processes=1):
+        use_indexes, pdf=None, num_processes=1):
     '''
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
@@ -237,7 +237,8 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
     est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
                 env.compute_join_order_loss(sqls,
                         true_cardinalities, est_cardinalities,
-                        None, num_processes=num_processes, postgres=True)
+                        None, use_indexes,
+                        num_processes=num_processes, postgres=True)
     assert isinstance(est_costs, np.ndarray)
 
     # TODO: put this in the parsing scripts
@@ -311,13 +312,17 @@ def compute_join_order_loss(queries, preds, **kwargs):
     env = park.make('query_optimizer')
     # TODO: do pdf stuff here
     args = kwargs["args"]
-    alg_name = kwargs["name"]
+    use_indexes = args.jl_indexes
+
+    exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
-    costs_dir_tmp = "{RESULT_DIR}/{ALG}/"
-    costs_dir = costs_dir_tmp.format(RESULT_DIR = args.result_dir,
-                                   ALG = alg_name)
-    make_dir(costs_dir)
-    costs_fn = costs_dir + "jerr.pkl"
+
+    # here, we assume that the alg name is unique enough, for their results to
+    # be grouped together
+    rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
+                                   ALG = exp_name)
+    make_dir(rdir)
+    costs_fn = rdir + "jerr.pkl"
     costs = load_object(costs_fn)
     if costs is None:
         columns = ["sql_key", "explain","plan","exec_sql","cost",
@@ -350,7 +355,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
     if args.jl_use_postgres:
         est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
                         join_loss_pg(sqls, true_cardinalities,
-                                est_cardinalities, env, pdf=None,
+                                est_cardinalities, env, use_indexes, pdf=None,
                                 num_processes=multiprocessing.cpu_count())
 
         for i, qrep in enumerate(queries):

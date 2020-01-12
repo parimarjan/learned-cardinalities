@@ -235,7 +235,7 @@ class DB():
         pred_idx_start = cmp_op_idx + len(self.cmp_ops)
         num_pred_vals = num_vals - len(self.cmp_ops)
         col_info = self.column_stats[col]
-        assert num_pred_vals >= 2
+        # assert num_pred_vals >= 2
 
         # 1 additional value for pg_est feature
         assert num_pred_vals <= col_info["num_values"] + 1
@@ -294,7 +294,7 @@ class DB():
                 pred_idx_start = cmp_op_idx + len(self.cmp_ops)
                 num_pred_vals = num_vals - len(self.cmp_ops)
                 col_info = self.column_stats[col]
-                assert num_pred_vals >= 2
+                # assert num_pred_vals >= 2
                 assert num_pred_vals <= col_info["num_values"]
                 if cmp_op == "in" or \
                         "like" in cmp_op or \

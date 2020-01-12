@@ -67,6 +67,7 @@ def get_alg(alg):
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 tfboard = args.tfboard,
+                jl_indexes = args.jl_indexes,
                 normalization_type = args.normalization_type,
                 preload_features = args.preload_features,
                 reprioritize_epoch = args.reprioritize_epoch,
@@ -185,9 +186,9 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-        if "7a" in qdir:
-            print("skipping query 7a")
-            continue
+        # if "7a" in qdir:
+            # print("skipping query 7a")
+            # continue
 
         start = time.time()
         # loading, or generating samples
