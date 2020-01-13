@@ -62,12 +62,87 @@ def get_alg_name(exp_args):
     else:
         return exp_args["algs"]
 
+def skip_exp(exp_args):
+    if exp_args["sampling_priority_alpha"] > 2.00:
+        return True
+    if exp_args["max_discrete_featurizing_buckets"] > 10:
+        return True
+
+    return False
+
+def plot_join_summaries(pdf):
+    all_dfs = []
+    fns = os.listdir(args.results_dir)
+    for fn in fns:
+        # convert to same format as qerrs
+        cur_dir = args.results_dir + "/" + fn
+        exp_args = load_object(cur_dir + "/args.pkl")
+        if exp_args is None:
+            continue
+        exp_args = vars(exp_args)
+        if skip_exp(exp_args):
+            continue
+
+        try:
+            jerrs = load_object(cur_dir + "/jerr.pkl")
+        except:
+            print("skipping ", cur_dir)
+            continue
+        if jerrs is None:
+            continue
+
+        exp_args["alg"] = get_alg_name(exp_args)
+        for exp_column in EXP_COLUMNS:
+            jerrs[exp_column] = exp_args[exp_column]
+
+        all_dfs.append(jerrs)
+
+    df = pd.concat(all_dfs, ignore_index=True)
+
+    for st in set(df["samples_type"]):
+        cur_df = df[df["samples_type"] == st]
+        # plot it in pdf
+
+        fg = sns.catplot(x="alg", y="cost",
+                data=df, row="max_discrete_featurizing_buckets",
+                col = "hidden_layer_size", hue="alg", kind="strip")
+        # fg.axes[0].legend(loc='upper left')
+        fg.add_legend()
+
+        # TODO: set how many queries are there on each table
+        # for i, ax in enumerate(fg.axes.flat):
+            # tmp = templates[i]
+            # sqs = sort_df[sort_df["template"] == tmp]["num_subqueries"].values[0]
+            # title = tmp + " ,#subqueries: " + str(sqs)
+            # ax.set_title(title)
+
+        # title
+        # fg.fig.suptitle(title,
+                # x=0.5, y=.99, horizontalalignment='center',
+                # verticalalignment='top', fontsize = 40)
+
+        # fg.set(ylim=(0,10.0))
+        fg.despine(left=True)
+
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        pdf.savefig()
+        plt.clf()
+
 def get_summary_df():
     all_dfs = []
     fns = os.listdir(args.results_dir)
     for fn in fns:
+        # convert to same format as qerrs
+        cur_dir = args.results_dir + "/" + fn
+        exp_args = load_object(cur_dir + "/args.pkl")
+        if exp_args is None:
+            continue
+        exp_args = vars(exp_args)
+        exp_args["alg"] = get_alg_name(exp_args)
+        if skip_exp(exp_args):
+            continue
+
         try:
-            cur_dir = args.results_dir + "/" + fn
             qerrs = load_qerrs(cur_dir)
             jerrs = load_jerrs(cur_dir)
         except:
@@ -83,11 +158,6 @@ def get_summary_df():
 
         cur_df = pd.concat([qerrs, jerrs], ignore_index=True)
 
-        # convert to same format as qerrs
-
-        exp_args = load_object(cur_dir + "/args.pkl")
-        exp_args = vars(exp_args)
-        exp_args["alg"] = get_alg_name(exp_args)
         for exp_column in EXP_COLUMNS:
             cur_df[exp_column] = exp_args[exp_column]
 
@@ -123,9 +193,11 @@ def plot_summary(pdf, df, title):
     plt.clf()
 
 def main():
+    pdf = PdfPages("results.pdf")
+
     summary_df = get_summary_df()
     SUMMARY_TITLE_FMT = "{ST}-{LT}-{SUMMARY}"
-    pdf = PdfPages("results.pdf")
+
     for samples_type in set(summary_df["samples_type"]):
         st_df = summary_df[summary_df["samples_type"] == samples_type]
         for lt in set(st_df["loss_type"]):
@@ -139,8 +211,8 @@ def main():
                                                  SUMMARY = summary_type)
                 plot_summary(pdf, plot_df, title)
 
+    plot_join_summaries(pdf)
     pdf.close()
-    pdb.set_trace()
 
 args = read_flags()
 main()
