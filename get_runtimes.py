@@ -85,6 +85,8 @@ def main():
         cur_runtimes["exp_analyze"].append(exp_analyze)
 
     for alg_dir in os.listdir(args.results_dir):
+        if alg_dir not in ["true", "postgres"]:
+            continue
         costs_fn = args.results_dir + "/" + alg_dir + "/" + "jerr.pkl"
         costs = load_object(costs_fn)
         assert isinstance(costs, pd.DataFrame)
