@@ -11,7 +11,7 @@ from collections import defaultdict
 # from utils.utils import *
 import sys
 
-TIMEOUT_CONSTANT = 3609
+TIMEOUT_CONSTANT = 909
 
 def save_object(file_name, data):
     with open(file_name, "wb") as f:
