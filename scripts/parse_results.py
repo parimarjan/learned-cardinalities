@@ -66,12 +66,16 @@ def get_summary_df():
     all_dfs = []
     fns = os.listdir(args.results_dir)
     for fn in fns:
-        cur_dir = args.results_dir + "/" + fn
-        qerrs = load_qerrs(cur_dir)
+        try:
+            cur_dir = args.results_dir + "/" + fn
+            qerrs = load_qerrs(cur_dir)
+            jerrs = load_jerrs(cur_dir)
+        except:
+            print("skipping ", cur_dir)
+            continue
         qerrs = qerrs[qerrs["num_tables"] == "all"]
         qerrs = qerrs[LOSS_COLUMNS]
 
-        jerrs = load_jerrs(cur_dir)
         if jerrs is None:
             continue
         jerrs = jerrs[LOSS_COLUMNS]
@@ -96,7 +100,6 @@ def plot_summary(pdf, df, title):
     fg = sns.catplot(x="alg", y="loss",
             data=df, row="max_discrete_featurizing_buckets",
             col = "hidden_layer_size", hue="alg", kind="bar")
-    print(type(fg))
     # fg.axes[0].legend(loc='upper left')
     fg.add_legend()
 

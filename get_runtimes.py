@@ -47,7 +47,7 @@ def execute_sql(sql, template="sql"):
 
     cursor = con.cursor()
     cursor.execute("LOAD 'pg_hint_plan';")
-    cursor.execute("SET geqo_threshold = {}".format(16))
+    cursor.execute("SET geqo_threshold = {}".format(20))
     cursor.execute("SET join_collapse_limit = {}".format(1))
     cursor.execute("SET from_collapse_limit = {}".format(1))
     cursor.execute("SET statement_timeout = {}".format(3600000))
@@ -85,7 +85,7 @@ def main():
         cur_runtimes["exp_analyze"].append(exp_analyze)
 
     for alg_dir in os.listdir(args.results_dir):
-        costs_fn = args.results_dir + "/" + alg_dir + "/" + "costs.pkl"
+        costs_fn = args.results_dir + "/" + alg_dir + "/" + "jerr.pkl"
         costs = load_object(costs_fn)
         assert isinstance(costs, pd.DataFrame)
         rt_fn = args.results_dir + "/" + alg_dir + "/" + "runtimes.pkl"
