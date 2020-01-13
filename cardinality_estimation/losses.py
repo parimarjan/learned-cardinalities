@@ -310,10 +310,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
     assert isinstance(queries[0], dict)
 
     env = park.make('query_optimizer')
-    # TODO: do pdf stuff here
     args = kwargs["args"]
     use_indexes = args.jl_indexes
-
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
 
