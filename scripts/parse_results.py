@@ -21,6 +21,7 @@ EXP_COLUMNS = ["num_hidden_layers", "hidden_layer_size",
         "sampling_priority_alpha", "max_discrete_featurizing_buckets",
         "heuristic_features", "alg"]
 PLOT_SUMMARY_TYPES = ["mean"]
+ALGS_ORDER = ["mscn", "mscn-priority", "microsoft", "microsoft-priority"]
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -57,7 +58,8 @@ def get_alg_name(exp_args):
     if exp_args["algs"] == "nn":
         name = exp_args["nn_type"]
         if exp_args["sampling_priority_alpha"] > 0:
-            name += "-" + str(exp_args["sampling_priority_alpha"])
+            # name += "-" + str(exp_args["sampling_priority_alpha"])
+            name += "-" + "priority"
         return name
     else:
         return exp_args["algs"]
@@ -105,7 +107,8 @@ def plot_join_summaries(pdf):
 
         fg = sns.catplot(x="alg", y="cost",
                 data=df, row="max_discrete_featurizing_buckets",
-                col = "hidden_layer_size", hue="alg", kind="strip")
+                col = "hidden_layer_size", hue="alg", kind="strip",
+                order=ALGS_ORDER, hue_order=ALGS_ORDER)
         # fg.axes[0].legend(loc='upper left')
         fg.add_legend()
 
@@ -169,7 +172,8 @@ def get_summary_df():
 def plot_summary(pdf, df, title):
     fg = sns.catplot(x="alg", y="loss",
             data=df, row="max_discrete_featurizing_buckets",
-            col = "hidden_layer_size", hue="alg", kind="bar")
+            col = "hidden_layer_size", hue="alg", kind="bar",
+            order = ALGS_ORDER, hue_order = ALGS_ORDER)
     # fg.axes[0].legend(loc='upper left')
     fg.add_legend()
 
@@ -198,6 +202,7 @@ def main():
     summary_df = get_summary_df()
     SUMMARY_TITLE_FMT = "{ST}-{LT}-{SUMMARY}"
 
+    summary_df = summary_df[summary_df["samples_type"] == "test"]
     for samples_type in set(summary_df["samples_type"]):
         st_df = summary_df[summary_df["samples_type"] == samples_type]
         for lt in set(st_df["loss_type"]):
