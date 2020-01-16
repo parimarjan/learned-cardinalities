@@ -27,6 +27,8 @@ def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results_dir", type=str, required=False,
             default="./results")
+    parser.add_argument("--only_test", type=int, required=False,
+            default=1)
     return parser.parse_args()
 
 def load_qerrs(exp_dir):
@@ -72,7 +74,16 @@ def skip_exp(exp_args):
 
     return False
 
-def plot_join_summaries(pdf):
+def analyze_joins():
+    fns = os.listdir(args.results_dir)
+    for fn in fns:
+        cur_dir = args.results_dir + "/" + fn
+        jerrs = load_object(cur_dir + "/jerr.pkl")
+        if jerrs is None:
+            continue
+        jerrs = jerrs[["cost", "samples_type", "template"]]
+
+def get_all_jerrs():
     all_dfs = []
     fns = os.listdir(args.results_dir)
     for fn in fns:
@@ -100,31 +111,49 @@ def plot_join_summaries(pdf):
         all_dfs.append(jerrs)
 
     df = pd.concat(all_dfs, ignore_index=True)
+    if args.only_test:
+        df = df[df["samples_type"] == "test"]
+    return df
 
+def plot_join_summaries(pdf):
+    df = get_all_jerrs()
     for st in set(df["samples_type"]):
         cur_df = df[df["samples_type"] == st]
         # plot it in pdf
 
         fg = sns.catplot(x="alg", y="cost",
                 data=df, row="max_discrete_featurizing_buckets",
-                col = "hidden_layer_size", hue="alg", kind="strip",
-                order=ALGS_ORDER, hue_order=ALGS_ORDER)
-        # fg.axes[0].legend(loc='upper left')
+                col = "hidden_layer_size", hue="alg", kind="bar",
+                order=ALGS_ORDER, hue_order=ALGS_ORDER, ci=95)
         fg.add_legend()
 
-        # TODO: set how many queries are there on each table
-        # for i, ax in enumerate(fg.axes.flat):
-            # tmp = templates[i]
-            # sqs = sort_df[sort_df["template"] == tmp]["num_subqueries"].values[0]
-            # title = tmp + " ,#subqueries: " + str(sqs)
-            # ax.set_title(title)
+        title = "Join Error"
+        fg.fig.suptitle(title,
+                x=0.5, y=.99, horizontalalignment='center',
+                verticalalignment='top', fontsize = 40)
+        fg.despine(left=True)
 
-        # title
-        # fg.fig.suptitle(title,
-                # x=0.5, y=.99, horizontalalignment='center',
-                # verticalalignment='top', fontsize = 40)
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        pdf.savefig()
+        plt.clf()
 
-        # fg.set(ylim=(0,10.0))
+def plot_join_summaries2(pdf):
+    df = get_all_jerrs()
+    HUES_ORDER = [0, 1]
+
+    for st in set(df["samples_type"]):
+        cur_df = df[df["samples_type"] == st]
+        fg = sns.catplot(x="alg", y="cost",
+                data=df, row="max_discrete_featurizing_buckets",
+                col = "hidden_layer_size", hue="heuristic_features",
+                kind="bar",
+                order=ALGS_ORDER, hue_order=HUES_ORDER, ci=95)
+        fg.add_legend()
+
+        title = "Join Error"
+        fg.fig.suptitle(title,
+                x=0.5, y=.99, horizontalalignment='center',
+                verticalalignment='top', fontsize = 40)
         fg.despine(left=True)
 
         plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -198,11 +227,13 @@ def plot_summary(pdf, df, title):
 
 def main():
     pdf = PdfPages("results.pdf")
+    # plot_join_summaries2(pdf)
 
     summary_df = get_summary_df()
     SUMMARY_TITLE_FMT = "{ST}-{LT}-{SUMMARY}"
 
-    summary_df = summary_df[summary_df["samples_type"] == "test"]
+    if args.only_test:
+        summary_df = summary_df[summary_df["samples_type"] == "test"]
     for samples_type in set(summary_df["samples_type"]):
         st_df = summary_df[summary_df["samples_type"] == samples_type]
         for lt in set(st_df["loss_type"]):
@@ -210,13 +241,12 @@ def main():
             for summary_type in PLOT_SUMMARY_TYPES:
                 plot_df = lt_df[lt_df["summary_type"] == summary_type]
                 plot_df = plot_df[plot_df["template"] == "all"]
-                print(set(plot_df["alg"]))
+                # print(set(plot_df["alg"]))
                 title = SUMMARY_TITLE_FMT.format(ST = samples_type,
                                                  LT = lt,
                                                  SUMMARY = summary_type)
                 plot_summary(pdf, plot_df, title)
 
-    plot_join_summaries(pdf)
     pdf.close()
 
 args = read_flags()
