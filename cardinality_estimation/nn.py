@@ -19,10 +19,10 @@ import multiprocessing
 from tensorflow import summary as tf_summary
 from multiprocessing.pool import ThreadPool
 
-try:
-    mp.set_start_method("forkserver")
-except:
-    pass
+# try:
+    # mp.set_start_method("forkserver")
+# except:
+    # pass
 
 import park
 import matplotlib.pyplot as plt
@@ -196,7 +196,10 @@ class NN(CardinalityEstimationAlg):
         # number of processes used for computing train and test join losses
         # using park envs. These are computed simultaneously, while the next
         # iterations of the neural net train.
-        self.num_join_loss_processes = multiprocessing.cpu_count()
+        # if self.hidden_layer_size <= 100:
+            # self.num_join_loss_processes = multiprocessing.cpu_count()
+        # else:
+            # self.num_join_loss_processes = 1
 
         nn_results_dir = self.nn_results_dir
 
@@ -481,7 +484,7 @@ class NN(CardinalityEstimationAlg):
             (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
                     true_cardinalities, est_cardinalities, self.env,
                     self.jl_indexes, None,
-                    self.num_join_loss_processes)
+                    pool = self.join_loss_pool)
 
             join_losses = np.array(est_costs) - np.array(opt_costs)
             join_losses = np.maximum(join_losses, 0.00)
@@ -565,8 +568,12 @@ class NN(CardinalityEstimationAlg):
                 alias_key = ' '.join(node)
                 # alias_key = node
                 idx = query_idx + subq_idx
-                est_sel = pred[idx]
-                est_card = est_sel*cards["total"]
+                if self.normalization_type == "mscn":
+                    est_card = np.exp((pred[idx] + \
+                        self.min_val)*(self.max_val-self.min_val))
+                else:
+                    est_sel = pred[idx]
+                    est_card = est_sel*cards["total"]
                 # ests[alias_key] = int(est_card)
                 ests[alias_key] = est_card
                 trues[alias_key] = cards["actual"]
@@ -584,14 +591,14 @@ class NN(CardinalityEstimationAlg):
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
 
     def train(self, db, training_samples, use_subqueries=False,
-            test_samples=None):
+            test_samples=None, join_loss_pool = None):
         assert isinstance(training_samples[0], dict)
         if not self.nn_type == "num_tables":
             self.num_threads = multiprocessing.cpu_count()
-            # torch.set_num_threads(self.num_threads)
         else:
-            # self.num_threads = -1
             self.num_threads = multiprocessing.cpu_count(epoch)
+
+        self.join_loss_pool = join_loss_pool
 
         if self.tfboard:
             self.initialize_tfboard()
@@ -699,8 +706,9 @@ class NN(CardinalityEstimationAlg):
                 if self.samples["test"] is not None:
                     self.periodic_eval("test")
                 self.save_stats()
+
             self.train_one_epoch()
-            # print("epoch took: ", time.time() - start)
+            print("epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
                     and self.epoch % self.reprioritize_epoch == 0:
@@ -715,7 +723,8 @@ class NN(CardinalityEstimationAlg):
                     (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
                             true_cardinalities, est_cardinalities, self.env,
                             self.jl_indexes, None,
-                            self.num_join_loss_processes)
+                            pool = self.join_loss_pool)
+
                     jerr_ratio = est_costs / opt_costs
                     jerr = est_costs - opt_costs
                     print("epoch: {}, jerr_ratio: {}, jerr: {}, time: {}"\
