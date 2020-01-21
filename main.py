@@ -38,6 +38,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import sql_rep.query
+import multiprocessing as mp
 
 def get_alg(alg):
     if alg == "independent":
@@ -129,7 +130,7 @@ def remove_doubles(query_strs):
         newq.append(q)
     return newq
 
-def eval_alg(alg, losses, queries, samples_type):
+def eval_alg(alg, losses, queries, samples_type, join_loss_pool):
     '''
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
@@ -148,7 +149,8 @@ def eval_alg(alg, losses, queries, samples_type):
     exp_name = alg.get_exp_name()
     for loss_func in losses:
         losses = loss_func(queries, yhats, name=alg_name,
-                args=args, samples_type=samples_type, exp_name = exp_name)
+                args=args, samples_type=samples_type, exp_name = exp_name,
+                pool = join_loss_pool)
 
         # TODO: set global printoptions to round digits
         print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
@@ -272,21 +274,29 @@ def main():
     train_times = {}
     eval_times = {}
 
+    if "join-loss" in args.losses:
+        num_processes = mp.cpu_count()
+        join_loss_pool = mp.Pool(num_processes)
+    else:
+        join_loss_pool = None
+
     for alg in algorithms:
         start = time.time()
         if args.eval_test_while_training:
             alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    test_samples=test_queries)
+                    test_samples=test_queries, join_loss_pool=join_loss_pool)
         else:
             alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    test_samples=None)
+                    test_samples=None, join_loss_pool=join_loss_pool)
+
         train_times[alg.__str__()] = round(time.time() - start, 2)
 
         start = time.time()
-        eval_alg(alg, losses, train_queries, "train")
+        eval_alg(alg, losses, train_queries, "train", join_loss_pool)
 
         if args.test:
-            eval_alg(alg, losses, test_queries, "test")
+            eval_alg(alg, losses, test_queries, "test", join_loss_pool)
+
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
 def gen_exp_hash():

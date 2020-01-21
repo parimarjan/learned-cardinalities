@@ -224,7 +224,7 @@ def fix_query(query):
     return query
 
 def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
-        use_indexes, pdf=None, num_processes=1):
+        use_indexes, pdf=None, num_processes=1, pool=None):
     '''
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
@@ -238,31 +238,8 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
                 env.compute_join_order_loss(sqls,
                         true_cardinalities, est_cardinalities,
                         None, use_indexes,
-                        num_processes=num_processes, postgres=True)
+                        num_processes=num_processes, postgres=True, pool=pool)
     assert isinstance(est_costs, np.ndarray)
-
-    # TODO: put this in the parsing scripts
-    # if est_plans and pdf:
-        # print("going to plot query results for join-loss")
-        # for i, _ in enumerate(opt_costs):
-            # opt_cost = opt_costs[i]
-            # est_cost = est_costs[i]
-            # # plot both optimal, and estimated plans
-            # explain = est_plans[i]
-            # leading = get_leading_hint(explain)
-            # title = "Estimator Plan: {}, estimator cost: {}, opt cost: {}".format(\
-                # i, est_cost, opt_cost)
-            # estG = plot_explain_join_order(explain, true_cardinalities[i],
-                    # cardinalities[i], pdf, title)
-            # opt_explain = opt_plans[i]
-            # opt_leading = get_leading_hint(opt_explain)
-            # title = "Optimal Plan: {}, estimator cost: {}, opt cost: {}".format(\
-                # i, est_cost, opt_cost)
-            # optG = plot_explain_join_order(opt_explain, true_cardinalities[k],
-                    # cardinalities[k], pdf, title)
-
-        # print("num opt plans: {}, num est plans: {}".format(\
-                # len(all_opt_plans), len(all_est_plans)))
 
     return est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls
 
@@ -314,6 +291,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
     use_indexes = args.jl_indexes
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
+    pool = kwargs["pool"]
 
     # here, we assume that the alg name is unique enough, for their results to
     # be grouped together
@@ -354,7 +332,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
         est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
                         join_loss_pg(sqls, true_cardinalities,
                                 est_cardinalities, env, use_indexes, pdf=None,
-                                num_processes=multiprocessing.cpu_count())
+                                pool = pool)
 
         for i, qrep in enumerate(queries):
             sql_key = str(deterministic_hash(qrep["sql"]))

@@ -53,7 +53,7 @@ class DB():
 
         # generally, these would be range queries, but they can be "=", or "in"
         # queries as well, and we will support upto 10 such values
-        self.continuous_feature_size = 10
+        self.continuous_feature_size = 2
 
         self.featurizer = None
         self.cmp_ops = set()
