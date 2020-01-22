@@ -304,10 +304,13 @@ class NN(CardinalityEstimationAlg):
         return pred,y
 
     def _eval_samples(self, loader):
+        torch.set_grad_enabled(False)
         if self.featurization_scheme == "combined":
-            return self._eval_combined(loader)
+            ret = self._eval_combined(loader)
         elif self.featurization_scheme == "mscn":
-            return self._eval_mscn(loader)
+            ret = self._eval_mscn(loader)
+        torch.set_grad_enabled(True)
+        return ret
 
     def eval_samples(self, samples_type):
         loader = self.eval_loaders[samples_type]
@@ -612,6 +615,7 @@ class NN(CardinalityEstimationAlg):
         else:
             self.num_threads = multiprocessing.cpu_count(epoch)
 
+        print("nn train, pool: ", join_loss_pool)
         self.join_loss_pool = join_loss_pool
 
         if self.tfboard:
@@ -724,6 +728,7 @@ class NN(CardinalityEstimationAlg):
                 self.save_stats()
 
             self.train_one_epoch()
+            print("train epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
                     and self.epoch % self.reprioritize_epoch == 0:
@@ -754,7 +759,10 @@ class NN(CardinalityEstimationAlg):
                     assert len(weights) == len(training_set)
                     query_idx = 0
                     for si, sample in enumerate(self.training_samples):
-                        sq_weight = jerr[si] / 1000000.00
+                        if self.priority_err_type == "jerr":
+                            sq_weight = jerr[si] / 1000000.00
+                        else:
+                            sq_weight = jerr_ratio[si]
 
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight

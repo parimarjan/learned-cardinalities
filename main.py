@@ -68,6 +68,7 @@ def get_alg(alg):
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 result_dir = args.result_dir,
+                priority_err_type = args.priority_err_type,
                 tfboard = args.tfboard,
                 jl_indexes = args.jl_indexes,
                 normalization_type = args.normalization_type,
@@ -275,8 +276,8 @@ def main():
     train_times = {}
     eval_times = {}
 
-    if "join-loss" in args.losses:
-        # num_processes = int(mp.cpu_count() / 2)
+    if "join-loss" in args.losses or \
+            (args.sampling_priority_alpha > 0 and "nn" in args.algs):
         num_processes = int(mp.cpu_count())
         join_loss_pool = mp.Pool(num_processes)
     else:
@@ -394,6 +395,8 @@ def read_flags():
     parser.add_argument("--nn_type", type=str,
             required=False, default="microsoft")
 
+    parser.add_argument("--priority_err_type", type=str, required=False,
+            default = "jerr", help="jerr or jratio")
     parser.add_argument("--avg_jl_priority", type=int, required=False,
             default=1)
     parser.add_argument("--jl_indexes", type=int, required=False,
