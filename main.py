@@ -67,6 +67,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                result_dir = args.result_dir,
                 tfboard = args.tfboard,
                 jl_indexes = args.jl_indexes,
                 normalization_type = args.normalization_type,
@@ -82,7 +83,7 @@ def get_alg(alg):
                     # rel_qerr_loss=args.rel_qerr_loss,
                     clip_gradient=args.clip_gradient,
                     # baseline=args.baseline_join_alg,
-                    nn_results_dir = args.nn_results_dir,
+                    # nn_results_dir = args.nn_results_dir,
                     loss_func = args.loss_func,
                     sampling_priority_type = args.sampling_priority_type,
                     sampling_priority_alpha = args.sampling_priority_alpha,
@@ -275,7 +276,8 @@ def main():
     eval_times = {}
 
     if "join-loss" in args.losses:
-        num_processes = mp.cpu_count()
+        # num_processes = int(mp.cpu_count() / 2)
+        num_processes = int(mp.cpu_count())
         join_loss_pool = mp.Pool(num_processes)
     else:
         join_loss_pool = None
@@ -298,6 +300,8 @@ def main():
             eval_alg(alg, losses, test_queries, "test", join_loss_pool)
 
         eval_times[alg.__str__()] = round(time.time() - start, 2)
+
+    join_loss_pool.close()
 
 def gen_exp_hash():
     return str(deterministic_hash(str(args)))
@@ -404,10 +408,8 @@ def read_flags():
     parser.add_argument("--viz_fn", type=str,
             required=False, default="./test")
 
-    parser.add_argument("--nn_results_dir", type=str, required=False,
-            default="./nn_results")
-    parser.add_argument("--results_dir", type=str, required=False,
-            default="./results")
+    # parser.add_argument("--nn_results_dir", type=str, required=False,
+            # default="./nn_results")
 
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="adam")
