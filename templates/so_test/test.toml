@@ -1,0 +1,71 @@
+title = "Template 8"
+
+# conditioning stuff on companies
+
+[base_sql]
+
+[base_sql]
+sql = '''SELECT COUNT(*)
+FROM
+tag as t,
+site as s,
+question as q,
+tag_question as tq
+WHERE
+t.site_id = s.site_id
+AND q.site_id = s.site_id
+AND tq.site_id = s.site_id
+AND tq.question_id = q.id
+AND tq.tag_id = t.id
+AND (Xsite_name)
+AND (Xtag_name)
+'''
+
+# template 1
+[[templates]]
+
+  name = "test"
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+  type = "sql"
+  columns = ["s.site_name"]
+  keys = ["Xsite_name"]
+  dependencies = 0
+
+  pred_type = "in"
+
+  sql = '''
+  SELECT site_name
+  FROM site
+  '''
+
+  sampling_method = "uniform"
+  min_samples = 1
+  max_samples = 1
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+
+  # Length of these lists should be the same
+  type = "sql"
+  columns = ["t.name"]
+  keys = ["Xtag_name"]
+  dependencies = 1
+  pred_type = "in"
+
+  sql = '''
+  SELECT t.name, count(*)
+  FROM tag as t, site as s
+  WHERE
+  t.site_id = s.id
+  AND (Xsite_name)
+  GROUP BY t.name
+  HAVING count(*) > 500
+  ORDER BY count(*) desc
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 2
+  max_samples = 15
