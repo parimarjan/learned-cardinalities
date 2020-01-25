@@ -67,6 +67,8 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                result_dir = args.result_dir,
+                priority_err_type = args.priority_err_type,
                 tfboard = args.tfboard,
                 jl_indexes = args.jl_indexes,
                 normalization_type = args.normalization_type,
@@ -82,7 +84,7 @@ def get_alg(alg):
                     # rel_qerr_loss=args.rel_qerr_loss,
                     clip_gradient=args.clip_gradient,
                     # baseline=args.baseline_join_alg,
-                    nn_results_dir = args.nn_results_dir,
+                    # nn_results_dir = args.nn_results_dir,
                     loss_func = args.loss_func,
                     sampling_priority_type = args.sampling_priority_type,
                     sampling_priority_alpha = args.sampling_priority_alpha,
@@ -274,8 +276,9 @@ def main():
     train_times = {}
     eval_times = {}
 
-    if "join-loss" in args.losses:
-        num_processes = mp.cpu_count()
+    if "join-loss" in args.losses or \
+            (args.sampling_priority_alpha > 0 and "nn" in args.algs):
+        num_processes = int(mp.cpu_count())
         join_loss_pool = mp.Pool(num_processes)
     else:
         join_loss_pool = None
@@ -298,6 +301,8 @@ def main():
             eval_alg(alg, losses, test_queries, "test", join_loss_pool)
 
         eval_times[alg.__str__()] = round(time.time() - start, 2)
+
+    join_loss_pool.close()
 
 def gen_exp_hash():
     return str(deterministic_hash(str(args)))
@@ -390,6 +395,8 @@ def read_flags():
     parser.add_argument("--nn_type", type=str,
             required=False, default="microsoft")
 
+    parser.add_argument("--priority_err_type", type=str, required=False,
+            default = "jerr", help="jerr or jratio")
     parser.add_argument("--avg_jl_priority", type=int, required=False,
             default=1)
     parser.add_argument("--jl_indexes", type=int, required=False,
@@ -404,10 +411,8 @@ def read_flags():
     parser.add_argument("--viz_fn", type=str,
             required=False, default="./test")
 
-    parser.add_argument("--nn_results_dir", type=str, required=False,
-            default="./nn_results")
-    parser.add_argument("--results_dir", type=str, required=False,
-            default="./results")
+    # parser.add_argument("--nn_results_dir", type=str, required=False,
+            # default="./nn_results")
 
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="adam")

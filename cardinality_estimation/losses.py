@@ -201,6 +201,17 @@ def compute_qerror(queries, preds, **kwargs):
         df = pd.concat([old_results, df], ignore_index=True)
 
     save_object(fn, df)
+
+    query_losses = {}
+    query_idx = 0
+    for sample in queries:
+        template = sample["template_name"]
+        cur_err = np.mean(errors[query_idx:query_idx+len(sample["subset_graph"].nodes())])
+        query_losses[sample["name"]] = cur_err
+        query_idx += len(sample["subset_graph"].nodes())
+
+    qfn = rdir + "/" + "query_qerr.pkl"
+    save_object(qfn, query_losses)
     return errors
 
 def fix_query(query):

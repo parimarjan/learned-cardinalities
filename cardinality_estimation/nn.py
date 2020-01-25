@@ -19,11 +19,6 @@ import multiprocessing
 from tensorflow import summary as tf_summary
 from multiprocessing.pool import ThreadPool
 
-# try:
-    # mp.set_start_method("forkserver")
-# except:
-    # pass
-
 import park
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -193,16 +188,6 @@ class NN(CardinalityEstimationAlg):
         # each element is a list of priorities
         self.past_priorities = []
 
-        # number of processes used for computing train and test join losses
-        # using park envs. These are computed simultaneously, while the next
-        # iterations of the neural net train.
-        # if self.hidden_layer_size <= 100:
-            # self.num_join_loss_processes = multiprocessing.cpu_count()
-        # else:
-            # self.num_join_loss_processes = 1
-
-        nn_results_dir = self.nn_results_dir
-
         # will keep storing all the training information in the cache / and
         # dump it at the end
         # self.key = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
@@ -221,6 +206,8 @@ class NN(CardinalityEstimationAlg):
         for q in PERCENTILES_TO_SAVE:
             self.summary_funcs.append(percentile_help(q))
             self.summary_types.append("percentile:{}".format(str(q)))
+
+        self.query_stats = defaultdict(list)
 
     def _init_net(self, net_name, optimizer_name, sample):
         if net_name == "FCNN":
@@ -317,10 +304,13 @@ class NN(CardinalityEstimationAlg):
         return pred,y
 
     def _eval_samples(self, loader):
+        torch.set_grad_enabled(False)
         if self.featurization_scheme == "combined":
-            return self._eval_combined(loader)
+            ret = self._eval_combined(loader)
         elif self.featurization_scheme == "mscn":
-            return self._eval_mscn(loader)
+            ret = self._eval_mscn(loader)
+        torch.set_grad_enabled(True)
+        return ret
 
     def eval_samples(self, samples_type):
         loader = self.eval_loaders[samples_type]
@@ -368,14 +358,20 @@ class NN(CardinalityEstimationAlg):
         '''
         # TODO: maybe reset cur_stats
         self.stats = pd.DataFrame(self.cur_stats)
-        if not os.path.exists(self.nn_results_dir):
-            make_dir(self.nn_results_dir)
+        if not os.path.exists(self.result_dir):
+            make_dir(self.result_dir)
         exp_name = self.get_exp_name()
-        fn = self.nn_results_dir + "/" + exp_name + ".pkl"
+        exp_dir = self.result_dir + "/" + exp_name
+        if not os.path.exists(exp_dir):
+            make_dir(exp_dir)
+
+        fn = exp_dir + "/" + "nn.pkl"
+
         results = {}
         results["stats"] = self.stats
         results["config"] = self.kwargs
         results["name"] = self.__str__()
+        results["query_stats"] = self.query_stats
 
         with open(fn, 'wb') as fp:
             pickle.dump(results, fp,
@@ -432,6 +428,36 @@ class NN(CardinalityEstimationAlg):
         else:
             assert False
 
+    def save_join_loss_stats(self, join_losses, est_plans, samples,
+            samples_type):
+        print("save join loss stats")
+        self.add_row(join_losses, "jerr", self.epoch, "all",
+                "all", samples_type)
+        print("{}, join losses mean: {}".format(samples_type,
+                np.mean(join_losses)))
+
+        summary_data = defaultdict(list)
+
+        query_idx = 0
+        for i, sample in enumerate(samples):
+            template = sample["template_name"]
+            summary_data["template"].append(template)
+            summary_data["loss"].append(join_losses[i])
+
+        df = pd.DataFrame(summary_data)
+        for template in set(df["template"]):
+            tvals = df[df["template"] == template]
+            self.add_row(tvals["loss"].values, "jerr", self.epoch,
+                    template, "all", samples_type)
+
+        for i, sample in enumerate(samples):
+            self.query_stats["epoch"].append(self.epoch)
+            self.query_stats["query_name"].append(sample["name"])
+            # this is also equivalent to the priority, we can normalize it
+            # later
+            self.query_stats["jerr"].append(join_losses[i])
+            self.query_stats["plan"].append(get_leading_hint(est_plans[i]))
+
     def periodic_eval(self, samples_type):
         pred, Y = self.eval_samples(samples_type)
         losses = self.loss(pred, Y).detach().numpy()
@@ -475,37 +501,28 @@ class NN(CardinalityEstimationAlg):
 
         if (self.epoch % self.eval_epoch_jerr == 0 \
                 and self.epoch != 0):
+            if (samples_type == "train" and \
+                    self.sampling_priority_alpha > 0):
+                print("not recalculating join loss for training")
+                return
+            # if priority on, then stats will be saved when calculating
+            # priority
             jl_eval_start = time.time()
             assert self.jl_use_postgres
 
             # TODO: do we need this awkward loop. decompose?
             sqls, true_cardinalities, est_cardinalities = \
                     self.get_query_estimates(pred, samples)
-            (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
+            (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
                     true_cardinalities, est_cardinalities, self.env,
                     self.jl_indexes, None,
                     pool = self.join_loss_pool)
 
             join_losses = np.array(est_costs) - np.array(opt_costs)
-            join_losses = np.maximum(join_losses, 0.00)
+            # join_losses = np.maximum(join_losses, 0.00)
 
-            self.add_row(join_losses, "jerr", self.epoch, "all",
-                    "all", samples_type)
-            print("{}, join losses mean: {}".format(samples_type,
-                    np.mean(join_losses)))
-
-            summary_data = defaultdict(list)
-
-            query_idx = 0
-            for i, sample in enumerate(samples):
-                template = sample["template_name"]
-                summary_data["template"].append(template)
-                summary_data["loss"].append(join_losses[i])
-            df = pd.DataFrame(summary_data)
-            for template in set(df["template"]):
-                tvals = df[df["template"] == template]
-                self.add_row(tvals["loss"].values, "jerr", self.epoch,
-                        template, "all", samples_type)
+            self.save_join_loss_stats(join_losses, est_plans, samples,
+                    samples_type)
 
             # TODO: what to do with prioritization?
 
@@ -598,6 +615,7 @@ class NN(CardinalityEstimationAlg):
         else:
             self.num_threads = multiprocessing.cpu_count(epoch)
 
+        print("nn train, pool: ", join_loss_pool)
         self.join_loss_pool = join_loss_pool
 
         if self.tfboard:
@@ -659,7 +677,9 @@ class NN(CardinalityEstimationAlg):
         if self.debug_set:
             eval_samples_size_divider = 1
         else:
-            eval_samples_size_divider = 10
+            # eval_samples_size_divider = 10
+            eval_samples_size_divider = 1
+
         eval_training_samples = random.sample(training_samples,
                 int(len(training_samples) / eval_samples_size_divider))
         self.samples["train"] = eval_training_samples
@@ -708,7 +728,7 @@ class NN(CardinalityEstimationAlg):
                 self.save_stats()
 
             self.train_one_epoch()
-            print("epoch took: ", time.time() - start)
+            print("train epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
                     and self.epoch % self.reprioritize_epoch == 0:
@@ -720,13 +740,16 @@ class NN(CardinalityEstimationAlg):
                     sqls, true_cardinalities, est_cardinalities = \
                             self.get_query_estimates(pred,
                                     self.training_samples)
-                    (est_costs, opt_costs,_,_,_,_) = join_loss_pg(sqls,
+                    (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
                             true_cardinalities, est_cardinalities, self.env,
                             self.jl_indexes, None,
                             pool = self.join_loss_pool)
 
                     jerr_ratio = est_costs / opt_costs
                     jerr = est_costs - opt_costs
+                    self.save_join_loss_stats(jerr, est_plans,
+                            self.training_samples, "train")
+
                     print("epoch: {}, jerr_ratio: {}, jerr: {}, time: {}"\
                             .format(self.epoch,
                                 np.round(np.mean(jerr_ratio), 2),
@@ -736,7 +759,10 @@ class NN(CardinalityEstimationAlg):
                     assert len(weights) == len(training_set)
                     query_idx = 0
                     for si, sample in enumerate(self.training_samples):
-                        sq_weight = jerr[si] / 1000000.00
+                        if self.priority_err_type == "jerr":
+                            sq_weight = jerr[si] / 1000000.00
+                        else:
+                            sq_weight = jerr_ratio[si]
 
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight
