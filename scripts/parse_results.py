@@ -538,10 +538,11 @@ def plot_summary(pdf, df, title):
 
 def main():
 
-    plot_fig2()
-    plot_fig2_cp()
+    get_all_jerrs()
+    # plot_fig2()
+    # plot_fig2_cp()
 
-    pdf = PdfPages("results.pdf")
+    # pdf = PdfPages("results.pdf")
 
     # plot_join_summaries2(pdf)
 

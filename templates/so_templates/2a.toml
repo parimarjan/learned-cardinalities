@@ -1,0 +1,152 @@
+title = "Based on 2"
+
+[base_sql]
+sql = '''SELECT DISTINCT a.display_name
+from
+tag t1, site s1, question q1, tag_question tq1, so_user u1,
+tag t2, site s2, question q2, tag_question tq2, so_user u2,
+account as a
+where
+t1.site_id = s1.site_id and
+q1.site_id = s1.site_id and
+tq1.site_id = s1.site_id and
+tq1.question_id = q1.id and
+tq1.tag_id = t1.id and
+q1.owner_user_id = u1.id and
+q1.site_id = u1.site_id and
+t2.site_id = s2.site_id and
+q2.site_id = s2.site_id and
+tq2.site_id = s2.site_id and
+tq2.question_id = q2.id and
+tq2.tag_id = t2.id and
+q2.owner_user_id = u2.id and
+q2.site_id = u2.site_id and
+
+-- intersect
+u1.account_id = u2.account_id and
+account.id = u1.account_id
+AND (Xs1_name)
+AND (Xs2_name)
+AND (Xt1_name)
+AND (Xt2_name)
+AND (Xq1_view_low)
+AND (Xq1_view_up)
+AND (Xq2_view_low)
+AND (Xq2_view_up)
+'''
+
+# template 1
+[[templates]]
+
+  name = "test"
+
+  [[templates.predicates]]
+  # a lot or very few
+  type = "list"
+  columns = ["q1.view_count"]
+  keys = ["Xq1_view_low", "Xq1_view_up"]
+  dependencies = 0
+  options = [[0,10], [10,100000]]
+  sampling_method = "uniform"
+  pred_type = "range"
+  min_samples = 1
+  max_samples = 1
+
+  [[templates.predicates]]
+  # a lot or very few
+  type = "list"
+  columns = ["q2.view_count"]
+  keys = ["Xq2_view_low", "Xq2_view_up"]
+  dependencies = 0
+  options = [[0,10], [10,100000]]
+  sampling_method = "uniform"
+  pred_type = "range"
+  min_samples = 1
+  max_samples = 1
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+  type = "sqls"
+  columns = ["s1.site_name"]
+  keys = ["Xs1_name"]
+  dependencies = 0
+
+  pred_type = "in"
+
+  sqls = ["SELECT s.site_name FROM site as s, question as q WHERE s.site_name IN ('stackoverflow') AND q.site_id = s.site_id LIMIT 10",
+  "SELECT s.site_name, count(*) FROM site as s, question as q WHERE q.site_id = s.site_id GROUP BY s.site_name HAVING COUNT(*) > 15000 ORDER BY count(*) desc"]
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 1
+  max_samples = 1
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+  type = "sql"
+  columns = ["s2.site_name"]
+  keys = ["Xs2_name"]
+  dependencies = 0
+
+  pred_type = "in"
+  sql = """SELECT s1.site_name, count(*) FROM site as s1, question as q WHERE
+  q.site_id = s.site_id AND NOT (Xs1_name)
+  GROUP BY s.site_name
+  HAVING COUNT(*) > 15000
+  ORDER BY COUNT(*) desc"""
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 1
+  max_samples = 1
+
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+
+  # Length of these lists should be the same
+  type = "sql"
+  columns = ["t1.name", "t2.name"]
+  keys = ["Xt1_name", "Xt2_name"]
+  dependencies = 1
+  pred_type = "in"
+
+  sql = '''select t1.name, t2.name, count(*)
+  from
+  tag t1, site s1, question q1, tag_question tq1, so_user u1,
+  tag t2, site s2, question q2, tag_question tq2, so_user u2,
+  account
+  where
+  t1.site_id = s1.site_id and
+  q1.site_id = s1.site_id and
+  tq1.site_id = s1.site_id and
+  tq1.question_id = q1.id and
+  tq1.tag_id = t1.id and
+  q1.owner_user_id = u1.id and
+  q1.site_id = u1.site_id and
+  t2.site_id = s2.site_id and
+  q2.site_id = s2.site_id and
+  tq2.site_id = s2.site_id and
+  tq2.question_id = q2.id and
+  tq2.tag_id = t2.id and
+  q2.owner_user_id = u2.id and
+  q2.site_id = u2.site_id and
+
+  -- intersect
+  u1.account_id = u2.account_id and
+  account.id = u1.account_id
+
+  AND (Xs1_name)
+  AND (Xs2_name)
+  AND (Xq1_view_low)
+  AND (Xq1_view_up)
+  AND (Xq2_view_low)
+  AND (Xq2_view_up)
+
+  GROUP BY t1.name, t2.name
+  ORDER BY COUNT(*) DESC'''
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 2
+  max_samples = 15
