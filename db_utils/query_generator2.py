@@ -126,7 +126,7 @@ class QueryGenerator2():
 
         # for each group, select appropriate predicates
         for pred_group in templated_preds:
-            print(pred_group["columns"])
+            # print(pred_group["columns"])
             if "sql" in pred_group["type"]:
                 # cur_sql will be the sql used to sample for this predicate
                 # value
@@ -251,6 +251,7 @@ class QueryGenerator2():
         '''
         @ret: [sql queries]
         '''
+        print("going to generate ", num_samples)
         start = time.time()
         all_query_strs = []
 
@@ -263,10 +264,12 @@ class QueryGenerator2():
                     # print("_gen_query_str failed, so trying to regenerate query")
                     # continue
                 if query_str is not None:
-                    # print("generated query str: ")
-                    # print(query_str)
-                    # pdb.set_trace()
+                    print("generated query str: ")
+                    print(query_str)
+                    pdb.set_trace()
                     all_query_strs.append(query_str)
+                else:
+                    print("query str was None")
 
         print("{} took {} seconds to generate".format(len(all_query_strs),
             time.time()-start))

@@ -80,6 +80,7 @@ def convert_to_sql_rep(query, subqueries):
 
 def main():
 
+    PAR = False
     fns = list(glob.glob(args.template_dir+"/*"))
     for fn in fns:
         start = time.time()
@@ -87,27 +88,31 @@ def main():
         if args.gen_sql_rep_queries:
             assert ".toml" in fn
             template = toml.load(fn)
-            num_processes = multiprocessing.cpu_count()
-            num_processes = min(num_processes, args.num_samples_per_template)
-            num_processes = max(4, num_processes)
-            num_per_p = int(args.num_samples_per_template / num_processes)
+            if PAR:
+                num_processes = multiprocessing.cpu_count()
+                num_processes = min(num_processes, args.num_samples_per_template)
+                num_processes = max(4, num_processes)
+                num_per_p = int(args.num_samples_per_template / num_processes)
+                query_strs = []
+                with Pool(processes=num_processes) as pool:
+                    par_args = [(template, num_per_p, args)
+                            for _ in range(num_processes)]
+                    comb_query_strs = pool.starmap(gen_queries, par_args)
+                # need to flatten_the list
+                for cqueries in comb_query_strs:
+                    query_strs += cqueries
+            else:
+                query_strs = gen_queries(template,
+                        args.num_samples_per_template, args)
 
-            query_strs = []
-            with Pool(processes=num_processes) as pool:
-                par_args = [(template, num_per_p, args)
-                        for _ in range(num_processes)]
-                comb_query_strs = pool.starmap(gen_queries, par_args)
-            # need to flatten_the list
-            for cqueries in comb_query_strs:
-                query_strs += cqueries
             print("generated {} query sqls".format(len(query_strs)))
 
             # num_processes = int(num_processes / 2) + 1
-            num_processes = 1
-            with Pool(processes=num_processes) as pool:
-                par_args = [(query, args.user, args.db_name, args.db_host,
-                    args.port, args.pwd, False, True) for query in query_strs]
-                sqrep_queries = pool.starmap(parse_sql, par_args)
+            # num_processes = 1
+            # with Pool(processes=num_processes) as pool:
+                # par_args = [(query, args.user, args.db_name, args.db_host,
+                    # args.port, args.pwd, False, True) for query in query_strs]
+                # sqrep_queries = pool.starmap(parse_sql, par_args)
         else:
             samples, all_subqueries = load_all_queries(args, fn, subqueries=True)
             print("{} took {} seconds to load data".format(fn, time.time()-start))
@@ -123,6 +128,8 @@ def main():
                     i, query in enumerate(samples)]
                 sqrep_queries = pool.starmap(convert_to_sql_rep, par_args)
 
+        print("exiting early...")
+        exit(-1)
         # save all of these
         dir_name = "./queries/" + os.path.basename(fn) + "/"
         print("going to write queries to ", dir_name)
@@ -140,7 +147,7 @@ def read_flags():
     parser.add_argument("--gen_queries", type=int, required=False,
             default=0)
     parser.add_argument("--gen_sql_rep_queries", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--update_subq_cards", type=int, required=False,
             default=0)
     parser.add_argument("--update_subq_preds", type=int, required=False,
