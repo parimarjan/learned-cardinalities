@@ -264,9 +264,9 @@ class QueryGenerator2():
                     # print("_gen_query_str failed, so trying to regenerate query")
                     # continue
                 if query_str is not None:
-                    print("generated query str: ")
-                    print(query_str)
-                    pdb.set_trace()
+                    # print("generated query str: ")
+                    # print(query_str)
+                    # pdb.set_trace()
                     all_query_strs.append(query_str)
                 else:
                     print("query str was None")

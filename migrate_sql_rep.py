@@ -113,33 +113,32 @@ def main():
                 # par_args = [(query, args.user, args.db_name, args.db_host,
                     # args.port, args.pwd, False, True) for query in query_strs]
                 # sqrep_queries = pool.starmap(parse_sql, par_args)
-        else:
-            samples, all_subqueries = load_all_queries(args, fn, subqueries=True)
-            print("{} took {} seconds to load data".format(fn, time.time()-start))
+        # else:
+            # samples, all_subqueries = load_all_queries(args, fn, subqueries=True)
+            # print("{} took {} seconds to load data".format(fn, time.time()-start))
             # just fixes the missing fields etc. (like subq.aliases,
             # pred_column_names) so that we can convert it to the sql_rep
             # format
-            update_subq_preds(samples, all_subqueries, args.cache_dir)
-            print("update_subq_preds done")
+            # update_subq_preds(samples, all_subqueries, args.cache_dir)
+            # print("update_subq_preds done")
 
-            num_processes = multiprocessing.cpu_count()
-            with Pool(processes=num_processes) as pool:
-                par_args = [(query, all_subqueries[i]) for
-                    i, query in enumerate(samples)]
-                sqrep_queries = pool.starmap(convert_to_sql_rep, par_args)
-
-        print("exiting early...")
-        exit(-1)
+            # num_processes = multiprocessing.cpu_count()
+            # with Pool(processes=num_processes) as pool:
+                # par_args = [(query, all_subqueries[i]) for
+                    # i, query in enumerate(samples)]
+                # sqrep_queries = pool.starmap(convert_to_sql_rep, par_args)
+        # print("exiting early...")
+        # exit(-1)
         # save all of these
-        dir_name = "./queries/" + os.path.basename(fn) + "/"
-        print("going to write queries to ", dir_name)
-        make_dir(dir_name)
-        for i, convq in enumerate(sqrep_queries):
-            query_hash = deterministic_hash(convq["sql"])
-            qfn = dir_name + str(query_hash) + ".pkl"
-            # TODO: combine this with gzip as well?
-            with open(qfn, 'wb') as fp:
-                pickle.dump(convq, fp, protocol=pickle.HIGHEST_PROTOCOL)
+        # dir_name = "./queries/" + os.path.basename(fn) + "/"
+        # print("going to write queries to ", dir_name)
+        # make_dir(dir_name)
+        # for i, convq in enumerate(sqrep_queries):
+            # query_hash = deterministic_hash(convq["sql"])
+            # qfn = dir_name + str(query_hash) + ".pkl"
+            # # TODO: combine this with gzip as well?
+            # with open(qfn, 'wb') as fp:
+                # pickle.dump(convq, fp, protocol=pickle.HIGHEST_PROTOCOL)
 
 def read_flags():
     # FIXME: simplify this stuff

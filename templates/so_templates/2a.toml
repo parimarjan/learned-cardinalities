@@ -86,12 +86,12 @@ AND (Xq2_view_up)
   type = "sql"
   columns = ["s2.site_name"]
   keys = ["Xs2_name"]
-  dependencies = 0
+  dependencies = 1
 
   pred_type = "in"
   sql = """SELECT s1.site_name, count(*) FROM site as s1, question as q WHERE
-  q.site_id = s.site_id AND NOT (Xs1_name)
-  GROUP BY s.site_name
+  q.site_id = s1.site_id AND NOT (Xs1_name)
+  GROUP BY s1.site_name
   HAVING COUNT(*) > 15000
   ORDER BY COUNT(*) desc"""
 
