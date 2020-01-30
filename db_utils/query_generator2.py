@@ -56,7 +56,10 @@ class QueryGenerator2():
         sql = self.base_sql
         # for each group, select appropriate predicates
         for key, val in pred_vals.items():
-            assert key in sql
+            if key not in sql:
+                print("key not in sql!")
+                print(key)
+                pdb.set_trace()
             sql = sql.replace(key, val)
 
         return sql
@@ -147,7 +150,7 @@ class QueryGenerator2():
                 else:
                     output, _ = cached_execute_query(cur_sql, self.user,
                             self.db_host, self.port, self.pwd, self.db_name,
-                            100, None, None)
+                            100, "./qgen_cache", None)
                     self.sampling_outputs[cur_key] = output
 
                 if len(output) == 0:
@@ -235,12 +238,20 @@ class QueryGenerator2():
                         pred_vals[upper_key] = upper_cond
 
                     else:
-                        # probably only deals with `=` ?
-                        assert len(pred_group["keys"]) == 1
                         options = pred_group["options"]
                         pred_choice = random.choice(options)
-                        self._update_sql_in([[pred_choice]],
-                                pred_group, pred_vals)
+                        if "replace" in pred_group:
+                            # assert len(pred_choice) == 1
+                            assert len(pred_group["keys"]) == 1
+                            # cur_choice = pred_choice[0]
+                            cur_key = pred_group["keys"][0]
+                            pred_vals[cur_key] = pred_choice
+                            pdb.set_trace()
+                        else:
+                            # probably only deals with `=` ?
+                            assert len(pred_group["keys"]) == 1
+                            self._update_sql_in([[pred_choice]],
+                                    pred_group, pred_vals)
             else:
                 assert False
 
