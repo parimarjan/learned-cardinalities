@@ -54,6 +54,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         key_name = card_type
 
     for subset, info in qrep["subset_graph"].nodes().items():
+        if "cardinality" not in info:
+            info["cardinality"] = {}
+
         cards = info["cardinality"]
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg)
@@ -96,10 +99,11 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
 def main():
     fns = list(glob.glob(args.query_dir + "/*"))
-    num_proc = cpu_count()
+    qreps = []
     par_args = []
     for fn in fns:
         qrep = load_sql_rep(fn)
+        qreps.append(qrep)
         par_args.append((qrep, args.card_type, args.key_name, args.db_host,
                 args.db_name, args.user, args.pwd, args.port,
                 args.true_timeout, args.pg_total))
@@ -108,9 +112,14 @@ def main():
                 # args.db_name, args.user, args.pwd, args.port,
                 # args.true_timeout, args.pg_total)
 
+    num_proc = cpu_count()
     with Pool(processes = num_proc) as pool:
         pool.starmap(get_cardinality, par_args)
-    pdb.set_trace()
+
+    # let us save them all
+    for i, fn in enumerate(fns):
+        qrep = qreps[i]
+        # save the updated file
 
 args = read_flags()
 main()

@@ -129,7 +129,10 @@ class QueryGenerator2():
 
         # for each group, select appropriate predicates
         for pred_group in templated_preds:
-            # print(pred_group["columns"])
+            if "multi" in pred_group:
+                # multiple predicate conditions, choose any one
+                pred_group = random.choice(pred_group["multi"])
+
             if "sql" in pred_group["type"]:
                 # cur_sql will be the sql used to sample for this predicate
                 # value
@@ -185,11 +188,13 @@ class QueryGenerator2():
                     self._update_sql_in(samples,
                             pred_group, pred_vals)
 
-                try:
-                    total_count = sum([int(s[-1]) for s in samples])
-                    print("total count: ", total_count)
-                except:
-                    pass
+                # try:
+                    # total_count = sum([int(s[-1]) for s in samples])
+                    # print(("{}, total count: {}".format(pred_group["keys"],
+                        # str(total_count))))
+                # except Exception as e:
+                    # print(e)
+                    # pass
 
             elif pred_group["type"] == "list":
                 ## assuming it is a single column
@@ -269,15 +274,7 @@ class QueryGenerator2():
         while len(all_query_strs) < num_samples:
             for template in self.templates:
                 query_str = self._gen_query_str(template["predicates"])
-                # try:
-                    # query_str = self._gen_query_str(template["predicates"])
-                # except:
-                    # print("_gen_query_str failed, so trying to regenerate query")
-                    # continue
                 if query_str is not None:
-                    # print("generated query str: ")
-                    # print(query_str)
-                    # pdb.set_trace()
                     all_query_strs.append(query_str)
                 else:
                     print("query str was None")
