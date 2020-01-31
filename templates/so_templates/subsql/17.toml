@@ -1,0 +1,96 @@
+title = ""
+
+[base_sql]
+
+sql = '''SELECT b1.name, COUNT(*)
+FROM
+site as s,
+so_user as u1,
+tag as t1,
+tag_question as tq1,
+question as q1,
+badge as b1
+WHERE
+s.site_id = u1.site_id
+AND s.site_id = b1.site_id
+AND s.site_id = t1.site_id
+AND s.site_id = tq1.site_id
+AND s.site_id = q1.site_id
+AND t1.id = tq1.tag_id
+AND q1.id = tq1.question_id
+AND q1.owner_user_id = u1.id
+AND b1.user_id = u1.id
+AND (Xsite_name)
+AND (Xtag_name)
+AND u1.id IN (SELECT u1.id FROM so_user as u1, answer as a WHERE u1.id = a.owner_user_id GROUP BY u1.id HAVING COUNT(*) > Xu1answers)
+GROUP BY b1.name
+ORDER BY COUNT(*)
+DESC
+LIMIT 100
+'''
+
+[[templates]]
+
+  name = "16a"
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+  type = "sqls"
+  columns = ["s.site_name"]
+  keys = ["Xsite_name"]
+  dependencies = 0
+
+  pred_type = "in"
+
+  sqls = ["SELECT s.site_name FROM site as s WHERE s.site_name IN ('stackoverflow','math','superuser','askubuntu')",
+  "SELECT s.site_name, count(*) FROM site as s, question as q WHERE q.site_id = s.site_id GROUP BY s.site_name HAVING COUNT(*) > 15000 ORDER BY count(*) desc"]
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 1
+  max_samples = 5
+
+  [[templates.predicates]]
+  type = "list"
+  columns = ["u1.id"]
+  replace = 1
+  keys = ["Xu1answers"]
+  dependencies = 0
+  options = ['10', '100', '1000']
+
+  sampling_method = "uniform"
+  pred_type = "IN"
+  min_samples = 1
+  max_samples = 1
+
+  [[templates.predicates]]
+  # length of these lists should be the same
+  type = "sql"
+  columns = ["t1.name"]
+  keys = ["Xtag_name"]
+  dependencies = 1
+  pred_type = "in"
+
+  sql = '''
+  select t.name, count(*)
+  from
+  tag as t,
+  site as s,
+  question as q1,
+  tag_question as tq
+  where
+  t.site_id = s.site_id
+  and q1.site_id = s.site_id
+  and tq.site_id = s.site_id
+  and tq.question_id = q1.id
+  and tq.tag_id = t.id
+  and (Xsite_name)
+  group by t.name
+  having count(*) > 500
+  order by count(*) desc
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 2
+  max_samples = 15

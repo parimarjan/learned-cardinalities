@@ -1,0 +1,111 @@
+title = "Test"
+
+[base_sql]
+sql = '''SELECT COUNT(*)
+FROM
+tag as t,
+site as s,
+question as q,
+tag_question as tq
+WHERE
+t.site_id = s.site_id
+AND q.site_id = s.site_id
+AND tq.site_id = s.site_id
+AND tq.question_id = q.id
+AND tq.tag_id = t.id
+AND (Xsite_name)
+AND (Xtag_name)
+AND (Xquestion_low)
+AND (Xquestion_up)
+'''
+
+# template 1
+[[templates]]
+
+  name = "test"
+  [[templates.predicates]]
+  [[templates.predicates.multi]]
+  type = "list"
+  columns = ["q1.view_count"]
+  keys = ["Xquestion_low", "Xquestion_up"]
+  dependencies = 0
+  options = [[0,100], [100,100000], [10,1000]]
+  sampling_method = "uniform"
+  pred_type = "range"
+  min_samples = 1
+  max_samples = 1
+
+  [[templates.predicates.multi]]
+  type = "list"
+  columns = ["q1.score"]
+  keys = ["Xquestion_low", "Xquestion_up"]
+  dependencies = 0
+  options = [[0,0], [1,10], [10,1000], [0,5], [0,1000]]
+  sampling_method = "uniform"
+  pred_type = "range"
+  min_samples = 1
+  max_samples = 1
+
+  [[templates.predicates.multi]]
+  type = "list"
+  columns = ["q1.favorite_count"]
+  keys = ["Xquestion_low", "Xquestion_up"]
+  dependencies = 0
+  options = [[0,1], [1,10], [5,5000], [0,10000]]
+  sampling_method = "uniform"
+  pred_type = "range"
+  min_samples = 1
+  max_samples = 1
+
+
+  # all the unknown predicates in the base sql will be specified in groups
+  [[templates.predicates]]
+  type = "sqls"
+  columns = ["s.site_name"]
+  keys = ["Xsite_name"]
+  dependencies = 0
+
+  pred_type = "in"
+
+  sqls = ["SELECT s.site_name FROM site as s, question as q WHERE s.site_name IN ('stackoverflow') AND q.site_id = s.site_id LIMIT 10",
+  "SELECT s.site_name, count(*) FROM site as s, question as q WHERE q.site_id = s.site_id GROUP BY s.site_name HAVING COUNT(*) > 15000 ORDER BY count(*) desc"]
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 1
+  max_samples = 1
+
+  [[templates.predicates]]
+
+  # length of these lists should be the same
+  type = "sql"
+  columns = ["t.name"]
+  keys = ["Xtag_name"]
+  dependencies = 1
+  pred_type = "in"
+
+  sql = '''
+  select t.name, count(*)
+  from
+  tag as t,
+  site as s,
+  question as q,
+  tag_question as tq
+  where
+  t.site_id = s.site_id
+  and q.site_id = s.site_id
+  and tq.site_id = s.site_id
+  and tq.question_id = q.id
+  and tq.tag_id = t.id
+  and (Xsite_name)
+  and (Xquestion_low)
+  and (Xquestion_up)
+  group by t.name
+  having count(*) > 500
+  order by count(*) desc
+  '''
+
+  sampling_method = "quantile"
+  num_quantiles = 2
+  min_samples = 2
+  max_samples = 15
