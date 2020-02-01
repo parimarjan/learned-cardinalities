@@ -108,13 +108,12 @@ def load_sql_rep(fn):
 
     return query
 
-# def save_sql_rep(fn, qrep):
-    # assert ".pkl" in fn
-    # with open(fn, "rb") as f:
-        # query = pickle.load(f)
-    # query["subset_graph"] = \
-            # nx.OrderedDiGraph(json_graph.adjacency_graph(query["subset_graph"]))
-    # query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
+def save_sql_rep(fn, qrep):
+    assert ".pkl" in fn
+    qrep["join_graph"] = nx.adjacency_data(qrep["join_graph"])
+    qrep["subset_graph"] = nx.adjacency_data(qrep["subset_graph"])
+    with open(fn, "wb") as f:
+        pickle.dump(qrep, f)
 
 def nx_graph_to_query_rep(G, true_count, total_count, pg_count):
     '''

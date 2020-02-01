@@ -302,7 +302,8 @@ def main():
 
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
-    join_loss_pool.close()
+    if join_loss_pool is not None:
+        join_loss_pool.close()
 
 def gen_exp_hash():
     return str(deterministic_hash(str(args)))
