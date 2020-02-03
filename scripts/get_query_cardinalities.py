@@ -19,7 +19,7 @@ from networkx.readwrite import json_graph
 TIMEOUT_COUNT_CONSTANT = 150001001
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
-WANDERJOIN_TIME_FMT = "WITHTIME {TIME} CONFIDENCE {CONF} REPORTINTERVAL {INT}"
+WANDERJOIN_TIME_FMT = " WITHTIME {TIME} CONFIDENCE {CONF} REPORTINTERVAL {INT}"
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -36,6 +36,8 @@ def read_flags():
             default="./cardinality_cache")
     parser.add_argument("--port", type=str, required=False,
             default=5432)
+    parser.add_argument("--wj_time", type=int, required=False,
+            default=1000)
     parser.add_argument("--query_dir", type=str, required=False,
             default=None)
     parser.add_argument("-n", "--num_queries", type=int,
@@ -125,7 +127,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             assert "SELECT" in subsql
             subsql = subsql.replace("SELECT", "SELECT ONLINE")
             subsql = subsql.replace(";","")
-            subsql += WANDERJOIN_TIME_FORMAT.format(
+            subsql += WANDERJOIN_TIME_FMT.format(
                     TIME = wj_time,
                     CONF = 95,
                     INT = 1000)
