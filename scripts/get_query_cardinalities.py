@@ -115,6 +115,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 else:
                     card = output[0][0]
                 exec_time = time.time() - start
+                print(exec_time)
                 if exec_time > CACHE_TIMEOUT:
                     print(exec_time)
                     sql_cache.archive[hash_sql] = card
