@@ -60,6 +60,11 @@ def update_bad_qrep(qrep):
     qrep["join_graph"] = json_graph.adjacency_graph(qrep["join_graph"])
     return qrep
 
+def check_cross_join(sg):
+    print(sg.nodes())
+    pdb.set_trace()
+    return True
+
 def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         port, true_timeout, pg_total, cache_dir, fn, wj_time, idx):
     '''
@@ -95,35 +100,42 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             subsql = "EXPLAIN " + subsql
             output = execute_query(subsql, user, db_host, port, pwd, db_name, [])
             card = pg_est_from_explain(output)
+            cards[key_name] = card
 
         elif card_type == "actual":
             hash_sql = deterministic_hash(subsql)
             if "count" not in subsql.lower():
                 print("cardinality query does not have count")
                 pdb.set_trace()
+            if check_cross_join(sg):
+                card = CROSS_JOIN_CONSTANT
+                cards[key_name] = card
+                continue
             if hash_sql in sql_cache.archive:
                 card = sql_cache.archive[hash_sql]
                 found_in_cache += 1
+                cards[key_name] = card
+                continue
+
+            start = time.time()
+            pre_execs = ["SET statement_timeout = {}".format(true_timeout)]
+            output = execute_query(subsql, user, db_host, port, pwd, db_name,
+                            pre_execs)
+            if isinstance(output, Exception):
+                print(output)
+                pdb.set_trace()
+            elif output == "timeout":
+                print("timeout query: ")
+                print(subsql)
+                card = TIMEOUT_COUNT_CONSTANT
             else:
-                start = time.time()
-                pre_execs = ["SET statement_timeout = {}".format(true_timeout)]
-                output = execute_query(subsql, user, db_host, port, pwd, db_name,
-                                pre_execs)
-                if isinstance(output, Exception):
-                    print(output)
-                    pdb.set_trace()
-                elif output == "timeout":
-                    print("timeout query: ")
-                    print(subsql)
-                    card = TIMEOUT_COUNT_CONSTANT
-                else:
-                    card = output[0][0]
-                exec_time = time.time() - start
+                card = output[0][0]
+            exec_time = time.time() - start
+            if exec_time > CACHE_TIMEOUT:
                 print(exec_time)
-                if exec_time > CACHE_TIMEOUT:
-                    print(exec_time)
-                    num_timeout += 1
-                    sql_cache.archive[hash_sql] = card
+                num_timeout += 1
+                sql_cache.archive[hash_sql] = card
+            cards[key_name] = card
 
         elif card_type == "wanderjoin":
             assert "SELECT" in subsql
@@ -149,10 +161,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         else:
             assert False
 
-        cards[key_name] = card
     if card_type == "actual":
-        print("timeout: {}, existing: {}, found in cache: {}".format(\
-                num_timeout, existing, found_in_cache))
+        print("total: {}, timeout: {}, existing: {}, found in cache: {}".format(\
+                len(qrep.subset_graph.nodes()), num_timeout, existing, found_in_cache))
 
     if fn is not None:
         save_sql_rep(fn, qrep)
