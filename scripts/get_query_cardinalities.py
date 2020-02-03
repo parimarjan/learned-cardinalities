@@ -75,6 +75,8 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         sql_cache = klepto.archives.dir_archive(cache_dir,
                 cached=True, serialized=True)
     found_in_cache = 0
+    existing = 0
+    num_timeout = 0
 
     for subset, info in qrep["subset_graph"].nodes().items():
         if "cardinality" not in info:
@@ -85,6 +87,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         subsql = nx_graph_to_query(sg)
 
         if key_name in cards:
+            existing += 1
             continue
 
         if card_type == "pg":
@@ -117,6 +120,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 exec_time = time.time() - start
                 if exec_time > CACHE_TIMEOUT:
                     print(exec_time)
+                    num_timeout += 1
                     sql_cache.archive[hash_sql] = card
 
         elif card_type == "wanderjoin":
@@ -133,7 +137,8 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         cards[key_name] = card
     if card_type == "actual":
-        print("found in cache: ", found_in_cache)
+        print("timeout: {}, existing: {}, found in cache: {}".format(\
+                num_timeout, existing, found_in_cache))
 
     if fn is not None:
         save_sql_rep(fn, qrep)
