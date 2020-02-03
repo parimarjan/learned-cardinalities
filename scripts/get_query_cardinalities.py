@@ -19,6 +19,7 @@ from networkx.readwrite import json_graph
 TIMEOUT_COUNT_CONSTANT = 150001001
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
+WANDERJOIN_TIME_FMT = "WITHTIME {TIME} CONFIDENCE {CONF} REPORTINTERVAL {INT}"
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -60,7 +61,7 @@ def update_bad_qrep(qrep):
     return qrep
 
 def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
-        port, true_timeout, pg_total, cache_dir, fn, idx):
+        port, true_timeout, pg_total, cache_dir, fn, wj_time, idx):
     '''
     updates qrep's fields with the needed cardinality estimates, and returns
     the qrep.
@@ -118,12 +119,25 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 else:
                     card = output[0][0]
                 exec_time = time.time() - start
+                print(exec_time)
                 if exec_time > CACHE_TIMEOUT:
                     print(exec_time)
                     num_timeout += 1
                     sql_cache.archive[hash_sql] = card
 
         elif card_type == "wanderjoin":
+            assert "SELECT" in subsql
+            subsql = subsql.replace("SELECT", "SELECT ONLINE")
+            subsql = subsql.replace(";","")
+            subsql += WANDERJOIN_TIME_FORMAT.format(
+                    TIME = wj_time,
+                    CONF = 95,
+                    INT = 1000)
+            print(subsql)
+            output = execute_query(subsql, user, db_host, port, pwd, db_name,
+                            [])
+            print(output)
+            pdb.set_trace()
             assert False
 
         elif card_type == "total":
@@ -151,22 +165,24 @@ def main():
         if i >= args.num_queries and args.num_queries != -1:
             break
         qrep = load_sql_rep(fn)
-        par_args.append((qrep, args.card_type, args.key_name, args.db_host,
-                args.db_name, args.user, args.pwd, args.port,
-                args.true_timeout, args.pg_total, args.card_cache_dir, fn, i))
+        # par_args.append((qrep, args.card_type, args.key_name, args.db_host,
+                # args.db_name, args.user, args.pwd, args.port,
+                # args.true_timeout, args.pg_total, args.card_cache_dir, fn,
+                # args.wj_time, i))
 
         # TO debug:
-        # get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
-                # args.db_name, args.user, args.pwd, args.port,
-                # args.true_timeout, args.pg_total, args.card_cache_dir, fn, i)
-        # pdb.set_trace()
+        get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
+                args.db_name, args.user, args.pwd, args.port,
+                args.true_timeout, args.pg_total, args.card_cache_dir, fn,
+                args.wj_time, i)
+        pdb.set_trace()
 
-    print("going to get cardinalities for {} queries".format(len(par_args)))
-    start = time.time()
-    num_proc = cpu_count()
-    with Pool(processes = num_proc) as pool:
-        qreps = pool.starmap(get_cardinality, par_args)
-    print("updated all cardinalities in {} seconds".format(time.time()-start))
+    # print("going to get cardinalities for {} queries".format(len(par_args)))
+    # start = time.time()
+    # num_proc = cpu_count()
+    # with Pool(processes = num_proc) as pool:
+        # qreps = pool.starmap(get_cardinality, par_args)
+    # print("updated all cardinalities in {} seconds".format(time.time()-start))
 
 args = read_flags()
 main()
