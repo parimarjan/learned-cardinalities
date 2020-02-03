@@ -18,6 +18,7 @@ from networkx.readwrite import json_graph
 
 TIMEOUT_COUNT_CONSTANT = 150001001
 CACHE_TIMEOUT = 4
+CACHE_CARD_TYPES = ["actual"]
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -59,19 +60,22 @@ def update_bad_qrep(qrep):
     return qrep
 
 def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
-        port, true_timeout, pg_total, cache_dir, fn):
+        port, true_timeout, pg_total, cache_dir, fn, idx):
     '''
     updates qrep's fields with the needed cardinality estimates, and returns
     the qrep.
     '''
     if key_name is None:
         key_name = card_type
+    if idx % 10 == 0:
+        print("query: ", idx)
 
     # load the cache for few types
-    if card_type in ["actual"]:
+    if card_type in CACHE_CARD_TYPES:
         sql_cache = klepto.archives.dir_archive(cache_dir,
                 cached=True, serialized=True)
     found_in_cache = 0
+
     for subset, info in qrep["subset_graph"].nodes().items():
         if "cardinality" not in info:
             info["cardinality"] = {}
@@ -96,27 +100,28 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             if hash_sql in sql_cache.archive:
                 card = sql_cache.archive[hash_sql]
                 found_in_cache += 1
-
-            start = time.time()
-            pre_execs = ["SET statement_timeout = {}".format(true_timeout)]
-            output = execute_query(subsql, user, db_host, port, pwd, db_name,
-                            pre_execs)
-            if isinstance(output, Exception):
-                print(output)
-                pdb.set_trace()
-            elif output == "timeout":
-                print("timeout query: ")
-                print(subsql)
-                card = TIMEOUT_COUNT_CONSTANT
             else:
-                card = output[0][0]
-            exec_time = time.time() - start
-            if exec_time > CACHE_TIMEOUT:
-                print(exec_time)
-                sql_cache.archive[hash_sql] = card
+                start = time.time()
+                pre_execs = ["SET statement_timeout = {}".format(true_timeout)]
+                output = execute_query(subsql, user, db_host, port, pwd, db_name,
+                                pre_execs)
+                if isinstance(output, Exception):
+                    print(output)
+                    pdb.set_trace()
+                elif output == "timeout":
+                    print("timeout query: ")
+                    print(subsql)
+                    card = TIMEOUT_COUNT_CONSTANT
+                else:
+                    card = output[0][0]
+                exec_time = time.time() - start
+                if exec_time > CACHE_TIMEOUT:
+                    print(exec_time)
+                    sql_cache.archive[hash_sql] = card
 
         elif card_type == "wanderjoin":
             assert False
+
         elif card_type == "total":
             exec_sql = get_total_count_query(subsql)
             if args.pg_total:
@@ -143,12 +148,12 @@ def main():
         qrep = load_sql_rep(fn)
         par_args.append((qrep, args.card_type, args.key_name, args.db_host,
                 args.db_name, args.user, args.pwd, args.port,
-                args.true_timeout, args.pg_total, args.card_cache_dir, fn))
+                args.true_timeout, args.pg_total, args.card_cache_dir, fn, i))
 
         # TO debug:
         # get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
                 # args.db_name, args.user, args.pwd, args.port,
-                # args.true_timeout, args.pg_total, args.card_cache_dir, fn)
+                # args.true_timeout, args.pg_total, args.card_cache_dir, fn, i)
         # pdb.set_trace()
 
     print("going to get cardinalities for {} queries".format(len(par_args)))
