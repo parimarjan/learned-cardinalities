@@ -547,6 +547,7 @@ def main():
 
     summary_df = get_summary_df()
     summary_df = summary_df[summary_df["heuristic_features"] == 1]
+    summary_df = summary_df[summary_df["hidden_layer_size"] <= 100]
     SUMMARY_TITLE_FMT = "{ST}-{LT}-{SUMMARY}"
 
     if args.only_test:
