@@ -538,16 +538,16 @@ def plot_summary(pdf, df, title):
 
 def main():
 
-    get_all_jerrs()
+    # get_all_jerrs()
     # plot_fig2()
     # plot_fig2_cp()
 
     pdf = PdfPages("results.pdf")
-
     # plot_join_summaries2(pdf)
 
     summary_df = get_summary_df()
     summary_df = summary_df[summary_df["heuristic_features"] == 1]
+    summary_df = summary_df[summary_df["hidden_layer_size"] <= 100]
     SUMMARY_TITLE_FMT = "{ST}-{LT}-{SUMMARY}"
 
     if args.only_test:
@@ -567,7 +567,6 @@ def main():
 
     # plot_qerr_summaries2(pdf)
     # plot_join_summaries2(pdf)
-
     pdf.close()
 
 args = read_flags()
