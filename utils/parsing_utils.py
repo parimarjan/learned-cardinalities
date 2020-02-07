@@ -114,43 +114,30 @@ def get_all_qerrs():
         df = df[df["samples_type"] == "test"]
     return df
 
-def get_all_jerrs(mapping):
+def get_all_plans(results_dir):
     all_dfs = []
-    fns = os.listdir(args.results_dir)
+    fns = os.listdir(results_dir)
     for fn in fns:
         # convert to same format as qerrs
-        cur_dir = args.results_dir + "/" + fn
+        cur_dir = results_dir + "/" + fn
         exp_args = load_object(cur_dir + "/args.pkl")
         if exp_args is None:
             continue
         exp_args = vars(exp_args)
         if skip_exp(exp_args):
             continue
-
+        alg = get_alg_name(exp_args)
+        print(alg)
         nns = load_object(cur_dir + "/nn.pkl")
         qdf = pd.DataFrame(nns["query_stats"])
+        # qdf["alg"] = alg
+        # qdf["hls"] = exp_args["hidden_layer_size"]
+        qdf["exp_name"] = fn
+        qdf["alg"] = alg
+
         print(qdf)
         pdb.set_trace()
-        priorities = qdf.groupby("query_name").mean()["jerr"]
-        rts = load_object(cur_dir + "/runtimes.pkl")
-        jerrs = load_object(cur_dir + "/jerr.pkl")
-        costs = jerrs.groupby("sql_key").mean()["cost"]
-        # print(costs)
-        pdb.set_trace()
-        rts['query_name'] = rts['sql_key'].map(mapping)
-        rts["priority"] = rts["query_name"].map(priorities)
-        rts["cost"] = rts["sql_key"].map(costs)
-
-        rts = rts[["query_name", "runtime", "priority", "cost"]]
-        rts = rts.dropna()
-        # print(rts["priority"].describe())
-        # pdb.set_trace()
-        # rts["priority"] /= float(1000000)
-        # total = np.sum(rts["priority"].data)
-        # print("total: ", total)
-        # rts["priority"] /= total
-
-        all_dfs.append(rts)
+        all_dfs.append(qdf)
 
     return pd.concat(all_dfs)
 
@@ -169,35 +156,13 @@ def qkey_map():
             mapping[str(deterministic_hash(qrep["sql"]))] = qfn
     return mapping
 
-def plot_priorities(df):
-    sns.scatterplot(x="priority", y = "runtime", data=df)
-    plt.savefig("priorities_scatter.pdf")
-    plt.clf()
-
-    # df = df.sort_values(by="runtime")
-    df = df.sort_values(by="runtime")
-    # df[0:100].plot(kind="bar")
-    # df["priority"].plot(kind="bar")
-    prs = df["priority"].to_numpy()
-    plt.plot(prs)
-    plt.savefig("priorities2.pdf")
-
-    # plt.savefig("priorities.pdf")
-    # print(df[0:10])
-    # print(df[1000:10])
-    # pdb.set_trace()
-    # print(df[0:10])
-    # print(df[500:10])
-
-    # pdb.set_trace()
-
 def main():
 
     qkey_mapping = qkey_map()
-    rts = get_all_jerrs(qkey_mapping)
-    print(rts)
-    plot_priorities(rts)
+    plans = get_all_plans(args.results_dir)
+    print(plans)
     pdb.set_trace()
 
-args = read_flags()
-main()
+if __name__ == "__main__":
+    args = read_flags()
+    main()
