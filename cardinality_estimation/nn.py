@@ -601,8 +601,8 @@ class NN(CardinalityEstimationAlg):
         return sqls, true_cardinalities, est_cardinalities
 
     def initialize_tfboard(self):
-        # exp_name = self.get_exp_name()
-        name = self.__str__()
+        name = self.get_exp_name()
+        # name = self.__str__()
         log_dir = "tfboard_logs/" + name
         self.tf_summary_writer = tf_summary.create_file_writer(log_dir)
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"

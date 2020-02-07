@@ -542,7 +542,7 @@ def main():
     # plot_fig2()
     # plot_fig2_cp()
 
-    # pdf = PdfPages("results.pdf")
+    pdf = PdfPages("results.pdf")
 
     # plot_join_summaries2(pdf)
 
