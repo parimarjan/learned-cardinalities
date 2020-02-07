@@ -19,7 +19,7 @@ from networkx.readwrite import json_graph
 TIMEOUT_COUNT_CONSTANT = 150001001
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
-WANDERJOIN_TIME_FMT = "WITHTIME {TIME} CONFIDENCE {CONF} REPORTINTERVAL {INT}"
+WANDERJOIN_TIME_FMT = " WITHTIME {TIME} CONFIDENCE {CONF} REPORTINTERVAL {INT}"
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -36,6 +36,8 @@ def read_flags():
             default="./cardinality_cache")
     parser.add_argument("--port", type=str, required=False,
             default=5432)
+    parser.add_argument("--wj_time", type=int, required=False,
+            default=1000)
     parser.add_argument("--query_dir", type=str, required=False,
             default=None)
     parser.add_argument("-n", "--num_queries", type=int,
@@ -76,6 +78,8 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         sql_cache = klepto.archives.dir_archive(cache_dir,
                 cached=True, serialized=True)
     found_in_cache = 0
+    existing = 0
+    num_timeout = 0
 
     for subset, info in qrep["subset_graph"].nodes().items():
         if "cardinality" not in info:
@@ -86,6 +90,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         subsql = nx_graph_to_query(sg)
 
         if key_name in cards:
+            existing += 1
             continue
 
         if card_type == "pg":
@@ -119,13 +124,14 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 print(exec_time)
                 if exec_time > CACHE_TIMEOUT:
                     print(exec_time)
+                    num_timeout += 1
                     sql_cache.archive[hash_sql] = card
 
         elif card_type == "wanderjoin":
             assert "SELECT" in subsql
             subsql = subsql.replace("SELECT", "SELECT ONLINE")
             subsql = subsql.replace(";","")
-            subsql += WANDERJOIN_TIME_FORMAT.format(
+            subsql += WANDERJOIN_TIME_FMT.format(
                     TIME = wj_time,
                     CONF = 95,
                     INT = 1000)
@@ -147,7 +153,8 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         cards[key_name] = card
     if card_type == "actual":
-        print("found in cache: ", found_in_cache)
+        print("timeout: {}, existing: {}, found in cache: {}".format(\
+                num_timeout, existing, found_in_cache))
 
     if fn is not None:
         save_sql_rep(fn, qrep)
