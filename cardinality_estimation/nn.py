@@ -46,7 +46,68 @@ def percentile_help(q):
         return np.percentile(arr, q)
     return f
 
-def compute_subquery_priorities(qrep, pred, env, use_indexes=True):
+def compute_subquery_priorities(qrep, true_cards, est_cards,
+        explain, jerr, env, use_indexes=True):
+    '''
+    @return: subquery priorities
+    '''
+    def get_sql(aliases):
+        aliases = tuple(aliases)
+        subgraph = qrep["join_graph"].subgraph(aliases)
+        sql = nx_graph_to_query(subgraph)
+        return sql
+
+    def handle_subtree(plan_tree, cur_node, cur_jerr):
+        successors = list(plan_tree.successors(cur_node))
+        # print(successors)
+        if len(successors) == 0:
+            return
+        assert len(successors) == 2
+        # if len(successors) != 2:
+            # print(successors)
+            # pdb.set_trace()
+        left = successors[0]
+        right = successors[1]
+        left_sql = get_sql(plan_tree.nodes()[left]["aliases"])
+        right_sql = get_sql(plan_tree.nodes()[right]["aliases"])
+        # computer left_jerr, right_jerr
+        (left_est_costs, left_opt_costs,_,_,_,_) = \
+                join_loss_pg([left_sql], [trues], [ests], env, use_indexes,
+                        None, 1)
+
+        handle_subtree(plan_tree, left, cur_jerr)
+        handle_subtree(plan_tree, right, cur_jerr)
+
+    plan_tree = explain_to_nx(explain)
+    root = [n for n,d in plan_tree.in_degree() if d==0]
+    assert len(root) == 1
+    handle_subtree(plan_tree, root[0], jerr)
+    pdb.set_trace()
+
+    # handle_subtree(plan_tree, jerr)
+
+    # all_nodes = list(qrep["join_graph"].nodes())
+    # all_nodes.sort()
+    # all_nodes_key = None
+    # for node, data in plan_tree.nodes(data=True):
+        # aliases = data["aliases"]
+        # aliases.sort()
+        # if aliases == all_nodes:
+            # plan_tree.nodes()[node]["jerr"] = jerr
+            # all_nodes_key = node
+            # break
+        # aliases = tuple(aliases)
+        # subgraph = qrep["join_graph"].subgraph(aliases)
+        # sql = nx_graph_to_query(subgraph)
+        # print(sql)
+
+        # node_info = qrep["subset_graph"].nodes()[node]
+        # for node2 in plan_tree.successors(node):
+            # print("successors: ", node2)
+
+    pdb.set_trace()
+
+def compute_subquery_priorities_old(qrep, pred, env, use_indexes=True):
     priorities = np.ones(len(qrep["subset_graph"].nodes()))
     priority_dict = {}
     start = time.time()
@@ -345,8 +406,8 @@ class NN(CardinalityEstimationAlg):
         '''
         '''
         time_hash = str(deterministic_hash(self.start_time))[0:3]
-        name = "{DAY}-{NN}-{PRIORITY}-{HASH}".format(\
-                    DAY = self.start_day,
+        name = "{PREFIX}-{NN}-{PRIORITY}-{HASH}".format(\
+                    PREFIX = self.exp_prefix,
                     NN = self.__str__(),
                     PRIORITY = self.sampling_priority_alpha,
                     HASH = time_hash)
@@ -430,7 +491,6 @@ class NN(CardinalityEstimationAlg):
 
     def save_join_loss_stats(self, join_losses, est_plans, samples,
             samples_type):
-        print("save join loss stats")
         self.add_row(join_losses, "jerr", self.epoch, "all",
                 "all", samples_type)
         print("{}, join losses mean: {}".format(samples_type,
@@ -764,11 +824,28 @@ class NN(CardinalityEstimationAlg):
                         else:
                             sq_weight = jerr_ratio[si]
 
+                        if self.priority_err_divide_len:
+                            sq_weight /= len(sample["subset_graph"].nodes())
+
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight
                         query_idx += len(sample["subset_graph"].nodes())
 
                 elif self.sampling_priority_type == "subquery":
+                    pr_start = time.time()
+                    sqls, true_cardinalities, est_cardinalities = \
+                            self.get_query_estimates(pred,
+                                    self.training_samples)
+                    (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
+                            true_cardinalities, est_cardinalities, self.env,
+                            self.jl_indexes, None,
+                            pool = self.join_loss_pool)
+                    jerrs = est_costs - opt_costs
+                    compute_subquery_priorities(self.training_samples[0], true_cardinalities[0],
+                            est_cardinalities[0], est_plans[0], jerrs[0], self.env,
+                            self.jl_indexes)
+
+                elif self.sampling_priority_type == "subquery_old":
                     start = time.time()
                     par_args = []
                     query_idx = 0

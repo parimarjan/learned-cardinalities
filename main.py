@@ -67,8 +67,10 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                exp_prefix = args.exp_prefix,
                 result_dir = args.result_dir,
                 priority_err_type = args.priority_err_type,
+                priority_err_divide_len = args.priority_err_divide_len,
                 tfboard = args.tfboard,
                 jl_indexes = args.jl_indexes,
                 normalization_type = args.normalization_type,
@@ -321,6 +323,8 @@ def read_flags():
     # parser = argparse.ArgumentParser()
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset")
+    parser.add_argument("--exp_prefix", type=str, required=False,
+            default="")
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
@@ -346,12 +350,12 @@ def read_flags():
             default=1)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
-    parser.add_argument("--gen_queries", type=int, required=False,
+    parser.add_argument("--priority_err_divide_len", type=int, required=False,
             default=0)
-    parser.add_argument("--update_subq_cards", type=int, required=False,
-            default=0)
-    parser.add_argument("--update_subq_preds", type=int, required=False,
-            default=0)
+    # parser.add_argument("--update_subq_cards", type=int, required=False,
+            # default=0)
+    # parser.add_argument("--update_subq_preds", type=int, required=False,
+            # default=0)
     parser.add_argument("--eval_num_tables", type=int, required=False,
             default=0)
     parser.add_argument("--rf_trees", type=int, required=False,

@@ -1,31 +1,16 @@
 import sys
 sys.path.append(".")
+from utils.utils import *
 import pickle
 import glob
 import argparse
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-import seaborn as sns
 from collections import defaultdict
 import os
-from utils.utils import *
+# from utils import *
 import pdb
-from cardinality_estimation.losses import *
-from matplotlib import gridspec
-from matplotlib import pyplot as plt
-from db_utils.utils import *
-from db_utils.query_storage import *
-
-LOSS_COLUMNS = ["loss_type", "loss", "summary_type", "template", "num_samples",
-        "samples_type"]
-EXP_COLUMNS = ["num_hidden_layers", "hidden_layer_size",
-        "sampling_priority_alpha", "max_discrete_featurizing_buckets",
-        "heuristic_features", "alg", "nn_type"]
-PLOT_SUMMARY_TYPES = ["mean"]
-ALGS_ORDER = ["mscn", "mscn-priority", "microsoft", "microsoft-priority"]
+# from db_utils.utils import *
+# from db_utils.query_storage import *
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -127,16 +112,12 @@ def get_all_plans(results_dir):
         if skip_exp(exp_args):
             continue
         alg = get_alg_name(exp_args)
-        print(alg)
         nns = load_object(cur_dir + "/nn.pkl")
         qdf = pd.DataFrame(nns["query_stats"])
         # qdf["alg"] = alg
         # qdf["hls"] = exp_args["hidden_layer_size"]
         qdf["exp_name"] = fn
         qdf["alg"] = alg
-
-        print(qdf)
-        pdb.set_trace()
         all_dfs.append(qdf)
 
     return pd.concat(all_dfs)
