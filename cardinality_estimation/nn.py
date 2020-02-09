@@ -40,7 +40,8 @@ import gc
 from cardinality_estimation.query_dataset import QueryDataset
 from torch.utils import data
 
-PERCENTILES_TO_SAVE = [25, 50, 75, 90, 99]
+SUBQUERY_JERR_THRESHOLD = 100000
+PERCENTILES_TO_SAVE = [1,5,10,25, 50, 75, 90, 95, 99]
 def percentile_help(q):
     def f(arr):
         return np.percentile(arr, q)
@@ -49,7 +50,7 @@ def percentile_help(q):
 def compute_subquery_priorities(qrep, true_cards, est_cards,
         explain, jerr, env, use_indexes=True):
     '''
-    @return: subquery priorities
+    @return: subquery priorities, which must sum upto jerr.
     '''
     def get_sql(aliases):
         aliases = tuple(aliases)
@@ -63,9 +64,6 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
         if len(successors) == 0:
             return
         assert len(successors) == 2
-        # if len(successors) != 2:
-            # print(successors)
-            # pdb.set_trace()
         left = successors[0]
         right = successors[1]
         left_sql = get_sql(plan_tree.nodes()[left]["aliases"])
@@ -75,37 +73,59 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
                 join_loss_pg([left_sql], [trues], [ests], env, use_indexes,
                         None, 1)
 
-        handle_subtree(plan_tree, left, cur_jerr)
-        handle_subtree(plan_tree, right, cur_jerr)
+        (right_est_costs, right_opt_costs,_,_,_,_) = \
+                join_loss_pg([right_sql], [trues], [ests], env, use_indexes,
+                        None, 1)
+        left_jerr = left_est_costs[0] - left_opt_costs[0]
+        right_jerr = right_est_costs[0] - right_opt_costs[0]
+
+        # -2.00 just added for close cases
+        assert left_jerr <= cur_jerr - 2.00
+        assert right_jerr <= cur_jerr - 2.00
+
+        # TODO: replace threshold with more than 1/2 curr_jerr?
+
+        jerr_thresh = cur_jerr / 3.0
+        if left_jerr < jerr_thresh \
+                and right_jerr < jerr_thresh:
+            # both the sides of the tree have low jerr, so take the complete
+            # tree at this point and update the priorities of any subgraph
+            # using the nodes in this tree (might not be in the current tree,
+            # as those subqueries are important to reduce the jerr here as
+            # well)
+            cur_aliases = plan_tree.nodes()[left]["aliases"] + plan_tree.nodes()[right]["aliases"]
+            print(cur_aliases)
+            print("update jerrs here")
+            for i, cur_nodes in enumerate(qrep["subset_graph"].nodes()):
+                print(cur_nodes)
+                print(cur_aliases)
+                pdb.set_trace()
+
+                # subpriorities[i] = jerr
+            return
+        if left_jerr > jerr_thresh:
+            handle_subtree(plan_tree, left, left_jerr)
+
+        if right_jerr > jerr_thresh:
+            handle_subtree(plan_tree, right, right_jerr)
+
+    subpriorities = np.zeros(len(qrep["subset_graph"].nodes()))
+
+    # give everyone the initial priority
+    for i, _ in enumerate(qrep["subset_graph"].nodes()):
+        subpriorities[i] = jerr
+
+    # add sub-jerr priorities to the ones that are included in them - might at
+    # most double it
 
     plan_tree = explain_to_nx(explain)
     root = [n for n,d in plan_tree.in_degree() if d==0]
     assert len(root) == 1
     handle_subtree(plan_tree, root[0], jerr)
-    pdb.set_trace()
 
-    # handle_subtree(plan_tree, jerr)
+    # TODO: normalize subpriorities
 
-    # all_nodes = list(qrep["join_graph"].nodes())
-    # all_nodes.sort()
-    # all_nodes_key = None
-    # for node, data in plan_tree.nodes(data=True):
-        # aliases = data["aliases"]
-        # aliases.sort()
-        # if aliases == all_nodes:
-            # plan_tree.nodes()[node]["jerr"] = jerr
-            # all_nodes_key = node
-            # break
-        # aliases = tuple(aliases)
-        # subgraph = qrep["join_graph"].subgraph(aliases)
-        # sql = nx_graph_to_query(subgraph)
-        # print(sql)
-
-        # node_info = qrep["subset_graph"].nodes()[node]
-        # for node2 in plan_tree.successors(node):
-            # print("successors: ", node2)
-
-    pdb.set_trace()
+    return subpriorities
 
 def compute_subquery_priorities_old(qrep, pred, env, use_indexes=True):
     priorities = np.ones(len(qrep["subset_graph"].nodes()))
@@ -589,8 +609,6 @@ class NN(CardinalityEstimationAlg):
     def _normalize_priorities(self, priorities):
         total = np.float64(np.sum(priorities))
         norm_priorities = np.zeros(len(priorities))
-        # for i, priority in enumerate(priorities):
-            # norm_priorities[i] = priority / total
         norm_priorities = np.divide(priorities, total)
 
         # if they don't sum to 1...
@@ -844,6 +862,7 @@ class NN(CardinalityEstimationAlg):
                     compute_subquery_priorities(self.training_samples[0], true_cardinalities[0],
                             est_cardinalities[0], est_plans[0], jerrs[0], self.env,
                             self.jl_indexes)
+                    pdb.set_trace()
 
                 elif self.sampling_priority_type == "subquery_old":
                     start = time.time()
