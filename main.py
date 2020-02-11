@@ -76,6 +76,7 @@ def get_alg(alg):
                 normalization_type = args.normalization_type,
                 preload_features = args.preload_features,
                 reprioritize_epoch = args.reprioritize_epoch,
+                prioritize_epoch = args.prioritize_epoch,
                 heuristic_features = args.heuristic_features,
                 debug_set = args.debug_set,
                 num_hidden_layers=args.num_hidden_layers,
@@ -483,8 +484,11 @@ def read_flags():
             default="query", help="")
     parser.add_argument("--sampling_priority_alpha", type=float, required=False,
             default=0.00, help="")
-    parser.add_argument("--reprioritize_epoch", type=float, required=False,
-            default=1, help="")
+    parser.add_argument("--prioritize_epoch", type=float, required=False,
+            default=2, help="")
+    parser.add_argument("--reprioritize_epoch", type=int, required=False,
+            default=2, help="")
+
     parser.add_argument("--priority_query_len_scale", type=float, required=False,
             default=0, help="")
     parser.add_argument("--tfboard", type=float, required=False,
