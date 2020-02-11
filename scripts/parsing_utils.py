@@ -114,10 +114,23 @@ def get_all_plans(results_dir):
         alg = get_alg_name(exp_args)
         nns = load_object(cur_dir + "/nn.pkl")
         qdf = pd.DataFrame(nns["query_stats"])
-        # qdf["alg"] = alg
-        # qdf["hls"] = exp_args["hidden_layer_size"]
-        qdf["exp_name"] = fn
+        if "query_qerr_stats" in nns:
+            qerr_df = pd.DataFrame(nns["query_qerr_stats"])
+            qdf = qdf.merge(qerr_df, on=["query_name", "epoch"])
+
         qdf["alg"] = alg
+        qdf["hls"] = exp_args["hidden_layer_size"]
+        qdf["exp_name"] = fn
+        # priority based on args
+        if exp_args["sampling_priority_alpha"] > 0:
+            qdf["priority"] = True
+        else:
+            qdf["priority"] = False
+
+        # TODO: add training / test detail
+        # TODO: add template detail
+        # TODO: need map from query_name : test/train + template etc.
+
         all_dfs.append(qdf)
 
     return pd.concat(all_dfs)

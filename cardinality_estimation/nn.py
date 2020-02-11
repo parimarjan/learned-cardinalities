@@ -582,7 +582,8 @@ class NN(CardinalityEstimationAlg):
         if (self.epoch % self.eval_epoch_jerr == 0 \
                 and self.epoch != 0):
             if (samples_type == "train" and \
-                    self.sampling_priority_alpha > 0):
+                    self.sampling_priority_alpha > 0 and \
+                    self.epoch % self.reprioritize_epoch == 0):
                 print("not recalculating join loss for training")
                 return
             # if priority on, then stats will be saved when calculating
@@ -809,7 +810,8 @@ class NN(CardinalityEstimationAlg):
             print("train epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
-                    and self.epoch % self.reprioritize_epoch == 0:
+                    and (self.epoch % self.reprioritize_epoch == 0 \
+                            or self.epoch % self.prioritize_epoch == 0):
                 pred, _ = self._eval_samples(priority_loader)
                 pred = pred.detach().numpy()
                 if self.sampling_priority_type == "query":
@@ -888,11 +890,6 @@ class NN(CardinalityEstimationAlg):
                 self.training_loader = data.DataLoader(training_set,
                         batch_size=self.mb_size, shuffle=False, num_workers=0,
                         sampler = sampler)
-
-        # if self.preload_features:
-            # del(training_set.X)
-            # del(training_set.Y)
-            # del(training_set.info)
 
     def test(self, test_samples):
         '''
