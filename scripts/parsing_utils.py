@@ -114,10 +114,10 @@ def get_all_plans(results_dir):
         alg = get_alg_name(exp_args)
         nns = load_object(cur_dir + "/nn.pkl")
         qdf = pd.DataFrame(nns["query_stats"])
-        # qdf["alg"] = alg
-        # qdf["hls"] = exp_args["hidden_layer_size"]
         qdf["exp_name"] = fn
         qdf["alg"] = alg
+        print(nns.keys())
+        pdb.set_trace()
         all_dfs.append(qdf)
 
     return pd.concat(all_dfs)

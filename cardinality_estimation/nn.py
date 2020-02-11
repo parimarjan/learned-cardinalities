@@ -66,24 +66,32 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
         assert len(successors) == 2
         left = successors[0]
         right = successors[1]
-        left_sql = get_sql(plan_tree.nodes()[left]["aliases"])
-        right_sql = get_sql(plan_tree.nodes()[right]["aliases"])
-        # computer left_jerr, right_jerr
-        (left_est_costs, left_opt_costs,_,_,_,_) = \
-                join_loss_pg([left_sql], [trues], [ests], env, use_indexes,
-                        None, 1)
+        left_aliases = plan_tree.nodes()[left]["aliases"]
+        right_aliases = plan_tree.nodes()[right]["aliases"]
+        left_sql = get_sql(left_aliases)
+        right_sql = get_sql(right_aliases)
+        left_total_cost = plan_tree.nodes()[left]["Total Cost"]
+        right_total_cost = plan_tree.nodes()[right]["Total Cost"]
 
-        (right_est_costs, right_opt_costs,_,_,_,_) = \
-                join_loss_pg([right_sql], [trues], [ests], env, use_indexes,
-                        None, 1)
-        left_jerr = left_est_costs[0] - left_opt_costs[0]
-        right_jerr = right_est_costs[0] - right_opt_costs[0]
+        if len(left_aliases) >= 3:
+            (left_est_costs, left_opt_costs,_,_,_,_) = \
+                    join_loss_pg([left_sql], [true_cards], [est_cards], env, use_indexes,
+                            None, 1)
+            left_jerr = left_est_costs[0] - left_opt_costs[0]
+        else:
+            left_jerr = 0.0
+
+        if len(right_aliases) >= 3:
+            (right_est_costs, right_opt_costs,_,_,_,_) = \
+                    join_loss_pg([right_sql], [true_cards], [est_cards], env, use_indexes,
+                            None, 1)
+            right_jerr = right_est_costs[0] - right_opt_costs[0]
+        else:
+            right_jerr = 0.00
 
         # -2.00 just added for close cases
-        assert left_jerr <= cur_jerr - 2.00
-        assert right_jerr <= cur_jerr - 2.00
-
-        # TODO: replace threshold with more than 1/2 curr_jerr?
+        # assert left_jerr <= cur_jerr + 2.00
+        # assert right_jerr <= cur_jerr + 2.00
 
         jerr_thresh = cur_jerr / 3.0
         if left_jerr < jerr_thresh \
@@ -94,14 +102,9 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
             # as those subqueries are important to reduce the jerr here as
             # well)
             cur_aliases = plan_tree.nodes()[left]["aliases"] + plan_tree.nodes()[right]["aliases"]
-            print(cur_aliases)
-            print("update jerrs here")
             for i, cur_nodes in enumerate(qrep["subset_graph"].nodes()):
-                print(cur_nodes)
-                print(cur_aliases)
-                pdb.set_trace()
-
-                # subpriorities[i] = jerr
+                if set(cur_nodes) <= set(cur_aliases):
+                    subpriorities[i] += cur_jerr
             return
         if left_jerr > jerr_thresh:
             handle_subtree(plan_tree, left, left_jerr)
@@ -124,6 +127,7 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
     handle_subtree(plan_tree, root[0], jerr)
 
     # TODO: normalize subpriorities
+    subpriorities /= 1000000
 
     return subpriorities
 
@@ -289,6 +293,7 @@ class NN(CardinalityEstimationAlg):
             self.summary_types.append("percentile:{}".format(str(q)))
 
         self.query_stats = defaultdict(list)
+        self.query_qerr_stats = defaultdict(list)
 
     def _init_net(self, net_name, optimizer_name, sample):
         if net_name == "FCNN":
@@ -453,6 +458,7 @@ class NN(CardinalityEstimationAlg):
         results["config"] = self.kwargs
         results["name"] = self.__str__()
         results["query_stats"] = self.query_stats
+        results["query_qerr_stats"] = self.query_qerr_stats
 
         with open(fn, 'wb') as fp:
             pickle.dump(results, fp,
@@ -555,24 +561,25 @@ class NN(CardinalityEstimationAlg):
         query_idx = 0
         for sample in samples:
             template = sample["template_name"]
+            sample_losses = []
             for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
                 num_tables = len(node)
                 idx = query_idx + subq_idx
-                loss = losses[idx]
+                loss = float(losses[idx])
+                sample_losses.append(loss)
                 summary_data["loss"].append(loss)
                 summary_data["num_tables"].append(num_tables)
                 summary_data["template"].append(template)
             query_idx += len(sample["subset_graph"].nodes())
+            self.query_qerr_stats["epoch"].append(self.epoch)
+            self.query_qerr_stats["query_name"].append(sample["name"])
+            self.query_qerr_stats["qerr"].append(sum(sample_losses) / len(sample_losses))
 
         df = pd.DataFrame(summary_data)
         for template in set(df["template"]):
             tvals = df[df["template"] == template]
             self.add_row(tvals["loss"].values, "qerr", self.epoch,
                     template, "all", samples_type)
-            for nt in set(tvals["num_tables"]):
-                nt_losses = tvals[tvals["num_tables"] == nt]
-                self.add_row(nt_losses["loss"].values, "qerr", self.epoch, template,
-                        str(nt), samples_type)
 
         for nt in set(df["num_tables"]):
             nt_losses = df[df["num_tables"] == nt]
@@ -812,6 +819,7 @@ class NN(CardinalityEstimationAlg):
                     and self.epoch % self.reprioritize_epoch == 0:
                 pred, _ = self._eval_samples(priority_loader)
                 pred = pred.detach().numpy()
+                weights = np.zeros(len(training_set))
                 if self.sampling_priority_type == "query":
                     # TODO: decompose
                     pr_start = time.time()
@@ -833,8 +841,6 @@ class NN(CardinalityEstimationAlg):
                                 np.round(np.mean(jerr_ratio), 2),
                                 np.round(np.mean(jerr), 2),
                                 time.time()-pr_start))
-                    weights = np.zeros(len(training_set))
-                    assert len(weights) == len(training_set)
                     query_idx = 0
                     for si, sample in enumerate(self.training_samples):
                         if self.priority_err_type == "jerr":
@@ -859,10 +865,33 @@ class NN(CardinalityEstimationAlg):
                             self.jl_indexes, None,
                             pool = self.join_loss_pool)
                     jerrs = est_costs - opt_costs
-                    compute_subquery_priorities(self.training_samples[0], true_cardinalities[0],
-                            est_cardinalities[0], est_plans[0], jerrs[0], self.env,
-                            self.jl_indexes)
-                    pdb.set_trace()
+                    jerr_ratio = est_costs / opt_costs
+                    self.save_join_loss_stats(jerrs, est_plans,
+                            self.training_samples, "train")
+
+                    print("epoch: {}, jerr_ratio: {}, jerr: {}, time: {}"\
+                            .format(self.epoch,
+                                np.round(np.mean(jerr_ratio), 2),
+                                np.round(np.mean(jerrs), 2),
+                                time.time()-pr_start))
+                    par_args = []
+                    num_proc = 8
+                    for si, sample in enumerate(self.training_samples):
+                        par_args.append((sample,
+                                    true_cardinalities[si], est_cardinalities[si],
+                                    est_plans[si], jerrs[si], self.env,
+                                    self.jl_indexes))
+                    with Pool(processes=num_proc) as pool:
+                        all_subps = pool.starmap(compute_subquery_priorities, par_args)
+                    # all_subps = self.join_loss_pool.starmap(compute_subquery_priorities,
+                            # par_args)
+
+                    query_idx = 0
+                    for si, sample in enumerate(self.training_samples):
+                        subps = all_subps[si]
+                        slen = len(sample["subset_graph"].nodes())
+                        weights[query_idx:query_idx+slen] = subps
+                        query_idx += slen
 
                 elif self.sampling_priority_type == "subquery_old":
                     start = time.time()
