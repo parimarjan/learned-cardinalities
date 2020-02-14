@@ -67,13 +67,16 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                exp_prefix = args.exp_prefix,
                 result_dir = args.result_dir,
                 priority_err_type = args.priority_err_type,
+                priority_err_divide_len = args.priority_err_divide_len,
                 tfboard = args.tfboard,
                 jl_indexes = args.jl_indexes,
                 normalization_type = args.normalization_type,
                 preload_features = args.preload_features,
                 reprioritize_epoch = args.reprioritize_epoch,
+                prioritize_epoch = args.prioritize_epoch,
                 heuristic_features = args.heuristic_features,
                 debug_set = args.debug_set,
                 num_hidden_layers=args.num_hidden_layers,
@@ -321,6 +324,8 @@ def read_flags():
     # parser = argparse.ArgumentParser()
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset")
+    parser.add_argument("--exp_prefix", type=str, required=False,
+            default="")
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
@@ -346,12 +351,12 @@ def read_flags():
             default=1)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
-    parser.add_argument("--gen_queries", type=int, required=False,
+    parser.add_argument("--priority_err_divide_len", type=int, required=False,
             default=0)
-    parser.add_argument("--update_subq_cards", type=int, required=False,
-            default=0)
-    parser.add_argument("--update_subq_preds", type=int, required=False,
-            default=0)
+    # parser.add_argument("--update_subq_cards", type=int, required=False,
+            # default=0)
+    # parser.add_argument("--update_subq_preds", type=int, required=False,
+            # default=0)
     parser.add_argument("--eval_num_tables", type=int, required=False,
             default=0)
     parser.add_argument("--rf_trees", type=int, required=False,
@@ -479,8 +484,11 @@ def read_flags():
             default="query", help="")
     parser.add_argument("--sampling_priority_alpha", type=float, required=False,
             default=0.00, help="")
-    parser.add_argument("--reprioritize_epoch", type=float, required=False,
-            default=1, help="")
+    parser.add_argument("--prioritize_epoch", type=float, required=False,
+            default=2, help="")
+    parser.add_argument("--reprioritize_epoch", type=int, required=False,
+            default=2, help="")
+
     parser.add_argument("--priority_query_len_scale", type=float, required=False,
             default=0, help="")
     parser.add_argument("--tfboard", type=float, required=False,

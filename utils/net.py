@@ -64,7 +64,8 @@ class SimpleRegression(torch.nn.Module):
 class SetConv(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, hid_units):
         super(SetConv, self).__init__()
-        # sample_hid = min(hid_units, 3*sample_feats)
+        # doesn't really make sense to have this be bigger...
+        # sample_hid = min(hid_units, 128)
         sample_hid = hid_units
         self.sample_mlp1 = nn.Sequential(
             nn.Linear(sample_feats, sample_hid),
@@ -86,9 +87,8 @@ class SetConv(nn.Module):
             nn.ReLU()
         ).to(device)
 
-        # join_hid = min(hid_units, 3*join_feats)
+        # join_hid = min(hid_units, 128)
         join_hid = hid_units
-
         self.join_mlp1 = nn.Sequential(
             nn.Linear(join_feats, join_hid),
             nn.ReLU()

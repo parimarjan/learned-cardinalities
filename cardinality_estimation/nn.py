@@ -40,13 +40,94 @@ import gc
 from cardinality_estimation.query_dataset import QueryDataset
 from torch.utils import data
 
-PERCENTILES_TO_SAVE = [25, 50, 75, 90, 99]
+SUBQUERY_JERR_THRESHOLD = 100000
+PERCENTILES_TO_SAVE = [1,5,10,25, 50, 75, 90, 95, 99]
 def percentile_help(q):
     def f(arr):
         return np.percentile(arr, q)
     return f
 
-def compute_subquery_priorities(qrep, pred, env, use_indexes=True):
+def compute_subquery_priorities(qrep, true_cards, est_cards,
+        explain, jerr, env, use_indexes=True):
+    '''
+    @return: subquery priorities, which must sum upto jerr.
+    '''
+    def get_sql(aliases):
+        aliases = tuple(aliases)
+        subgraph = qrep["join_graph"].subgraph(aliases)
+        sql = nx_graph_to_query(subgraph)
+        return sql
+
+    def handle_subtree(plan_tree, cur_node, cur_jerr):
+        successors = list(plan_tree.successors(cur_node))
+        # print(successors)
+        if len(successors) == 0:
+            return
+        assert len(successors) == 2
+        left = successors[0]
+        right = successors[1]
+        left_sql = get_sql(plan_tree.nodes()[left]["aliases"])
+        right_sql = get_sql(plan_tree.nodes()[right]["aliases"])
+        # computer left_jerr, right_jerr
+        (left_est_costs, left_opt_costs,_,_,_,_) = \
+                join_loss_pg([left_sql], [trues], [ests], env, use_indexes,
+                        None, 1)
+
+        (right_est_costs, right_opt_costs,_,_,_,_) = \
+                join_loss_pg([right_sql], [trues], [ests], env, use_indexes,
+                        None, 1)
+        left_jerr = left_est_costs[0] - left_opt_costs[0]
+        right_jerr = right_est_costs[0] - right_opt_costs[0]
+
+        # -2.00 just added for close cases
+        assert left_jerr <= cur_jerr - 2.00
+        assert right_jerr <= cur_jerr - 2.00
+
+        # TODO: replace threshold with more than 1/2 curr_jerr?
+
+        jerr_thresh = cur_jerr / 3.0
+        if left_jerr < jerr_thresh \
+                and right_jerr < jerr_thresh:
+            # both the sides of the tree have low jerr, so take the complete
+            # tree at this point and update the priorities of any subgraph
+            # using the nodes in this tree (might not be in the current tree,
+            # as those subqueries are important to reduce the jerr here as
+            # well)
+            cur_aliases = plan_tree.nodes()[left]["aliases"] + plan_tree.nodes()[right]["aliases"]
+            print(cur_aliases)
+            print("update jerrs here")
+            for i, cur_nodes in enumerate(qrep["subset_graph"].nodes()):
+                print(cur_nodes)
+                print(cur_aliases)
+                pdb.set_trace()
+
+                # subpriorities[i] = jerr
+            return
+        if left_jerr > jerr_thresh:
+            handle_subtree(plan_tree, left, left_jerr)
+
+        if right_jerr > jerr_thresh:
+            handle_subtree(plan_tree, right, right_jerr)
+
+    subpriorities = np.zeros(len(qrep["subset_graph"].nodes()))
+
+    # give everyone the initial priority
+    for i, _ in enumerate(qrep["subset_graph"].nodes()):
+        subpriorities[i] = jerr
+
+    # add sub-jerr priorities to the ones that are included in them - might at
+    # most double it
+
+    plan_tree = explain_to_nx(explain)
+    root = [n for n,d in plan_tree.in_degree() if d==0]
+    assert len(root) == 1
+    handle_subtree(plan_tree, root[0], jerr)
+
+    # TODO: normalize subpriorities
+
+    return subpriorities
+
+def compute_subquery_priorities_old(qrep, pred, env, use_indexes=True):
     priorities = np.ones(len(qrep["subset_graph"].nodes()))
     priority_dict = {}
     start = time.time()
@@ -345,8 +426,8 @@ class NN(CardinalityEstimationAlg):
         '''
         '''
         time_hash = str(deterministic_hash(self.start_time))[0:3]
-        name = "{DAY}-{NN}-{PRIORITY}-{HASH}".format(\
-                    DAY = self.start_day,
+        name = "{PREFIX}-{NN}-{PRIORITY}-{HASH}".format(\
+                    PREFIX = self.exp_prefix,
                     NN = self.__str__(),
                     PRIORITY = self.sampling_priority_alpha,
                     HASH = time_hash)
@@ -430,7 +511,6 @@ class NN(CardinalityEstimationAlg):
 
     def save_join_loss_stats(self, join_losses, est_plans, samples,
             samples_type):
-        print("save join loss stats")
         self.add_row(join_losses, "jerr", self.epoch, "all",
                 "all", samples_type)
         print("{}, join losses mean: {}".format(samples_type,
@@ -502,7 +582,8 @@ class NN(CardinalityEstimationAlg):
         if (self.epoch % self.eval_epoch_jerr == 0 \
                 and self.epoch != 0):
             if (samples_type == "train" and \
-                    self.sampling_priority_alpha > 0):
+                    self.sampling_priority_alpha > 0 and \
+                    self.epoch % self.reprioritize_epoch == 0):
                 print("not recalculating join loss for training")
                 return
             # if priority on, then stats will be saved when calculating
@@ -529,8 +610,6 @@ class NN(CardinalityEstimationAlg):
     def _normalize_priorities(self, priorities):
         total = np.float64(np.sum(priorities))
         norm_priorities = np.zeros(len(priorities))
-        # for i, priority in enumerate(priorities):
-            # norm_priorities[i] = priority / total
         norm_priorities = np.divide(priorities, total)
 
         # if they don't sum to 1...
@@ -601,8 +680,8 @@ class NN(CardinalityEstimationAlg):
         return sqls, true_cardinalities, est_cardinalities
 
     def initialize_tfboard(self):
-        # exp_name = self.get_exp_name()
-        name = self.__str__()
+        name = self.get_exp_name()
+        # name = self.__str__()
         log_dir = "tfboard_logs/" + name
         self.tf_summary_writer = tf_summary.create_file_writer(log_dir)
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
@@ -731,7 +810,8 @@ class NN(CardinalityEstimationAlg):
             print("train epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
-                    and self.epoch % self.reprioritize_epoch == 0:
+                    and (self.epoch % self.reprioritize_epoch == 0 \
+                            or self.epoch % self.prioritize_epoch == 0):
                 pred, _ = self._eval_samples(priority_loader)
                 pred = pred.detach().numpy()
                 if self.sampling_priority_type == "query":
@@ -764,11 +844,29 @@ class NN(CardinalityEstimationAlg):
                         else:
                             sq_weight = jerr_ratio[si]
 
+                        if self.priority_err_divide_len:
+                            sq_weight /= len(sample["subset_graph"].nodes())
+
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight
                         query_idx += len(sample["subset_graph"].nodes())
 
                 elif self.sampling_priority_type == "subquery":
+                    pr_start = time.time()
+                    sqls, true_cardinalities, est_cardinalities = \
+                            self.get_query_estimates(pred,
+                                    self.training_samples)
+                    (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
+                            true_cardinalities, est_cardinalities, self.env,
+                            self.jl_indexes, None,
+                            pool = self.join_loss_pool)
+                    jerrs = est_costs - opt_costs
+                    compute_subquery_priorities(self.training_samples[0], true_cardinalities[0],
+                            est_cardinalities[0], est_plans[0], jerrs[0], self.env,
+                            self.jl_indexes)
+                    pdb.set_trace()
+
+                elif self.sampling_priority_type == "subquery_old":
                     start = time.time()
                     par_args = []
                     query_idx = 0
@@ -792,11 +890,6 @@ class NN(CardinalityEstimationAlg):
                 self.training_loader = data.DataLoader(training_set,
                         batch_size=self.mb_size, shuffle=False, num_workers=0,
                         sampler = sampler)
-
-        # if self.preload_features:
-            # del(training_set.X)
-            # del(training_set.Y)
-            # del(training_set.info)
 
     def test(self, test_samples):
         '''
