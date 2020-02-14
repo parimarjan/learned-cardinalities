@@ -21,7 +21,7 @@ LOSS_COLUMNS = ["loss_type", "loss", "summary_type", "template", "num_samples",
         "samples_type"]
 EXP_COLUMNS = ["num_hidden_layers", "hidden_layer_size",
         "sampling_priority_alpha", "max_discrete_featurizing_buckets",
-        "heuristic_features", "alg", "nn_type"]
+        "heuristic_features", "alg", "nn_type", "normalization_type"]
 PLOT_SUMMARY_TYPES = ["mean"]
 ALGS_ORDER = ["mscn", "mscn-priority", "microsoft", "microsoft-priority"]
 
@@ -465,12 +465,12 @@ def plot_qerr_summaries2(pdf):
         pdf.savefig()
         plt.clf()
 
-def get_summary_df():
+def get_summary_df(results_dir):
     all_dfs = []
-    fns = os.listdir(args.results_dir)
+    fns = os.listdir(results_dir)
     for fn in fns:
         # convert to same format as qerrs
-        cur_dir = args.results_dir + "/" + fn
+        cur_dir = results_dir + "/" + fn
         exp_args = load_object(cur_dir + "/args.pkl")
         if exp_args is None:
             continue
@@ -569,5 +569,6 @@ def main():
     # plot_join_summaries2(pdf)
     pdf.close()
 
-args = read_flags()
-main()
+if __name__ == "__main__":
+    args = read_flags()
+    main()
