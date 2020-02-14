@@ -543,6 +543,7 @@ class NN(CardinalityEstimationAlg):
             # later
             self.query_stats["jerr"].append(join_losses[i])
             self.query_stats["plan"].append(get_leading_hint(est_plans[i]))
+            self.query_stats["explain"].append(est_plans[i])
 
     def periodic_eval(self, samples_type):
         pred, Y = self.eval_samples(samples_type)
@@ -804,7 +805,7 @@ class NN(CardinalityEstimationAlg):
                     self.max_discrete_featurizing_buckets,
                     self.hidden_layer_size))
 
-        for self.epoch in range(self.max_epochs):
+        for self.epoch in range(1,self.max_epochs):
             start = time.time()
             if self.epoch % self.eval_epoch == 0:
                 eval_start = time.time()
@@ -818,7 +819,7 @@ class NN(CardinalityEstimationAlg):
 
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \
-                            or self.epoch % self.prioritize_epoch == 0):
+                            or self.epoch == self.prioritize_epoch):
                 pred, _ = self._eval_samples(priority_loader)
                 pred = pred.detach().numpy()
                 weights = np.zeros(len(training_set))
@@ -883,10 +884,10 @@ class NN(CardinalityEstimationAlg):
                                     true_cardinalities[si], est_cardinalities[si],
                                     est_plans[si], jerrs[si], self.env,
                                     self.jl_indexes))
-                    with Pool(processes=num_proc) as pool:
-                        all_subps = pool.starmap(compute_subquery_priorities, par_args)
-                    # all_subps = self.join_loss_pool.starmap(compute_subquery_priorities,
-                            # par_args)
+                    # with Pool(processes=num_proc) as pool:
+                        # all_subps = pool.starmap(compute_subquery_priorities, par_args)
+                    all_subps = self.join_loss_pool.starmap(compute_subquery_priorities,
+                            par_args)
 
                     query_idx = 0
                     for si, sample in enumerate(self.training_samples):
