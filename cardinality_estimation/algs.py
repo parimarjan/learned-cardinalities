@@ -83,6 +83,32 @@ class Postgres(CardinalityEstimationAlg):
     def __str__(self):
         return "postgres"
 
+class SamplingTables(CardinalityEstimationAlg):
+    def __init__(self, sampling_type, sampling_percentage):
+        self.sampling_type = sampling_type
+        self.sampling_percentage = sampling_percentage
+        self.sampling_key = sampling_type + sampling_percentage + "_" + "actual"
+
+    def test(self, test_samples):
+        assert isinstance(test_samples[0], dict)
+        preds = []
+        for sample in test_samples:
+            pred_dict = {}
+            for alias_key, info in sample["subset_graph"].nodes().items():
+                cards = info["cardinality"]
+                if self.sampling_key in cards:
+                    cur_est = cards[self.sampling_key]
+                else:
+                    cur_est = cards["actual"]
+                if cur_est == 0:
+                    cur_est += 1
+                pred_dict[(alias_key)] = cur_est
+            preds.append(pred_dict)
+        return preds
+
+    def __str__(self):
+        return "sampling-tables"
+
 class TrueCardinalities(CardinalityEstimationAlg):
     def __init__(self):
         pass

@@ -118,7 +118,9 @@ def get_alg(alg):
             return OurPGM(alg_name = args.pgm_alg_name, backend = args.pgm_backend,
                     use_svd=args.use_svd, num_singular_vals=args.num_singular_vals,
                     num_bins = args.num_bins, recompute = args.cl_recompute)
-
+    elif alg == "sampling":
+        print("sampling")
+        return SamplingTables("ss", "10")
     else:
         assert False
 
@@ -399,7 +401,7 @@ def read_flags():
     parser.add_argument("--jl_use_postgres", type=int,
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
-            required=False, default="microsoft")
+            required=False, default="mscn")
 
     parser.add_argument("--priority_err_type", type=str, required=False,
             default = "jerr", help="jerr or jratio")
