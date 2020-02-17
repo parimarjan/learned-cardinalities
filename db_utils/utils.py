@@ -25,6 +25,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
+from sql_rep.utils import extract_from_clause, extract_join_clause
+
 TIMEOUT_COUNT_CONSTANT = 150001001
 CROSS_JOIN_CARD = 19329323
 
@@ -499,42 +501,42 @@ def pg_est_from_explain(output):
     pdb.set_trace()
     return 1.00
 
-def extract_join_clause(query):
-    '''
-    FIXME: this can be optimized further / or made to handle more cases
-    '''
-    parsed = sqlparse.parse(query)[0]
-    # let us go over all the where clauses
-    start = time.time()
-    where_clauses = None
-    for token in parsed.tokens:
-        if (type(token) == sqlparse.sql.Where):
-            where_clauses = token
-    if where_clauses is None:
-        return []
-    join_clauses = []
+# def extract_join_clause(query):
+    # '''
+    # FIXME: this can be optimized further / or made to handle more cases
+    # '''
+    # parsed = sqlparse.parse(query)[0]
+    # # let us go over all the where clauses
+    # start = time.time()
+    # where_clauses = None
+    # for token in parsed.tokens:
+        # if (type(token) == sqlparse.sql.Where):
+            # where_clauses = token
+    # if where_clauses is None:
+        # return []
+    # join_clauses = []
 
-    froms, aliases, table_names = extract_from_clause(query)
-    if len(aliases) > 0:
-        tables = [k for k in aliases]
-    else:
-        tables = table_names
-    matches = find_all_clauses(tables, where_clauses)
-    for match in matches:
-        if "=" not in match:
-            continue
-        if "<=" in match or ">=" in match:
-            continue
+    # froms, aliases, table_names = extract_from_clause(query)
+    # if len(aliases) > 0:
+        # tables = [k for k in aliases]
+    # else:
+        # tables = table_names
+    # matches = find_all_clauses(tables, where_clauses)
+    # for match in matches:
+        # if "=" not in match:
+            # continue
+        # if "<=" in match or ">=" in match:
+            # continue
 
-        match = match.replace(";", "")
-        left, right = match.split("=")
-        # ugh dumb hack
-        if "." in right:
-            # must be a join, so add it.
-            join_clauses.append(left.strip() + " = " + right.strip())
+        # match = match.replace(";", "")
+        # left, right = match.split("=")
+        # # ugh dumb hack
+        # if "." in right:
+            # # must be a join, so add it.
+            # join_clauses.append(left.strip() + " = " + right.strip())
 
-    # print("extract join clauses took ", time.time() - start)
-    return join_clauses
+    # # print("extract join clauses took ", time.time() - start)
+    # return join_clauses
 
 def get_all_wheres(parsed_query):
     pred_vals = []
@@ -727,6 +729,8 @@ def extract_predicates(query):
     if bad_str2 in query:
         query = query.replace(bad_str2, "")
 
+    # FIXME: temporary workaround moz_sql_parser...
+    query = query.replace("ILIKE", "LIKE")
     try:
         parsed_query = parse(query)
     except:
@@ -750,62 +754,62 @@ def extract_predicates(query):
     # print("extract predicates took ", time.time() - start)
     return predicate_cols, predicate_types, predicate_vals
 
-def extract_from_clause(query):
-    '''
-    Optimized version using sqlparse.
-    Extracts the from statement, and the relevant joins when there are multiple
-    tables.
-    @ret: froms:
-          froms: [alias1, alias2, ...] OR [table1, table2,...]
-          aliases:{alias1: table1, alias2: table2} (OR [] if no aliases present)
-          tables: [table1, table2, ...]
-    '''
-    def handle_table(identifier):
-        table_name = identifier.get_real_name()
-        alias = identifier.get_alias()
-        tables.append(table_name)
-        if alias is not None:
-            from_clause = ALIAS_FORMAT.format(TABLE = table_name,
-                                ALIAS = alias)
-            froms.append(from_clause)
-            aliases[alias] = table_name
-        else:
-            froms.append(table_name)
+# def extract_from_clause(query):
+    # '''
+    # Optimized version using sqlparse.
+    # Extracts the from statement, and the relevant joins when there are multiple
+    # tables.
+    # @ret: froms:
+          # froms: [alias1, alias2, ...] OR [table1, table2,...]
+          # aliases:{alias1: table1, alias2: table2} (OR [] if no aliases present)
+          # tables: [table1, table2, ...]
+    # '''
+    # def handle_table(identifier):
+        # table_name = identifier.get_real_name()
+        # alias = identifier.get_alias()
+        # tables.append(table_name)
+        # if alias is not None:
+            # from_clause = ALIAS_FORMAT.format(TABLE = table_name,
+                                # ALIAS = alias)
+            # froms.append(from_clause)
+            # aliases[alias] = table_name
+        # else:
+            # froms.append(table_name)
 
-    start = time.time()
-    froms = []
-    # key: alias, val: table name
-    aliases = {}
-    # just table names
-    tables = []
+    # start = time.time()
+    # froms = []
+    # # key: alias, val: table name
+    # aliases = {}
+    # # just table names
+    # tables = []
 
-    start = time.time()
-    parsed = sqlparse.parse(query)[0]
-    # let us go over all the where clauses
-    from_token = None
-    from_seen = False
-    for token in parsed.tokens:
-        # print(type(token))
-        # print(token)
-        if from_seen:
-            if isinstance(token, IdentifierList) or isinstance(token,
-                    Identifier):
-                from_token = token
-        if token.ttype is Keyword and token.value.upper() == 'FROM':
-            from_seen = True
+    # start = time.time()
+    # parsed = sqlparse.parse(query)[0]
+    # # let us go over all the where clauses
+    # from_token = None
+    # from_seen = False
+    # for token in parsed.tokens:
+        # # print(type(token))
+        # # print(token)
+        # if from_seen:
+            # if isinstance(token, IdentifierList) or isinstance(token,
+                    # Identifier):
+                # from_token = token
+        # if token.ttype is Keyword and token.value.upper() == 'FROM':
+            # from_seen = True
 
-    assert from_token is not None
-    if isinstance(from_token, IdentifierList):
-        for identifier in from_token.get_identifiers():
-            handle_table(identifier)
-    elif isinstance(from_token, Identifier):
-        handle_table(from_token)
-    else:
-        assert False
+    # assert from_token is not None
+    # if isinstance(from_token, IdentifierList):
+        # for identifier in from_token.get_identifiers():
+            # handle_table(identifier)
+    # elif isinstance(from_token, Identifier):
+        # handle_table(from_token)
+    # else:
+        # assert False
 
-    # print("extract froms parse took: ", time.time() - start)
+    # # print("extract froms parse took: ", time.time() - start)
 
-    return froms, aliases, tables
+    # return froms, aliases, tables
 
 def check_table_exists(cur, table_name):
     cur.execute("select exists(select * from information_schema.tables where\

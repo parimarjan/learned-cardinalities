@@ -12,6 +12,14 @@ from collections import defaultdict
 
 SEL_TEMPLATE = "SELECT {COLS} FROM {TABLE} WHERE random() < {FRAC}"
 CREATE_TEMPLATE = "CREATE TABLE {TABLE_NAME} AS {SEL_SQL}"
+INSERT_TEMPLATE = """
+INSERT INTO {TABLE_NAME}
+SELECT * FROM
+{ORIG_TABLE}
+WHERE {ORIG_TABLE}.id IN (SELECT {FK_ID} FROM {FK_TABLE}
+WHERE random() < {PERCENTAGE} AND {FK_ID} NOT IN
+(SELECT id FROM {TABLE_NAME}))
+"""
 DROP_TEMPLATE = "DROP TABLE IF EXISTS {TABLE_NAME}"
 NEW_TABLE_TEMPLATE = "{TABLE}_{SS}{PERCENTAGE}"
 
@@ -28,7 +36,7 @@ def read_flags():
             default="")
     parser.add_argument("--port", type=str, required=False,
             default=5432)
-    parser.add_argument("--sampling_percentage", type=float, required=False,
+    parser.add_argument("--sampling_percentage", type=int, required=False,
             default=10)
     parser.add_argument("--sampling_type", type=str, required=False,
             default="ss")
@@ -65,46 +73,48 @@ def main():
     fkey_to_primary["keyword_id"] = "keyword"
     fkey_to_primary["person_id"] = "name"
 
-    sel_ids = defaultdict(list)
-    # build primary key allowed values
-    for table, ids in table_to_ids.items():
-        sql = SEL_TEMPLATE.format(COLS = ",".join(ids),
-                            TABLE = table,
-                            FRAC  = args.sampling_percentage / 100.00)
-        cursor.execute(sql)
-        colnames = [desc[0] for desc in cursor.description]
-        output = cursor.fetchall()
-        for i, col in enumerate(colnames):
-            assert col in fkey_to_primary or col == "id"
-            col_vals = [v[i] for v in output]
-            if col == "id":
-                sel_ids[table] += col_vals
-            else:
-                sel_ids[fkey_to_primary[col]] += col_vals
-
-    for table,vals in sel_ids.items():
-        vals = set(vals)
-        print(table, len(vals))
-        # make a new table with the given row entries
+    # sel_ids = defaultdict(list)
+    sampling_frac = float(args.sampling_percentage) / 100.00
+    # let's build all the tables on primary keys first
+    for table in table_to_ids:
         new_table = NEW_TABLE_TEMPLATE.format(TABLE = table,
                             SS = args.sampling_type,
                             PERCENTAGE = str(args.sampling_percentage))
         new_table = new_table.replace(".","")
-        vals_str = ""
-        for i,val in enumerate(vals):
-            vals_str += "'{}'".format(val)
-            if i != len(vals)-1:
-                vals_str += ","
-        sel_sql = "SELECT * FROM {} WHERE id in ({})".format(table,
-                vals_str)
         drop_sql = DROP_TEMPLATE.format(TABLE_NAME = new_table)
         cursor.execute(drop_sql)
+        sel_sql = "SELECT * FROM {} WHERE random() < {}".format(\
+                table, str(sampling_frac))
         create_sql = CREATE_TEMPLATE.format(TABLE_NAME = new_table,
                                                 SEL_SQL=sel_sql)
-        print(create_sql)
         cursor.execute(create_sql)
         con.commit()
 
+    for ftable, ids in table_to_ids.items():
+        for fid in ids:
+            if fid == "id":
+                continue
+            table = fkey_to_primary[fid]
+            new_table = NEW_TABLE_TEMPLATE.format(TABLE = table,
+                                SS = args.sampling_type,
+                                PERCENTAGE = str(args.sampling_percentage))
+            new_table = new_table.replace(".","")
+            insert_sql = INSERT_TEMPLATE.format(
+                                TABLE_NAME = new_table,
+                                ORIG_TABLE = table,
+                                FK_TABLE = ftable,
+                                FK_ID = fid,
+                                PERCENTAGE = sampling_frac)
+            cursor.execute(insert_sql)
+            con.commit()
+            print("insert done for ", new_table)
+
+    # build indexes + vacuum
+    for table in table_to_ids:
+        new_table = NEW_TABLE_TEMPLATE.format(TABLE = table,
+                            SS = args.sampling_type,
+                            PERCENTAGE = str(args.sampling_percentage))
+        new_table = new_table.replace(".","")
         index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
                 table)
         cursor.execute(index_sql)
@@ -122,10 +132,66 @@ def main():
         cursor2.execute("VACUUM {}".format(new_table))
         cursor2.close()
         con2.close()
+        print("index + vacuuming done for: ", new_table)
 
-        pdb.set_trace()
-    pdb.set_trace()
-    # sample N% from each table, and
+    # build primary key allowed values
+    # for table, ids in table_to_ids.items():
+        # sql = SEL_TEMPLATE.format(COLS = ",".join(ids),
+                            # TABLE = table,
+                            # FRAC  = args.sampling_percentage / 100.00)
+        # cursor.execute(sql)
+        # colnames = [desc[0] for desc in cursor.description]
+        # output = cursor.fetchall()
+        # for i, col in enumerate(colnames):
+            # assert col in fkey_to_primary or col == "id"
+            # col_vals = [v[i] for v in output]
+            # if col == "id":
+                # sel_ids[table] += col_vals
+            # else:
+                # sel_ids[fkey_to_primary[col]] += col_vals
+
+    # for table,vals in sel_ids.items():
+        # vals = set(vals)
+        # print(table, len(vals))
+        # # make a new table with the given row entries
+        # new_table = NEW_TABLE_TEMPLATE.format(TABLE = table,
+                            # SS = args.sampling_type,
+                            # PERCENTAGE = str(args.sampling_percentage))
+        # new_table = new_table.replace(".","")
+        # vals_str = ""
+        # for i,val in enumerate(vals):
+            # vals_str += "'{}'".format(val)
+            # if i != len(vals)-1:
+                # vals_str += ","
+        # sel_sql = "SELECT * FROM {} WHERE id in ({})".format(table,
+                # vals_str)
+        # drop_sql = DROP_TEMPLATE.format(TABLE_NAME = new_table)
+        # cursor.execute(drop_sql)
+        # create_sql = CREATE_TEMPLATE.format(TABLE_NAME = new_table,
+                                                # SEL_SQL=sel_sql)
+        # cursor.execute(create_sql)
+        # con.commit()
+
+        # index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
+                # table)
+        # cursor.execute(index_sql)
+        # output = cursor.fetchall()
+        # for line in output:
+            # index_cmd = line[4]
+            # index_cmd = index_cmd.replace(table, new_table)
+            # cursor.execute(index_cmd)
+
+        # con.commit()
+        # con2 = pg.connect(user=args.user, host=args.db_host, port=args.port,
+                # password=args.pwd, database=args.db_name)
+        # con2.set_isolation_level(pg.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+        # cursor2 = con2.cursor()
+        # cursor2.execute("VACUUM {}".format(new_table))
+        # cursor2.close()
+        # con2.close()
+
+        # pdb.set_trace()
+    # pdb.set_trace()
 
 args = read_flags()
 main()
