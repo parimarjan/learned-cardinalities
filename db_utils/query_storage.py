@@ -11,6 +11,7 @@ from cardinality_estimation.db import DB
 from networkx.readwrite import json_graph
 
 from sql_rep.utils import execute_query
+import copy
 
 def get_all_cardinalities(samples):
     cards = []
@@ -102,14 +103,17 @@ def load_sql_rep(fn):
     assert ".pkl" in fn
     with open(fn, "rb") as f:
         query = pickle.load(f)
+
     query["subset_graph"] = \
             nx.OrderedDiGraph(json_graph.adjacency_graph(query["subset_graph"]))
     query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
 
     return query
 
-def save_sql_rep(fn, qrep):
+def save_sql_rep(fn, cur_qrep):
     assert ".pkl" in fn
+    # qrep = nx.DiGraph(cur_qrep)
+    qrep = copy.deepcopy(cur_qrep)
     qrep["join_graph"] = nx.adjacency_data(qrep["join_graph"])
     qrep["subset_graph"] = nx.adjacency_data(qrep["subset_graph"])
     with open(fn, "wb") as f:
