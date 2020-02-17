@@ -12,7 +12,7 @@ from cardinality_estimation.nn import *
 from cardinality_estimation.losses import *
 from cardinality_estimation.data_loader import *
 import argparse
-from park.param import parser
+# from park.param import parser
 import psycopg2 as pg
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import psycopg2.extras
@@ -93,7 +93,6 @@ def get_alg(alg):
                     sampling_priority_alpha = args.sampling_priority_alpha,
                     priority_query_len_scale = args.priority_query_len_scale,
                     net_name = args.net_name,
-                    # reuse_env = args.reuse_env,
                     eval_epoch_jerr = args.eval_epoch_jerr,
                     # eval_num_tables = args.eval_num_tables,
                     jl_use_postgres = args.jl_use_postgres,
@@ -225,9 +224,13 @@ def main():
             qrep = load_sql_rep(qfn)
             zero_query = False
             for _,info in qrep["subset_graph"].nodes().items():
-                if info["cardinality"]["actual"] == 0:
+                if "actual" not in info["cardinality"]:
                     zero_query = True
                     break
+                elif info["cardinality"]["actual"] == 0:
+                    zero_query = True
+                    break
+
             if zero_query:
                 skipped += 1
                 continue
@@ -325,7 +328,7 @@ def gen_samples_hash():
     return deterministic_hash(string)
 
 def read_flags():
-    # parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser()
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset")
     parser.add_argument("--exp_prefix", type=str, required=False,

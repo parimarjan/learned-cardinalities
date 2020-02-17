@@ -19,7 +19,7 @@ import multiprocessing
 from tensorflow import summary as tf_summary
 from multiprocessing.pool import ThreadPool
 
-import park
+# import park
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
@@ -39,6 +39,7 @@ import gc
 # dataset
 from cardinality_estimation.query_dataset import QueryDataset
 from torch.utils import data
+from cardinality_estimation.join_loss import JoinLoss
 
 SUBQUERY_JERR_THRESHOLD = 100000
 PERCENTILES_TO_SAVE = [1,5,10,25, 50, 75, 90, 95, 99]
@@ -727,7 +728,10 @@ class NN(CardinalityEstimationAlg):
             self.min_val, self.max_val = None, None
 
         # create a new park env, and close at the end.
-        self.env = park.make('query_optimizer')
+        # self.env = park.make('query_optimizer')
+        self.env = JoinLoss(self.db.user, self.db.pwd, self.db.db_host,
+                self.db.port, self.db.db_name)
+
         training_set = QueryDataset(training_samples, db,
                 self.featurization_scheme, self.heuristic_features,
                 self.preload_features, self.normalization_type,

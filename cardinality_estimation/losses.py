@@ -1,8 +1,10 @@
 import numpy as np
 import pdb
-import park
+# import park
 from utils.utils import *
 from cardinality_estimation.query import *
+from cardinality_estimation.join_loss import JoinLoss
+
 import itertools
 import multiprocessing
 import random
@@ -297,8 +299,10 @@ def compute_join_order_loss(queries, preds, **kwargs):
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
 
-    env = park.make('query_optimizer')
+    # env = park.make('query_optimizer')
     args = kwargs["args"]
+    env = JoinLoss(args.user, args.pwd, args.db_host,
+            args.port, args.db_name)
     use_indexes = args.jl_indexes
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
@@ -359,7 +363,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
     combined_df = pd.concat([costs, cur_df], ignore_index=True)
     save_object(costs_fn, combined_df)
 
-    env.clean()
+    # env.clean()
 
     losses = np.array(est_costs) - np.array(opt_costs)
     return np.array(est_costs) - np.array(opt_costs)
