@@ -392,7 +392,76 @@ class DB():
         self.sql_cache.dump()
         return queries
 
-    def update_db_stats(self, query):
+    def update_db_stats(self, qrep):
+        '''
+        @query: Query object
+        '''
+        cur_columns = []
+        for node, info in qrep["join_graph"].nodes(data=True):
+            for cmp_op in info["pred_types"]:
+                self.cmp_ops.add(cmp_op)
+            if node not in self.aliases:
+                self.aliases[node] = info["real_name"]
+                self.tables.add(info["real_name"])
+            for col in info["pred_cols"]:
+                cur_columns.append(col)
+
+        # FIXME: might not need to parse this again...
+        joins = extract_join_clause(qrep["sql"])
+        for join in joins:
+            keys = join.split("=")
+            keys.sort()
+            keys = ",".join(keys)
+            self.joins.add(keys)
+
+        updated_cols = []
+        for column in cur_columns:
+            if column in self.column_stats:
+                continue
+            # need to load it. first check if it is in the cache, else
+            # regenerate it.
+            hashed_stats = deterministic_hash(column)
+            updated_cols.append(column)
+            column_stats = {}
+            table = column[0:column.find(".")]
+            if table in self.aliases:
+                table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
+                                    ALIAS = table)
+            min_query = MIN_TEMPLATE.format(TABLE = table,
+                                            COL   = column)
+            max_query = MAX_TEMPLATE.format(TABLE = table,
+                                            COL   = column)
+            unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
+                                                      COL = column)
+            total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
+            unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
+                                                            COL = column)
+
+            # TODO: move to using cached_execute
+            column_stats[column] = {}
+            column_stats[column]["min_value"] = self.execute(min_query)[0][0]
+            column_stats[column]["max_value"] = self.execute(max_query)[0][0]
+            column_stats[column]["num_values"] = \
+                    self.execute(unique_count_query)[0][0]
+            column_stats[column]["total_values"] = \
+                    self.execute(total_count_query)[0][0]
+
+            # only store all the values for tables with small alphabet
+            # sizes (so we can use them for things like the PGM).
+            # Otherwise, it bloats up the cache.
+            if column_stats[column]["num_values"] <= 5000:
+                column_stats[column]["unique_values"] = \
+                        self.execute(unique_vals_query)
+            else:
+                column_stats[column]["unique_values"] = None
+
+            self.sql_cache.archive[hashed_stats] = column_stats
+            self.column_stats.update(column_stats)
+
+        if len(updated_cols) > 0:
+            print("generated statistics for:", ",".join(updated_cols))
+
+    def update_db_stats_old(self, query):
         '''
         @query: Query object
         '''

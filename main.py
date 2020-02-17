@@ -203,6 +203,7 @@ def main():
         # loading, or generating samples
         samples = []
         qfns = list(glob.glob(qdir+"/*"))
+        qfns.sort()
         if args.num_samples_per_template == -1:
             qfns = qfns
         elif args.num_samples_per_template == -2:
@@ -243,7 +244,8 @@ def main():
                 # not all samples may share all predicates etc. so updating
                 # them all. stats will not be recomputed for repeated columns
                 # FIXME:
-                db.update_db_stats(convert_sql_rep_to_query_rep(sample))
+                # db.update_db_stats(convert_sql_rep_to_query_rep(sample))
+                db.update_db_stats(sample)
 
         if args.test:
             cur_train_queries, cur_test_queries = train_test_split(samples,

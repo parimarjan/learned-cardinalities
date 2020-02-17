@@ -234,6 +234,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             print("avg exec time: ", sum(query_exec_times) / len(query_exec_times))
 
     if fn is not None:
+        update_qrep(qrep)
         save_sql_rep(fn, qrep)
     return qrep
 

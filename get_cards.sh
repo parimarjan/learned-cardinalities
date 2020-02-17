@@ -5,7 +5,7 @@ NUM_PROC=$3
 NUM_SAMPLES=$4
 echo "card_type: $CARD_TYPE, key_name: $KEY_NAME, num_processes: $NUM_PROC , num_samples:  $NUM_SAMPLES"
 
-for i in {1..18};
+for i in {16..17};
 	do
 	echo $i;
   python3 scripts/get_query_cardinalities.py --query_dir so_workload/$i \
