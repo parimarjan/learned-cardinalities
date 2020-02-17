@@ -149,6 +149,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             if not (sampling_percentage is not None and \
                     cards[key_name] >= TIMEOUT_COUNT_CONSTANT):
                 existing += 1
+                print("key name already in cards")
                 continue
 
         if card_type == "pg":
@@ -218,8 +219,10 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             exec_sql = get_total_count_query(subsql)
             if args.pg_total:
                 exec_sql = "EXPLAIN " + exec_sql
-            print("should handle the case where total < true")
-            pdb.set_trace()
+
+            output = execute_query(exec_sql, user, db_host, port, pwd, db_name, [])
+            card = pg_est_from_explain(output)
+            cards[key_name] = card
         else:
             assert False
 

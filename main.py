@@ -187,7 +187,7 @@ def main():
     test_queries = []
     query_templates = args.query_templates.split(",")
 
-    fns = list(glob.glob(args.query_directory + "/queries/*"))
+    fns = list(glob.glob(args.query_directory + "/*"))
     for qdir in fns:
         template_name = os.path.basename(qdir)
         if args.query_templates != "all":
