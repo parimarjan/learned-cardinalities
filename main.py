@@ -119,8 +119,7 @@ def get_alg(alg):
                     use_svd=args.use_svd, num_singular_vals=args.num_singular_vals,
                     num_bins = args.num_bins, recompute = args.cl_recompute)
     elif alg == "sampling":
-        print("sampling")
-        return SamplingTables("ss", "10")
+        return SamplingTables(args.sampling_type, args.sampling_percentage)
     else:
         assert False
 
@@ -219,6 +218,9 @@ def main():
             random.seed(args.random_seed)
             qfns = random.sample(qfns, int(len(qfns) / 10))
 
+        if args.algs == "sampling":
+            skey = args.sampling_type + str(args.sampling_percentage) + "_actual"
+
         skipped = 0
         for qfn in qfns:
             qrep = load_sql_rep(qfn)
@@ -227,12 +229,19 @@ def main():
                 if info["cardinality"]["actual"] == 0:
                     zero_query = True
                     break
+                if args.algs == "sampling":
+                    if skey not in info["cardinality"]:
+                        zero_query = True
+                        break
+
             if zero_query:
                 skipped += 1
                 continue
+
             qrep["name"] = qfn
             qrep["template_name"] = template_name
             samples.append(qrep)
+
         print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
                 ", loading time: {}").format( template_name, skipped,
                     len(samples[0]["subset_graph"].nodes()), len(samples),
@@ -504,8 +513,11 @@ def read_flags():
             default="ourpgm")
     parser.add_argument("--pgm_alg_name", type=str, required=False,
             default="chow-liu")
-    parser.add_argument("--sampling_percentage", type=float, required=False,
-            default=0.001)
+    parser.add_argument("--sampling_percentage", type=int, required=False,
+            default=10)
+    parser.add_argument("--sampling_type", type=str, required=False,
+            default="ss")
+
     parser.add_argument("--use_svd", type=int, required=False,
             default=0)
     parser.add_argument("--num_singular_vals", type=int, required=False,
