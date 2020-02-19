@@ -121,7 +121,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     site_cj = 0
     query_exec_times = []
 
-    for subset, info in qrep["subset_graph"].nodes().items():
+    for subqi, (subset, info) in enumerate(qrep["subset_graph"].nodes().items()):
         if "cardinality" not in info:
             info["cardinality"] = {}
         if "exec_time" not in info:
@@ -159,6 +159,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             cards[key_name] = card
 
         elif card_type == "actual":
+            if subqi % 10 == 0:
+                save_sql_rep(fn, qrep)
+
             hash_sql = deterministic_hash(subsql)
             if "count" not in subsql.lower():
                 print("cardinality query does not have count")

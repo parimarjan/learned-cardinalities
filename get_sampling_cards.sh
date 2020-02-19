@@ -1,15 +1,16 @@
 TIMEOUT=180000
-SP=50
+SP=25
 CARD_TYPE=actual
 KEY_NAME=actual
 NUM_PROC=$1
 NUM_SAMPLES=100
+TEMPLATES=(1a 2a 2b 2c 3a 4a 5a 6a 8a)
 echo "num proc: " $NUM_PROC
-for i in {2..8};
+for i in "${TEMPLATES[@]}";
 	do
 	echo $i;
   python3 scripts/get_query_cardinalities.py \
-  --query_dir "our_dataset/queries/${i}a" \
+  --query_dir "our_dataset/queries/${i}" \
   --card_type $CARD_TYPE --db_name imdb --port 5433 -n -1 \
   --key_name $KEY_NAME --true_timeout $TIMEOUT \
   --num_proc $NUM_PROC --sampling_type ss -n $NUM_SAMPLES \
