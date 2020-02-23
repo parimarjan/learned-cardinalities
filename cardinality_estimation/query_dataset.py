@@ -4,6 +4,7 @@ from utils.utils import *
 from db_utils.utils import *
 from db_utils.query_storage import *
 from collections import defaultdict
+import numpy as np
 
 class QueryDataset(data.Dataset):
     def __init__(self, samples, db, featurization_type,
@@ -195,7 +196,11 @@ class QueryDataset(data.Dataset):
                 Y.append(self.normalize_val(true_val, total))
                 cur_info = {}
                 cur_info["num_tables"] = len(nodes)
-                cur_info["total"] = total
+
+                # FIXME:
+                # cur_info["total"] = total
+                cur_info["total"] = 0.00
+
                 sample_info.append(cur_info)
 
         print("get features took: ", time.time() - start)
@@ -222,6 +227,7 @@ class QueryDataset(data.Dataset):
                 return (self.X["table"][index], self.X["pred"][index],
                         self.X["join"][index], self.Y[index], self.info[index])
         else:
+            assert False
             qidx = self.subq_to_query_idx[index]
             idx_start = self.qstart_idxs[qidx]
             subq_idx = index - idx_start

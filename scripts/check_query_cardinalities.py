@@ -104,6 +104,8 @@ def main():
                     timeouts += 1
                 elif card == CROSS_JOIN_CONSTANT:
                     cjs += 1
+                elif card == EXCEPTION_COUNT_CONSTANT:
+                    timeouts += 1
 
     bad_percentage = float(timeouts + cjs) / total
     print("cjs: {}, timeout percentage: {}".format(float(cjs)/total, bad_percentage))

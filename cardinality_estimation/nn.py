@@ -701,15 +701,13 @@ class NN(CardinalityEstimationAlg):
         if not self.nn_type == "num_tables":
             self.num_threads = multiprocessing.cpu_count()
         else:
-            self.num_threads = multiprocessing.cpu_count(epoch)
+            self.num_threads = multiprocessing.cpu_count()
 
-        print("nn train, pool: ", join_loss_pool)
         self.join_loss_pool = join_loss_pool
 
         if self.tfboard:
             self.initialize_tfboard()
-        print("setting num threads to: ", self.num_threads)
-        torch.set_num_threads(self.num_threads)
+        # torch.set_num_threads(-1)
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
                 max_discrete_featurizing_buckets =

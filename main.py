@@ -237,10 +237,12 @@ def main():
             qrep["name"] = qfn
             qrep["template_name"] = template_name
             samples.append(qrep)
-        print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
-                ", loading time: {}").format( template_name, skipped,
-                    len(samples[0]["subset_graph"].nodes()), len(samples),
-                    time.time()-start))
+
+        if len(samples) > 0:
+            print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
+                    ", loading time: {}").format( template_name, skipped,
+                        len(samples[0]["subset_graph"].nodes()), len(samples),
+                        time.time()-start))
 
         if not found_db:
             for sample in samples:
@@ -388,7 +390,7 @@ def read_flags():
     parser.add_argument("-n", "--num_samples_per_template", type=int,
             required=False, default=-1)
     parser.add_argument("--max_epochs", type=int,
-            required=False, default=100)
+            required=False, default=20)
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_jerr", type=int,
@@ -473,7 +475,7 @@ def read_flags():
     parser.add_argument("--losses", type=str, required=False,
             default="qerr,join-loss", help="comma separated list of loss names")
     parser.add_argument("--result_dir", type=str, required=False,
-            default="./results/")
+            default="./new_results/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,
             default="EXHAUSTIVE")
     parser.add_argument("--db_file_name", type=str, required=False,
