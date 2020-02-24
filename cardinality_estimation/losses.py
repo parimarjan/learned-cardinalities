@@ -237,7 +237,7 @@ def fix_query(query):
     return query
 
 def save_join_loss_training_data(sqls, est_cardinalities,
-        costs):
+        est_costs, opt_costs):
     '''
     saves two files: join_loss_data.pkl, queries.pkl
     saves a file: join_loss_data.pkl
@@ -251,13 +251,16 @@ def save_join_loss_training_data(sqls, est_cardinalities,
     memory.
     '''
     jloss_fn = "join_loss_data.pkl"
-    jlosses = load_object(jloss_fn)
-    if jlosses is None:
-        jlosses = {}
-        jlosses["key"] = []
-        jlosses["est"] = []
-        jlosses["jloss"] = []
+    # jlosses = load_object(jloss_fn)
+    # if jlosses is None:
+    jlosses = {}
+    jlosses["key"] = []
+    jlosses["est"] = []
+    jlosses["jloss"] = []
+    jlosses["jratio"] = []
 
+    jerrs = est_costs - opt_costs
+    jratios = est_costs / opt_costs
     for i, sql in enumerate(sqls):
         key = deterministic_hash(sql)
         est_keys = list(est_cardinalities[i].keys())
@@ -265,11 +268,17 @@ def save_join_loss_training_data(sqls, est_cardinalities,
         ests = np.zeros(len(est_keys))
         for j, k in enumerate(est_keys):
             ests[j] = est_cardinalities[i][k]
-        jloss = costs[i]
+        # jloss = costs[i]
 
         jlosses["key"].append(key)
         jlosses["est"].append(ests)
-        jlosses["jloss"].append(jloss)
+        jlosses["jloss"].append(jerrs[i])
+        jlosses["jratio"].append(jratios[i])
+
+    jlosses_orig = load_object(jloss_fn)
+    if jlosses_orig is not None:
+        for k in jlosses.keys():
+            jlosses[k] = jlosses_orig[k] + jlosses[k]
 
     save_object(jloss_fn, jlosses)
 
@@ -293,7 +302,8 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
     assert isinstance(est_costs, np.ndarray)
     if jl_training_data:
         join_losses = est_costs - opt_costs
-        save_join_loss_training_data(sqls, est_cardinalities, join_losses)
+        save_join_loss_training_data(sqls, est_cardinalities, est_costs,
+                opt_costs)
     return est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls
 
 def get_join_results_name(alg_name):
