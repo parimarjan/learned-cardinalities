@@ -40,9 +40,8 @@ class CostDataset(data.Dataset):
                 node_keys.sort()
                 for j, node in enumerate(node_keys):
                     info = qrep["subset_graph"].nodes()[node]["cardinality"]
-                    idx = j*2
-                    x[idx] = ests[j] / info["total"]
-                    x[idx+1] = info["actual"] / info["total"]
+                    x[j] = ests[j] / info["total"]
+                    x[len(ests)+j] = info["actual"] / info["total"]
 
                 # X.append(to_variable(x).float())
                 X.append(x)
