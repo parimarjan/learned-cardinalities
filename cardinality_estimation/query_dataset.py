@@ -4,11 +4,13 @@ from utils.utils import *
 from db_utils.utils import *
 from db_utils.query_storage import *
 from collections import defaultdict
+import numpy as np
 
 class QueryDataset(data.Dataset):
     def __init__(self, samples, db, featurization_type,
             heuristic_features, preload_features,
-            normalization_type, min_val=None, max_val=None):
+            normalization_type, load_query_together,
+            min_val=None, max_val=None):
         '''
         @samples: [] sqlrep query dictionaries, which represent a query and all
         of its subqueries.
@@ -31,16 +33,34 @@ class QueryDataset(data.Dataset):
             assert min_val is not None
             assert max_val is not None
 
+        self.load_query_together = load_query_together
+
         # TODO: we want to avoid this, and convert them on the fly. Just keep
         # some indexing information around.
         if self.preload_features:
             self.X, self.Y, self.info = self._get_feature_vectors(samples)
-            self.num_samples = len(self.Y)
+            if load_query_together:
+                self.start_idxs, self.idx_lens = self._update_idxs(samples)
+                self.num_samples = len(samples)
+            else:
+                self.num_samples = len(self.Y)
         else:
-            self.subq_to_query_idx, self.qstart_idxs = self._update_idxs(samples)
+            self.subq_to_query_idx, self.qstart_idxs = self._update_idxs2(samples)
             self.num_samples = len(self.subq_to_query_idx)
 
     def _update_idxs(self, samples):
+        qidx = 0
+        idx_starts = []
+        idx_lens = []
+        for i, qrep in enumerate(samples):
+            # TODO: can also save these values and generate features when
+            # needed, without wasting memory
+            idx_starts.append(qidx)
+            idx_lens.append(len(qrep["subset_graph"].nodes()))
+            qidx += len(qrep["subset_graph"].nodes())
+        return idx_starts, idx_lens
+
+    def _update_idxs2(self, samples):
         qidx = 0
         idx_map = {}
         idx_starts = []
@@ -134,6 +154,7 @@ class QueryDataset(data.Dataset):
             table_feat_dict = {}
             pred_feat_dict = {}
             edge_feat_dict = {}
+
             for node, info in node_data:
                 table_features = self.db.get_table_features(info["real_name"])
                 table_feat_dict[node] = table_features
@@ -161,7 +182,10 @@ class QueryDataset(data.Dataset):
                 edge_key = (edge[0], edge[1])
                 edge_feat_dict[edge_key] = edge_features
 
-            for nodes, info in qrep["subset_graph"].nodes().items():
+            node_names = list(qrep["subset_graph"].nodes())
+            node_names.sort()
+            for nodes in node_names:
+                info = qrep["subset_graph"].nodes()[nodes]
                 pg_est = info["cardinality"]["expected"]
                 true_val = info["cardinality"]["actual"]
                 total = info["cardinality"]["total"]
@@ -195,7 +219,11 @@ class QueryDataset(data.Dataset):
                 Y.append(self.normalize_val(true_val, total))
                 cur_info = {}
                 cur_info["num_tables"] = len(nodes)
-                cur_info["total"] = total
+
+                # FIXME:
+                # cur_info["total"] = total
+                cur_info["total"] = 0.00
+
                 sample_info.append(cur_info)
 
         print("get features took: ", time.time() - start)
@@ -216,12 +244,23 @@ class QueryDataset(data.Dataset):
         '''
         '''
         if self.preload_features:
-            if self.featurization_type == "combined":
-                return self.X[index], self.Y[index], self.info[index]
+            if self.load_query_together:
+                start_idx = self.start_idxs[index]
+                end_idx = start_idx + self.idx_lens[index]
+                if self.featurization_type == "combined":
+                    return self.X[start_idx:end_idx], self.Y[start_idx:end_idx], \
+                            self.info[start_idx:end_idx]
+                else:
+                    assert False
             else:
-                return (self.X["table"][index], self.X["pred"][index],
-                        self.X["join"][index], self.Y[index], self.info[index])
+                # usual path
+                if self.featurization_type == "combined":
+                    return self.X[index], self.Y[index], self.info[index]
+                else:
+                    return (self.X["table"][index], self.X["pred"][index],
+                            self.X["join"][index], self.Y[index], self.info[index])
         else:
+            assert False
             qidx = self.subq_to_query_idx[index]
             idx_start = self.qstart_idxs[qidx]
             subq_idx = index - idx_start

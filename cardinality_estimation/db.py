@@ -263,6 +263,11 @@ class DB():
                 elif v is None and vi == 1:
                     v = max_val
 
+                if v == 'NULL' and vi == 0:
+                    v = min_val
+                elif v == 'NULL' and vi == 1:
+                    v = max_val
+
                 cur_val = float(v)
                 norm_val = (cur_val - min_val) / (max_val - min_val)
                 norm_val = max(norm_val, 0.00)

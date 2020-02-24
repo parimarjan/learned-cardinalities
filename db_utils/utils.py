@@ -25,9 +25,25 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
-from sql_rep.utils import extract_from_clause, extract_join_clause
+from sql_rep.utils import extract_from_clause, extract_join_clause, \
+        extract_join_graph, get_pg_join_order, nx_graph_to_query
 
-TIMEOUT_COUNT_CONSTANT = 150001001
+# FIXME: shouldn't need these...
+from sql_rep.utils import join_types
+
+# TIMEOUT_COUNT_CONSTANT = 150001001
+# TIMEOUT_COUNT_CONSTANT = 15000100001
+# CROSS_JOIN_CONSTANT = 15000100000
+# EXCEPTION_COUNT_CONSTANT = 15000100002
+
+OLD_TIMEOUT_COUNT_CONSTANT = 150001001
+OLD_CROSS_JOIN_CONSTANT = 150001000
+OLD_EXCEPTION_COUNT_CONSTANT = 150001002
+
+TIMEOUT_COUNT_CONSTANT = 150001000001
+CROSS_JOIN_CONSTANT = 150001000000
+EXCEPTION_COUNT_CONSTANT = 150001000002
+
 CROSS_JOIN_CARD = 19329323
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
@@ -134,7 +150,6 @@ def extract_aliases2(plan):
 
 def get_leading_hint(explain):
     '''
-    Ryan's implementation.
     '''
     def __extract_jo(plan):
         if len(plan["Plans"]) == 2:
@@ -162,43 +177,75 @@ def get_leading_hint(explain):
     jo = "(" + jo + ")"
     return jo
 
-def get_pg_join_order(join_graph, explain):
-    '''
-    Ryan's implementation.
-    '''
-    physical_join_ops = {}
-    def __extract_jo(plan):
-        if plan["Node Type"] in join_types:
-            left = list(extract_aliases(plan["Plans"][0]))
-            right = list(extract_aliases(plan["Plans"][1]))
-            all_froms = left + right
-            all_nodes = []
-            for from_clause in all_froms:
-                from_alias = from_clause[from_clause.find(" as ")+4:]
-                if "_info" in from_alias:
-                    print(from_alias)
-                    pdb.set_trace()
-                all_nodes.append(from_alias)
-            all_nodes.sort()
-            all_nodes = " ".join(all_nodes)
-            physical_join_ops[all_nodes] = plan["Node Type"]
+# def get_leading_hint(join_graph, explain):
+    # '''
+    # Ryan's implementation.
+    # '''
+    # def __extract_jo(plan):
+        # if plan["Node Type"] in join_types:
+            # left = list(extract_aliases(plan["Plans"][0], jg=join_graph))
+            # right = list(extract_aliases(plan["Plans"][1], jg=join_graph))
 
-            if len(left) == 1 and len(right) == 1:
-                return left[0] +  " CROSS JOIN " + right[0]
+            # if len(left) == 1 and len(right) == 1:
+                # left_alias = left[0][left[0].lower().find(" as ")+4:]
+                # right_alias = right[0][right[0].lower().find(" as ")+4:]
+                # return left_alias +  " " + right_alias
 
-            if len(left) == 1:
-                return left[0] + " CROSS JOIN (" + __extract_jo(plan["Plans"][1]) + ")"
+            # if len(left) == 1:
+                # left_alias = left[0][left[0].lower().find(" as ")+4:]
+                # return left_alias + " (" + __extract_jo(plan["Plans"][1]) + ")"
 
-            if len(right) == 1:
-                return "(" + __extract_jo(plan["Plans"][0]) + ") CROSS JOIN " + right[0]
+            # if len(right) == 1:
+                # right_alias = right[0][right[0].lower().find(" as ")+4:]
+                # return "(" + __extract_jo(plan["Plans"][0]) + ") " + right_alias
 
-            return ("(" + __extract_jo(plan["Plans"][0])
-                    + ") CROSS JOIN ("
-                    + __extract_jo(plan["Plans"][1]) + ")")
+            # return ("(" + __extract_jo(plan["Plans"][0])
+                    # + ") ("
+                    # + __extract_jo(plan["Plans"][1]) + ")")
 
-        return __extract_jo(plan["Plans"][0])
+        # return __extract_jo(plan["Plans"][0])
 
-    return __extract_jo(explain[0][0][0]["Plan"]), physical_join_ops
+    # jo = __extract_jo(explain[0][0][0]["Plan"])
+    # jo = "(" + jo + ")"
+    # return PG_HINT_LEADING_TMP.format(JOIN_ORDER = jo)
+
+# def get_pg_join_order(join_graph, explain):
+    # '''
+    # Ryan's implementation.
+    # '''
+    # physical_join_ops = {}
+    # def __extract_jo(plan):
+        # if plan["Node Type"] in join_types:
+            # left = list(extract_aliases(plan["Plans"][0]))
+            # right = list(extract_aliases(plan["Plans"][1]))
+            # all_froms = left + right
+            # all_nodes = []
+            # for from_clause in all_froms:
+                # from_alias = from_clause[from_clause.find(" as ")+4:]
+                # if "_info" in from_alias:
+                    # print(from_alias)
+                    # pdb.set_trace()
+                # all_nodes.append(from_alias)
+            # all_nodes.sort()
+            # all_nodes = " ".join(all_nodes)
+            # physical_join_ops[all_nodes] = plan["Node Type"]
+
+            # if len(left) == 1 and len(right) == 1:
+                # return left[0] +  " CROSS JOIN " + right[0]
+
+            # if len(left) == 1:
+                # return left[0] + " CROSS JOIN (" + __extract_jo(plan["Plans"][1]) + ")"
+
+            # if len(right) == 1:
+                # return "(" + __extract_jo(plan["Plans"][0]) + ") CROSS JOIN " + right[0]
+
+            # return ("(" + __extract_jo(plan["Plans"][0])
+                    # + ") CROSS JOIN ("
+                    # + __extract_jo(plan["Plans"][1]) + ")")
+
+        # return __extract_jo(plan["Plans"][0])
+
+    # return __extract_jo(explain[0][0][0]["Plan"]), physical_join_ops
 
 def _plot_join_order_graph(G, base_table_nodes, join_nodes, pdf, title):
 
@@ -1039,33 +1086,33 @@ def _gen_subqueries(all_tables, wheres, aliases):
 
     return all_subqueries
 
-def nx_graph_to_query(G):
-    froms = []
-    conds = []
-    for nd in G.nodes(data=True):
-        node = nd[0]
-        data = nd[1]
-        if "real_name" in data:
-            froms.append(ALIAS_FORMAT.format(TABLE=data["real_name"],
-                                             ALIAS=node))
-        else:
-            froms.append(node)
+# def nx_graph_to_query(G):
+    # froms = []
+    # conds = []
+    # for nd in G.nodes(data=True):
+        # node = nd[0]
+        # data = nd[1]
+        # if "real_name" in data:
+            # froms.append(ALIAS_FORMAT.format(TABLE=data["real_name"],
+                                             # ALIAS=node))
+        # else:
+            # froms.append(node)
 
-        for pred in data["predicates"]:
-            conds.append(pred)
+        # for pred in data["predicates"]:
+            # conds.append(pred)
 
-    for edge in G.edges(data=True):
-        conds.append(edge[2]['join_condition'])
+    # for edge in G.edges(data=True):
+        # conds.append(edge[2]['join_condition'])
 
-    # preserve order for caching
-    froms.sort()
-    conds.sort()
-    from_clause = " , ".join(froms)
-    if len(conds) > 0:
-        wheres = ' AND '.join(conds)
-        from_clause += " WHERE " + wheres
-    count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
-    return count_query
+    # # preserve order for caching
+    # froms.sort()
+    # conds.sort()
+    # from_clause = " , ".join(froms)
+    # if len(conds) > 0:
+        # wheres = ' AND '.join(conds)
+        # from_clause += " WHERE " + wheres
+    # count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE=from_clause)
+    # return count_query
 
 def _gen_subqueries_nx(query):
     start = time.time()

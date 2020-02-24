@@ -20,3 +20,5 @@ sqlalchemy
 pytest
 progressbar2
 pomegranate
+nltk
+pygtrie

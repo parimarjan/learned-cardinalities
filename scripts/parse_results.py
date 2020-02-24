@@ -19,9 +19,12 @@ from matplotlib import pyplot as plt
 
 LOSS_COLUMNS = ["loss_type", "loss", "summary_type", "template", "num_samples",
         "samples_type"]
+# EXP_COLUMNS = ["num_hidden_layers", "hidden_layer_size",
+        # "sampling_priority_alpha", "max_discrete_featurizing_buckets",
+        # "heuristic_features", "alg", "nn_type", "normalization_type"]
 EXP_COLUMNS = ["num_hidden_layers", "hidden_layer_size",
         "sampling_priority_alpha", "max_discrete_featurizing_buckets",
-        "heuristic_features", "alg", "nn_type", "normalization_type"]
+        "heuristic_features", "alg", "nn_type"]
 PLOT_SUMMARY_TYPES = ["mean"]
 ALGS_ORDER = ["mscn", "mscn-priority", "microsoft", "microsoft-priority"]
 
@@ -115,8 +118,13 @@ def get_all_qerrs():
             continue
 
         exp_args["alg"] = get_alg_name(exp_args)
+        # exp_args["alg"] += exp_args["sampling_priority_alpha"]
         for exp_column in EXP_COLUMNS:
             qerrs[exp_column] = exp_args[exp_column]
+            # if exp_column in exp_args:
+                # qerrs[exp_column] = exp_args[exp_column]
+            # else:
+                # qerrs[exp_column] = None
 
         all_dfs.append(qerrs)
 
@@ -466,6 +474,7 @@ def plot_qerr_summaries2(pdf):
         plt.clf()
 
 def get_summary_df(results_dir):
+    print("get summary df!")
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
@@ -476,6 +485,7 @@ def get_summary_df(results_dir):
             continue
         exp_args = vars(exp_args)
         exp_args["alg"] = get_alg_name(exp_args)
+        # exp_args["alg"] += str(exp_args["sampling_priority_alpha"])
         if skip_exp(exp_args):
             continue
 
@@ -494,11 +504,15 @@ def get_summary_df(results_dir):
         # TODO: add rts too, if it exists
 
         cur_df = pd.concat([qerrs, jerrs], ignore_index=True)
-
+        assert "max_discrete_featurizing_buckets" in exp_args
         for exp_column in EXP_COLUMNS:
             cur_df[exp_column] = exp_args[exp_column]
+            # if exp_column in exp_args:
+                # qerrs[exp_column] = exp_args[exp_column]
+            # else:
+                # qerrs[exp_column] = None
 
-        if exp_args["sampling_priority_alpha"] == 2.0:
+        if exp_args["sampling_priority_alpha"] > 0.0:
             cur_df["priority"] = "yes"
         else:
             cur_df["priority"] = "no"

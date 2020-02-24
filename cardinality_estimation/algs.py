@@ -12,7 +12,7 @@ from cardinality_estimation.losses import *
 import pandas as pd
 import json
 # from multiprocessing import Pool
-import park
+# import park
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -29,6 +29,12 @@ from sklearn.ensemble import RandomForestRegressor
 from .custom_linear import CustomLinearModel
 from sqlalchemy import create_engine
 import datetime
+
+# from scripts.get_query_cardinalities import CROSS_JOIN_CONSTANT
+
+TIMEOUT_COUNT_CONSTANT = 150001000001
+CROSS_JOIN_CONSTANT = 150001000000
+EXCEPTION_COUNT_CONSTANT = 150001000002
 
 # sentinel value for NULLS
 NULL_VALUE = "-1"
@@ -76,7 +82,12 @@ class Postgres(CardinalityEstimationAlg):
             pred_dict = {}
             for alias_key, info in sample["subset_graph"].nodes().items():
                 # alias_key = ' '.join(alias)
-                pred_dict[(alias_key)] = info["cardinality"]["expected"]
+                true_card = info["cardinality"]["actual"]
+                if true_card >= CROSS_JOIN_CONSTANT:
+                    est = true_card
+                else:
+                    est = info["cardinality"]["expected"]
+                pred_dict[(alias_key)] = est
             preds.append(pred_dict)
         return preds
 

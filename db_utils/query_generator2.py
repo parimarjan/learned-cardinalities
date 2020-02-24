@@ -1,24 +1,7 @@
 from db_utils.utils import *
 import pdb
-
-# def _add_new_predicate_cond(sql, pred_str):
-    # '''
-    # '''
-    # # FIXME: handle groupby's
-    # new_sql = ""
-    # # print("_add new predicate!")
-    # if "group" in sql.lower():
-        # gidx = sql.lower().find("group")
-        # new_sql = sql[0:gidx]
-        # new_sql += pred_str + "\n"
-        # new_sql += sql[gidx:]
-        # # print("new sql: ")
-        # # print(new_sql)
-        # # pdb.set_trace()
-    # else:
-        # new_sql = sql + pred_str
-
-    # return sql
+from nltk.tokenize import word_tokenize
+import pygtrie
 
 class QueryGenerator2():
     '''
@@ -154,47 +137,68 @@ class QueryGenerator2():
                     output, _ = cached_execute_query(cur_sql, self.user,
                             self.db_host, self.port, self.pwd, self.db_name,
                             100, "./qgen_cache", None)
-                    self.sampling_outputs[cur_key] = output
+                    if pred_group["pred_type"].lower() == "ilike":
+                        print("going to tokenize all words")
+                        tokens = []
+                        for out in output:
+                            cur_tokens = word_tokenize(out[0].lower())
+                            if len(cur_tokens) > 15:
+                                print("too many tokens in column: ",
+                                        pred_group["columns"][0])
+                                return None
+                            tokens += cur_tokens
+
+                        print("going to make a trie..")
+                        trie = pygtrie.CharTrie()
+                        for token in tokens:
+                            if token in trie:
+                                trie[token] += 1
+                            else:
+                                trie[token] = 1
+
+                        self.sampling_outputs[cur_key] = trie
+                        pdb.set_trace()
+                    else:
+                        self.sampling_outputs[cur_key] = output
 
                 if len(output) == 0:
                     # no point in doing shit
                     return None
 
-                # now use one of the different sampling methods
-                num_samples = random.randint(pred_group["min_samples"],
-                        pred_group["max_samples"])
+                if pred_group["pred_type"].lower() == "in":
+                    # now use one of the different sampling methods
+                    num_samples = random.randint(pred_group["min_samples"],
+                            pred_group["max_samples"])
 
-                if pred_group["sampling_method"] == "quantile":
-                    num_quantiles = pred_group["num_quantiles"]
-                    curp = random.randint(0, num_quantiles-1)
-                    chunk_len = int(len(output) / num_quantiles)
-                    tmp_output = output[curp*chunk_len: (curp+1)*chunk_len]
-                    if len(tmp_output) == 0:
-                        # really shouldn't be happenning right?
-                        return None
+                    if pred_group["sampling_method"] == "quantile":
+                        num_quantiles = pred_group["num_quantiles"]
+                        curp = random.randint(0, num_quantiles-1)
+                        chunk_len = int(len(output) / num_quantiles)
+                        tmp_output = output[curp*chunk_len: (curp+1)*chunk_len]
+                        if len(tmp_output) == 0:
+                            # really shouldn't be happenning right?
+                            return None
 
-                    if len(tmp_output) <= num_samples:
-                        samples = [random.choice(tmp_output) for _ in
-                                range(num_samples)]
+                        if len(tmp_output) <= num_samples:
+                            samples = [random.choice(tmp_output) for _ in
+                                    range(num_samples)]
+                        else:
+                            samples = random.sample(tmp_output, num_samples)
+
+                        self._update_sql_in(samples,
+                                pred_group, pred_vals)
+
                     else:
-                        samples = random.sample(tmp_output, num_samples)
+                        samples = [random.choice(output) for _ in
+                                range(num_samples)]
+                        self._update_sql_in(samples,
+                                pred_group, pred_vals)
 
-                    self._update_sql_in(samples,
-                            pred_group, pred_vals)
-
+                elif pred_group["pred_type"].lower() == "ilike":
+                    print(samples)
+                    pdb.set_trace()
                 else:
-                    samples = [random.choice(output) for _ in
-                            range(num_samples)]
-                    self._update_sql_in(samples,
-                            pred_group, pred_vals)
-
-                # try:
-                    # total_count = sum([int(s[-1]) for s in samples])
-                    # print(("{}, total count: {}".format(pred_group["keys"],
-                        # str(total_count))))
-                # except Exception as e:
-                    # print(e)
-                    # pass
+                    assert False
 
             elif pred_group["type"] == "list":
                 ## assuming it is a single column

@@ -12,7 +12,7 @@ from cardinality_estimation.nn import *
 from cardinality_estimation.losses import *
 from cardinality_estimation.data_loader import *
 import argparse
-from park.param import parser
+# from park.param import parser
 import psycopg2 as pg
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import psycopg2.extras
@@ -68,6 +68,7 @@ def get_alg(alg):
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 exp_prefix = args.exp_prefix,
+                load_query_together = args.load_query_together,
                 result_dir = args.result_dir,
                 priority_err_type = args.priority_err_type,
                 priority_err_divide_len = args.priority_err_divide_len,
@@ -93,7 +94,6 @@ def get_alg(alg):
                     sampling_priority_alpha = args.sampling_priority_alpha,
                     priority_query_len_scale = args.priority_query_len_scale,
                     net_name = args.net_name,
-                    # reuse_env = args.reuse_env,
                     eval_epoch_jerr = args.eval_epoch_jerr,
                     # eval_num_tables = args.eval_num_tables,
                     jl_use_postgres = args.jl_use_postgres,
@@ -227,13 +227,16 @@ def main():
             qrep = load_sql_rep(qfn)
             zero_query = False
             for _,info in qrep["subset_graph"].nodes().items():
-                if info["cardinality"]["actual"] == 0:
+                if "actual" not in info["cardinality"]:
                     zero_query = True
                     break
                 if args.algs == "sampling":
                     if skey not in info["cardinality"]:
                         zero_query = True
                         break
+                elif info["cardinality"]["actual"] == 0:
+                    zero_query = True
+                    break
 
             if zero_query:
                 skipped += 1
@@ -243,10 +246,11 @@ def main():
             qrep["template_name"] = template_name
             samples.append(qrep)
 
-        print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
-                ", loading time: {}").format( template_name, skipped,
-                    len(samples[0]["subset_graph"].nodes()), len(samples),
-                    time.time()-start))
+        if len(samples) > 0:
+            print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
+                    ", loading time: {}").format( template_name, skipped,
+                        len(samples[0]["subset_graph"].nodes()), len(samples),
+                        time.time()-start))
 
         if not found_db:
             for sample in samples:
@@ -334,9 +338,9 @@ def gen_samples_hash():
     return deterministic_hash(string)
 
 def read_flags():
-    # parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser()
     parser.add_argument("--query_directory", type=str, required=False,
-            default="./our_dataset")
+            default="./our_dataset/queries")
     parser.add_argument("--exp_prefix", type=str, required=False,
             default="")
     parser.add_argument("--query_templates", type=str, required=False,
@@ -345,6 +349,8 @@ def read_flags():
             default=0)
     parser.add_argument("--preload_features", type=int, required=False,
             default=1)
+    parser.add_argument("--load_query_together", type=int, required=False,
+            default=0)
     parser.add_argument("--normalization_type", type=str, required=False,
             default="pg_total_selectivity")
 
@@ -394,7 +400,7 @@ def read_flags():
     parser.add_argument("-n", "--num_samples_per_template", type=int,
             required=False, default=-1)
     parser.add_argument("--max_epochs", type=int,
-            required=False, default=100)
+            required=False, default=20)
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_jerr", type=int,
@@ -479,7 +485,7 @@ def read_flags():
     parser.add_argument("--losses", type=str, required=False,
             default="qerr,join-loss", help="comma separated list of loss names")
     parser.add_argument("--result_dir", type=str, required=False,
-            default="./results/")
+            default="./new_results/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,
             default="EXHAUSTIVE")
     parser.add_argument("--db_file_name", type=str, required=False,

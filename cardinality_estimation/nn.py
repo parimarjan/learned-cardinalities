@@ -19,7 +19,7 @@ import multiprocessing
 from tensorflow import summary as tf_summary
 from multiprocessing.pool import ThreadPool
 
-import park
+# import park
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
@@ -39,6 +39,7 @@ import gc
 # dataset
 from cardinality_estimation.query_dataset import QueryDataset
 from torch.utils import data
+from cardinality_estimation.join_loss import JoinLoss
 
 SUBQUERY_JERR_THRESHOLD = 100000
 PERCENTILES_TO_SAVE = [1,5,10,25, 50, 75, 90, 95, 99]
@@ -165,7 +166,6 @@ def compute_subquery_priorities_old(qrep, pred, env, use_indexes=True):
         assert len(est_costs) == 1
         jerr_diff = est_costs[0] - opt_costs[0]
         jerr_ratio = est_costs[0] / opt_costs[0]
-        # print(node, jerr_diff, jerr_ratio)
         if jerr_diff < 20000:
             continue
         if jerr_ratio < 1.5:
@@ -237,13 +237,16 @@ class NN(CardinalityEstimationAlg):
         self.kwargs = kwargs
         for k, val in kwargs.items():
             self.__setattr__(k, val)
+
         self.start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
         weekno = datetime.datetime.today().weekday()
         self.start_day = days[weekno]
 
-        # initialize stats collection stuff
-        self.mb_size = 2500
+        if self.load_query_together:
+            self.mb_size = 2
+        else:
+            self.mb_size = 2500
         if self.nn_type == "microsoft":
             self.featurization_scheme = "combined"
         elif self.nn_type == "num_tables":
@@ -273,6 +276,8 @@ class NN(CardinalityEstimationAlg):
         # each element is a list of priorities
         self.past_priorities = []
 
+        # initialize stats collection stuff
+
         # will keep storing all the training information in the cache / and
         # dump it at the end
         # self.key = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
@@ -297,16 +302,17 @@ class NN(CardinalityEstimationAlg):
 
     def _init_net(self, net_name, optimizer_name, sample):
         if net_name == "FCNN":
-            num_features = len(sample[0])
             # do training
-            net = SimpleRegression(num_features,
+            net = SimpleRegression(self.num_features,
                     self.hidden_layer_multiple, 1,
                     num_hidden_layers=self.num_hidden_layers,
                     hidden_layer_size=self.hidden_layer_size)
         elif net_name == "LinearRegression":
-            net = LinearRegression(num_features,
+            net = LinearRegression(self.num_features,
                     1)
         elif net_name == "SetConv":
+            if self.load_query_together:
+                assert False
             net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
                     self.hidden_layer_size)
         else:
@@ -370,7 +376,14 @@ class NN(CardinalityEstimationAlg):
     def _eval_combined(self, loader):
         all_preds = []
         all_y = []
+
         for idx, (xbatch, ybatch,_) in enumerate(loader):
+            if self.load_query_together:
+                # update the batches
+                xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
+                        xbatch.shape[2])
+                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+
             pred = self.net(xbatch).squeeze(1)
             all_preds.append(pred)
             all_y.append(ybatch)
@@ -482,6 +495,12 @@ class NN(CardinalityEstimationAlg):
     def _train_combined_net(self):
         for idx, (xbatch, ybatch,_) in enumerate(self.training_loader):
             # TODO: add handling for num_tables
+            if self.load_query_together:
+                # update the batches
+                xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
+                        xbatch.shape[2])
+                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+
             pred = self.net(xbatch).squeeze(1)
             losses = self.loss(pred, ybatch)
             loss = losses.sum() / len(losses)
@@ -667,6 +686,7 @@ class NN(CardinalityEstimationAlg):
             sqls.append(sample["sql"])
             ests = {}
             trues = {}
+            # we don't need to sort these as we are returning a dict here...
             for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]
                 alias_key = ' '.join(node)
@@ -700,15 +720,13 @@ class NN(CardinalityEstimationAlg):
         if not self.nn_type == "num_tables":
             self.num_threads = multiprocessing.cpu_count()
         else:
-            self.num_threads = multiprocessing.cpu_count(epoch)
+            self.num_threads = multiprocessing.cpu_count()
 
-        print("nn train, pool: ", join_loss_pool)
         self.join_loss_pool = join_loss_pool
 
         if self.tfboard:
             self.initialize_tfboard()
-        print("setting num threads to: ", self.num_threads)
-        torch.set_num_threads(self.num_threads)
+        # torch.set_num_threads(-1)
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
                 max_discrete_featurizing_buckets =
@@ -727,15 +745,21 @@ class NN(CardinalityEstimationAlg):
             self.min_val, self.max_val = None, None
 
         # create a new park env, and close at the end.
-        self.env = park.make('query_optimizer')
+        self.env = JoinLoss(self.db.user, self.db.pwd, self.db.db_host,
+                self.db.port, self.db.db_name)
+
         training_set = QueryDataset(training_samples, db,
                 self.featurization_scheme, self.heuristic_features,
                 self.preload_features, self.normalization_type,
+                self.load_query_together,
                 min_val = self.min_val,
                 max_val = self.max_val)
         self.training_samples = training_samples
         if self.featurization_scheme == "combined":
-            self.num_features = len(training_set[0][0])
+            if self.load_query_together:
+                self.num_features = len(training_set[0][0][0])
+            else:
+                self.num_features = len(training_set[0][0])
         else:
             self.num_features = len(training_set[0][0]) + \
                     len(training_set[0][1]) + len(training_set[0][2])
@@ -773,6 +797,7 @@ class NN(CardinalityEstimationAlg):
         eval_train_set = QueryDataset(eval_training_samples, db,
                 self.featurization_scheme, self.heuristic_features,
                 self.preload_features, self.normalization_type,
+                self.load_query_together,
                 min_val = self.min_val,
                 max_val = self.max_val)
         eval_train_loader = data.DataLoader(eval_train_set,
@@ -788,6 +813,7 @@ class NN(CardinalityEstimationAlg):
             test_set = QueryDataset(test_samples, db,
                     self.featurization_scheme, self.heuristic_features,
                     self.preload_features, self.normalization_type,
+                    self.load_query_together,
                     min_val = self.min_val,
                     max_val = self.max_val)
             eval_test_loader = data.DataLoader(test_set,
@@ -928,6 +954,7 @@ class NN(CardinalityEstimationAlg):
         dataset = QueryDataset(test_samples, self.db,
                 self.featurization_scheme, self.heuristic_features,
                 self.preload_features, self.normalization_type,
+                self.load_query_together,
                 min_val = self.min_val,
                 max_val = self.max_val)
         loader = data.DataLoader(dataset,
@@ -937,14 +964,18 @@ class NN(CardinalityEstimationAlg):
             del(dataset.X)
             del(dataset.Y)
             del(dataset.info)
-        # loss = self.loss(pred, y).detach().numpy()
+        loss = self.loss(pred, y).detach().numpy()
+        print("loss after test: ", np.mean(loss))
         pred = pred.detach().numpy()
 
         all_ests = []
         query_idx = 0
         for sample in test_samples:
             ests = {}
-            for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+            node_keys = list(sample["subset_graph"].nodes())
+            node_keys.sort()
+            # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+            for subq_idx, node in enumerate(node_keys):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]
                 alias_key = node
                 idx = query_idx + subq_idx
@@ -959,7 +990,7 @@ class NN(CardinalityEstimationAlg):
                 ests[alias_key] = est_card
             all_ests.append(ests)
             query_idx += len(sample["subset_graph"].nodes())
-        assert query_idx == len(dataset)
+        # assert query_idx == len(dataset)
         return all_ests
 
     def __str__(self):

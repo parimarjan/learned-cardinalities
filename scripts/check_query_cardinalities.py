@@ -16,8 +16,12 @@ from sql_rep.utils import execute_query
 from networkx.readwrite import json_graph
 # from progressbar import progressbar as bar
 
-TIMEOUT_COUNT_CONSTANT = 150001001
-CROSS_JOIN_CONSTANT = 150001000
+# TIMEOUT_COUNT_CONSTANT = 150001001
+# CROSS_JOIN_CONSTANT = 150001000
+TIMEOUT_COUNT_CONSTANT = 15000100001
+CROSS_JOIN_CONSTANT = 15000100000
+EXCEPTION_COUNT_CONSTANT = 15000100002
+
 CACHE_TIMEOUT = 4
 
 def read_flags():
@@ -100,6 +104,8 @@ def main():
                     timeouts += 1
                 elif card == CROSS_JOIN_CONSTANT:
                     cjs += 1
+                elif card == EXCEPTION_COUNT_CONSTANT:
+                    timeouts += 1
 
     bad_percentage = float(timeouts + cjs) / total
     print("cjs: {}, timeout percentage: {}".format(float(cjs)/total, bad_percentage))

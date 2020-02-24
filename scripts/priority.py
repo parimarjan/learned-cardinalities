@@ -1,16 +1,31 @@
 import sys
 sys.path.append(".")
-from utils.utils import *
 import pickle
 import glob
 import argparse
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+import seaborn as sns
 from collections import defaultdict
 import os
-# from utils import *
+from utils.utils import *
 import pdb
-# from db_utils.utils import *
-# from db_utils.query_storage import *
+# from cardinality_estimation.losses import *
+from matplotlib import gridspec
+from matplotlib import pyplot as plt
+from db_utils.utils import *
+from db_utils.query_storage import *
+
+LOSS_COLUMNS = ["loss_type", "loss", "summary_type", "template", "num_samples",
+        "samples_type"]
+EXP_COLUMNS = ["num_hidden_layers", "hidden_layer_size",
+        "sampling_priority_alpha", "max_discrete_featurizing_buckets",
+        "heuristic_features", "alg", "nn_type"]
+PLOT_SUMMARY_TYPES = ["mean"]
+ALGS_ORDER = ["mscn", "mscn-priority", "microsoft", "microsoft-priority"]
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -20,8 +35,8 @@ def read_flags():
             default=1)
     return parser.parse_args()
 
-def qkey_map(query_dir):
-    query_dir += "/"
+def qkey_map():
+    query_dir = "./our_dataset/queries/"
     qtmps = os.listdir(query_dir)
     mapping = {}
     for qtmp in qtmps:
@@ -113,7 +128,8 @@ def get_all_qerrs():
         df = df[df["samples_type"] == "test"]
     return df
 
-def get_all_plans(results_dir):
+def get_all_jerrs(results_dir):
+    mapping = qkey_map()
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
@@ -125,36 +141,82 @@ def get_all_plans(results_dir):
         exp_args = vars(exp_args)
         if skip_exp(exp_args):
             continue
-        alg = get_alg_name(exp_args)
+
         nns = load_object(cur_dir + "/nn.pkl")
         qdf = pd.DataFrame(nns["query_stats"])
-        if "query_qerr_stats" in nns:
-            qerr_df = pd.DataFrame(nns["query_qerr_stats"])
-            qdf = qdf.merge(qerr_df, on=["query_name", "epoch"])
+        qdf = qdf[qdf["epoch"] >= 5]
+        priorities = qdf.groupby("query_name").mean()["jerr"]
+        rts = load_object(cur_dir + "/runtimes.pkl")
+        jerrs = load_object(cur_dir + "/jerr.pkl")
+        costs = jerrs.groupby("sql_key").mean()["cost"]
+        print("len rts: ", len(rts))
 
-        qdf["alg"] = alg
-        qdf["hls"] = exp_args["hidden_layer_size"]
-        qdf["exp_name"] = fn
-        # priority based on args
-        if exp_args["sampling_priority_alpha"] > 0:
-            qdf["priority"] = True
-        else:
-            qdf["priority"] = False
+        rts['query_name'] = rts['sql_key'].map(mapping)
+        rts["priority"] = rts["query_name"].map(priorities)
+        print("len rts: ", len(rts))
 
-        # TODO: add training / test detail
-        # TODO: add template detail
-        # TODO: need map from query_name : test/train + template etc.
+        rts = rts.dropna()
+        print("len rts after dropna: ", len(rts))
+        rts = rts[["query_name", "sql_key", "runtime", "priority"]]
 
-        all_dfs.append(qdf)
+        # rts2 = pd.DataFrame(rts)
+        # prs = []
+        # for i, row in rts2.iterrows():
+            # try:
+                # pr = priorities[row["query_name"]]
+            # except:
+                # prs.append(0)
+                # continue
+            # prs.append(pr)
+            # try:
+                # int(pr)
+            # except:
+                # print(pr)
+                # pdb.set_trace()
+        # rts2["priority"] = prs
+
+
+        # print(rts["priority"].describe())
+        # pdb.set_trace()
+        # rts["priority"] /= float(1000000)
+        # total = np.sum(rts["priority"].data)
+        # print("total: ", total)
+        # rts["priority"] /= total
+
+        all_dfs.append(rts)
 
     return pd.concat(all_dfs)
 
+def plot_priorities(df):
+    sns.scatterplot(x="priority", y = "runtime", data=df)
+    plt.savefig("priorities_scatter.pdf")
+    plt.clf()
+
+    # df = df.sort_values(by="runtime")
+    df = df.sort_values(by="runtime")
+    # df[0:100].plot(kind="bar")
+    # df["priority"].plot(kind="bar")
+    prs = df["priority"].to_numpy()
+    plt.plot(prs)
+    plt.savefig("priorities2.pdf")
+
+    # plt.savefig("priorities.pdf")
+    # print(df[0:10])
+    # print(df[1000:10])
+    # pdb.set_trace()
+    # print(df[0:10])
+    # print(df[500:10])
+
+    # pdb.set_trace()
+
 def main():
-    query_dir = "./our_dataset/queries/"
-    qkey_mapping = qkey_map(args.query_dir)
-    plans = get_all_plans(args.results_dir)
-    print(plans)
+
+    rts = get_all_jerrs(args.results_dir)
+    true_fn = "./runtime_results/all_results/true/runtimes.pkl"
+    true_rts = load_object(true_fn)
+    print(true_rts.keys())
     pdb.set_trace()
+    plot_priorities(rts)
 
 if __name__ == "__main__":
     args = read_flags()

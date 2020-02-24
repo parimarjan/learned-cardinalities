@@ -1,8 +1,10 @@
 import numpy as np
 import pdb
-import park
+# import park
 from utils.utils import *
 from cardinality_estimation.query import *
+from cardinality_estimation.join_loss import JoinLoss
+
 import itertools
 import multiprocessing
 import random
@@ -234,8 +236,46 @@ def fix_query(query):
 
     return query
 
+def save_join_loss_training_data(sqls, est_cardinalities,
+        costs):
+    '''
+    saves two files: join_loss_data.pkl, queries.pkl
+    saves a file: join_loss_data.pkl
+        defaultdict with:
+            keys: sql_hash
+            ests: np array, sorted by alias names
+                [est_cardinalities...]
+            jloss: double
+
+    if file already exists, then just updates it by loading the prev one in
+    memory.
+    '''
+    jloss_fn = "join_loss_data.pkl"
+    jlosses = load_object(jloss_fn)
+    if jlosses is None:
+        jlosses = {}
+        jlosses["key"] = []
+        jlosses["est"] = []
+        jlosses["jloss"] = []
+
+    for i, sql in enumerate(sqls):
+        key = deterministic_hash(sql)
+        est_keys = list(est_cardinalities[i].keys())
+        est_keys.sort()
+        ests = np.zeros(len(est_keys))
+        for j, k in enumerate(est_keys):
+            ests[j] = est_cardinalities[i][k]
+        jloss = costs[i]
+
+        jlosses["key"].append(key)
+        jlosses["est"].append(ests)
+        jlosses["jloss"].append(jloss)
+
+    save_object(jloss_fn, jlosses)
+
 def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
-        use_indexes, pdf=None, num_processes=1, pool=None):
+        use_indexes, pdf=None, num_processes=1, pool=None,
+        jl_training_data=True):
     '''
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
@@ -251,7 +291,9 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
                         None, use_indexes,
                         num_processes=num_processes, postgres=True, pool=pool)
     assert isinstance(est_costs, np.ndarray)
-
+    if jl_training_data:
+        join_losses = est_costs - opt_costs
+        save_join_loss_training_data(sqls, est_cardinalities, join_losses)
     return est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls
 
 def get_join_results_name(alg_name):
@@ -297,8 +339,10 @@ def compute_join_order_loss(queries, preds, **kwargs):
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
 
-    env = park.make('query_optimizer')
+    # env = park.make('query_optimizer')
     args = kwargs["args"]
+    env = JoinLoss(args.user, args.pwd, args.db_host,
+            args.port, args.db_name)
     use_indexes = args.jl_indexes
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
@@ -359,7 +403,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
     combined_df = pd.concat([costs, cur_df], ignore_index=True)
     save_object(costs_fn, combined_df)
 
-    env.clean()
+    # env.clean()
 
     losses = np.array(est_costs) - np.array(opt_costs)
     return np.array(est_costs) - np.array(opt_costs)
