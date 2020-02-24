@@ -274,7 +274,8 @@ def save_join_loss_training_data(sqls, est_cardinalities,
     save_object(jloss_fn, jlosses)
 
 def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
-        use_indexes, pdf=None, num_processes=1, pool=None):
+        use_indexes, pdf=None, num_processes=1, pool=None,
+        jl_training_data=True):
     '''
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
@@ -290,7 +291,9 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
                         None, use_indexes,
                         num_processes=num_processes, postgres=True, pool=pool)
     assert isinstance(est_costs, np.ndarray)
-
+    if jl_training_data:
+        join_losses = est_costs - opt_costs
+        save_join_loss_training_data(sqls, est_cardinalities, join_losses)
     return est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls
 
 def get_join_results_name(alg_name):

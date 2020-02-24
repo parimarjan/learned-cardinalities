@@ -12,7 +12,7 @@ from cardinality_estimation.losses import *
 import pandas as pd
 import json
 # from multiprocessing import Pool
-import park
+# import park
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
