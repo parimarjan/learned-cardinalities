@@ -68,6 +68,7 @@ def get_alg(alg):
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 exp_prefix = args.exp_prefix,
+                load_query_together = args.load_query_together,
                 result_dir = args.result_dir,
                 priority_err_type = args.priority_err_type,
                 priority_err_divide_len = args.priority_err_divide_len,
@@ -332,7 +333,7 @@ def gen_samples_hash():
 def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--query_directory", type=str, required=False,
-            default="./our_dataset")
+            default="./our_dataset/queries")
     parser.add_argument("--exp_prefix", type=str, required=False,
             default="")
     parser.add_argument("--query_templates", type=str, required=False,
@@ -341,6 +342,8 @@ def read_flags():
             default=0)
     parser.add_argument("--preload_features", type=int, required=False,
             default=1)
+    parser.add_argument("--load_query_together", type=int, required=False,
+            default=0)
     parser.add_argument("--normalization_type", type=str, required=False,
             default="pg_total_selectivity")
 

@@ -29,6 +29,10 @@ def read_flags():
             default=None)
     parser.add_argument("--lr", type=float, required=False,
             default=0.0001)
+    parser.add_argument("--hidden_layer_multiple", type=float, required=False,
+            default=2)
+    parser.add_argument("--num_hidden_layers", type=int, required=False,
+            default=1)
     parser.add_argument("--mb_size", type=int, required=False,
             default=32)
     parser.add_argument("--max_epochs", type=int, required=False,
@@ -59,6 +63,8 @@ def main():
             batch_size=args.mb_size, shuffle=True, num_workers=0)
     test_loader = data.DataLoader(test_dataset,
             batch_size=10000, shuffle=False, num_workers=0)
+    print("num train: {}, num test: {}".format(len(train_dataset),
+        len(test_dataset)))
 
     # TODO: make this the test set
     eval_loader = data.DataLoader(train_dataset,
@@ -66,7 +72,8 @@ def main():
 
     inp_len = len(train_dataset[0][0])
 
-    net = SimpleRegression(inp_len, 1.0, 1, num_hidden_layers=1)
+    net = SimpleRegression(inp_len, args.hidden_layer_multiple, 1,
+            num_hidden_layers=args.num_hidden_layers)
     loss_func = torch.nn.MSELoss()
 
     if args.tfboard_dir:
