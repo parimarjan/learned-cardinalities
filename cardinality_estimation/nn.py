@@ -48,6 +48,19 @@ def percentile_help(q):
         return np.percentile(arr, q)
     return f
 
+def fcnn_loss(net, use_qloss=False):
+    def f(yhat,y):
+        inp = torch.cat((yhat,y))
+        jloss = net(inp)
+        if use_qloss:
+            qlosses = qloss_torch(yhat,y)
+            qloss = sum(qlosses) / len(qlosses)
+            return qloss + jloss
+            # return (qloss / 100.0) + jloss
+        else:
+            return jloss
+    return f
+
 def compute_subquery_priorities(qrep, true_cards, est_cards,
         explain, jerr, env, use_indexes=True):
     '''
@@ -244,7 +257,7 @@ class NN(CardinalityEstimationAlg):
         self.start_day = days[weekno]
 
         if self.load_query_together:
-            self.mb_size = 2
+            self.mb_size = 1
         else:
             self.mb_size = 2500
         if self.nn_type == "microsoft":
@@ -266,6 +279,8 @@ class NN(CardinalityEstimationAlg):
             self.loss = abs_loss_torch
         elif self.loss_func == "mse":
             self.loss = torch.nn.MSELoss(reduction="none")
+        elif self.loss_func == "cm_fcnn":
+            self.loss = qloss_torch
         else:
             assert False
 
@@ -502,15 +517,22 @@ class NN(CardinalityEstimationAlg):
                 ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
 
             pred = self.net(xbatch).squeeze(1)
-            losses = self.loss(pred, ybatch)
-            loss = losses.sum() / len(losses)
-            # if idx % 10 == 0:
-                # print(loss.item())
-            self.optimizer.zero_grad()
-            loss.backward()
-            if self.clip_gradient is not None:
-                clip_grad_norm_(self.net.parameters(), self.clip_gradient)
-            self.optimizer.step()
+            if self.loss_func == "cm_fcnn":
+                loss = self.cm_loss(pred, ybatch)
+                assert len(loss) == 1
+                self.optimizer.zero_grad()
+                loss.backward()
+                if self.clip_gradient is not None:
+                    clip_grad_norm_(self.net.parameters(), self.clip_gradient)
+                self.optimizer.step()
+            else:
+                losses = self.loss(pred, ybatch)
+                loss = losses.sum() / len(losses)
+                self.optimizer.zero_grad()
+                loss.backward()
+                if self.clip_gradient is not None:
+                    clip_grad_norm_(self.net.parameters(), self.clip_gradient)
+                self.optimizer.step()
 
     def _train_mscn(self):
         for idx, (tbatch, pbatch, jbatch, ybatch,_) in enumerate(self.training_loader):
@@ -518,8 +540,6 @@ class NN(CardinalityEstimationAlg):
             pred = self.net(tbatch,pbatch,jbatch).squeeze(1)
             losses = self.loss(pred, ybatch)
             loss = losses.sum() / len(losses)
-            # if idx % 10 == 0:
-                # print(loss.item())
             self.optimizer.zero_grad()
             loss.backward()
             if self.clip_gradient is not None:
@@ -763,6 +783,13 @@ class NN(CardinalityEstimationAlg):
         else:
             self.num_features = len(training_set[0][0]) + \
                     len(training_set[0][1]) + len(training_set[0][2])
+
+        if self.loss_func == "cm_fcnn":
+            inp_len = len(training_samples[0]["subset_graph"].nodes())
+            # fcnn_net = SimpleRegression(inp_len*2, 2, 1,
+                    # num_hidden_layers=1)
+            fcnn_net = torch.load("./cm_fcnn.pt")
+            self.cm_loss = fcnn_loss(fcnn_net)
 
         # TODO: only for priority case, this should be updated after every
         # epoch

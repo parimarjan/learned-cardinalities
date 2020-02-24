@@ -275,7 +275,7 @@ def save_join_loss_training_data(sqls, est_cardinalities,
 
 def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
         use_indexes, pdf=None, num_processes=1, pool=None,
-        jl_training_data=True):
+        jl_training_data=False):
     '''
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
