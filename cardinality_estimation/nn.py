@@ -687,7 +687,12 @@ class NN(CardinalityEstimationAlg):
             ests = {}
             trues = {}
             # we don't need to sort these as we are returning a dict here...
-            for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+
+            node_keys = list(sample["subset_graph"].nodes())
+            node_keys.sort()
+            # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+            for subq_idx, node in enumerate(node_keys):
+            # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]
                 alias_key = ' '.join(node)
                 # alias_key = node
