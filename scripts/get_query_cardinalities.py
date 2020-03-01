@@ -15,6 +15,7 @@ import pickle
 from sql_rep.utils import execute_query
 from networkx.readwrite import json_graph
 import re
+from sql_rep.query import parse_sql
 # from progressbar import progressbar as bar
 
 # TIMEOUT_COUNT_CONSTANT = 15000100001
@@ -72,7 +73,6 @@ def read_flags():
     return parser.parse_args()
 
 def update_bad_qrep(qrep):
-    from sql_rep.query import parse_sql
     qrep = parse_sql(qrep["sql"], None, None, None, None, None,
             compute_ground_truth=False)
     qrep["subset_graph"] = \
@@ -251,11 +251,18 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
 def main():
     fns = list(glob.glob(args.query_dir + "/*"))
+    fns.sort()
     par_args = []
     for i, fn in enumerate(fns):
         if i >= args.num_queries and args.num_queries != -1:
             break
         qrep = load_sql_rep(fn)
+        print("temporary testing...")
+        qrep = parse_sql(qrep["sql"], args.user, args.db_name, args.db_host,
+                args.port, args.pwd,
+                compute_ground_truth=True)
+
+        pdb.set_trace()
         par_args.append((qrep, args.card_type, args.key_name, args.db_host,
                 args.db_name, args.user, args.pwd, args.port,
                 args.true_timeout, args.pg_total, args.card_cache_dir, fn,
