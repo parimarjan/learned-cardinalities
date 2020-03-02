@@ -16,7 +16,7 @@ import re
 from collections import defaultdict
 import scipy.stats as st
 
-NUM_WALKS = 100000
+MAX_WALKS = 1000000
 CONF_ALPHA = 0.95
 
 NEXT_HOP_TMP = '''SELECT {SELS} from {TABLE}
@@ -30,22 +30,15 @@ WHERE {FKEY_CONDS}'''
 # {WHERE} LIMIT 1'''
 FIRST_HOP_TMP = '''SELECT {SELS} from {TABLE} {WHERE}'''
 
-# RANDOM_ROW = '''
-# SELECT {SELS} from {TABLE} TABLESAMPLE SYSTEM_ROWS(1)
-# '''
-
-# RANDOM_ROW = '''
-# SELECT {SELS} from {TABLE} ORDER BY random() LIMIT 1
-# '''
-
-# RANDOM_ROW = '''
-# SELECT {SELS} from {TABLE} TABLESAMPLE SYSTEM_ROWS(1)
-# '''
+CREATE_INDEX_TMP = '''CREATE INDEX IF NOT EXISTS {INDEX} ON {TABLE} ({COLS})'''
+DROP_INDEX_TMP = '''DROP INDEX {INDEX}'''
+CREATE_MULTICOL_INDEXES = False
+DROP_MULTICOL_INDEXES = False
 
 class WanderJoin():
 
     def __init__(self, user, pwd, db_host, port, db_name,
-            cache_dir="./sql_cache"):
+            verbose=False, cache_dir="./sql_cache", walks_timeout=0.5):
         self.user = user
         self.pwd = pwd
         self.db_host = db_host
@@ -54,11 +47,14 @@ class WanderJoin():
         self.con = pg.connect(user=self.user, host=self.db_host, port=self.port,
                 password=self.pwd, database=self.db_name)
         self.cursor = self.con.cursor()
+        self.walks_timeout = walks_timeout
+        self.verbose = verbose
 
     def find_path(self, nodes, node_selectivities, sg):
         sels = [node_selectivities[t] for t in nodes]
         path = []
         first_node = nodes[np.argmax(sels)]
+
         nodes.remove(first_node)
         path.append(first_node)
 
@@ -76,6 +72,10 @@ class WanderJoin():
 
             nodes.remove(path[-1])
 
+        # hack, for small tables. can also do it based on expected count or so.
+        if first_node in ["kt","it1","it2","it3","it4","rt","k"]:
+            path[0] = path[1]
+            path[1] = first_node
         return path
 
     def init_path_details(self, path, sg):
@@ -91,6 +91,7 @@ class WanderJoin():
 
         if first_node not in self.init_sels:
             sels = ",".join(node_info["sels"])
+            where_clause = ""
             if len(node_info["predicates"]) > 0:
                 preds = " AND ".join(node_info["predicates"])
                 where_clause = "WHERE " + preds
@@ -108,6 +109,7 @@ class WanderJoin():
         # for rest of the path, compute join statements
 
         for node_idx in range(1,len(path),1):
+            created_index = False
             node = path[node_idx]
             node_info = sg.nodes()[node]
             table = ALIAS_FORMAT.format(TABLE = node_info["real_name"], ALIAS = node)
@@ -117,6 +119,8 @@ class WanderJoin():
 
             fkey_conds = []
             cur_join_cols = []
+            index_cols = []
+
             for join in join_edges:
                 assert node == join[1]
                 # a value for this column would already have been selected
@@ -124,6 +128,10 @@ class WanderJoin():
                 cur_join_cols.append(other_col)
                 # other_val = vals[other_col]
                 cur_col = sg[join[0]][join[1]][join[1]]
+
+                col_name = cur_col.split(".")[1]
+                if col_name not in index_cols:
+                    index_cols.append(col_name)
                 other_col_key = "X" + other_col + "X"
                 cond = cur_col + " = " + other_col_key
                 fkey_conds.append(cond)
@@ -135,11 +143,92 @@ class WanderJoin():
             # FIXME: check math
             fkey_conds += node_info["predicates"]
             fkey_cond = " AND ".join(fkey_conds)
+            for col in node_info["pred_cols"]:
+                col_name = col.split(".")[1]
+                if col_name not in index_cols:
+                    index_cols.append(col_name)
+
+            if DROP_MULTICOL_INDEXES:
+                index_name = "_".join(index_cols)
+                index_cmd = DROP_INDEX_TMP.format(INDEX = index_name)
+
+                try:
+                    num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
+                            node_info["real_name"])
+                    self.cursor.execute(num_index_sql)
+                    num_indexes = len(self.cursor.fetchall())
+                    self.cursor.execute(index_cmd)
+                    self.con.commit()
+                    num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
+                            node_info["real_name"])
+                    self.cursor.execute(num_index_sql)
+                    num_indexes_new = len(self.cursor.fetchall())
+                    if num_indexes_new != num_indexes+1:
+                        print("dropped index")
+                        created_index = True
+                    else:
+                        print("index already existed")
+
+                    if created_index:
+                        print("going to vacuum")
+                        con2 = pg.connect(user=self.user, host=self.db_host, port=self.port,
+                                password=self.pwd, database=self.db_name)
+                        con2.set_isolation_level(pg.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                        cursor2 = con2.cursor()
+                        cursor2.execute("VACUUM {}".format(node_info["real_name"]))
+                        cursor2.close()
+                        con2.close()
+                        print("index + vacuuming done for: ", node_info["real_name"])
+
+                except Exception as e:
+                    print(e)
+                    self.cursor.execute("ROLLBACK")
+                    self.con.commit()
+
+            if CREATE_MULTICOL_INDEXES:
+                index_name = "_".join(index_cols)
+                index_cmd = CREATE_INDEX_TMP.format(TABLE = node_info["real_name"],
+                                        INDEX = index_name,
+                                        COLS = ",".join(index_cols))
+
+                try:
+                    num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
+                            node_info["real_name"])
+                    self.cursor.execute(num_index_sql)
+                    num_indexes = len(self.cursor.fetchall())
+                    self.cursor.execute(index_cmd)
+                    self.con.commit()
+                    num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
+                            node_info["real_name"])
+                    self.cursor.execute(num_index_sql)
+                    num_indexes_new = len(self.cursor.fetchall())
+                    if num_indexes_new == num_indexes+1:
+                        print("created new index")
+                        created_index = True
+                    else:
+                        print("index already existed")
+
+                    if created_index:
+                        print("going to vacuum")
+                        con2 = pg.connect(user=self.user, host=self.db_host, port=self.port,
+                                password=self.pwd, database=self.db_name)
+                        con2.set_isolation_level(pg.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                        cursor2 = con2.cursor()
+                        cursor2.execute("VACUUM {}".format(node_info["real_name"]))
+                        cursor2.close()
+                        con2.close()
+                        print("index + vacuuming done for: ", node_info["real_name"])
+
+                except Exception as e:
+                    print(e)
+                    self.cursor.execute("ROLLBACK")
+                    self.con.commit()
 
             exec_sql = NEXT_HOP_TMP.format(FKEY_CONDS = fkey_cond,
                                             TABLE = table,
                                             SELS = sels)
             path_execs.append(exec_sql)
+
 
         return path_execs, path_join_keys
 
@@ -155,12 +244,16 @@ class WanderJoin():
 
         for node, info in join_graph.nodes(data=True):
             sels = []
-            for col in info["pred_cols"]:
-                if col not in sels:
-                    sels.append(col)
-            cards = subset_graph.nodes()[tuple([node])]["cardinality"]
-            node_selectivities[node] = cards["total"] - float(cards["actual"])
-            # node_selectivities[node] = float(cards["expected"]) / cards["total"]
+            # for col in info["pred_cols"]:
+                # if col not in sels:
+                    # sels.append(col)
+            if len(info["predicates"]) == 0:
+                node_sel = 0.00
+            else:
+                cards = subset_graph.nodes()[tuple([node])]["cardinality"]
+                # TODO: we can also compute, and use true values here maybe?
+                node_sel = float(cards["total"]) - cards["expected"]
+            node_selectivities[node] = node_sel
 
             edges = join_graph.edges(node)
             for edge in edges:
@@ -191,13 +284,14 @@ class WanderJoin():
         succ_walks = defaultdict(lambda:0.0)
 
         self.init_sels = {}
-
+        exec_nodes = 0
         for node in subset_keys:
             if len(node) == 1:
                 continue
             if node in card_ests:
                 print("skipping {} ".format(node))
                 continue
+            exec_nodes += 1
 
             # optimize node order, sort by their selectivities
             tables = list(node)
@@ -208,15 +302,15 @@ class WanderJoin():
             # step
             path_execs, path_join_keys = self.init_path_details(path, sg)
 
-            avg_runtimes = []
+            all_rts = []
             tot_succ = 0
-
-            for i in range(NUM_WALKS):
-                start = time.time()
-                cur_succ, pis = self.run_path(path, sg, path_execs,
+            print(path)
+            tot_duration = 0.00
+            for i in range(MAX_WALKS):
+                cur_duration, pis = self.run_path(path, sg, path_execs,
                         path_join_keys)
-                if cur_succ:
-                    tot_succ += 1
+                all_rts.append(cur_duration)
+                tot_duration += cur_duration
 
                 cur_pi = 1
                 for nodeidx, _ in enumerate(path):
@@ -236,34 +330,43 @@ class WanderJoin():
                     cur_var = (fi - (card_ests[nodes] / card_samples[nodes]))**2
                     card_vars[nodes] += cur_var
 
-                avg_runtimes.append(time.time()-start)
+                if self.verbose:
+                    if i % 500 == 0 and i != 0:
+                        print("i: {}, total succ walks: {}, avg time: {}, total time: {}".format(
+                            i, tot_succ, round(sum(all_rts) / len(all_rts), 5),
+                            round(sum(all_rts), 2)))
 
-                if i % 1000 == 0 and i != 0:
-                    print("i: {}, total succ walks: {}, avg time: {}, total time: {}".format(
-                        i, tot_succ, round(sum(avg_runtimes) / len(avg_runtimes), 5),
-                        round(sum(avg_runtimes), 2)))
+                        for nodeidx, _ in enumerate(path):
+                            nodes = path[0:nodeidx+1]
+                            nodes.sort()
+                            nodes = tuple(nodes)
+                            est = round(card_ests[nodes] / card_samples[nodes], 2)
+                            std = round(np.sqrt(card_vars[nodes] / float((card_samples[nodes]-1))), 2)
+                            true = subset_graph.nodes()[nodes]["cardinality"]["actual"]
+                            # st.norm.ppf(95+1)
+                            alpha = st.norm.ppf((CONF_ALPHA+1)/2)
+                            half_interval = std*alpha / np.sqrt(card_samples[nodes])
+                            print("nodes: {}, succ walks: {}, true: {}, est: {}+/-{}, std: {}".format(
+                                nodes, succ_walks[nodes], true, est, half_interval, std))
 
-                    for nodeidx, _ in enumerate(path):
-                        nodes = path[0:nodeidx+1]
-                        nodes.sort()
-                        nodes = tuple(nodes)
-                        est = round(card_ests[nodes] / card_samples[nodes], 2)
-                        std = round(np.sqrt(card_vars[nodes] / float((card_samples[nodes]-1))), 2)
-                        true = subset_graph.nodes()[nodes]["cardinality"]["actual"]
-                        # st.norm.ppf(95+1)
-                        alpha = st.norm.ppf((CONF_ALPHA+1)/2)
-                        half_interval = std*alpha / np.sqrt(card_samples[nodes])
+                if tot_duration > self.walks_timeout and succ_walks[nodes] > 0:
+                    print("duration exceeded, num walks: ", i)
+                    break
 
-                        print("nodes: {}, succ walks: {}, true: {}, est: {}+/-{}, std: {}".format(
-                            nodes, succ_walks[nodes], true, est, half_interval, std))
+        # print("exec nodes: ", exec_nodes)
 
-            pdb.set_trace()
+        wj_data["card_ests"] = card_ests
+        wj_data["card_vars"] = card_vars
+        wj_data["card_samples"] = card_samples
+        wj_data["succ_walks"] = succ_walks
+        return wj_data
 
     def run_path(self, node_list, join_graph, path_execs, path_join_keys):
         pis = []
         # unique to the vals seen in this particular run
         vals = {}
         nodes_seen = set()
+        start = time.time()
         for i, node in enumerate(node_list):
             node_info = join_graph.nodes()[node]
             if i == 0:
@@ -285,13 +388,11 @@ class WanderJoin():
 
             if len(output) == 0:
                 # print("returning False, because no matching foreign key")
-                return False, pis
-
-            assert len(output[0]) == len(node_info["sels"])
+                return time.time()-start, pis
 
             pis.append(len(output))
             cur_row = random.choice(output)
             for j,out in enumerate(cur_row):
                 vals[node_info["sels"][j]] = out
 
-        return True, pis
+        return time.time()-start, pis

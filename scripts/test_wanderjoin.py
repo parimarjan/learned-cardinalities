@@ -71,7 +71,7 @@ def main():
     # fns = list(glob.glob(args.query_dir + "/*"))
     fns = list(glob.glob(args.query_dir + "/*"))
     wj = WanderJoin(args.user, args.pwd, args.db_host, args.port,
-            args.db_name, cache_dir="./debug_cache")
+            args.db_name, cache_dir="./debug_cache", verbose=True)
 
     for i, fn in enumerate(fns):
         if i >= args.num_queries and args.num_queries != -1:
@@ -87,6 +87,7 @@ def main():
         # qrep["join_graph"] = json_graph.adjacency_graph(qrep["join_graph"])
 
         wj.get_counts(qrep)
+        pdb.set_trace()
 
 args = read_flags()
 main()
