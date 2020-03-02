@@ -3,8 +3,9 @@ SP=25
 CARD_TYPE=actual
 KEY_NAME=actual
 NUM_PROC=$1
-NUM_SAMPLES=100
+NUM_SAMPLES=500
 TEMPLATES=(1a 2a 2b 2c 3a 4a 5a 6a 8a)
+#TEMPLATES=(4a 5a 6a 8a)
 echo "num proc: " $NUM_PROC
 for i in "${TEMPLATES[@]}";
 	do

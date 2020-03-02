@@ -34,6 +34,8 @@ CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
 WANDERJOIN_TIME_FMT = " WITHTIME {TIME} CONFIDENCE {CONF} REPORTINTERVAL {INT}"
 
+DEBUG_CHECK_TIMES = True
+
 def read_flags():
     parser = argparse.ArgumentParser()
 
@@ -108,6 +110,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     '''
     if key_name is None:
         key_name = card_type
+    print("get cardinality, for key type: ", key_name)
 
     if sampling_percentage is not None:
         key_name = str(sampling_type) + str(sampling_percentage) + "_" + key_name
@@ -153,7 +156,8 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                     subsql = re.sub(r"\b {} \b".format(table), new_table_name,
                             subsql)
 
-        if key_name in cards:
+        if key_name in cards \
+                and not DEBUG_CHECK_TIMES:
             if not (sampling_percentage is not None and \
                     cards[key_name] >= TIMEOUT_COUNT_CONSTANT):
                 existing += 1
@@ -179,7 +183,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 card = CROSS_JOIN_CONSTANT
                 cards[key_name] = card
                 continue
-            if hash_sql in sql_cache.archive:
+
+            if hash_sql in sql_cache.archive \
+                    and not DEBUG_CHECK_TIMES:
                 card = sql_cache.archive[hash_sql]
                 found_in_cache += 1
                 cards[key_name] = card
@@ -258,11 +264,17 @@ def main():
             break
         qrep = load_sql_rep(fn)
         print("temporary testing...")
-        qrep = parse_sql(qrep["sql"], args.user, args.db_name, args.db_host,
-                args.port, args.pwd,
-                compute_ground_truth=True)
+        # qrep = parse_sql(qrep["sql"], args.user, args.db_name, args.db_host,
+                # args.port, args.pwd,
+                # compute_ground_truth=True)
 
-        pdb.set_trace()
+        get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
+                args.db_name, args.user, args.pwd, args.port,
+                args.true_timeout, args.pg_total, args.card_cache_dir, fn,
+                args.wj_time, i, args.sampling_percentage, args.sampling_type)
+
+        continue
+
         par_args.append((qrep, args.card_type, args.key_name, args.db_host,
                 args.db_name, args.user, args.pwd, args.port,
                 args.true_timeout, args.pg_total, args.card_cache_dir, fn,
@@ -276,6 +288,8 @@ def main():
                 # args.wj_time, i, args.sampling_percentage, args.sampling_type)
         # pdb.set_trace()
 
+    print("temporary testing done")
+    pdb.set_trace()
     print("going to get cardinalities for {} queries".format(len(par_args)))
     start = time.time()
     if args.num_proc == -1:
