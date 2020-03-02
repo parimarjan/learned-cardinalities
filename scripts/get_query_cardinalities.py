@@ -16,11 +16,9 @@ from sql_rep.utils import execute_query
 from networkx.readwrite import json_graph
 import re
 from sql_rep.query import parse_sql
+from wanderjoin import WanderJoin
+import math
 # from progressbar import progressbar as bar
-
-# TIMEOUT_COUNT_CONSTANT = 15000100001
-# CROSS_JOIN_CONSTANT = 15000100000
-# EXCEPTION_COUNT_CONSTANT = 15000100002
 
 OLD_TIMEOUT_COUNT_CONSTANT = 150001001
 OLD_CROSS_JOIN_CONSTANT = 150001000
@@ -32,9 +30,8 @@ EXCEPTION_COUNT_CONSTANT = 150001000002
 
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
-WANDERJOIN_TIME_FMT = " WITHTIME {TIME} CONFIDENCE {CONF} REPORTINTERVAL {INT}"
 
-DEBUG_CHECK_TIMES = True
+DEBUG_CHECK_TIMES = False
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -51,12 +48,14 @@ def read_flags():
             default="./cardinality_cache")
     parser.add_argument("--port", type=str, required=False,
             default=5432)
-    parser.add_argument("--wj_time", type=int, required=False,
-            default=1000)
+    parser.add_argument("--wj_walk_timeout", type=float, required=False,
+            default=0.5)
     parser.add_argument("--query_dir", type=str, required=False,
             default=None)
     parser.add_argument("-n", "--num_queries", type=int,
             required=False, default=-1)
+    parser.add_argument("--no_parallel", type=int,
+            required=False, default=0)
     parser.add_argument("--card_type", type=str, required=False,
             default=None)
     parser.add_argument("--key_name", type=str, required=False,
@@ -101,8 +100,38 @@ def is_cross_join(sg):
         return False
     return True
 
+def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
+        port, fn, wj_fn, wj_walk_timeout, idx):
+
+    key_name = "wanderjoin" + str(wj_walk_timeout)
+    if idx % 10 == 0:
+        print("query: ", idx)
+    wj = WanderJoin(user, pwd, db_host, port,
+            db_name, verbose=False, walks_timeout=wj_walk_timeout)
+    data = wj.get_counts(qrep)
+
+    # save wj data
+    for subset, info in qrep["subset_graph"].nodes().items():
+        cards = info["cardinality"]
+        est = math.ceil(data["card_ests_sum"][subset] / data["card_samples"][subset])
+        if est == 0:
+            est += 1
+        cards[key_name] = est
+        print(subset, cards["actual"], est, cards["actual"] / est,
+                cards["actual"]-est)
+
+    old_data = load_object(wj_fn)
+    if old_data is None:
+        old_data = {}
+    old_data[key_name] = data
+
+    save_sql_rep(fn, qrep)
+    save_object(wj_fn, old_data)
+    return qrep
+
+
 def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
-        port, true_timeout, pg_total, cache_dir, fn, wj_time, idx,
+        port, true_timeout, pg_total, cache_dir, fn, wj_walk_timeout, idx,
         sampling_percentage, sampling_type):
     '''
     updates qrep's fields with the needed cardinality estimates, and returns
@@ -110,7 +139,6 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     '''
     if key_name is None:
         key_name = card_type
-    print("get cardinality, for key type: ", key_name)
 
     if sampling_percentage is not None:
         key_name = str(sampling_type) + str(sampling_percentage) + "_" + key_name
@@ -222,7 +250,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             subsql = subsql.replace("SELECT", "SELECT ONLINE")
             subsql = subsql.replace(";","")
             subsql += WANDERJOIN_TIME_FMT.format(
-                    TIME = wj_time,
+                    TIME = wj_walk_timeout,
                     CONF = 95,
                     INT = 1000)
             print(subsql)
@@ -262,42 +290,56 @@ def main():
     for i, fn in enumerate(fns):
         if i >= args.num_queries and args.num_queries != -1:
             break
+        if ".pkl" not in fn:
+            continue
         qrep = load_sql_rep(fn)
-        print("temporary testing...")
-        # qrep = parse_sql(qrep["sql"], args.user, args.db_name, args.db_host,
-                # args.port, args.pwd,
-                # compute_ground_truth=True)
 
-        get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
-                args.db_name, args.user, args.pwd, args.port,
-                args.true_timeout, args.pg_total, args.card_cache_dir, fn,
-                args.wj_time, i, args.sampling_percentage, args.sampling_type)
+        if args.no_parallel:
+            if args.card_type == "wanderjoin":
+                wj_dir = os.path.dirname(fn) + "/wj_data/"
+                base_name = os.path.basename(fn)
+                if not os.path.exists(wj_dir):
+                    make_dir(wj_dir)
+                wj_fn = wj_dir + base_name
+                get_cardinality_wj(qrep, args.card_type, args.key_name, args.db_host,
+                        args.db_name, args.user, args.pwd, args.port,
+                        fn, wj_fn, args.wj_walk_timeout, i)
+                print("done!")
+                pdb.set_trace()
+            else:
+                get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
+                        args.db_name, args.user, args.pwd, args.port,
+                        args.true_timeout, args.pg_total, args.card_cache_dir, fn,
+                        args.wj_walk_timeout, i, args.sampling_percentage, args.sampling_type)
+                pdb.set_trace()
+            continue
 
-        continue
+        if args.card_type == "wanderjoin":
+            par_func = get_cardinality_wj
+            wj_dir = os.path.dirname(fn) + "/data/"
+            base_name = os.path.basename(fn)
+            if not os.path.exists(wj_dir):
+                make_dir(wj_dir)
+            wj_fn = wj_dir + base_name
+            par_args.append((qrep, args.card_type, args.key_name, args.db_host,
+                    args.db_name, args.user, args.pwd, args.port,
+                     fn, wj_dir, args.wj_walk_timeout, i))
+        else:
+            par_func = get_cardinality
+            par_args.append((qrep, args.card_type, args.key_name, args.db_host,
+                    args.db_name, args.user, args.pwd, args.port,
+                    args.true_timeout, args.pg_total, args.card_cache_dir, fn,
+                    args.wj_walk_timeout, i, args.sampling_percentage,
+                    args.sampling_type))
 
-        par_args.append((qrep, args.card_type, args.key_name, args.db_host,
-                args.db_name, args.user, args.pwd, args.port,
-                args.true_timeout, args.pg_total, args.card_cache_dir, fn,
-                args.wj_time, i, args.sampling_percentage,
-                args.sampling_type))
-
-        # TO debug:
-        # get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
-                # args.db_name, args.user, args.pwd, args.port,
-                # args.true_timeout, args.pg_total, args.card_cache_dir, fn,
-                # args.wj_time, i, args.sampling_percentage, args.sampling_type)
-        # pdb.set_trace()
-
-    print("temporary testing done")
-    pdb.set_trace()
-    print("going to get cardinalities for {} queries".format(len(par_args)))
+    assert not args.no_parallel
     start = time.time()
     if args.num_proc == -1:
         num_proc = cpu_count()
     else:
         num_proc = args.num_proc
     with Pool(processes = num_proc) as pool:
-        qreps = pool.starmap(get_cardinality, par_args)
+        qreps = pool.starmap(par_func, par_args)
     print("updated all cardinalities in {} seconds".format(time.time()-start))
 
 args = read_flags()

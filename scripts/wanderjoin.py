@@ -278,19 +278,25 @@ class WanderJoin():
         subset_keys = list(subset_graph.nodes())
         subset_keys.sort(key = lambda v : len(v), reverse=True)
 
-        card_ests = defaultdict(lambda:0.0)
-        card_vars = defaultdict(lambda:0.0)
-        card_samples = defaultdict(lambda:0.0)
-        succ_walks = defaultdict(lambda:0.0)
+        card_ests = {}
+        card_vars = {}
+        card_samples = {}
+        succ_walks = {}
 
         self.init_sels = {}
         exec_nodes = 0
         for node in subset_keys:
-            if len(node) == 1:
-                continue
             if node in card_ests:
                 print("skipping {} ".format(node))
                 continue
+            if len(node) == 1:
+                # FIXME: temporary hack
+                true = subset_graph.nodes()[node]["cardinality"]["actual"]
+                card_ests[node] = true
+                card_vars[node] = 0.0
+                card_samples[node] = 1
+                continue
+
             exec_nodes += 1
 
             # optimize node order, sort by their selectivities
@@ -317,6 +323,12 @@ class WanderJoin():
                     nodes = path[0:nodeidx+1]
                     nodes.sort()
                     nodes = tuple(nodes)
+                    if nodes not in card_samples:
+                        card_samples[nodes] = 0.0
+                        card_ests[nodes] = 0.0
+                        card_vars[nodes] = 0.0
+                        succ_walks[nodes] = 0.0
+
                     card_samples[nodes] += 1
                     fi = 0
                     if nodeidx < len(pis):
@@ -349,14 +361,19 @@ class WanderJoin():
                             print("nodes: {}, succ walks: {}, true: {}, est: {}+/-{}, std: {}".format(
                                 nodes, succ_walks[nodes], true, est, half_interval, std))
 
-                if tot_duration > self.walks_timeout and succ_walks[nodes] > 0:
-                    print("duration exceeded, num walks: ", i)
+                # if tot_duration > self.walks_timeout and succ_walks[nodes] > 0:
+                if tot_duration > self.walks_timeout:
+                    print("duration exceeded, num walks: {}, num succ walks: {}".format(
+                        i, succ_walks[nodes]))
+                    if node not in card_ests:
+                        assert node in card_samples
+                        card_ests[node] = 0.0
+                        card_vars[node] = 0.0
                     break
 
-        # print("exec nodes: ", exec_nodes)
-
-        wj_data["card_ests"] = card_ests
-        wj_data["card_vars"] = card_vars
+        wj_data = {}
+        wj_data["card_ests_sum"] = card_ests
+        wj_data["card_vars_sum"] = card_vars
         wj_data["card_samples"] = card_samples
         wj_data["succ_walks"] = succ_walks
         return wj_data
