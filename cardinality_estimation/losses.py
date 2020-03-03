@@ -185,9 +185,13 @@ def compute_qerror(queries, preds, **kwargs):
     ytrue, yhat, _ = _get_all_cardinalities(queries, preds)
     ytrue = np.array(ytrue)
     yhat = np.array(yhat)
-    assert 0.00 not in ytrue
-    assert 0.00 not in yhat
     assert len(ytrue) == len(yhat)
+    try:
+        assert 0.00 not in ytrue
+        assert 0.00 not in yhat
+    except Exception as e:
+        print(e)
+        pdb.set_trace()
 
     errors = np.maximum((ytrue / yhat), (yhat / ytrue))
     df = qerr_loss_stats(queries, errors,

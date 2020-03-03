@@ -631,14 +631,16 @@ class NN(CardinalityEstimationAlg):
             if (samples_type == "train" and \
                     self.sampling_priority_alpha > 0 and \
                     self.epoch % self.reprioritize_epoch == 0):
-                print("not recalculating join loss for training")
-                return
+                if self.train_card_key == "actual":
+                    print("not recalculating join loss for training")
+                    return
+                print("recalculating join loss")
+
             # if priority on, then stats will be saved when calculating
             # priority
             jl_eval_start = time.time()
             assert self.jl_use_postgres
 
-            # TODO: do we need this awkward loop. decompose?
             sqls, true_cardinalities, est_cardinalities = \
                     self.get_query_estimates(pred, samples)
             (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
@@ -692,7 +694,7 @@ class NN(CardinalityEstimationAlg):
 
         return priorities
 
-    def get_query_estimates(self, pred, samples):
+    def get_query_estimates(self, pred, samples, true_card_key="actual"):
         '''
         @ret:
         '''
@@ -710,7 +712,6 @@ class NN(CardinalityEstimationAlg):
 
             node_keys = list(sample["subset_graph"].nodes())
             node_keys.sort()
-            # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
             for subq_idx, node in enumerate(node_keys):
             # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]
@@ -725,7 +726,8 @@ class NN(CardinalityEstimationAlg):
                     est_card = est_sel*cards["total"]
                 # ests[alias_key] = int(est_card)
                 ests[alias_key] = est_card
-                trues[alias_key] = cards["actual"]
+                # trues[alias_key] = cards["actual"]
+                trues[alias_key] = cards[true_card_key]
             est_cardinalities.append(ests)
             true_cardinalities.append(trues)
             query_idx += len(sample["subset_graph"].nodes())
@@ -887,7 +889,8 @@ class NN(CardinalityEstimationAlg):
                     pr_start = time.time()
                     sqls, true_cardinalities, est_cardinalities = \
                             self.get_query_estimates(pred,
-                                    self.training_samples)
+                                    self.training_samples,
+                                    true_card_key=self.train_card_key)
                     (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
                             true_cardinalities, est_cardinalities, self.env,
                             self.jl_indexes, None,

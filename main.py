@@ -235,10 +235,7 @@ def main():
                 if "actual" not in info["cardinality"]:
                     zero_query = True
                     break
-                if args.algs == "sampling":
-                    if skey not in info["cardinality"]:
-                        zero_query = True
-                        break
+
                 elif info["cardinality"]["actual"] == 0:
                     zero_query = True
                     break
@@ -256,11 +253,13 @@ def main():
             qrep["template_name"] = template_name
             samples.append(qrep)
 
-        if len(samples) > 0:
-            print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
-                    ", loading time: {}").format( template_name, skipped,
-                        len(samples[0]["subset_graph"].nodes()), len(samples),
-                        time.time()-start))
+        if len(samples) == 0:
+            continue
+
+        print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
+                ", loading time: {}").format( template_name, skipped,
+                    len(samples[0]["subset_graph"].nodes()), len(samples),
+                    time.time()-start))
 
         if not found_db:
             for sample in samples:

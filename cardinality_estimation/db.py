@@ -256,6 +256,8 @@ class DB():
             max_val = float(col_info["max_value"])
             min_max = [min_val, max_val]
             for vi, v in enumerate(val):
+                if "literal" == v:
+                    v = val["literal"]
                 # handling the case when one end of the range is
                 # missing
                 if v is None and vi == 0:
@@ -267,7 +269,6 @@ class DB():
                     v = min_val
                 elif v == 'NULL' and vi == 1:
                     v = max_val
-
                 cur_val = float(v)
                 norm_val = (cur_val - min_val) / (max_val - min_val)
                 norm_val = max(norm_val, 0.00)
