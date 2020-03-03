@@ -55,8 +55,8 @@ def fcnn_loss(net, use_qloss=False):
         if use_qloss:
             qlosses = qloss_torch(yhat,y)
             qloss = sum(qlosses) / len(qlosses)
-            return qloss + jloss
-            # return (qloss / 100.0) + jloss
+            # return qloss + jloss
+            return (qloss / 100.0) + jloss
         else:
             return jloss
     return f
@@ -778,7 +778,8 @@ class NN(CardinalityEstimationAlg):
                 self.preload_features, self.normalization_type,
                 self.load_query_together,
                 min_val = self.min_val,
-                max_val = self.max_val)
+                max_val = self.max_val,
+                card_key = self.train_card_key)
         self.training_samples = training_samples
         if self.featurization_scheme == "combined":
             if self.load_query_together:
@@ -873,7 +874,7 @@ class NN(CardinalityEstimationAlg):
                 self.save_stats()
 
             self.train_one_epoch()
-            print("train epoch took: ", time.time() - start)
+            # print("train epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \

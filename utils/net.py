@@ -46,6 +46,7 @@ class CostModelNet(torch.nn.Module):
 
         self.final_layer = nn.Sequential(
             nn.Linear(n_hidden, n_output, bias=True),
+            # nn.Sigmoid()
         ).to(device)
         self.layers.append(self.final_layer)
 

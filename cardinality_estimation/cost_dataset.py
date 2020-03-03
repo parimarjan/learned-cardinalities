@@ -6,7 +6,7 @@ from db_utils.query_storage import *
 import numpy as np
 
 class CostDataset(data.Dataset):
-    def __init__(self, mapping, keys, estimates, costs,
+    def __init__(self, mapping, keys, estimates, costs, cost_ratios,
             feat_type, cost_type="jcost_ratio",
             input_feat_type=1, input_norm_type=1):
         '''
@@ -16,9 +16,9 @@ class CostDataset(data.Dataset):
         self.cost_type = cost_type
         self.input_feat_type = input_feat_type
         self.input_norm_type = input_norm_type
-        self.X, self.Y = self.get_features(keys, estimates, costs)
+        self.X, self.Y = self.get_features(keys, estimates, costs, cost_ratios)
 
-    def get_features(self, keys, estimates, jlosses):
+    def get_features(self, keys, estimates, jlosses, jratios):
         '''
         '''
         queries = {}
@@ -36,7 +36,9 @@ class CostDataset(data.Dataset):
 
             ests = estimates[i]
             assert len(ests) == len(qrep["subset_graph"])
-            cost = jlosses[i]
+            # cost = jlosses[i]
+            cost = jratios[i]
+            assert jratios[i] != jlosses[i]
 
             if self.feat_type == "fcnn":
                 if self.input_feat_type == 1:
@@ -64,7 +66,7 @@ class CostDataset(data.Dataset):
                 assert False
 
         Y = np.array(Y)
-        Y = (Y - np.mean(Y)) / np.std(Y)
+        # Y = (Y - np.mean(Y)) / np.std(Y)
         if self.input_norm_type == 1:
             pass
         elif self.input_norm_type == 2:
@@ -78,7 +80,7 @@ class CostDataset(data.Dataset):
         elif self.input_norm_type == 5:
             X = (X - np.mean(X, axis=0)) / (np.std(X, axis=0))
 
-        # Y = (Y + np.min(Y)) / (np.max(Y) - np.min(Y))
+        # Y = (Y - np.min(Y)) / (np.max(Y) - np.min(Y))
         return to_variable(X).float(), to_variable(Y).float()
 
     def __len__(self):

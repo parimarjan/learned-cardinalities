@@ -67,6 +67,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                train_card_key = args.train_card_key,
                 exp_prefix = args.exp_prefix,
                 load_query_together = args.load_query_together,
                 result_dir = args.result_dir,
@@ -119,7 +120,7 @@ def get_alg(alg):
                     use_svd=args.use_svd, num_singular_vals=args.num_singular_vals,
                     num_bins = args.num_bins, recompute = args.cl_recompute)
     elif alg == "sampling":
-        return SamplingTables(args.sampling_type, args.sampling_percentage)
+        return SamplingTables(args.sampling_key)
     else:
         assert False
 
@@ -201,7 +202,7 @@ def main():
         start = time.time()
         # loading, or generating samples
         samples = []
-        qfns = list(glob.glob(qdir+"/*"))
+        qfns = list(glob.glob(qdir+"/*.pkl"))
         qfns.sort()
         if args.num_samples_per_template == -1:
             qfns = qfns
@@ -227,6 +228,10 @@ def main():
             qrep = load_sql_rep(qfn)
             zero_query = False
             for _,info in qrep["subset_graph"].nodes().items():
+                if args.train_card_key not in info["cardinality"]:
+                    zero_query = True
+                    break
+
                 if "actual" not in info["cardinality"]:
                     zero_query = True
                     break
@@ -237,6 +242,11 @@ def main():
                 elif info["cardinality"]["actual"] == 0:
                     zero_query = True
                     break
+
+                if args.sampling_key is not None:
+                    if args.sampling_key not in info["cardinality"]:
+                        zero_query = True
+                        break
 
             if zero_query:
                 skipped += 1
@@ -475,7 +485,7 @@ def read_flags():
     parser.add_argument("--random_seed", type=int, required=False,
             default=2112)
     parser.add_argument("--test", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--avg_factor", type=int, required=False,
             default=1)
     parser.add_argument("--test_size", type=float, required=False,
@@ -498,6 +508,10 @@ def read_flags():
             default=20)
     parser.add_argument("--jl_variant", type=int, required=False,
             default=0)
+    parser.add_argument("--sampling_key", type=str, required=False,
+            default=None, help="")
+    parser.add_argument("--train_card_key", type=str, required=False,
+            default="actual", help="")
 
     parser.add_argument("--sampling_priority_type", type=str, required=False,
             default="query", help="")

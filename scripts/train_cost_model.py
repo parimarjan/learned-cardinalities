@@ -60,15 +60,16 @@ def periodic_eval(net, loader, loss_func):
 def main():
     mapping = qkey_map(args.query_dir)
     training_data = load_object(args.training_data_file)
-    tr_keys, test_keys, tr_ests, test_ests, tr_costs, test_costs = \
+    tr_keys, test_keys, tr_ests, test_ests, tr_costs, test_costs, tr_ratios, \
+            test_ratios = \
                 train_test_split(training_data["key"], training_data["est"],
-                        training_data["jloss"], random_state=1234,
+                        training_data["jloss"], training_data["jratio"], random_state=1234,
                         test_size=args.test_size)
-
     # split it
-    train_dataset = CostDataset(mapping, tr_keys, tr_ests, tr_costs,
+    train_dataset = CostDataset(mapping, tr_keys, tr_ests, tr_costs, tr_ratios,
             args.feat_type, input_feat_type = args.input_feat_type)
     test_dataset = CostDataset(mapping, test_keys, test_ests, test_costs,
+            test_ratios,
             args.feat_type, input_feat_type = args.input_feat_type)
     train_loader = data.DataLoader(train_dataset,
             batch_size=args.mb_size, shuffle=True, num_workers=0)
@@ -99,12 +100,14 @@ def main():
 
     for epoch in range(0, args.max_epochs):
 
-        if args.test_while_training:
+        if args.test_while_training or \
+                epoch == args.max_epochs-1:
             print("epoch: {}, train loss: {}, test_loss: {}".format(epoch, periodic_eval(net,
                 eval_loader, loss_func), periodic_eval(net, test_loader,
                     loss_func)))
         else:
-            print("epoch: {}, train loss: {}".format(epoch, periodic_eval(net,
+            print("epoch: {}, N: {} train loss: {}".format(epoch,
+                len(train_dataset), periodic_eval(net,
                 eval_loader, loss_func)))
 
         # train loop

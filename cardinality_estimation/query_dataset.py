@@ -10,7 +10,7 @@ class QueryDataset(data.Dataset):
     def __init__(self, samples, db, featurization_type,
             heuristic_features, preload_features,
             normalization_type, load_query_together,
-            min_val=None, max_val=None):
+            min_val=None, max_val=None, card_key="actual"):
         '''
         @samples: [] sqlrep query dictionaries, which represent a query and all
         of its subqueries.
@@ -29,6 +29,8 @@ class QueryDataset(data.Dataset):
         self.normalization_type = normalization_type
         self.min_val = min_val
         self.max_val = max_val
+        self.card_key = card_key
+
         if self.normalization_type == "mscn":
             assert min_val is not None
             assert max_val is not None
@@ -79,7 +81,7 @@ class QueryDataset(data.Dataset):
         '''
         card_info = qrep["subset_graph"].nodes()[nodes]
         pg_sel = float(card_info["cardinality"]["expected"]) / card_info["cardinality"]["total"]
-        true_sel = float(card_info["cardinality"]["actual"]) / card_info["cardinality"]["total"]
+        true_sel = float(card_info["cardinality"][self.card_key]) / card_info["cardinality"]["total"]
         pred_features = np.zeros(self.db.pred_features_len)
         table_features = np.zeros(len(self.db.tables))
         join_features = np.zeros(len(self.db.joins))
@@ -187,7 +189,7 @@ class QueryDataset(data.Dataset):
             for nodes in node_names:
                 info = qrep["subset_graph"].nodes()[nodes]
                 pg_est = info["cardinality"]["expected"]
-                true_val = info["cardinality"]["actual"]
+                true_val = info["cardinality"][self.card_key]
                 total = info["cardinality"]["total"]
 
                 pred_features = np.zeros(self.db.pred_features_len)
