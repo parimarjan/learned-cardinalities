@@ -15,9 +15,10 @@ from sql_rep.utils import *
 import re
 from collections import defaultdict
 import scipy.stats as st
+import copy
 
 MAX_WALKS = 1000000
-CONF_ALPHA = 0.95
+CONF_ALPHA = 0.99
 
 NEXT_HOP_TMP = '''SELECT {SELS} from {TABLE}
 WHERE {FKEY_CONDS}'''
@@ -68,7 +69,8 @@ class WanderJoin():
             else:
                 options = [j[1] for j in join_edges]
                 sels = [node_selectivities[t] for t in options]
-                path.append(options[np.argmax(sels)])
+                winners = np.argwhere(sels == np.amax(sels))
+                path.append(options[random.choice(winners.flatten())])
 
             nodes.remove(path[-1])
 
@@ -236,6 +238,7 @@ class WanderJoin():
         '''
         @ret: count for each subquery
         '''
+        total_start = time.time()
         self.init_sels = {}
         # generate a map of key : fkey pairs
         subset_graph = qrep["subset_graph"]
@@ -244,9 +247,6 @@ class WanderJoin():
 
         for node, info in join_graph.nodes(data=True):
             sels = []
-            # for col in info["pred_cols"]:
-                # if col not in sels:
-                    # sels.append(col)
             if len(info["predicates"]) == 0:
                 node_sel = 0.00
             else:
@@ -285,6 +285,7 @@ class WanderJoin():
 
         self.init_sels = {}
         exec_nodes = 0
+        all_exec_duration = 0.0
         for node in subset_keys:
             if node in card_ests:
                 print("skipping {} ".format(node))
@@ -317,6 +318,9 @@ class WanderJoin():
                         path_join_keys)
                 all_rts.append(cur_duration)
                 tot_duration += cur_duration
+                all_exec_duration += cur_duration
+                if len(pis) == len(path):
+                    tot_succ += 1
 
                 cur_pi = 1
                 for nodeidx, _ in enumerate(path):
@@ -355,13 +359,11 @@ class WanderJoin():
                             est = round(card_ests[nodes] / card_samples[nodes], 2)
                             std = round(np.sqrt(card_vars[nodes] / float((card_samples[nodes]-1))), 2)
                             true = subset_graph.nodes()[nodes]["cardinality"]["actual"]
-                            # st.norm.ppf(95+1)
                             alpha = st.norm.ppf((CONF_ALPHA+1)/2)
                             half_interval = std*alpha / np.sqrt(card_samples[nodes])
                             print("nodes: {}, succ walks: {}, true: {}, est: {}+/-{}, std: {}".format(
                                 nodes, succ_walks[nodes], true, est, half_interval, std))
 
-                # if tot_duration > self.walks_timeout and succ_walks[nodes] > 0:
                 if tot_duration > self.walks_timeout:
                     print("duration exceeded, num walks: {}, num succ walks: {}".format(
                         i, succ_walks[nodes]))
@@ -371,14 +373,37 @@ class WanderJoin():
                         card_vars[node] = 0.0
                     break
 
+                elif succ_walks[nodes] >= 20:
+                    print("20 successful walks, finishing run")
+                    break
+
+                # if succ_walks[nodes] >= 2:
+                    # nodes = copy.deepcopy(path)
+                    # nodes.sort()
+                    # nodes = tuple(nodes)
+                    # std = round(np.sqrt(card_vars[nodes] / float((card_samples[nodes]-1))), 2)
+                    # # true = subset_graph.nodes()[nodes]["cardinality"]["actual"]
+                    # # st.norm.ppf(95+1)
+                    # alpha = st.norm.ppf((CONF_ALPHA+1)/2)
+                    # half_interval = std*alpha / np.sqrt(card_samples[nodes])
+
+                    # if half_interval <= std:
+                        # print("breaking because half interval < std")
+                        # break
+
         wj_data = {}
         wj_data["card_ests_sum"] = card_ests
         wj_data["card_vars_sum"] = card_vars
         wj_data["card_samples"] = card_samples
         wj_data["succ_walks"] = succ_walks
+        wj_data["exec_time"] = all_exec_duration
+        wj_data["total_time"] = time.time() - total_start
+        print("exec nodes: {}, all exec duration: {}, total time: {}".format(
+            exec_nodes, all_exec_duration, wj_data["total_time"]))
         return wj_data
 
-    def run_path(self, node_list, join_graph, path_execs, path_join_keys):
+    def run_path(self, node_list, join_graph,
+            path_execs, path_join_keys):
         pis = []
         # unique to the vals seen in this particular run
         vals = {}

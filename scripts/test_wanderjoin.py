@@ -44,8 +44,8 @@ def read_flags():
             default="./cardinality_cache")
     parser.add_argument("--port", type=str, required=False,
             default=5432)
-    parser.add_argument("--wj_time", type=int, required=False,
-            default=1000)
+    parser.add_argument("--walks_timeout", type=float, required=False,
+            default=0.5)
     parser.add_argument("--query_dir", type=str, required=False,
             default=None)
     parser.add_argument("-n", "--num_queries", type=int,
@@ -71,7 +71,8 @@ def main():
     # fns = list(glob.glob(args.query_dir + "/*"))
     fns = list(glob.glob(args.query_dir + "/*"))
     wj = WanderJoin(args.user, args.pwd, args.db_host, args.port,
-            args.db_name, cache_dir="./debug_cache", verbose=True)
+            args.db_name, cache_dir="./debug_cache", verbose=True,
+            walks_timeout=args.walks_timeout)
 
     for i, fn in enumerate(fns):
         if i >= args.num_queries and args.num_queries != -1:

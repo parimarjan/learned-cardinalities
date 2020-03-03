@@ -107,7 +107,7 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if idx % 10 == 0:
         print("query: ", idx)
     wj = WanderJoin(user, pwd, db_host, port,
-            db_name, verbose=False, walks_timeout=wj_walk_timeout)
+            db_name, verbose=True, walks_timeout=wj_walk_timeout)
     data = wj.get_counts(qrep)
 
     # save wj data
@@ -301,6 +301,8 @@ def main():
                 if not os.path.exists(wj_dir):
                     make_dir(wj_dir)
                 wj_fn = wj_dir + base_name
+                print(wj_fn)
+                pdb.set_trace()
                 get_cardinality_wj(qrep, args.card_type, args.key_name, args.db_host,
                         args.db_name, args.user, args.pwd, args.port,
                         fn, wj_fn, args.wj_walk_timeout, i)
@@ -316,14 +318,15 @@ def main():
 
         if args.card_type == "wanderjoin":
             par_func = get_cardinality_wj
-            wj_dir = os.path.dirname(fn) + "/data/"
+
+            wj_dir = os.path.dirname(fn) + "/wj_data/"
             base_name = os.path.basename(fn)
             if not os.path.exists(wj_dir):
                 make_dir(wj_dir)
             wj_fn = wj_dir + base_name
             par_args.append((qrep, args.card_type, args.key_name, args.db_host,
                     args.db_name, args.user, args.pwd, args.port,
-                     fn, wj_dir, args.wj_walk_timeout, i))
+                     fn, wj_fn, args.wj_walk_timeout, i))
         else:
             par_func = get_cardinality
             par_args.append((qrep, args.card_type, args.key_name, args.db_host,
