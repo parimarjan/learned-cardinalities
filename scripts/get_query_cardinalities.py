@@ -104,6 +104,11 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
         port, fn, wj_fn, wj_walk_timeout, idx):
 
     key_name = "wanderjoin" + str(wj_walk_timeout)
+    for subset, info in qrep["subset_graph"].nodes().items():
+        cards = info["cardinality"]
+        if key_name in cards:
+            return
+
     if idx % 10 == 0:
         print("query: ", idx)
     wj = WanderJoin(user, pwd, db_host, port,
