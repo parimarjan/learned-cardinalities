@@ -67,6 +67,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                train_card_key = args.train_card_key,
                 exp_prefix = args.exp_prefix,
                 load_query_together = args.load_query_together,
                 result_dir = args.result_dir,
@@ -219,14 +220,22 @@ def main():
             random.seed(args.random_seed)
             qfns = random.sample(qfns, int(len(qfns) / 10))
 
+        if args.algs == "sampling":
+            skey = args.sampling_type + str(args.sampling_percentage) + "_actual"
+
         skipped = 0
         for qfn in qfns:
             qrep = load_sql_rep(qfn)
             zero_query = False
             for _,info in qrep["subset_graph"].nodes().items():
+                if args.train_card_key not in info["cardinality"]:
+                    zero_query = True
+                    break
+
                 if "actual" not in info["cardinality"]:
                     zero_query = True
                     break
+
                 elif info["cardinality"]["actual"] == 0:
                     zero_query = True
                     break
@@ -239,15 +248,18 @@ def main():
             if zero_query:
                 skipped += 1
                 continue
+
             qrep["name"] = qfn
             qrep["template_name"] = template_name
             samples.append(qrep)
 
-        if len(samples) > 0:
-            print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
-                    ", loading time: {}").format( template_name, skipped,
-                        len(samples[0]["subset_graph"].nodes()), len(samples),
-                        time.time()-start))
+        if len(samples) == 0:
+            continue
+
+        print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
+                ", loading time: {}").format( template_name, skipped,
+                    len(samples[0]["subset_graph"].nodes()), len(samples),
+                    time.time()-start))
 
         if not found_db:
             for sample in samples:
@@ -497,6 +509,8 @@ def read_flags():
             default=0)
     parser.add_argument("--sampling_key", type=str, required=False,
             default=None, help="")
+    parser.add_argument("--train_card_key", type=str, required=False,
+            default="actual", help="")
 
     parser.add_argument("--sampling_priority_type", type=str, required=False,
             default="query", help="")
@@ -520,8 +534,11 @@ def read_flags():
             default="ourpgm")
     parser.add_argument("--pgm_alg_name", type=str, required=False,
             default="chow-liu")
-    parser.add_argument("--sampling_percentage", type=float, required=False,
-            default=0.001)
+    parser.add_argument("--sampling_percentage", type=int, required=False,
+            default=10)
+    parser.add_argument("--sampling_type", type=str, required=False,
+            default="ss")
+
     parser.add_argument("--use_svd", type=int, required=False,
             default=0)
     parser.add_argument("--num_singular_vals", type=int, required=False,

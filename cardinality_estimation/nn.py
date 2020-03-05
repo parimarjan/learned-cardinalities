@@ -48,6 +48,19 @@ def percentile_help(q):
         return np.percentile(arr, q)
     return f
 
+def fcnn_loss(net, use_qloss=False):
+    def f(yhat,y):
+        inp = torch.cat((yhat,y))
+        jloss = net(inp)
+        if use_qloss:
+            qlosses = qloss_torch(yhat,y)
+            qloss = sum(qlosses) / len(qlosses)
+            # return qloss + jloss
+            return (qloss / 100.0) + jloss
+        else:
+            return jloss
+    return f
+
 def compute_subquery_priorities(qrep, true_cards, est_cards,
         explain, jerr, env, use_indexes=True):
     '''
@@ -244,7 +257,7 @@ class NN(CardinalityEstimationAlg):
         self.start_day = days[weekno]
 
         if self.load_query_together:
-            self.mb_size = 2
+            self.mb_size = 1
         else:
             self.mb_size = 2500
         if self.nn_type == "microsoft":
@@ -266,6 +279,8 @@ class NN(CardinalityEstimationAlg):
             self.loss = abs_loss_torch
         elif self.loss_func == "mse":
             self.loss = torch.nn.MSELoss(reduction="none")
+        elif self.loss_func == "cm_fcnn":
+            self.loss = qloss_torch
         else:
             assert False
 
@@ -502,15 +517,22 @@ class NN(CardinalityEstimationAlg):
                 ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
 
             pred = self.net(xbatch).squeeze(1)
-            losses = self.loss(pred, ybatch)
-            loss = losses.sum() / len(losses)
-            # if idx % 10 == 0:
-                # print(loss.item())
-            self.optimizer.zero_grad()
-            loss.backward()
-            if self.clip_gradient is not None:
-                clip_grad_norm_(self.net.parameters(), self.clip_gradient)
-            self.optimizer.step()
+            if self.loss_func == "cm_fcnn":
+                loss = self.cm_loss(pred, ybatch)
+                assert len(loss) == 1
+                self.optimizer.zero_grad()
+                loss.backward()
+                if self.clip_gradient is not None:
+                    clip_grad_norm_(self.net.parameters(), self.clip_gradient)
+                self.optimizer.step()
+            else:
+                losses = self.loss(pred, ybatch)
+                loss = losses.sum() / len(losses)
+                self.optimizer.zero_grad()
+                loss.backward()
+                if self.clip_gradient is not None:
+                    clip_grad_norm_(self.net.parameters(), self.clip_gradient)
+                self.optimizer.step()
 
     def _train_mscn(self):
         for idx, (tbatch, pbatch, jbatch, ybatch,_) in enumerate(self.training_loader):
@@ -518,8 +540,6 @@ class NN(CardinalityEstimationAlg):
             pred = self.net(tbatch,pbatch,jbatch).squeeze(1)
             losses = self.loss(pred, ybatch)
             loss = losses.sum() / len(losses)
-            # if idx % 10 == 0:
-                # print(loss.item())
             self.optimizer.zero_grad()
             loss.backward()
             if self.clip_gradient is not None:
@@ -611,14 +631,16 @@ class NN(CardinalityEstimationAlg):
             if (samples_type == "train" and \
                     self.sampling_priority_alpha > 0 and \
                     self.epoch % self.reprioritize_epoch == 0):
-                print("not recalculating join loss for training")
-                return
+                if self.train_card_key == "actual":
+                    print("not recalculating join loss for training")
+                    return
+                print("recalculating join loss")
+
             # if priority on, then stats will be saved when calculating
             # priority
             jl_eval_start = time.time()
             assert self.jl_use_postgres
 
-            # TODO: do we need this awkward loop. decompose?
             sqls, true_cardinalities, est_cardinalities = \
                     self.get_query_estimates(pred, samples)
             (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
@@ -672,7 +694,7 @@ class NN(CardinalityEstimationAlg):
 
         return priorities
 
-    def get_query_estimates(self, pred, samples):
+    def get_query_estimates(self, pred, samples, true_card_key="actual"):
         '''
         @ret:
         '''
@@ -690,7 +712,6 @@ class NN(CardinalityEstimationAlg):
 
             node_keys = list(sample["subset_graph"].nodes())
             node_keys.sort()
-            # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
             for subq_idx, node in enumerate(node_keys):
             # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]
@@ -705,7 +726,8 @@ class NN(CardinalityEstimationAlg):
                     est_card = est_sel*cards["total"]
                 # ests[alias_key] = int(est_card)
                 ests[alias_key] = est_card
-                trues[alias_key] = cards["actual"]
+                # trues[alias_key] = cards["actual"]
+                trues[alias_key] = cards[true_card_key]
             est_cardinalities.append(ests)
             true_cardinalities.append(trues)
             query_idx += len(sample["subset_graph"].nodes())
@@ -758,7 +780,8 @@ class NN(CardinalityEstimationAlg):
                 self.preload_features, self.normalization_type,
                 self.load_query_together,
                 min_val = self.min_val,
-                max_val = self.max_val)
+                max_val = self.max_val,
+                card_key = self.train_card_key)
         self.training_samples = training_samples
         if self.featurization_scheme == "combined":
             if self.load_query_together:
@@ -768,6 +791,13 @@ class NN(CardinalityEstimationAlg):
         else:
             self.num_features = len(training_set[0][0]) + \
                     len(training_set[0][1]) + len(training_set[0][2])
+
+        if self.loss_func == "cm_fcnn":
+            inp_len = len(training_samples[0]["subset_graph"].nodes())
+            # fcnn_net = SimpleRegression(inp_len*2, 2, 1,
+                    # num_hidden_layers=1)
+            fcnn_net = torch.load("./cm_fcnn.pt")
+            self.cm_loss = fcnn_loss(fcnn_net)
 
         # TODO: only for priority case, this should be updated after every
         # epoch
@@ -846,7 +876,7 @@ class NN(CardinalityEstimationAlg):
                 self.save_stats()
 
             self.train_one_epoch()
-            print("train epoch took: ", time.time() - start)
+            # print("train epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \
@@ -859,7 +889,8 @@ class NN(CardinalityEstimationAlg):
                     pr_start = time.time()
                     sqls, true_cardinalities, est_cardinalities = \
                             self.get_query_estimates(pred,
-                                    self.training_samples)
+                                    self.training_samples,
+                                    true_card_key=self.train_card_key)
                     (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
                             true_cardinalities, est_cardinalities, self.env,
                             self.jl_indexes, None,

@@ -29,6 +29,8 @@ def read_flags():
             default=None)
     parser.add_argument("--lr", type=float, required=False,
             default=0.0001)
+    parser.add_argument("--test_size", type=float, required=False,
+            default=0.2)
     parser.add_argument("--hidden_layer_multiple", type=float, required=False,
             default=2)
     parser.add_argument("--num_hidden_layers", type=int, required=False,
@@ -37,6 +39,12 @@ def read_flags():
             default=32)
     parser.add_argument("--max_epochs", type=int, required=False,
             default=10)
+    parser.add_argument("--input_feat_type", type=int, required=False,
+            default=1)
+    parser.add_argument("--input_norm_type", type=int, required=False,
+            default=2)
+    parser.add_argument("--test_while_training", type=int, required=False,
+            default=0)
 
     return parser.parse_args()
 
@@ -44,7 +52,7 @@ def periodic_eval(net, loader, loss_func):
 
     losses = []
     for xbatch,ybatch in loader:
-        preds = net(xbatch)
+        preds = net(xbatch).squeeze(1)
         loss = loss_func(preds, ybatch).cpu().detach().numpy()
         losses.append(loss)
     return sum(losses) / len(losses)
@@ -52,13 +60,17 @@ def periodic_eval(net, loader, loss_func):
 def main():
     mapping = qkey_map(args.query_dir)
     training_data = load_object(args.training_data_file)
-    tr_keys, test_keys, tr_ests, test_ests, tr_costs, test_costs = \
+    tr_keys, test_keys, tr_ests, test_ests, tr_costs, test_costs, tr_ratios, \
+            test_ratios = \
                 train_test_split(training_data["key"], training_data["est"],
-                        training_data["jloss"], random_state=1234, test_size=0.5)
-
+                        training_data["jloss"], training_data["jratio"], random_state=1234,
+                        test_size=args.test_size)
     # split it
-    train_dataset = CostDataset(mapping, tr_keys, tr_ests, tr_costs, args.feat_type)
-    test_dataset = CostDataset(mapping, test_keys, test_ests, test_costs, args.feat_type)
+    train_dataset = CostDataset(mapping, tr_keys, tr_ests, tr_costs, tr_ratios,
+            args.feat_type, input_feat_type = args.input_feat_type)
+    test_dataset = CostDataset(mapping, test_keys, test_ests, test_costs,
+            test_ratios,
+            args.feat_type, input_feat_type = args.input_feat_type)
     train_loader = data.DataLoader(train_dataset,
             batch_size=args.mb_size, shuffle=True, num_workers=0)
     test_loader = data.DataLoader(test_dataset,
@@ -72,7 +84,9 @@ def main():
 
     inp_len = len(train_dataset[0][0])
 
-    net = SimpleRegression(inp_len, args.hidden_layer_multiple, 1,
+    # net = SimpleRegression(inp_len, args.hidden_layer_multiple, 1,
+            # num_hidden_layers=args.num_hidden_layers)
+    net = CostModelNet(inp_len, args.hidden_layer_multiple, 1,
             num_hidden_layers=args.num_hidden_layers)
     loss_func = torch.nn.MSELoss()
 
@@ -86,9 +100,15 @@ def main():
 
     for epoch in range(0, args.max_epochs):
 
-        print("epoch: {}, train loss: {}, test_loss: {}".format(epoch, periodic_eval(net,
-            eval_loader, loss_func), periodic_eval(net, test_loader,
-                loss_func)))
+        if args.test_while_training or \
+                epoch == args.max_epochs-1:
+            print("epoch: {}, train loss: {}, test_loss: {}".format(epoch, periodic_eval(net,
+                eval_loader, loss_func), periodic_eval(net, test_loader,
+                    loss_func)))
+        else:
+            print("epoch: {}, N: {} train loss: {}".format(epoch,
+                len(train_dataset), periodic_eval(net,
+                eval_loader, loss_func)))
 
         # train loop
         for _, (xbatch, ybatch) in enumerate(train_loader):
@@ -100,6 +120,8 @@ def main():
             # if args.clip_gradient is not None:
                 # clip_grad_norm_(self.net.parameters(), args.clip_gradient)
             optimizer.step()
+
+    torch.save(net, "./cm_fcnn.pt")
 
 if __name__ == "__main__":
     args = read_flags()
