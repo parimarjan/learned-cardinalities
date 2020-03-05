@@ -268,7 +268,6 @@ def save_join_loss_training_data(sqls, est_cardinalities,
         ests = np.zeros(len(est_keys))
         for j, k in enumerate(est_keys):
             ests[j] = est_cardinalities[i][k]
-        # jloss = costs[i]
 
         jlosses["key"].append(key)
         jlosses["est"].append(ests)
