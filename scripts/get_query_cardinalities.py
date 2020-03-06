@@ -19,6 +19,7 @@ from sql_rep.query import parse_sql
 from wanderjoin import WanderJoin
 import math
 # from progressbar import progressbar as bar
+import scipy.stats as st
 
 OLD_TIMEOUT_COUNT_CONSTANT = 150001001
 OLD_CROSS_JOIN_CONSTANT = 150001000
@@ -32,6 +33,7 @@ CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
 
 DEBUG_CHECK_TIMES = True
+CONF_ALPHA = 0.99
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -105,7 +107,8 @@ def is_cross_join(sg):
 def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
         port, fn, wj_fn, wj_walk_timeout, idx, seed):
 
-    key_name = "wanderjoin" + str(wj_walk_timeout)
+    # key_name = "wanderjoin" + str(wj_walk_timeout)
+    key_name = "wj" + str(wj_walk_timeout)
     for subset, info in qrep["subset_graph"].nodes().items():
         cards = info["cardinality"]
         if key_name in cards:
@@ -116,7 +119,7 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
     start = time.time()
     wj = WanderJoin(user, pwd, db_host, port,
             db_name, verbose=True, walks_timeout=wj_walk_timeout, seed =
-            seed)
+            seed, use_tries=True)
     data = wj.get_counts(qrep)
 
     # save wj data

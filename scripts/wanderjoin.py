@@ -331,7 +331,7 @@ class WanderJoin():
                     card_vars[nodes] += cur_var
 
                 if self.verbose:
-                    if i % 1000 == 0 and i != 0:
+                    if i % 5000 == 0 and i != 0:
                         print("i: {}, total succ walks: {}, avg time: {}, total time: {}".format(
                             i, tot_succ, round(sum(all_rts) / len(all_rts), 8),
                             round(sum(all_rts), 2)))
