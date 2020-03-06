@@ -16,8 +16,9 @@ import re
 from collections import defaultdict
 import scipy.stats as st
 import copy
+import pygtrie
 
-MAX_WALKS = 1000000
+MAX_WALKS = 10000000
 CONF_ALPHA = 0.99
 
 NEXT_HOP_TMP = '''SELECT {SELS} from {TABLE}
@@ -39,7 +40,8 @@ DROP_MULTICOL_INDEXES = False
 class WanderJoin():
 
     def __init__(self, user, pwd, db_host, port, db_name,
-            verbose=False, cache_dir="./sql_cache", walks_timeout=0.5):
+            verbose=False, cache_dir="./sql_cache", walks_timeout=0.5,
+            seed=1234, use_tries=True):
         self.user = user
         self.pwd = pwd
         self.db_host = db_host
@@ -50,6 +52,10 @@ class WanderJoin():
         self.cursor = self.con.cursor()
         self.walks_timeout = walks_timeout
         self.verbose = verbose
+        self.use_tries = use_tries
+        if self.use_tries:
+            self.trie_cache = klepto.archives.dir_archive("./trie_cache",
+                    cached=True, serialized=True)
 
     def find_path(self, nodes, node_selectivities, sg):
         sels = [node_selectivities[t] for t in nodes]
@@ -69,8 +75,10 @@ class WanderJoin():
             else:
                 options = [j[1] for j in join_edges]
                 sels = [node_selectivities[t] for t in options]
-                winners = np.argwhere(sels == np.amax(sels))
-                path.append(options[random.choice(winners.flatten())])
+                path.append(options[np.argmax(sels)])
+                # winners = np.argwhere(sels == np.amax(sels))
+                # random.seed(1)
+                # path.append(options[random.choice(winners.flatten())])
 
             nodes.remove(path[-1])
 
@@ -109,6 +117,10 @@ class WanderJoin():
         path_execs.append(None)
         path_join_keys.append(None)
         # for rest of the path, compute join statements
+        if self.use_tries:
+            path_tries = []
+            print("creating tries...")
+            path_tries.append(None)
 
         for node_idx in range(1,len(path),1):
             created_index = False
@@ -119,11 +131,60 @@ class WanderJoin():
             join_edges = list(nx.edge_boundary(sg, nodes_seen, {node}))
             assert len(join_edges) != 0
 
-            fkey_conds = []
-            cur_join_cols = []
-            index_cols = []
+            nodes_seen.add(node)
 
-            for join in join_edges:
+            # FIXME: check triangle condition
+            if self.use_tries:
+                join = join_edges[0]
+                path_execs.append(None)
+                print(node)
+                where_clause = ""
+                if len(node_info["predicates"]) > 0:
+                    preds = " AND ".join(node_info["predicates"])
+                    where_clause = "WHERE " + preds
+                exec_sql = FIRST_HOP_TMP.format(SELS = sels,
+                                  TABLE = table,
+                                  WHERE = where_clause)
+                cur_join_col = sg[join[0]][join[1]][join[1]]
+                other_col = sg[join[0]][join[1]][join[0]]
+
+                trie_idx = None
+                for sel_i, sel in enumerate(node_info["sels"]):
+                    if sel == cur_join_col:
+                        trie_idx = sel_i
+                assert trie_idx is not None
+                path_join_keys.append([other_col])
+
+                sql_key = deterministic_hash(exec_sql)
+                if sql_key in self.trie_cache.archive:
+                    trie = self.trie_cache.archive[sql_key]
+                else:
+                    st = time.time()
+                    self.cursor.execute(exec_sql)
+                    outputs = self.cursor.fetchall()
+
+                    trie = pygtrie.Trie()
+                    for out in outputs:
+                        if str(out[trie_idx]) not in trie:
+                            trie[str(out[trie_idx])] = []
+                        trie[str(out[trie_idx])].append(out)
+                    trie_time = time.time() - st
+                    print("trie for {}, len: {}, took: {}".format(node,
+                        len(outputs), trie_time))
+                    self.total_trie_time += trie_time
+                    if trie_time > 5:
+                        self.trie_cache.archive[sql_key] = trie
+                path_tries.append(trie)
+            else:
+                if self.use_tries:
+                    path_tries.append(None)
+                fkey_conds = []
+                cur_join_cols = []
+                index_cols = []
+
+                # for join in join_edges:
+
+                join = join_edges[0]
                 assert node == join[1]
                 # a value for this column would already have been selected
                 other_col = sg[join[0]][join[1]][join[0]]
@@ -138,107 +199,30 @@ class WanderJoin():
                 cond = cur_col + " = " + other_col_key
                 fkey_conds.append(cond)
 
-            path_join_keys.append(cur_join_cols)
-            nodes_seen.add(node)
-            assert len(fkey_conds) != 0
+                path_join_keys.append(cur_join_cols)
+                assert len(fkey_conds) != 0
 
-            # FIXME: check math
-            fkey_conds += node_info["predicates"]
-            fkey_cond = " AND ".join(fkey_conds)
-            for col in node_info["pred_cols"]:
-                col_name = col.split(".")[1]
-                if col_name not in index_cols:
-                    index_cols.append(col_name)
+                # FIXME: check math
+                fkey_conds += node_info["predicates"]
+                fkey_cond = " AND ".join(fkey_conds)
+                for col in node_info["pred_cols"]:
+                    col_name = col.split(".")[1]
+                    if col_name not in index_cols:
+                        index_cols.append(col_name)
 
-            if DROP_MULTICOL_INDEXES:
-                index_name = "_".join(index_cols)
-                index_cmd = DROP_INDEX_TMP.format(INDEX = index_name)
+                exec_sql = NEXT_HOP_TMP.format(FKEY_CONDS = fkey_cond,
+                                                TABLE = table,
+                                                SELS = sels)
+                path_execs.append(exec_sql)
 
-                try:
-                    num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
-                            node_info["real_name"])
-                    self.cursor.execute(num_index_sql)
-                    num_indexes = len(self.cursor.fetchall())
-                    self.cursor.execute(index_cmd)
-                    self.con.commit()
-                    num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
-                            node_info["real_name"])
-                    self.cursor.execute(num_index_sql)
-                    num_indexes_new = len(self.cursor.fetchall())
-                    if num_indexes_new != num_indexes+1:
-                        print("dropped index")
-                        created_index = True
-                    else:
-                        print("index already existed")
-
-                    if created_index:
-                        print("going to vacuum")
-                        con2 = pg.connect(user=self.user, host=self.db_host, port=self.port,
-                                password=self.pwd, database=self.db_name)
-                        con2.set_isolation_level(pg.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-                        cursor2 = con2.cursor()
-                        cursor2.execute("VACUUM {}".format(node_info["real_name"]))
-                        cursor2.close()
-                        con2.close()
-                        print("index + vacuuming done for: ", node_info["real_name"])
-
-                except Exception as e:
-                    print(e)
-                    self.cursor.execute("ROLLBACK")
-                    self.con.commit()
-
-            if CREATE_MULTICOL_INDEXES:
-                index_name = "_".join(index_cols)
-                index_cmd = CREATE_INDEX_TMP.format(TABLE = node_info["real_name"],
-                                        INDEX = index_name,
-                                        COLS = ",".join(index_cols))
-
-                try:
-                    num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
-                            node_info["real_name"])
-                    self.cursor.execute(num_index_sql)
-                    num_indexes = len(self.cursor.fetchall())
-                    self.cursor.execute(index_cmd)
-                    self.con.commit()
-                    num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
-                            node_info["real_name"])
-                    self.cursor.execute(num_index_sql)
-                    num_indexes_new = len(self.cursor.fetchall())
-                    if num_indexes_new == num_indexes+1:
-                        print("created new index")
-                        created_index = True
-                    else:
-                        print("index already existed")
-
-                    if created_index:
-                        print("going to vacuum")
-                        con2 = pg.connect(user=self.user, host=self.db_host, port=self.port,
-                                password=self.pwd, database=self.db_name)
-                        con2.set_isolation_level(pg.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-                        cursor2 = con2.cursor()
-                        cursor2.execute("VACUUM {}".format(node_info["real_name"]))
-                        cursor2.close()
-                        con2.close()
-                        print("index + vacuuming done for: ", node_info["real_name"])
-
-                except Exception as e:
-                    print(e)
-                    self.cursor.execute("ROLLBACK")
-                    self.con.commit()
-
-            exec_sql = NEXT_HOP_TMP.format(FKEY_CONDS = fkey_cond,
-                                            TABLE = table,
-                                            SELS = sels)
-            path_execs.append(exec_sql)
-
-
-        return path_execs, path_join_keys
+        return path_execs, path_join_keys, path_tries
 
     def get_counts(self, qrep):
         '''
         @ret: count for each subquery
         '''
         total_start = time.time()
+        self.total_trie_time = 0.00
         self.init_sels = {}
         # generate a map of key : fkey pairs
         subset_graph = qrep["subset_graph"]
@@ -307,7 +291,7 @@ class WanderJoin():
                     sg)
             # let us initialize all the pre-computed material we can at this
             # step
-            path_execs, path_join_keys = self.init_path_details(path, sg)
+            path_execs, path_join_keys, path_tries = self.init_path_details(path, sg)
 
             all_rts = []
             tot_succ = 0
@@ -315,7 +299,7 @@ class WanderJoin():
             tot_duration = 0.00
             for i in range(MAX_WALKS):
                 cur_duration, pis = self.run_path(path, sg, path_execs,
-                        path_join_keys)
+                        path_join_keys, path_tries)
                 all_rts.append(cur_duration)
                 tot_duration += cur_duration
                 all_exec_duration += cur_duration
@@ -347,9 +331,9 @@ class WanderJoin():
                     card_vars[nodes] += cur_var
 
                 if self.verbose:
-                    if i % 500 == 0 and i != 0:
+                    if i % 1000 == 0 and i != 0:
                         print("i: {}, total succ walks: {}, avg time: {}, total time: {}".format(
-                            i, tot_succ, round(sum(all_rts) / len(all_rts), 5),
+                            i, tot_succ, round(sum(all_rts) / len(all_rts), 8),
                             round(sum(all_rts), 2)))
 
                         for nodeidx, _ in enumerate(path):
@@ -364,6 +348,7 @@ class WanderJoin():
                             print("nodes: {}, succ walks: {}, true: {}, est: {}+/-{}, std: {}".format(
                                 nodes, succ_walks[nodes], true, est, half_interval, std))
 
+                # FIXME: not sure which is the best one here..
                 if tot_duration > self.walks_timeout:
                     print("duration exceeded, num walks: {}, num succ walks: {}".format(
                         i, succ_walks[nodes]))
@@ -373,23 +358,9 @@ class WanderJoin():
                         card_vars[node] = 0.0
                     break
 
-                elif succ_walks[nodes] >= 20:
-                    print("20 successful walks, finishing run")
+                elif succ_walks[nodes] >= 100:
+                    print("100 successful walks, finishing run")
                     break
-
-                # if succ_walks[nodes] >= 2:
-                    # nodes = copy.deepcopy(path)
-                    # nodes.sort()
-                    # nodes = tuple(nodes)
-                    # std = round(np.sqrt(card_vars[nodes] / float((card_samples[nodes]-1))), 2)
-                    # # true = subset_graph.nodes()[nodes]["cardinality"]["actual"]
-                    # # st.norm.ppf(95+1)
-                    # alpha = st.norm.ppf((CONF_ALPHA+1)/2)
-                    # half_interval = std*alpha / np.sqrt(card_samples[nodes])
-
-                    # if half_interval <= std:
-                        # print("breaking because half interval < std")
-                        # break
 
         wj_data = {}
         wj_data["card_ests_sum"] = card_ests
@@ -398,12 +369,13 @@ class WanderJoin():
         wj_data["succ_walks"] = succ_walks
         wj_data["exec_time"] = all_exec_duration
         wj_data["total_time"] = time.time() - total_start
+        wj_data["total_trie_time"] = self.total_trie_time
         print("exec nodes: {}, all exec duration: {}, total time: {}".format(
             exec_nodes, all_exec_duration, wj_data["total_time"]))
         return wj_data
 
     def run_path(self, node_list, join_graph,
-            path_execs, path_join_keys):
+            path_execs, path_join_keys, path_tries):
         pis = []
         # unique to the vals seen in this particular run
         vals = {}
@@ -419,14 +391,23 @@ class WanderJoin():
                 pis.append(len(self.init_sels[node]))
                 continue
 
-            exec_sql = path_execs[i]
-            for join_key in path_join_keys[i]:
-                exec_sql = exec_sql.replace("X"+join_key+"X",
-                        str(vals[join_key]))
-
             nodes_seen.add(node)
-            self.cursor.execute(exec_sql)
-            output = self.cursor.fetchall()
+
+            if self.use_tries:
+                trie = path_tries[i]
+                prev_key = str(vals[path_join_keys[i][0]])
+                if prev_key not in trie:
+                    return time.time()-start, pis
+                output = trie[prev_key]
+            else:
+                # use tries here
+                exec_sql = path_execs[i]
+                for join_key in path_join_keys[i]:
+                    exec_sql = exec_sql.replace("X"+join_key+"X",
+                            str(vals[join_key]))
+
+                self.cursor.execute(exec_sql)
+                output = self.cursor.fetchall()
 
             if len(output) == 0:
                 # print("returning False, because no matching foreign key")
@@ -438,3 +419,56 @@ class WanderJoin():
                 vals[node_info["sels"][j]] = out
 
         return time.time()-start, pis
+
+    def create_index_tmp(self):
+        # FIXME: deal with args that need to be passed
+        if CREATE_MULTICOL_INDEXES:
+            index_name = "_".join(index_cols)
+            index_cmds = []
+            index_cmd = CREATE_INDEX_TMP.format(TABLE = node_info["real_name"],
+                                    INDEX = index_name,
+                                    COLS = ",".join(index_cols))
+            index_cmds.append(index_cmd)
+            for col in index_cols:
+                index_name = "pred_" + col
+                index_cmd = CREATE_INDEX_TMP.format(TABLE = node_info["real_name"],
+                                        INDEX = index_name,
+                                        COLS = col)
+                index_cmds.append(index_cmd)
+            try:
+                num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
+                        node_info["real_name"])
+                self.cursor.execute(num_index_sql)
+                num_indexes = len(self.cursor.fetchall())
+                for index_cmd in index_cmds:
+                    self.cursor.execute(index_cmd)
+                    self.con.commit()
+
+                num_index_sql = "SELECT * FROM pg_indexes WHERE tablename = '{}'".format(\
+                        node_info["real_name"])
+                self.cursor.execute(num_index_sql)
+                num_indexes_new = len(self.cursor.fetchall())
+                num_new = num_indexes_new - num_indexes
+                if num_new >= 1:
+                    print("created {} new indices".format(num_new))
+                    created_index = True
+                else:
+                    print("index already existed")
+
+                if created_index:
+                    print("going to vacuum")
+                    con2 = pg.connect(user=self.user, host=self.db_host, port=self.port,
+                            password=self.pwd, database=self.db_name)
+                    con2.set_isolation_level(pg.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                    cursor2 = con2.cursor()
+                    cursor2.execute("VACUUM {}".format(node_info["real_name"]))
+                    cursor2.close()
+                    con2.close()
+                    print("index + vacuuming done for: ", node_info["real_name"])
+
+            except Exception as e:
+                print(e)
+                self.cursor.execute("ROLLBACK")
+                self.con.commit()
+
+

@@ -31,7 +31,7 @@ EXCEPTION_COUNT_CONSTANT = 150001000002
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
 
-DEBUG_CHECK_TIMES = False
+DEBUG_CHECK_TIMES = True
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -66,6 +66,8 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--num_proc", type=int,
             required=False, default=-1)
+    parser.add_argument("--seed", type=int,
+            required=False, default=1234)
     parser.add_argument("--sampling_percentage", type=int,
             required=False, default=None)
     parser.add_argument("--sampling_type", type=str,
@@ -101,7 +103,7 @@ def is_cross_join(sg):
     return True
 
 def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
-        port, fn, wj_fn, wj_walk_timeout, idx):
+        port, fn, wj_fn, wj_walk_timeout, idx, seed):
 
     key_name = "wanderjoin" + str(wj_walk_timeout)
     for subset, info in qrep["subset_graph"].nodes().items():
@@ -111,19 +113,29 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
     if idx % 10 == 0:
         print("query: ", idx)
+    start = time.time()
     wj = WanderJoin(user, pwd, db_host, port,
-            db_name, verbose=True, walks_timeout=wj_walk_timeout)
+            db_name, verbose=True, walks_timeout=wj_walk_timeout, seed =
+            seed)
     data = wj.get_counts(qrep)
 
     # save wj data
     for subset, info in qrep["subset_graph"].nodes().items():
         cards = info["cardinality"]
-        est = math.ceil(data["card_ests_sum"][subset] / data["card_samples"][subset])
-        if est == 0:
-            est += 1
-        cards[key_name] = est
+        num = data["card_samples"][subset]
+        est = math.ceil(data["card_ests_sum"][subset] / num)
+        if num <= 1:
+            std = 0
+        else:
+            std = np.sqrt(data["card_vars_sum"][subset] / float(num-1))
+        alpha = st.norm.ppf((CONF_ALPHA+1)/2)
+        half_interval = std*alpha / np.sqrt(num)
+
         print(subset, cards["actual"], est, cards["actual"] / est,
                 cards["actual"]-est)
+        print("half interval: ", half_interval)
+        cards[key_name] = est
+        cards[key_name + "_half_interval"] = half_interval
 
     old_data = load_object(wj_fn)
     if old_data is None:
@@ -132,6 +144,7 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
     save_sql_rep(fn, qrep)
     save_object(wj_fn, old_data)
+    print("wanderjoin, seed: {} took {}".format(seed, time.time()-start))
     return qrep
 
 
@@ -331,7 +344,7 @@ def main():
             wj_fn = wj_dir + base_name
             par_args.append((qrep, args.card_type, args.key_name, args.db_host,
                     args.db_name, args.user, args.pwd, args.port,
-                     fn, wj_fn, args.wj_walk_timeout, i))
+                     fn, wj_fn, args.wj_walk_timeout, i, args.seed))
         else:
             par_func = get_cardinality
             par_args.append((qrep, args.card_type, args.key_name, args.db_host,
