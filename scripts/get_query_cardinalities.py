@@ -105,7 +105,7 @@ def is_cross_join(sg):
     return True
 
 def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
-        port, fn, wj_fn, wj_walk_timeout, idx, seed):
+        port, fn, wj_fn, wj_walk_timeout, idx, seed, trie_cache):
 
     # key_name = "wanderjoin" + str(wj_walk_timeout)
     key_name = "wj" + str(wj_walk_timeout)
@@ -119,7 +119,7 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
     start = time.time()
     wj = WanderJoin(user, pwd, db_host, port,
             db_name, verbose=True, walks_timeout=wj_walk_timeout, seed =
-            seed, use_tries=True)
+            seed, use_tries=True, trie_cache=trie_cache)
     data = wj.get_counts(qrep)
 
     # save wj data
@@ -326,7 +326,7 @@ def main():
                 pdb.set_trace()
                 get_cardinality_wj(qrep, args.card_type, args.key_name, args.db_host,
                         args.db_name, args.user, args.pwd, args.port,
-                        fn, wj_fn, args.wj_walk_timeout, i)
+                        fn, wj_fn, args.wj_walk_timeout, i, None)
                 print("done!")
                 pdb.set_trace()
             else:
@@ -345,9 +345,14 @@ def main():
             if not os.path.exists(wj_dir):
                 make_dir(wj_dir)
             wj_fn = wj_dir + base_name
+            trie_cache = klepto.archives.dir_archive("./trie_cache",
+                    cached=True, serialized=True)
+            tstart = time.time()
+            trie_cache.load()
+            print("loading trie cache took: ", time.time() - tstart)
             par_args.append((qrep, args.card_type, args.key_name, args.db_host,
                     args.db_name, args.user, args.pwd, args.port,
-                     fn, wj_fn, args.wj_walk_timeout, i, args.seed))
+                     fn, wj_fn, args.wj_walk_timeout, i, args.seed, trie_cache))
         else:
             par_func = get_cardinality
             par_args.append((qrep, args.card_type, args.key_name, args.db_host,

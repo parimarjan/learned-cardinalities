@@ -41,7 +41,7 @@ class WanderJoin():
 
     def __init__(self, user, pwd, db_host, port, db_name,
             verbose=False, cache_dir="./sql_cache", walks_timeout=0.5,
-            seed=1234, use_tries=True):
+            seed=1234, use_tries=True, trie_cache=None):
         self.user = user
         self.pwd = pwd
         self.db_host = db_host
@@ -54,9 +54,13 @@ class WanderJoin():
         self.verbose = verbose
         self.use_tries = use_tries
         if self.use_tries:
-            self.trie_cache = klepto.archives.dir_archive("./trie_cache",
-                    cached=True, serialized=True)
-            self.trie_cache.load()
+            tstart = time.time()
+            if trie_cache is None:
+                self.trie_cache = klepto.archives.dir_archive("./trie_cache",
+                        cached=True, serialized=True)
+            else:
+                self.trie_cache = trie_cache
+            print("loading cache took: ", time.time() - tstart)
 
     def find_path(self, nodes, node_selectivities, sg):
         sels = [node_selectivities[t] for t in nodes]
@@ -162,7 +166,11 @@ class WanderJoin():
                     trie = self.trie_cache[sql_key]
                     print("loaing trie {} from klepto took: {}".format(
                         node, time.time()-kl_start))
-                    pdb.set_trace()
+                elif sql_key in self.trie_cache.archive:
+                    kl_start = time.time()
+                    trie = self.trie_cache[sql_key]
+                    print("loading trie {} from klepto took: {}".format(
+                        node, time.time()-kl_start))
                 else:
                     st = time.time()
                     self.cursor.execute(exec_sql)
@@ -177,9 +185,9 @@ class WanderJoin():
                     print("trie for {}, len: {}, took: {}".format(node,
                         len(outputs), trie_time))
                     self.total_trie_time += trie_time
-                    if trie_time > 5:
-                        self.trie_cache[sql_key] = trie
-                        self.trie_cache.dump()
+                    self.trie_cache[sql_key] = trie
+                    if trie_time > 25:
+                        self.trie_cache.archive[sql_key] = trie
 
                 path_tries.append(trie)
             else:
