@@ -348,8 +348,9 @@ def main():
             trie_cache = klepto.archives.dir_archive("./trie_cache",
                     cached=True, serialized=True)
             tstart = time.time()
+            print("going to load trie archive...")
             trie_cache.load()
-            print("loading trie cache took: ", time.time() - tstart)
+            print("loading trie archive took: ", time.time() - tstart)
             par_args.append((qrep, args.card_type, args.key_name, args.db_host,
                     args.db_name, args.user, args.pwd, args.port,
                      fn, wj_fn, args.wj_walk_timeout, i, args.seed, trie_cache))

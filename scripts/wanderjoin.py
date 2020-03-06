@@ -20,6 +20,7 @@ import pygtrie
 
 MAX_WALKS = 10000000
 CONF_ALPHA = 0.99
+TRIE_ARCHIVE_THRESHOLD = 20
 
 NEXT_HOP_TMP = '''SELECT {SELS} from {TABLE}
 WHERE {FKEY_CONDS}'''
@@ -168,7 +169,7 @@ class WanderJoin():
                         node, time.time()-kl_start))
                 elif sql_key in self.trie_cache.archive:
                     kl_start = time.time()
-                    trie = self.trie_cache[sql_key]
+                    trie = self.trie_cache.archive[sql_key]
                     print("loading trie {} from klepto took: {}".format(
                         node, time.time()-kl_start))
                 else:
@@ -186,7 +187,7 @@ class WanderJoin():
                         len(outputs), trie_time))
                     self.total_trie_time += trie_time
                     self.trie_cache[sql_key] = trie
-                    if trie_time > 25:
+                    if trie_time > TRIE_ARCHIVE_THRESHOLD:
                         self.trie_cache.archive[sql_key] = trie
 
                 path_tries.append(trie)

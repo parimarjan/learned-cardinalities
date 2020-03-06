@@ -28,16 +28,16 @@ for SEED in "${SEEDS[@]}";
   done
 done
 
-for TO in "${WALK_TIMEOUTS[@]}";
-  do
-  echo "walk timeout: " $TO
-  for i in "${TEMPLATES[@]}";
-    do
-    echo $i;
-    python3 scripts/get_query_cardinalities.py \
-    --query_dir "our_dataset/queries/${i}" \
-    --card_type $CARD_TYPE --db_name imdb --port $PORT \
-    --num_proc $NUM_PROC -n $NUM_SAMPLES2 \
-    --wj_walk_timeout $TO >> ./imdb_logs/$i.logs
-  done
-done
+#for TO in "${WALK_TIMEOUTS[@]}";
+  #do
+  #echo "walk timeout: " $TO
+  #for i in "${TEMPLATES[@]}";
+    #do
+    #echo $i;
+    #python3 scripts/get_query_cardinalities.py \
+    #--query_dir "our_dataset/queries/${i}" \
+    #--card_type $CARD_TYPE --db_name imdb --port $PORT \
+    #--num_proc $NUM_PROC -n $NUM_SAMPLES2 \
+    #--wj_walk_timeout $TO >> ./imdb_logs/$i.logs
+  #done
+#done

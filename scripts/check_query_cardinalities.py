@@ -69,6 +69,8 @@ def main():
     qreps = []
     actual = 0
     for i, fn in enumerate(fns):
+        if ".pkl" not in fn:
+            continue
         if i >= args.num_queries and args.num_queries != -1:
             break
         qrep = load_sql_rep(fn)
@@ -85,11 +87,12 @@ def main():
     print("total: {}, subq: {}, actual: {}".format(len(fns), len(qrep["subset_graph"].nodes()),
         actual))
 
-    # total_qs = len(fns)
     total = 0
     timeouts = 0
     cjs = 0
     for i, fn in enumerate(fns):
+        if ".pkl" not in fn:
+            continue
         if i >= args.num_queries and args.num_queries != -1:
             break
         qrep = load_sql_rep(fn)
