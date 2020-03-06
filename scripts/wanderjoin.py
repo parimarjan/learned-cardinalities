@@ -56,6 +56,7 @@ class WanderJoin():
         if self.use_tries:
             self.trie_cache = klepto.archives.dir_archive("./trie_cache",
                     cached=True, serialized=True)
+            self.trie_cache.load()
 
     def find_path(self, nodes, node_selectivities, sg):
         sels = [node_selectivities[t] for t in nodes]
@@ -156,8 +157,12 @@ class WanderJoin():
                 path_join_keys.append([other_col])
 
                 sql_key = deterministic_hash(exec_sql)
-                if sql_key in self.trie_cache.archive:
-                    trie = self.trie_cache.archive[sql_key]
+                if sql_key in self.trie_cache:
+                    kl_start = time.time()
+                    trie = self.trie_cache[sql_key]
+                    print("loaing trie {} from klepto took: {}".format(
+                        node, time.time()-kl_start))
+                    pdb.set_trace()
                 else:
                     st = time.time()
                     self.cursor.execute(exec_sql)
@@ -173,7 +178,9 @@ class WanderJoin():
                         len(outputs), trie_time))
                     self.total_trie_time += trie_time
                     if trie_time > 5:
-                        self.trie_cache.archive[sql_key] = trie
+                        self.trie_cache[sql_key] = trie
+                        self.trie_cache.dump()
+
                 path_tries.append(trie)
             else:
                 if self.use_tries:
