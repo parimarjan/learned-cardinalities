@@ -55,6 +55,8 @@ def get_alg(alg):
         return TrueCardinalities()
     elif alg == "true_rank":
         return TrueRank()
+    elif alg == "true_random":
+        return TrueRandom()
     elif alg == "true_rank_tables":
         return TrueRankTables()
     elif alg == "random":
@@ -228,7 +230,9 @@ def main():
             qrep = load_sql_rep(qfn)
             zero_query = False
             for _,info in qrep["subset_graph"].nodes().items():
-                if args.train_card_key not in info["cardinality"]:
+
+                # if args.train_card_key not in info["cardinality"]:
+                if "wanderjoin10.0" not in info["cardinality"]:
                     zero_query = True
                     break
 

@@ -100,23 +100,30 @@ class SamplingTables(CardinalityEstimationAlg):
 
     def test(self, test_samples):
         assert isinstance(test_samples[0], dict)
+        bad_ests = 0
+        total = 0
         preds = []
         for sample in test_samples:
             pred_dict = {}
             for alias_key, info in sample["subset_graph"].nodes().items():
+                total += 1
                 cards = info["cardinality"]
                 if self.sampling_key in cards:
                     cur_est = cards[self.sampling_key]
                 else:
                     assert False
+
+                if cur_est == 0 or cur_est == 1:
+                    bad_ests += 1
                 if cur_est == 0:
                     cur_est += 1
                 pred_dict[(alias_key)] = cur_est
             preds.append(pred_dict)
+        print("bad ests: {}, total: {}".format(bad_ests, total))
         return preds
 
     def __str__(self):
-        return "sampling-tables"
+        return self.sampling_key
 
 class SamplingTablesOld(CardinalityEstimationAlg):
     def __init__(self, sampling_type, sampling_percentage):
@@ -162,6 +169,36 @@ class TrueCardinalities(CardinalityEstimationAlg):
 
     def __str__(self):
         return "true"
+
+class TrueRandom(CardinalityEstimationAlg):
+    def __init__(self):
+        # max percentage noise added / subtracted to true values
+        self.max_noise = random.randint(1,500)
+
+    def test(self, test_samples):
+        # choose noise type
+
+        assert isinstance(test_samples[0], dict)
+        preds = []
+        for sample in test_samples:
+            pred_dict = {}
+            for alias_key, info in sample["subset_graph"].nodes().items():
+                true_card = info["cardinality"]["actual"]
+                # add noise
+                noise_perc = random.randint(1,self.max_noise)
+                noise = (true_card * noise_perc) / 100.00
+                if random.random() % 2 == 0:
+                    updated_card = true_card + noise
+                else:
+                    updated_card = true_card - noise
+                if updated_card <= 0:
+                    updated_card = 1
+                pred_dict[(alias_key)] = updated_card
+            preds.append(pred_dict)
+        return preds
+
+    def __str__(self):
+        return "true_random"
 
 class TrueRank(CardinalityEstimationAlg):
     def __init__(self):

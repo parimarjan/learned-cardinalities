@@ -241,9 +241,8 @@ def fix_query(query):
     return query
 
 def save_join_loss_training_data(sqls, est_cardinalities,
-        est_costs, opt_costs):
+        est_costs, opt_costs, est_plans):
     '''
-    saves two files: join_loss_data.pkl, queries.pkl
     saves a file: join_loss_data.pkl
         defaultdict with:
             keys: sql_hash
@@ -262,6 +261,7 @@ def save_join_loss_training_data(sqls, est_cardinalities,
     jlosses["est"] = []
     jlosses["jloss"] = []
     jlosses["jratio"] = []
+    jlosses["plan"] = []
 
     jerrs = est_costs - opt_costs
     jratios = est_costs / opt_costs
@@ -272,12 +272,12 @@ def save_join_loss_training_data(sqls, est_cardinalities,
         ests = np.zeros(len(est_keys))
         for j, k in enumerate(est_keys):
             ests[j] = est_cardinalities[i][k]
-        # jloss = costs[i]
 
         jlosses["key"].append(key)
         jlosses["est"].append(ests)
         jlosses["jloss"].append(jerrs[i])
         jlosses["jratio"].append(jratios[i])
+        jlosses["plan"].append(get_leading_hint(est_plans[i]))
 
     jlosses_orig = load_object(jloss_fn)
     if jlosses_orig is not None:
@@ -289,7 +289,7 @@ def save_join_loss_training_data(sqls, est_cardinalities,
 
 def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
         use_indexes, pdf=None, num_processes=1, pool=None,
-        jl_training_data=False):
+        jl_training_data=True):
     '''
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
@@ -308,7 +308,7 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
     if jl_training_data:
         join_losses = est_costs - opt_costs
         save_join_loss_training_data(sqls, est_cardinalities, est_costs,
-                opt_costs)
+                opt_costs, est_plans)
     return est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls
 
 def get_join_results_name(alg_name):
