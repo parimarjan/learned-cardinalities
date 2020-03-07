@@ -27,6 +27,8 @@ def qkey_map(query_dir):
     for qtmp in qtmps:
         qfns = os.listdir(query_dir + qtmp)
         for fn in qfns:
+            if ".pkl" not in fn:
+                continue
             qfn = query_dir + qtmp + "/" + fn
             # qrep = load_sql_rep(qfn)
             with open(qfn, "rb") as f:

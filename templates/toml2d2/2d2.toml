@@ -1,7 +1,5 @@
 title = "Template 2"
 
-# adding movie_keyword, keyword joins w/o any additional predicate conditions
-
 [base_sql]
 sql = '''SELECT COUNT(*) FROM title as t,
 kind_type as kt,
