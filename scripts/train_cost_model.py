@@ -17,6 +17,8 @@ from torch.utils import data
 from utils.net import *
 from sklearn.model_selection import train_test_split
 
+from metric_learn import LMNN, NCA
+
 def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--training_data_file", type=str, required=False,
@@ -45,6 +47,8 @@ def read_flags():
             default=2)
     parser.add_argument("--test_while_training", type=int, required=False,
             default=0)
+    parser.add_argument("--learn_type", type=str, required=False,
+            default="metric")
 
     return parser.parse_args()
 
@@ -59,13 +63,16 @@ def periodic_eval(net, loader, loss_func):
 
 def main():
     mapping = qkey_map(args.query_dir)
+    assert len(mapping) != 0
     training_data = load_object(args.training_data_file)
+    print(len(training_data["jloss"]), len(np.unique(training_data["jloss"])))
+    pdb.set_trace()
     tr_keys, test_keys, tr_ests, test_ests, tr_costs, test_costs, tr_ratios, \
             test_ratios = \
-                train_test_split(training_data["key"], training_data["est"],
-                        training_data["jloss"], training_data["jratio"], random_state=1234,
-                        test_size=args.test_size)
-    # split it
+            train_test_split(training_data["key"], training_data["est"],
+                    training_data["jloss"], training_data["jratio"], random_state=1234,
+                    test_size=args.test_size)
+            # split it
     train_dataset = CostDataset(mapping, tr_keys, tr_ests, tr_costs, tr_ratios,
             args.feat_type, input_feat_type = args.input_feat_type)
     test_dataset = CostDataset(mapping, test_keys, test_ests, test_costs,
@@ -84,44 +91,57 @@ def main():
 
     inp_len = len(train_dataset[0][0])
 
-    # net = SimpleRegression(inp_len, args.hidden_layer_multiple, 1,
-            # num_hidden_layers=args.num_hidden_layers)
-    net = CostModelNet(inp_len, args.hidden_layer_multiple, 1,
-            num_hidden_layers=args.num_hidden_layers)
-    loss_func = torch.nn.MSELoss()
+    if args.learn_type == "metric":
+        nca = NCA(random_state=42)
+        X = train_dataset.X
+        Y = train_dataset.Y
+        print("going to train metric learner...")
+        # ...set init matrix...
+        start = time.time()
+        nca.fit(X, Y)
+        print("metric learn fitted in: ", time.time() - start)
 
-    if args.tfboard_dir:
-        make_dir(tfboard_dir)
-        tfboard = TensorboardSummaries(tfboard_dir + "/tf_cost_logs/" +
-            time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
-        tfboard.init()
+        pdb.set_trace()
 
-    optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
+    elif args.learn_type == "nn":
+        net = CostModelNet(inp_len, args.hidden_layer_multiple, 1,
+                num_hidden_layers=args.num_hidden_layers)
+        loss_func = torch.nn.MSELoss()
 
-    for epoch in range(0, args.max_epochs):
+        if args.tfboard_dir:
+            make_dir(tfboard_dir)
+            tfboard = TensorboardSummaries(tfboard_dir + "/tf_cost_logs/" +
+                    time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
+            tfboard.init()
 
-        if args.test_while_training or \
-                epoch == args.max_epochs-1:
-            print("epoch: {}, train loss: {}, test_loss: {}".format(epoch, periodic_eval(net,
-                eval_loader, loss_func), periodic_eval(net, test_loader,
-                    loss_func)))
-        else:
-            print("epoch: {}, N: {} train loss: {}".format(epoch,
-                len(train_dataset), periodic_eval(net,
-                eval_loader, loss_func)))
+        optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
 
-        # train loop
-        for _, (xbatch, ybatch) in enumerate(train_loader):
-            pred = net(xbatch).squeeze(1)
-            assert pred.shape == ybatch.shape
-            loss = loss_func(pred, ybatch)
-            optimizer.zero_grad()
-            loss.backward()
-            # if args.clip_gradient is not None:
-                # clip_grad_norm_(self.net.parameters(), args.clip_gradient)
-            optimizer.step()
+        for epoch in range(0, args.max_epochs):
 
-    torch.save(net, "./cm_fcnn.pt")
+            if args.test_while_training or \
+                    epoch == args.max_epochs-1:
+                        print("epoch: {}, train loss: {}, test_loss: {}".format(epoch, periodic_eval(net,
+                            eval_loader, loss_func), periodic_eval(net, test_loader,
+                                loss_func)))
+            else:
+                print("epoch: {}, N: {} train loss: {}".format(epoch,
+                    len(train_dataset), periodic_eval(net,
+                        eval_loader, loss_func)))
+
+                    # train loop
+            for _, (xbatch, ybatch) in enumerate(train_loader):
+                pred = net(xbatch).squeeze(1)
+                assert pred.shape == ybatch.shape
+                loss = loss_func(pred, ybatch)
+                optimizer.zero_grad()
+                loss.backward()
+                # if args.clip_gradient is not None:
+                    # clip_grad_norm_(self.net.parameters(), args.clip_gradient)
+                optimizer.step()
+
+        torch.save(net, "./cm_fcnn.pt")
+    else:
+        assert False
 
 if __name__ == "__main__":
     args = read_flags()
