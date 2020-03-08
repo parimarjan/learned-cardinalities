@@ -69,6 +69,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                join_loss_data_file = args.join_loss_data_file,
                 train_card_key = args.train_card_key,
                 exp_prefix = args.exp_prefix,
                 load_query_together = args.load_query_together,
@@ -354,6 +355,8 @@ def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
+    parser.add_argument("--join_loss_data_file", type=str, required=False,
+            default="./all_join_loss_data.pkl")
     parser.add_argument("--exp_prefix", type=str, required=False,
             default="")
     parser.add_argument("--query_templates", type=str, required=False,

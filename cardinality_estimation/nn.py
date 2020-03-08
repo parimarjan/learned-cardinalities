@@ -646,7 +646,8 @@ class NN(CardinalityEstimationAlg):
             (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
                     true_cardinalities, est_cardinalities, self.env,
                     self.jl_indexes, None,
-                    pool = self.join_loss_pool)
+                    pool = self.join_loss_pool,
+                    join_loss_data_file = self.join_loss_data_file)
 
             join_losses = np.array(est_costs) - np.array(opt_costs)
             # join_losses = np.maximum(join_losses, 0.00)
@@ -894,7 +895,8 @@ class NN(CardinalityEstimationAlg):
                     (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
                             true_cardinalities, est_cardinalities, self.env,
                             self.jl_indexes, None,
-                            pool = self.join_loss_pool)
+                            pool = self.join_loss_pool,
+                            join_loss_data_file = self.join_loss_data_file)
 
                     jerr_ratio = est_costs / opt_costs
                     jerr = est_costs - opt_costs
@@ -928,7 +930,8 @@ class NN(CardinalityEstimationAlg):
                     (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
                             true_cardinalities, est_cardinalities, self.env,
                             self.jl_indexes, None,
-                            pool = self.join_loss_pool)
+                            pool = self.join_loss_pool,
+                            join_loss_data_file = self.join_loss_data_file)
                     jerrs = est_costs - opt_costs
                     jerr_ratio = est_costs / opt_costs
                     self.save_join_loss_stats(jerrs, est_plans,

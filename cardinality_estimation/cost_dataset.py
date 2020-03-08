@@ -8,12 +8,13 @@ import numpy as np
 class CostDataset(data.Dataset):
     def __init__(self, mapping, keys, estimates, costs, cost_ratios,
             feat_type, cost_type="jcost_ratio",
-            input_feat_type=1, input_norm_type=1):
+            input_feat_type=1, input_norm_type=1, add_true=False):
         '''
         '''
         self.mapping = mapping
         self.feat_type = feat_type
         self.cost_type = cost_type
+        self.add_true = add_true
         self.input_feat_type = input_feat_type
         self.input_norm_type = input_norm_type
         self.X, self.Y = self.get_features(keys, estimates, costs, cost_ratios)
@@ -41,32 +42,29 @@ class CostDataset(data.Dataset):
             assert jratios[i] != jlosses[i]
 
             if self.feat_type == "fcnn":
-                if self.input_feat_type == 1:
-                    x = np.zeros(len(ests)*2)
+                if self.add_true:
+                    if self.input_feat_type == 1:
+                        x = np.zeros(len(ests)*2)
+                        node_keys = list(qrep["subset_graph"].nodes())
+                        node_keys.sort()
+                        for j, node in enumerate(node_keys):
+                            info = qrep["subset_graph"].nodes()[node]["cardinality"]
+                            x[j] = ests[j] / info["total"]
+                            x[len(ests)+j] = info["actual"] / info["total"]
+                    else:
+                        assert False
+                    X.append(x)
+                    Y.append(cost)
+                else:
+                    x = np.zeros(len(ests))
                     node_keys = list(qrep["subset_graph"].nodes())
                     node_keys.sort()
                     for j, node in enumerate(node_keys):
                         info = qrep["subset_graph"].nodes()[node]["cardinality"]
                         x[j] = ests[j] / info["total"]
-                        x[len(ests)+j] = info["actual"] / info["total"]
-                elif self.input_feat_type == 2:
-                    assert False
-                    # x = np.zeros(len(ests))
-                    x = np.zeros(len(ests)*2)
-                    node_keys = list(qrep["subset_graph"].nodes())
-                    node_keys.sort()
-                    for j, node in enumerate(node_keys):
-                        info = qrep["subset_graph"].nodes()[node]["cardinality"]
-                        x[j] = ests[j] / info["actual"]
-                        x[len(ests)+j] = info["total"]
-
-                X.append(x)
-                Y.append(cost)
-            else:
-                assert False
-
+                    X.append(x)
+                    Y.append(cost)
         Y = np.array(Y)
-        # Y = (Y - np.mean(Y)) / np.std(Y)
         if self.input_norm_type == 1:
             pass
         elif self.input_norm_type == 2:
