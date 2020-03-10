@@ -391,6 +391,9 @@ def compute_join_order_loss(queries, preds, **kwargs):
             alias_key = ' '.join(node)
             trues[alias_key] = node_info["cardinality"]["actual"]
             # ests[alias_key] = int(est_card)
+            if est_card == 0:
+                print("bad est card")
+                est_card += 1
             ests[alias_key] = est_card
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)

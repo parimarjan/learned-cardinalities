@@ -123,8 +123,8 @@ class WanderJoin():
         path_execs.append(None)
         path_join_keys.append(None)
         # for rest of the path, compute join statements
+        path_tries = []
         if self.use_tries:
-            path_tries = []
             print("creating tries...")
             path_tries.append(None)
 
@@ -165,7 +165,7 @@ class WanderJoin():
                 if sql_key in self.trie_cache:
                     kl_start = time.time()
                     trie = self.trie_cache[sql_key]
-                    print("loaing trie {} from klepto took: {}".format(
+                    print("loading trie {} from in memory klepto took: {}".format(
                         node, time.time()-kl_start))
                 elif sql_key in self.trie_cache.archive:
                     kl_start = time.time()
@@ -186,10 +186,12 @@ class WanderJoin():
                     print("trie for {}, len: {}, took: {}".format(node,
                         len(outputs), trie_time))
                     self.total_trie_time += trie_time
-                    self.trie_cache[sql_key] = trie
                     if trie_time > TRIE_ARCHIVE_THRESHOLD:
                         self.trie_cache.archive[sql_key] = trie
 
+                # no matter what, store in memory cache so we avoid reloading
+                # it from archive in the next path
+                self.trie_cache[sql_key] = trie
                 path_tries.append(trie)
             else:
                 if self.use_tries:
