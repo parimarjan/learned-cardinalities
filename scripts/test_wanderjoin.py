@@ -72,7 +72,7 @@ def main():
     fns = list(glob.glob(args.query_dir + "/*"))
     wj = WanderJoin(args.user, args.pwd, args.db_host, args.port,
             args.db_name, cache_dir="./debug_cache", verbose=True,
-            walks_timeout=args.walks_timeout, use_tries=False)
+            walks_timeout=args.walks_timeout, use_tries=True)
 
     for i, fn in enumerate(fns):
         if i >= args.num_queries and args.num_queries != -1:

@@ -113,13 +113,22 @@ class SamplingTables(CardinalityEstimationAlg):
                 else:
                     assert False
 
+                # if "ci" in alias_key and "n" in alias_key and len(alias_key) == 2:
+                    # print(alias_key, "est: " + str(cur_est), cards["actual"])
+                    # pdb.set_trace()
+
                 if cur_est == 0 or cur_est == 1:
                     bad_ests += 1
+                    # if bad_ests >= 90:
+                        # print(alias_key, cur_est, cards["actual"])
+                        # pdb.set_trace()
+                    # cur_est = cards["expected"]
                 if cur_est == 0:
                     cur_est += 1
                 pred_dict[(alias_key)] = cur_est
             preds.append(pred_dict)
         print("bad ests: {}, total: {}".format(bad_ests, total))
+        # print("set failed ests to actual est")
         return preds
 
     def __str__(self):

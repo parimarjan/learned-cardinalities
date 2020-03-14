@@ -109,7 +109,7 @@ def is_cross_join(sg):
 def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
         port, fn, wj_fn, wj_walk_timeout, idx, seed, trie_cache, use_tries):
 
-    key_name = "wanderjoin" + str(wj_walk_timeout)
+    key_name = "wanderjoin-" + str(wj_walk_timeout)
     # key_name = "wj" + str(wj_walk_timeout)
     for subset, info in qrep["subset_graph"].nodes().items():
         cards = info["cardinality"]
