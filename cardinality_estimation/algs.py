@@ -122,7 +122,9 @@ class SamplingTables(CardinalityEstimationAlg):
                     # if bad_ests >= 90:
                         # print(alias_key, cur_est, cards["actual"])
                         # pdb.set_trace()
-                    # cur_est = cards["expected"]
+                    # print(alias_key, "est: " + str(cur_est), cards["actual"])
+                    # pdb.set_trace()
+                    cur_est = cards["expected"]
                 if cur_est == 0:
                     cur_est += 1
                 pred_dict[(alias_key)] = cur_est

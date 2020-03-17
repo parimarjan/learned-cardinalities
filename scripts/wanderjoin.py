@@ -172,8 +172,8 @@ class WanderJoin():
                         trie_idx = sel_i
                 assert trie_idx is not None
                 path_join_keys.append([other_col])
-
-                sql_key = deterministic_hash(exec_sql)
+                trie_key_name = node_info["sels"][trie_idx]
+                sql_key = deterministic_hash(exec_sql + trie_key_name)
                 if sql_key in self.trie_cache:
                     kl_start = time.time()
                     trie = self.trie_cache[sql_key]
@@ -278,6 +278,7 @@ class WanderJoin():
                 cards = subset_graph.nodes()[tuple([node])]["cardinality"]
                 # TODO: we can also compute, and use true values here maybe?
                 node_sel = float(cards["total"]) - cards["expected"]
+
             node_selectivities[node] = node_sel
 
             edges = join_graph.edges(node)
