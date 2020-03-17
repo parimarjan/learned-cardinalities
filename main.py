@@ -233,10 +233,8 @@ def main():
             for _,info in qrep["subset_graph"].nodes().items():
 
                 # if args.train_card_key not in info["cardinality"]:
-                # if "wanderjoin10.0" not in info["cardinality"]:
-                if "wanderjoin5.0" not in info["cardinality"]:
-                    zero_query = True
-                    break
+                    # zero_query = True
+                    # break
 
                 if "actual" not in info["cardinality"]:
                     zero_query = True

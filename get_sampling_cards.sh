@@ -1,63 +1,22 @@
 CARD_TYPE=wanderjoin
-KEY_NAME=actual
+#KEY_NAME=actual
 NUM_PROC=$1
 PORT=5432
 NUM_SAMPLES=-1
-WALK_TIMEOUTS=(0.5 1.0 5.0 10.0)
-TEMPLATES=(1a 2a 2b 2c 3a 4a 5a 8a)
+TEMPLATES=(1a 2a 2b 2c 3a 4a 5a 6a 8a)
+TOS=(0.25 0.5 1.0 0.5 0.25 0.1 0.1 1.0 5.0)
 SEEDS=(1234)
 echo "num proc: " $NUM_PROC
 
-TEMPLATES1=(1a 2c 4a)
-TO=0.5
-for i in "${TEMPLATES1[@]}";
+for i in "${!TEMPLATES[@]}";
   do
-  echo $i;
+  echo $i "${TEMPLATES[$i]}" "${TOS[$i]}"
   time python3 scripts/get_query_cardinalities.py \
-  --query_dir "our_dataset/queries/${i}" \
+  --query_dir "our_dataset/queries/${TEMPLATES[$i]}" \
   --card_type $CARD_TYPE --db_name imdb --port $PORT \
   --num_proc $NUM_PROC -n $NUM_SAMPLES \
   --use_tries 1 \
-  --wj_walk_timeout $TO >> ./imdb_logs/$i.logs
+  --wj_walk_timeout ${TOS[$i]} >> ./imdb_logs/$i.logs
 done
+exit
 
-TEMPLATES2=(2a 2c)
-TO=1.0
-for i in "${TEMPLATES2[@]}";
-  do
-  echo $i;
-  time python3 scripts/get_query_cardinalities.py \
-  --query_dir "our_dataset/queries/${i}" \
-  --card_type $CARD_TYPE --db_name imdb --port $PORT \
-  --num_proc $NUM_PROC -n $NUM_SAMPLES \
-  --use_tries 1 \
-  --wj_walk_timeout $TO >> ./imdb_logs/$i.logs
-done
-
-TEMPLATES2=(2b 3a)
-TO=5.0
-for i in "${TEMPLATES2[@]}";
-  do
-  echo $i;
-  time python3 scripts/get_query_cardinalities.py \
-  --query_dir "our_dataset/queries/${i}" \
-  --card_type $CARD_TYPE --db_name imdb --port $PORT \
-  --num_proc $NUM_PROC -n $NUM_SAMPLES \
-  --use_tries 1 \
-  --wj_walk_timeout $TO >> ./imdb_logs/$i.logs
-done
-
-#for TO in "${WALK_TIMEOUTS[@]}";
-  #do
-  #echo "walk timeout: " $TO
-  #for i in "${TEMPLATES[@]}";
-    #do
-    #echo $i;
-    #python3 scripts/get_query_cardinalities.py \
-    #--query_dir "our_dataset/queries/${i}" \
-    #--card_type $CARD_TYPE --db_name imdb --port $PORT \
-    #--num_proc $NUM_PROC -n $NUM_SAMPLES2 \
-    #--use_tries 1 \
-    #--wj_walk_timeout $TO >> ./imdb_logs/$i.logs
-  #done
-#done

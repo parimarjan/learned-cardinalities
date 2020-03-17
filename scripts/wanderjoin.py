@@ -24,7 +24,7 @@ CONF_ALPHA = 0.99
 ## use archive for anything in between ARCHIVE_THRESH and USE_THRESH
 TRIE_ARCHIVE_THRESHOLD = 10
 # anything above this does not use tries
-TRIE_USE_THRESHOLD = 30
+TRIE_USE_THRESHOLD = 500
 
 NEXT_HOP_TMP = '''SELECT {SELS} from {TABLE}
 WHERE {FKEY_CONDS}'''
