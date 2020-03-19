@@ -250,6 +250,8 @@ class NN(CardinalityEstimationAlg):
         self.kwargs = kwargs
         for k, val in kwargs.items():
             self.__setattr__(k, val)
+        if self.exp_prefix != "":
+            self.exp_prefix += "-"
 
         self.start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
@@ -418,6 +420,7 @@ class NN(CardinalityEstimationAlg):
         return pred,y
 
     def _eval_samples(self, loader):
+        # don't need to compute gradients, saves a lot of memory
         torch.set_grad_enabled(False)
         if self.featurization_scheme == "combined":
             ret = self._eval_combined(loader)
@@ -459,7 +462,7 @@ class NN(CardinalityEstimationAlg):
         '''
         '''
         time_hash = str(deterministic_hash(self.start_time))[0:3]
-        name = "{PREFIX}-{NN}-{PRIORITY}-{HASH}".format(\
+        name = "{PREFIX}{NN}-{PRIORITY}-{HASH}".format(\
                     PREFIX = self.exp_prefix,
                     NN = self.__str__(),
                     PRIORITY = self.sampling_priority_alpha,
@@ -641,9 +644,10 @@ class NN(CardinalityEstimationAlg):
             jl_eval_start = time.time()
             assert self.jl_use_postgres
 
-            sqls, true_cardinalities, est_cardinalities = \
+            sqls, jgs, true_cardinalities, est_cardinalities = \
                     self.get_query_estimates(pred, samples)
             (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
+                    jgs,
                     true_cardinalities, est_cardinalities, self.env,
                     self.jl_indexes, None,
                     pool = self.join_loss_pool,
@@ -704,9 +708,15 @@ class NN(CardinalityEstimationAlg):
         sqls = []
         true_cardinalities = []
         est_cardinalities = []
+        join_graphs = []
         query_idx = 0
         for sample in samples:
-            sqls.append(sample["sql"])
+            if true_card_key != "actual":
+                sql = "/* {} */ ".format(true_card_key) + sample["sql"]
+            else:
+                sql = sample["sql"]
+            sqls.append(sql)
+            join_graphs.append(sample["join_graph"])
             ests = {}
             trues = {}
             # we don't need to sort these as we are returning a dict here...
@@ -714,7 +724,6 @@ class NN(CardinalityEstimationAlg):
             node_keys = list(sample["subset_graph"].nodes())
             node_keys.sort()
             for subq_idx, node in enumerate(node_keys):
-            # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]
                 alias_key = ' '.join(node)
                 # alias_key = node
@@ -725,15 +734,13 @@ class NN(CardinalityEstimationAlg):
                 else:
                     est_sel = pred[idx]
                     est_card = est_sel*cards["total"]
-                # ests[alias_key] = int(est_card)
                 ests[alias_key] = est_card
-                # trues[alias_key] = cards["actual"]
                 trues[alias_key] = cards[true_card_key]
             est_cardinalities.append(ests)
             true_cardinalities.append(trues)
             query_idx += len(sample["subset_graph"].nodes())
 
-        return sqls, true_cardinalities, est_cardinalities
+        return sqls, join_graphs, true_cardinalities, est_cardinalities
 
     def initialize_tfboard(self):
         name = self.get_exp_name()
@@ -754,7 +761,8 @@ class NN(CardinalityEstimationAlg):
 
         if self.tfboard:
             self.initialize_tfboard()
-        # torch.set_num_threads(-1)
+        # model is always small enough that it runs fast w/o using many cores
+        torch.set_num_threads(2)
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
                 max_discrete_featurizing_buckets =
@@ -868,7 +876,6 @@ class NN(CardinalityEstimationAlg):
                     self.hidden_layer_size))
 
         for self.epoch in range(1,self.max_epochs):
-            start = time.time()
             if self.epoch % self.eval_epoch == 0:
                 eval_start = time.time()
                 self.periodic_eval("train")
@@ -876,8 +883,9 @@ class NN(CardinalityEstimationAlg):
                     self.periodic_eval("test")
                 self.save_stats()
 
+            start = time.time()
             self.train_one_epoch()
-            # print("train epoch took: ", time.time() - start)
+            print("train epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \
@@ -888,12 +896,12 @@ class NN(CardinalityEstimationAlg):
                 if self.sampling_priority_type == "query":
                     # TODO: decompose
                     pr_start = time.time()
-                    sqls, true_cardinalities, est_cardinalities = \
+                    sqls, jgs, true_cardinalities, est_cardinalities = \
                             self.get_query_estimates(pred,
                                     self.training_samples,
                                     true_card_key=self.train_card_key)
                     (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
-                            true_cardinalities, est_cardinalities, self.env,
+                            jgs, true_cardinalities, est_cardinalities, self.env,
                             self.jl_indexes, None,
                             pool = self.join_loss_pool,
                             join_loss_data_file = self.join_loss_data_file)
@@ -924,11 +932,12 @@ class NN(CardinalityEstimationAlg):
 
                 elif self.sampling_priority_type == "subquery":
                     pr_start = time.time()
-                    sqls, true_cardinalities, est_cardinalities = \
+                    sqls, jgs, true_cardinalities, est_cardinalities = \
                             self.get_query_estimates(pred,
-                                    self.training_samples)
+                                    self.training_samples,
+                                    true_card_key = self.train_card_key)
                     (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
-                            true_cardinalities, est_cardinalities, self.env,
+                            jgs, true_cardinalities, est_cardinalities, self.env,
                             self.jl_indexes, None,
                             pool = self.join_loss_pool,
                             join_loss_data_file = self.join_loss_data_file)

@@ -191,16 +191,20 @@ def main():
     query_templates = args.query_templates.split(",")
 
     fns = list(glob.glob(args.query_directory + "/*"))
+
+    if args.sampling_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+        wj_times = get_wj_times_dict(args.sampling_key)
+    elif args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+        wj_times = get_wj_times_dict(args.train_card_key)
+    else:
+        wj_times = None
+
     for qdir in fns:
         template_name = os.path.basename(qdir)
         if args.query_templates != "all":
             if template_name not in query_templates:
                 print("skipping template ", template_name)
                 continue
-
-        # if "7a" in qdir:
-            # print("skipping query 7a")
-            # continue
 
         start = time.time()
         # loading, or generating samples
@@ -209,10 +213,6 @@ def main():
         qfns.sort()
         if args.num_samples_per_template == -1:
             qfns = qfns
-        elif args.num_samples_per_template == -2:
-            assert False
-            num_samples = get_template_samples(fn)
-            qfns = qfns[0:num_samples]
         elif args.num_samples_per_template < len(qfns):
             qfns = qfns[0:args.num_samples_per_template]
         else:
@@ -223,10 +223,8 @@ def main():
             random.seed(args.random_seed)
             qfns = random.sample(qfns, int(len(qfns) / 10))
 
-        if args.algs == "sampling":
-            skey = args.sampling_type + str(args.sampling_percentage) + "_actual"
-
         skipped = 0
+
         for qfn in qfns:
             qrep = load_sql_rep(qfn)
             zero_query = False
@@ -245,7 +243,18 @@ def main():
                     break
 
                 if args.sampling_key is not None:
-                    if args.sampling_key not in info["cardinality"]:
+                    if wj_times is None:
+                        if not (args.sampling_key in info["cardinality"]):
+                            zero_query = True
+                            break
+                    else:
+                        if not ("wanderjoin-" + str(wj_times[template_name])
+                                    in info["cardinality"]):
+                            zero_query = True
+                            break
+
+                if args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+                    if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
                         zero_query = True
                         break
 
@@ -311,7 +320,10 @@ def main():
 
     if "join-loss" in args.losses or \
             (args.sampling_priority_alpha > 0 and "nn" in args.algs):
-        num_processes = int(mp.cpu_count())
+        if args.join_loss_pool_num == -1:
+            num_processes = int(mp.cpu_count())
+        else:
+            num_processes = args.join_loss_pool_num
         join_loss_pool = mp.Pool(num_processes)
     else:
         join_loss_pool = None
@@ -380,9 +392,11 @@ def read_flags():
     parser.add_argument("--num_tables_feature", type=int, required=False,
             default=1)
     parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
-            default=10)
+            default=1)
     parser.add_argument("--heuristic_features", type=int, required=False,
             default=1)
+    parser.add_argument("--join_loss_pool_num", type=int, required=False,
+            default=-1)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
     parser.add_argument("--priority_err_divide_len", type=int, required=False,

@@ -5,6 +5,7 @@ from db_utils.utils import *
 from db_utils.query_storage import *
 from collections import defaultdict
 import numpy as np
+from cardinality_estimation.algs import get_wj_times_dict
 
 class QueryDataset(data.Dataset):
     def __init__(self, samples, db, featurization_type,
@@ -30,6 +31,11 @@ class QueryDataset(data.Dataset):
         self.min_val = min_val
         self.max_val = max_val
         self.card_key = card_key
+
+        if self.card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+            self.wj_times = get_wj_times_dict(self.card_key)
+        else:
+            self.wj_times = None
 
         if self.normalization_type == "mscn":
             assert min_val is not None
@@ -189,7 +195,15 @@ class QueryDataset(data.Dataset):
             for nodes in node_names:
                 info = qrep["subset_graph"].nodes()[nodes]
                 pg_est = info["cardinality"]["expected"]
-                true_val = info["cardinality"][self.card_key]
+                if self.wj_times is not None:
+                    ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
+                    true_val = info["cardinality"][ck]
+                    if true_val == 0:
+                        true_val = info["cardinality"]["expected"]
+                else:
+                    ck = self.card_key
+                    true_val = info["cardinality"][ck]
+
                 total = info["cardinality"]["total"]
 
                 pred_features = np.zeros(self.db.pred_features_len)

@@ -103,57 +103,6 @@ def get_leading_hint(join_graph, explain):
     jo = "(" + jo + ")"
     return PG_HINT_LEADING_TMP.format(JOIN_ORDER = jo)
 
-# def get_pg_join_order(join_graph, explain):
-    # '''
-    # '''
-    # physical_join_ops = {}
-    # scan_ops = {}
-    # def __update_scan(plan):
-        # node_types = extract_values(plan, "Node Type")
-        # alias = extract_values(plan, "Alias")[0]
-        # for nt in node_types:
-            # if "Scan" in nt:
-                # scan_type = nt
-                # break
-        # scan_ops[alias] = nt
-
-    # def __extract_jo(plan):
-        # if plan["Node Type"] in join_types:
-            # left = list(extract_aliases(plan["Plans"][0], jg=join_graph))
-            # right = list(extract_aliases(plan["Plans"][1], jg=join_graph))
-            # all_froms = left + right
-            # all_nodes = []
-            # for from_clause in all_froms:
-                # from_alias = from_clause[from_clause.find(" as ")+4:]
-                # if "_info" in from_alias:
-                    # print(from_alias)
-                    # pdb.set_trace()
-                # all_nodes.append(from_alias)
-            # all_nodes.sort()
-            # all_nodes = " ".join(all_nodes)
-            # physical_join_ops[all_nodes] = plan["Node Type"]
-
-            # if len(left) == 1 and len(right) == 1:
-                # __update_scan(plan["Plans"][0])
-                # __update_scan(plan["Plans"][1])
-                # return left[0] +  " CROSS JOIN " + right[0]
-
-            # if len(left) == 1:
-                # __update_scan(plan["Plans"][0])
-                # return left[0] + " CROSS JOIN (" + __extract_jo(plan["Plans"][1]) + ")"
-
-            # if len(right) == 1:
-                # __update_scan(plan["Plans"][1])
-                # return "(" + __extract_jo(plan["Plans"][0]) + ") CROSS JOIN " + right[0]
-
-            # return ("(" + __extract_jo(plan["Plans"][0])
-                    # + ") CROSS JOIN ("
-                    # + __extract_jo(plan["Plans"][1]) + ")")
-
-        # return __extract_jo(plan["Plans"][0])
-
-    # return __extract_jo(explain[0][0][0]["Plan"]), physical_join_ops, scan_ops
-
 def _get_modified_sql(sql, cardinalities, join_ops,
         leading_hint, scan_ops):
     '''
@@ -222,8 +171,21 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
     cost_sql = _get_modified_sql(est_opt_sql, true_cardinalities,
             est_join_ops, leading_hint, scan_ops)
 
+    # set this to sql to be executed, as pg_hint will enforce the estimated
+    # cardinalities, and let postgres make decisions for join order and
+    # everything about operators based on the estimated cardinalities
     exec_sql = _get_modified_sql(est_opt_sql, est_cardinalities,
             None, None, None)
+
+    # cost_sql will be seen often, as true_cardinalities remain fixed. so we
+    # can cache the results for it.
+
+    # cost_sql_key = deterministic_hash(est_opt_sql)
+    # if cost_sql_key in self.sql_cost_cache:
+        # est_cost, est_explain = self.sql_cost_cache[cost_sql_key]
+    # else:
+        # est_cost, est_explain = _get_cost(cost_sql, cursor)
+        # self.sql_cost_cache[
 
     est_cost, est_explain = _get_cost(cost_sql, cursor)
     debug_leading = get_leading_hint(join_graph, est_explain)
@@ -240,10 +202,9 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
     con.close()
     return exec_sql, est_cost, est_explain
 
-def compute_join_order_loss_pg_single(query, true_cardinalities,
+def compute_join_order_loss_pg_single(query, join_graph, true_cardinalities,
         est_cardinalities, opt_cost, opt_explain, opt_sql,
-        use_indexes,
-        user, pwd, db_host, port, db_name):
+        use_indexes, user, pwd, db_host, port, db_name):
     '''
     @query: str
     @true_cardinalities:
@@ -256,10 +217,8 @@ def compute_join_order_loss_pg_single(query, true_cardinalities,
             sort([table_1 / alias_1, ..., table_n / alias_n])
         val:
             float
-
     '''
-    # set est cardinalities
-    # FIXME:
+    # FIXME: do this earlier for each query...
     if "mii1.info " in query:
         query = query.replace("mii1.info ", "mii1.info::float")
     if "mii2.info " in query:
@@ -270,16 +229,16 @@ def compute_join_order_loss_pg_single(query, true_cardinalities,
         query = query.replace("mii2.info)", "mii2.info::float)")
 
     # FIXME: we should not need join graph for all these helper methods
-    join_graph = extract_join_graph(query)
+    # join_graph = extract_join_graph(query)
+
     est_card_sql, est_cost, est_explain = get_cardinalities_join_cost(query,
             est_cardinalities, true_cardinalities, join_graph,
             use_indexes, user, pwd, db_host, port, db_name)
+
     if opt_cost is None:
         opt_sql, opt_cost, opt_explain = get_cardinalities_join_cost(query,
                 true_cardinalities, true_cardinalities, join_graph,
                 use_indexes, user, pwd, db_host, port, db_name)
-
-    # adds the est cardinalities as a comment to the modified sql
 
     # FIXME: temporary
     if est_cost < opt_cost:
@@ -298,11 +257,20 @@ class JoinLoss():
         self.port = port
         self.db_name = db_name
 
+        self.sql_cost_cache_fn = "/tmp/sql_cost.pkl"
+        if os.path.isfile(self.sql_cost_cache_fn):
+            with open(self.sql_cost_cache_fn, 'rb') as handle:
+                self.sql_cost_cache = pickle.load(handle)
+        else:
+            # key: sql_key, vals: (cost, explain)
+            self.sql_cost_cache = {}
+
         self.opt_cache_fn = "/tmp/opt_cache.pkl"
         if os.path.isfile(self.opt_cache_fn):
             with open(self.opt_cache_fn, 'rb') as handle:
                 self.opt_cache = pickle.load(handle)
         else:
+            # 0, 1 is for use_indexes or not
             self.opt_cache = {}
             self.opt_cache[0] = {}
             self.opt_cache[1] = {}
@@ -314,7 +282,7 @@ class JoinLoss():
             self.opt_cache[1]["explains"] = {}
             self.opt_cache[1]["sqls"] = {}
 
-    def compute_join_order_loss(self, sqls, true_cardinalities,
+    def compute_join_order_loss(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, baseline_join_alg, use_indexes,
             num_processes=8, postgres=True, pool=None):
         '''
@@ -341,11 +309,11 @@ class JoinLoss():
         if not postgres:
             assert False
 
-        return self._compute_join_order_loss_pg(sqls,
+        return self._compute_join_order_loss_pg(sqls, join_graphs,
                 true_cardinalities, est_cardinalities, num_processes,
                 use_indexes, pool)
 
-    def _compute_join_order_loss_pg(self, sqls, true_cardinalities,
+    def _compute_join_order_loss_pg(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, num_processes, use_indexes, pool):
 
         est_costs = []
@@ -368,7 +336,7 @@ class JoinLoss():
             costs = []
             for i, sql in enumerate(sqls):
                 costs.append(compute_join_order_loss_pg_single(sql,
-                    true_cardinalities[i], est_cardinalities[i],
+                    join_graphs[i], true_cardinalities[i], est_cardinalities[i],
                     None, None, None, use_indexes, self.user,
                     self.pwd, self.db_host, self.port,
                     self.db_name))
@@ -376,26 +344,20 @@ class JoinLoss():
             par_args = []
             for i, sql in enumerate(sqls):
                 sql_key = deterministic_hash(sql)
-                # print("don't use opt cache!")
-                par_args.append((sql, true_cardinalities[i],
-                        est_cardinalities[i], None,
-                        None, None, use_indexes, self.user, self.pwd,
-                        self.db_host, self.port,
-                        self.db_name))
 
-                # if sql_key in opt_costs_cache:
-                    # # already know for the true cardinalities case
-                    # par_args.append((sql, true_cardinalities[i],
-                            # est_cardinalities[i], opt_costs_cache[sql_key],
-                            # opt_explains_cache[sql_key], opt_sqls_cache[sql_key],
-                            # use_indexes, self.user, self.pwd, self.db_host,
-                            # self.port, self.db_name))
-                # else:
-                    # par_args.append((sql, true_cardinalities[i],
-                            # est_cardinalities[i], None,
-                            # None, None, use_indexes, self.user, self.pwd,
-                            # self.db_host, self.port,
-                            # self.db_name))
+                if sql_key in opt_costs_cache:
+                    # already know for the true cardinalities case
+                    par_args.append((sql, join_graphs[i], true_cardinalities[i],
+                            est_cardinalities[i], opt_costs_cache[sql_key],
+                            opt_explains_cache[sql_key], opt_sqls_cache[sql_key],
+                            use_indexes, self.user, self.pwd, self.db_host,
+                            self.port, self.db_name))
+                else:
+                    par_args.append((sql, join_graphs[i], true_cardinalities[i],
+                            est_cardinalities[i], None,
+                            None, None, use_indexes, self.user, self.pwd,
+                            self.db_host, self.port,
+                            self.db_name))
 
             costs = pool.starmap(compute_join_order_loss_pg_single, par_args)
 
@@ -417,19 +379,9 @@ class JoinLoss():
                 new_seen = True
 
         if new_seen:
-            # FIXME: DRY
             with open(self.opt_cache_fn, 'wb') as handle:
                 pickle.dump(self.opt_cache, handle,
                         protocol=pickle.HIGHEST_PROTOCOL)
-            # with open(self.opt_costs_fn, 'wb') as handle:
-                # pickle.dump(self.opt_costs, handle,
-                        # protocol=pickle.HIGHEST_PROTOCOL)
-            # with open(self.opt_explains_fn, 'wb') as handle:
-                # pickle.dump(self.opt_explains, handle,
-                        # protocol=pickle.HIGHEST_PROTOCOL)
-            # with open(self.opt_sqls_fn, 'wb') as handle:
-                # pickle.dump(self.opt_sqls, handle,
-                        # protocol=pickle.HIGHEST_PROTOCOL)
 
         return np.array(est_costs), np.array(opt_costs), est_explains, \
     opt_explains, est_sqls, opt_sqls

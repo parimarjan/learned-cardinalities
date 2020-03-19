@@ -87,10 +87,10 @@ class WanderJoin():
             else:
                 options = [j[1] for j in join_edges]
                 sels = [node_selectivities[t] for t in options]
-                path.append(options[np.argmax(sels)])
-                # winners = np.argwhere(sels == np.amax(sels))
+                # path.append(options[np.argmax(sels)])
                 # random.seed(1)
-                # path.append(options[random.choice(winners.flatten())])
+                winners = np.argwhere(sels == np.amax(sels))
+                path.append(options[random.choice(winners.flatten())])
 
             nodes.remove(path[-1])
 
