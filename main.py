@@ -197,13 +197,17 @@ def main():
     elif args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
         wj_times = get_wj_times_dict(args.train_card_key)
     else:
-        wj_times = None
+        wj_times = get_wj_times_dict("wanderjoin")
 
     for qdir in fns:
         template_name = os.path.basename(qdir)
         if args.query_templates != "all":
             if template_name not in query_templates:
                 print("skipping template ", template_name)
+                continue
+
+            if "7a" in template_name:
+                print("skipping template 7a")
                 continue
 
         start = time.time()
@@ -257,6 +261,11 @@ def main():
                     if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
                         zero_query = True
                         break
+
+                # just so everyone is forced to use the wj template queries
+                if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
+                    zero_query = True
+                    break
 
             if zero_query:
                 skipped += 1
@@ -537,9 +546,9 @@ def read_flags():
     parser.add_argument("--sampling_priority_alpha", type=float, required=False,
             default=0.00, help="")
     parser.add_argument("--prioritize_epoch", type=float, required=False,
-            default=2, help="")
+            default=1, help="")
     parser.add_argument("--reprioritize_epoch", type=int, required=False,
-            default=2, help="")
+            default=1, help="")
 
     parser.add_argument("--priority_query_len_scale", type=float, required=False,
             default=0, help="")

@@ -3,8 +3,10 @@ import getpass
 from db_utils.utils import *
 from sql_rep.utils import extract_aliases
 import multiprocessing as mp
+import math
 
 import pdb
+import klepto
 
 PG_HINT_CMNT_TMP = '''/*+ {COMMENT} */'''
 PG_HINT_JOIN_TMP = "{JOIN_TYPE} ({TABLES}) "
@@ -134,25 +136,7 @@ def _get_modified_sql(sql, cardinalities, join_ops,
     return sql
 
 def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
-        join_graph, use_indexes, user, pwd, db_host, port, db_name):
-    try:
-        con = pg.connect(port=port,dbname=db_name,
-                user=user,password=pwd)
-    except:
-        con = pg.connect(port=port,dbname=db_name,
-                user=user,password=pwd, host=db_host)
-
-    cursor = con.cursor()
-    cursor.execute("LOAD 'pg_hint_plan';")
-    cursor.execute("SET geqo_threshold = {}".format(MAX_JOINS))
-    cursor.execute("SET join_collapse_limit = {}".format(MAX_JOINS))
-    cursor.execute("SET from_collapse_limit = {}".format(MAX_JOINS))
-    if not use_indexes:
-        cursor.execute("SET enable_indexscan = off")
-        cursor.execute("SET enable_indexonlyscan = off")
-    else:
-        cursor.execute("SET enable_indexscan = on")
-        cursor.execute("SET enable_indexonlyscan = on")
+        join_graph, cursor, sql_costs):
 
     est_card_sql = _get_modified_sql(query, est_cardinalities, None,
             None, None)
@@ -180,30 +164,26 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
     # cost_sql will be seen often, as true_cardinalities remain fixed. so we
     # can cache the results for it.
 
-    # cost_sql_key = deterministic_hash(est_opt_sql)
-    # if cost_sql_key in self.sql_cost_cache:
-        # est_cost, est_explain = self.sql_cost_cache[cost_sql_key]
-    # else:
-        # est_cost, est_explain = _get_cost(cost_sql, cursor)
-        # self.sql_cost_cache[
+    cost_sql_key = deterministic_hash(cost_sql)
+    if cost_sql_key in sql_costs.archive:
+        est_cost, est_explain = sql_costs.archive[cost_sql_key]
+    else:
+        est_cost, est_explain = _get_cost(cost_sql, cursor)
+        sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
 
-    est_cost, est_explain = _get_cost(cost_sql, cursor)
-    debug_leading = get_leading_hint(join_graph, est_explain)
+        debug_leading = get_leading_hint(join_graph, est_explain)
+        if debug_leading != leading_hint:
+            pass
+            # print(est_opt_sql)
+            # print("actual order:\n ", debug_leading)
+            # print("wanted order:\n ", leading_hint)
+            # print("est cost: ", est_cost)
+            # pdb.set_trace()
 
-    if debug_leading != leading_hint:
-        pass
-        # print(est_opt_sql)
-        # print("actual order:\n ", debug_leading)
-        # print("wanted order:\n ", leading_hint)
-        # print("est cost: ", est_cost)
-        # pdb.set_trace()
-
-    cursor.close()
-    con.close()
     return exec_sql, est_cost, est_explain
 
-def compute_join_order_loss_pg_single(query, join_graph, true_cardinalities,
-        est_cardinalities, opt_cost, opt_explain, opt_sql,
+def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
+        est_cardinalities, opt_costs, opt_explains, opt_sqls,
         use_indexes, user, pwd, db_host, port, db_name):
     '''
     @query: str
@@ -219,34 +199,70 @@ def compute_join_order_loss_pg_single(query, join_graph, true_cardinalities,
             float
     '''
     # FIXME: do this earlier for each query...
-    if "mii1.info " in query:
-        query = query.replace("mii1.info ", "mii1.info::float")
-    if "mii2.info " in query:
-        query = query.replace("mii2.info ", "mii2.info::float")
-    if "mii1.info)" in query:
-        query = query.replace("mii1.info)", "mii1.info::float)")
-    if "mii2.info)" in query:
-        query = query.replace("mii2.info)", "mii2.info::float)")
 
-    # FIXME: we should not need join graph for all these helper methods
-    # join_graph = extract_join_graph(query)
+    try:
+        con = pg.connect(port=port,dbname=db_name,
+                user=user,password=pwd)
+    except:
+        con = pg.connect(port=port,dbname=db_name,
+                user=user,password=pwd, host=db_host)
 
-    est_card_sql, est_cost, est_explain = get_cardinalities_join_cost(query,
-            est_cardinalities, true_cardinalities, join_graph,
-            use_indexes, user, pwd, db_host, port, db_name)
+    sql_costs_archive = klepto.archives.dir_archive("/tmp/sql_costs",
+            cached=True, serialized=True)
 
-    if opt_cost is None:
-        opt_sql, opt_cost, opt_explain = get_cardinalities_join_cost(query,
-                true_cardinalities, true_cardinalities, join_graph,
-                use_indexes, user, pwd, db_host, port, db_name)
+    cursor = con.cursor()
+    cursor.execute("LOAD 'pg_hint_plan';")
+    cursor.execute("SET geqo_threshold = {}".format(MAX_JOINS))
+    cursor.execute("SET join_collapse_limit = {}".format(MAX_JOINS))
+    cursor.execute("SET from_collapse_limit = {}".format(MAX_JOINS))
+    if not use_indexes:
+        cursor.execute("SET enable_indexscan = off")
+        cursor.execute("SET enable_indexonlyscan = off")
+    else:
+        cursor.execute("SET enable_indexscan = on")
+        cursor.execute("SET enable_indexonlyscan = on")
 
-    # FIXME: temporary
-    if est_cost < opt_cost:
-        # print(est_cost, opt_cost, opt_cost - est_cost)
-        # pdb.set_trace()
-        est_cost = opt_cost
+    ret = []
+    for i, query in enumerate(queries):
+        join_graph = join_graphs[i]
+        if "mii1.info " in query:
+            query = query.replace("mii1.info ", "mii1.info::float")
+        if "mii2.info " in query:
+            query = query.replace("mii2.info ", "mii2.info::float")
+        if "mii1.info)" in query:
+            query = query.replace("mii1.info)", "mii1.info::float)")
+        if "mii2.info)" in query:
+            query = query.replace("mii2.info)", "mii2.info::float)")
 
-    return est_cost, opt_cost, est_explain, opt_explain, est_card_sql, opt_sql
+        est_sql, est_cost, est_explain = get_cardinalities_join_cost(query,
+                est_cardinalities[i], true_cardinalities[i], join_graphs[i],
+                cursor, sql_costs_archive)
+
+        if opt_costs[i] is None:
+            opt_sql, opt_cost, opt_explain = get_cardinalities_join_cost(query,
+                    true_cardinalities[i], true_cardinalities[i],
+                    join_graphs[i], cursor)
+            opt_sqls[i] = opt_sql
+            opt_costs[i] = opt_cost
+            opt_explains[i] = opt_explain
+
+        # FIXME: temporary
+        if est_cost < opt_costs[i]:
+            # print(est_cost, opt_cost, opt_cost - est_cost)
+            # pdb.set_trace()
+            est_cost = opt_costs[i]
+
+        # est_sqls.append(est_sql)
+        # est_costs.append(est_cost)
+        # est_explains.append(est_explain)
+        ret.append((est_cost, opt_costs[i], est_explain, opt_explains[i],
+            est_sql, opt_sqls[i]))
+
+    cursor.close()
+    con.close()
+    # assert len(est_costs) == len(opt_costs)
+    # return est_costs, opt_costs, est_explains, opt_explains, est_sqls, opt_sqls
+    return ret
 
 class JoinLoss():
 
@@ -257,13 +273,13 @@ class JoinLoss():
         self.port = port
         self.db_name = db_name
 
-        self.sql_cost_cache_fn = "/tmp/sql_cost.pkl"
-        if os.path.isfile(self.sql_cost_cache_fn):
-            with open(self.sql_cost_cache_fn, 'rb') as handle:
-                self.sql_cost_cache = pickle.load(handle)
-        else:
-            # key: sql_key, vals: (cost, explain)
-            self.sql_cost_cache = {}
+        # self.sql_cost_cache_fn = "/tmp/sql_cost.pkl"
+        # if os.path.isfile(self.sql_cost_cache_fn):
+            # with open(self.sql_cost_cache_fn, 'rb') as handle:
+                # self.sql_cost_cache = pickle.load(handle)
+        # else:
+            # # key: sql_key, vals: (cost, explain)
+            # self.sql_cost_cache = {}
 
         self.opt_cache_fn = "/tmp/opt_cache.pkl"
         if os.path.isfile(self.opt_cache_fn):
@@ -316,12 +332,12 @@ class JoinLoss():
     def _compute_join_order_loss_pg(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, num_processes, use_indexes, pool):
 
-        est_costs = []
-        opt_costs = []
-        est_explains = []
-        opt_explains = []
-        est_sqls = []
-        opt_sqls = []
+        est_costs = [None]*len(sqls)
+        opt_costs = [None]*len(sqls)
+        est_explains = [None]*len(sqls)
+        opt_explains = [None]*len(sqls)
+        est_sqls = [None]*len(sqls)
+        opt_sqls = [None]*len(sqls)
 
         if use_indexes:
             use_indexes = 1
@@ -331,8 +347,16 @@ class JoinLoss():
         opt_sqls_cache = self.opt_cache[use_indexes]["sqls"]
         opt_explains_cache = self.opt_cache[use_indexes]["explains"]
 
+        for i, sql in enumerate(sqls):
+            sql_key = deterministic_hash(sql)
+            if sql_key in opt_costs_cache:
+                opt_costs[i] = opt_costs_cache[sql_key]
+                opt_explains[i] = opt_explains_cache[sql_key]
+                opt_sqls[i] = opt_sqls_cache[sql_key]
+
         if pool is None:
             # single threaded case for debugging
+            assert False
             costs = []
             for i, sql in enumerate(sqls):
                 costs.append(compute_join_order_loss_pg_single(sql,
@@ -341,42 +365,51 @@ class JoinLoss():
                     self.pwd, self.db_host, self.port,
                     self.db_name))
         else:
+            num_processes = pool._processes
+            batch_size = max(1, math.ceil(len(sqls) / num_processes))
+            assert num_processes * batch_size >= len(sqls)
             par_args = []
-            for i, sql in enumerate(sqls):
-                sql_key = deterministic_hash(sql)
+            for proc_num in range(num_processes):
+                start_idx = proc_num * batch_size
+                end_idx = min(start_idx + batch_size, len(sqls))
+                par_args.append((sqls[start_idx:end_idx],
+                    join_graphs[start_idx:end_idx],
+                    true_cardinalities[start_idx:end_idx],
+                    est_cardinalities[start_idx:end_idx],
+                    opt_costs[start_idx:end_idx],
+                    opt_explains[start_idx:end_idx],
+                    opt_sqls[start_idx:end_idx],
+                    use_indexes, self.user, self.pwd, self.db_host,
+                    self.port, self.db_name))
 
-                if sql_key in opt_costs_cache:
-                    # already know for the true cardinalities case
-                    par_args.append((sql, join_graphs[i], true_cardinalities[i],
-                            est_cardinalities[i], opt_costs_cache[sql_key],
-                            opt_explains_cache[sql_key], opt_sqls_cache[sql_key],
-                            use_indexes, self.user, self.pwd, self.db_host,
-                            self.port, self.db_name))
-                else:
-                    par_args.append((sql, join_graphs[i], true_cardinalities[i],
-                            est_cardinalities[i], None,
-                            None, None, use_indexes, self.user, self.pwd,
-                            self.db_host, self.port,
-                            self.db_name))
-
-            costs = pool.starmap(compute_join_order_loss_pg_single, par_args)
+            all_costs = pool.starmap(compute_join_order_loss_pg_single, par_args)
 
         new_seen = False
-        for i, (est, opt, est_explain, opt_explain, est_sql, opt_sql) \
-                    in enumerate(costs):
-            sql_key = deterministic_hash(sqls[i])
-            est_costs.append(est)
-            opt_costs.append(opt)
-            est_explains.append(est_explain)
-            opt_explains.append(opt_explain)
-            est_sqls.append(est_sql)
-            opt_sqls.append(opt_sql)
+        for num_proc, costs in enumerate(all_costs):
+            start_idx = int(num_proc * batch_size)
+            for i, (est, opt, est_explain, opt_explain, est_sql, opt_sql) \
+                        in enumerate(costs):
+                sql = sqls[start_idx + i]
+                sql_key = deterministic_hash(sql)
+                # est_costs.append(est)
+                # est_explains.append(est_explain)
+                # est_sqls.append(est_sql)
 
-            if sql_key not in opt_costs_cache:
-                opt_costs_cache[sql_key] = opt
-                opt_explains_cache[sql_key] = opt_explain
-                opt_sqls_cache[sql_key] = opt_sql
-                new_seen = True
+                est_costs[start_idx+i] = est
+                est_explains[start_idx+i] = est_explain
+                est_sqls[start_idx+i] = est_sql
+                opt_costs[start_idx+i] = opt
+                opt_explains[start_idx+i] = opt_explains
+                opt_sqls[start_idx+i] = opt_sql
+                # opt_costs.append(opt)
+                # opt_explains.append(opt_explain)
+                # opt_sqls.append(opt_sql)
+
+                if sql_key not in opt_costs_cache:
+                    opt_costs_cache[sql_key] = opt
+                    opt_explains_cache[sql_key] = opt_explain
+                    opt_sqls_cache[sql_key] = opt_sql
+                    new_seen = True
 
         if new_seen:
             with open(self.opt_cache_fn, 'wb') as handle:
