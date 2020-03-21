@@ -268,6 +268,8 @@ def compute_join_order_loss_pg_single(query, true_cardinalities,
         query = query.replace("mii1.info)", "mii1.info::float)")
     if "mii2.info)" in query:
         query = query.replace("mii2.info)", "mii2.info::float)")
+    print("join loss!")
+    print(query)
 
     # FIXME: we should not need join graph for all these helper methods
     join_graph = extract_join_graph(query)
@@ -278,6 +280,7 @@ def compute_join_order_loss_pg_single(query, true_cardinalities,
         opt_sql, opt_cost, opt_explain = get_cardinalities_join_cost(query,
                 true_cardinalities, true_cardinalities, join_graph,
                 use_indexes, user, pwd, db_host, port, db_name)
+        print("opt cost: ", opt_cost)
 
     # adds the est cardinalities as a comment to the modified sql
 
@@ -285,6 +288,7 @@ def compute_join_order_loss_pg_single(query, true_cardinalities,
     if est_cost < opt_cost:
         # print(est_cost, opt_cost, opt_cost - est_cost)
         # pdb.set_trace()
+        print("est cost < opt cost! :( ")
         est_cost = opt_cost
 
     return est_cost, opt_cost, est_explain, opt_explain, est_card_sql, opt_sql
@@ -332,6 +336,7 @@ class JoinLoss():
         @ret:
             TODO
         '''
+        print("compute join order loss...")
         start = time.time()
         assert isinstance(sqls, list)
         assert isinstance(true_cardinalities, list)
@@ -347,7 +352,7 @@ class JoinLoss():
 
     def _compute_join_order_loss_pg(self, sqls, true_cardinalities,
             est_cardinalities, num_processes, use_indexes, pool):
-
+        print("_pg!")
         est_costs = []
         opt_costs = []
         est_explains = []

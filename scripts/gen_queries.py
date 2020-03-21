@@ -20,15 +20,26 @@ def verify_queries(query_strs):
     all_queries = []
     for cur_sql in query_strs:
         start = time.time()
-        test_sql = "EXPLAIN " + cur_sql
-        try:
-            output, _ = cached_execute_query(test_sql, args.user,
-                    args.db_host, args.port, args.pwd, args.db_name,
-                    100, "./qgen_cache", None)
-        except:
-            print("skipping query: ")
-            print(cur_sql)
+        # test_sql = "EXPLAIN " + cur_sql
+        test_sql = cur_sql
+        # try:
+            # output, _ = cached_execute_query(test_sql, args.user,
+                    # args.db_host, args.port, args.pwd, args.db_name,
+                    # 100, "./qgen_cache", None)
+        # except:
+            # print("skipping query: ")
+            # print(cur_sql)
+            # continue
+
+        output, _ = cached_execute_query(test_sql, args.user,
+                args.db_host, args.port, args.pwd, args.db_name,
+                100, "./qgen_cache", None)
+        if len(output) == 0:
+            print("zero query: ", test_sql)
             continue
+        else:
+            print("query len: {}, time: {}".format(len(output),
+                time.time()-start))
         all_queries.append(cur_sql)
     return all_queries
 
