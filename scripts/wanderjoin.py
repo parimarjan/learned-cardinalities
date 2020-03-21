@@ -20,7 +20,11 @@ import pygtrie
 
 MAX_WALKS = 10000000
 CONF_ALPHA = 0.99
-TRIE_ARCHIVE_THRESHOLD = 20
+
+## use archive for anything in between ARCHIVE_THRESH and USE_THRESH
+TRIE_ARCHIVE_THRESHOLD = 10
+# anything above this does not use tries
+TRIE_USE_THRESHOLD = 500
 
 NEXT_HOP_TMP = '''SELECT {SELS} from {TABLE}
 WHERE {FKEY_CONDS}'''
@@ -37,6 +41,8 @@ CREATE_INDEX_TMP = '''CREATE INDEX IF NOT EXISTS {INDEX} ON {TABLE} ({COLS})'''
 DROP_INDEX_TMP = '''DROP INDEX {INDEX}'''
 CREATE_MULTICOL_INDEXES = False
 DROP_MULTICOL_INDEXES = False
+
+# DEBUG_TRIES = True
 
 class WanderJoin():
 
@@ -95,9 +101,12 @@ class WanderJoin():
         return path
 
     def init_path_details(self, path, sg):
+        print("going to initiate path details for: ", path)
+
         # to return:
         path_execs = []
         path_join_keys = []
+        path_tries = []
 
         first_node = path[0]
         node_info = sg.nodes()[first_node]
@@ -119,12 +128,13 @@ class WanderJoin():
             self.init_sels[first_node] = outputs
             print("computed first hop outputs: ", len(outputs))
 
+        # for first node
         nodes_seen.add(first_node)
         path_execs.append(None)
         path_join_keys.append(None)
+
         # for rest of the path, compute join statements
         if self.use_tries:
-            path_tries = []
             print("creating tries...")
             path_tries.append(None)
 
@@ -143,7 +153,6 @@ class WanderJoin():
             if self.use_tries:
                 join = join_edges[0]
                 path_execs.append(None)
-                print(node)
                 where_clause = ""
                 if len(node_info["predicates"]) > 0:
                     preds = " AND ".join(node_info["predicates"])
@@ -151,8 +160,11 @@ class WanderJoin():
                 exec_sql = FIRST_HOP_TMP.format(SELS = sels,
                                   TABLE = table,
                                   WHERE = where_clause)
+                print("exec sql for trie: ", exec_sql)
                 cur_join_col = sg[join[0]][join[1]][join[1]]
                 other_col = sg[join[0]][join[1]][join[0]]
+                print("cur join col: ", cur_join_col)
+                print("other col: ", other_col)
 
                 trie_idx = None
                 for sel_i, sel in enumerate(node_info["sels"]):
@@ -160,14 +172,15 @@ class WanderJoin():
                         trie_idx = sel_i
                 assert trie_idx is not None
                 path_join_keys.append([other_col])
-
-                sql_key = deterministic_hash(exec_sql)
+                trie_key_name = node_info["sels"][trie_idx]
+                sql_key = deterministic_hash(exec_sql + trie_key_name)
                 if sql_key in self.trie_cache:
                     kl_start = time.time()
                     trie = self.trie_cache[sql_key]
-                    print("loaing trie {} from klepto took: {}".format(
+                    print("loading trie {} from in memory klepto took: {}".format(
                         node, time.time()-kl_start))
                 elif sql_key in self.trie_cache.archive:
+                    # trie = None
                     kl_start = time.time()
                     trie = self.trie_cache.archive[sql_key]
                     print("loading trie {} from klepto took: {}".format(
@@ -186,19 +199,28 @@ class WanderJoin():
                     print("trie for {}, len: {}, took: {}".format(node,
                         len(outputs), trie_time))
                     self.total_trie_time += trie_time
-                    self.trie_cache[sql_key] = trie
-                    if trie_time > TRIE_ARCHIVE_THRESHOLD:
+
+                    if trie_time > TRIE_USE_THRESHOLD:
+                        trie = None
+                        self.trie_cache.archive[sql_key] = trie
+                    elif trie_time > TRIE_ARCHIVE_THRESHOLD \
+                        and trie_time < TRIE_USE_THRESHOLD:
                         self.trie_cache.archive[sql_key] = trie
 
+                # no matter what, store in memory cache so we avoid reloading
+                # it from archive in the next path
+                self.trie_cache[sql_key] = trie
                 path_tries.append(trie)
+                if trie is None:
+                    path_join_keys[-1] = None
             else:
-                if self.use_tries:
-                    path_tries.append(None)
+                path_tries.append(None)
+                path_join_keys.append(None)
+
+            if path_tries[-1] is None:
                 fkey_conds = []
                 cur_join_cols = []
                 index_cols = []
-
-                # for join in join_edges:
 
                 join = join_edges[0]
                 assert node == join[1]
@@ -215,7 +237,9 @@ class WanderJoin():
                 cond = cur_col + " = " + other_col_key
                 fkey_conds.append(cond)
 
-                path_join_keys.append(cur_join_cols)
+                # path_join_keys.append(cur_join_cols)
+                assert path_join_keys[-1] is None
+                path_join_keys[-1] = cur_join_cols
                 assert len(fkey_conds) != 0
 
                 # FIXME: check math
@@ -229,7 +253,8 @@ class WanderJoin():
                 exec_sql = NEXT_HOP_TMP.format(FKEY_CONDS = fkey_cond,
                                                 TABLE = table,
                                                 SELS = sels)
-                path_execs.append(exec_sql)
+                assert path_execs[-1] is None
+                path_execs[-1] = exec_sql
 
         return path_execs, path_join_keys, path_tries
 
@@ -253,6 +278,7 @@ class WanderJoin():
                 cards = subset_graph.nodes()[tuple([node])]["cardinality"]
                 # TODO: we can also compute, and use true values here maybe?
                 node_sel = float(cards["total"]) - cards["expected"]
+
             node_selectivities[node] = node_sel
 
             edges = join_graph.edges(node)
@@ -409,12 +435,15 @@ class WanderJoin():
 
             nodes_seen.add(node)
 
-            if self.use_tries:
+            if self.use_tries and path_tries[i] is not None:
                 trie = path_tries[i]
                 prev_key = str(vals[path_join_keys[i][0]])
                 if prev_key not in trie:
                     return time.time()-start, pis
                 output = trie[prev_key]
+                # print("selected output, i: {}, node: {}, key: {}, len: {}".format(
+                    # i, node, prev_key,
+                    # len(output)))
             else:
                 # use tries here
                 exec_sql = path_execs[i]

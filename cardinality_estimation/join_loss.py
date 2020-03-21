@@ -383,10 +383,11 @@ class JoinLoss():
                 sql_key = deterministic_hash(sql)
                 # print("don't use opt cache!")
                 par_args.append((sql, true_cardinalities[i],
-                        est_cardinalities[i], opt_costs_cache[sql_key],
-                        opt_explains_cache[sql_key], opt_sqls_cache[sql_key],
-                        use_indexes, self.user, self.pwd, self.db_host,
-                        self.port, self.db_name))
+                        est_cardinalities[i], None,
+                        None, None, use_indexes, self.user, self.pwd,
+                        self.db_host, self.port,
+                        self.db_name))
+
                 # if sql_key in opt_costs_cache:
                     # # already know for the true cardinalities case
                     # par_args.append((sql, true_cardinalities[i],
