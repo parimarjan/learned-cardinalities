@@ -165,26 +165,29 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
     # can cache the results for it.
 
     cost_sql_key = deterministic_hash(cost_sql)
-    if cost_sql_key in sql_costs.archive:
-        est_cost, est_explain = sql_costs.archive[cost_sql_key]
+    if sql_costs is not None:
+        if cost_sql_key in sql_costs.archive:
+            est_cost, est_explain = sql_costs.archive[cost_sql_key]
+        else:
+            est_cost, est_explain = _get_cost(cost_sql, cursor)
+            sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
     else:
         est_cost, est_explain = _get_cost(cost_sql, cursor)
-        sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
 
-        debug_leading = get_leading_hint(join_graph, est_explain)
-        if debug_leading != leading_hint:
-            pass
-            # print(est_opt_sql)
-            # print("actual order:\n ", debug_leading)
-            # print("wanted order:\n ", leading_hint)
-            # print("est cost: ", est_cost)
-            # pdb.set_trace()
+    debug_leading = get_leading_hint(join_graph, est_explain)
+    if debug_leading != leading_hint:
+        pass
+        # print(est_opt_sql)
+        # print("actual order:\n ", debug_leading)
+        # print("wanted order:\n ", leading_hint)
+        # print("est cost: ", est_cost)
+        # pdb.set_trace()
 
     return exec_sql, est_cost, est_explain
 
 def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         est_cardinalities, opt_costs, opt_explains, opt_sqls,
-        use_indexes, user, pwd, db_host, port, db_name):
+        use_indexes, user, pwd, db_host, port, db_name, use_archive):
     '''
     @query: str
     @true_cardinalities:
@@ -207,8 +210,11 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd, host=db_host)
 
-    sql_costs_archive = klepto.archives.dir_archive("/tmp/sql_costs",
-            cached=True, serialized=True)
+    if use_archive:
+        sql_costs_archive = klepto.archives.dir_archive("/tmp/sql_costs",
+                cached=True, serialized=True)
+    else:
+        sql_costs_archive = None
 
     cursor = con.cursor()
     cursor.execute("LOAD 'pg_hint_plan';")
@@ -241,7 +247,7 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         if opt_costs[i] is None:
             opt_sql, opt_cost, opt_explain = get_cardinalities_join_cost(query,
                     true_cardinalities[i], true_cardinalities[i],
-                    join_graphs[i], cursor)
+                    join_graphs[i], cursor, sql_costs_archive)
             opt_sqls[i] = opt_sql
             opt_costs[i] = opt_cost
             opt_explains[i] = opt_explain
@@ -252,16 +258,11 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
             # pdb.set_trace()
             est_cost = opt_costs[i]
 
-        # est_sqls.append(est_sql)
-        # est_costs.append(est_cost)
-        # est_explains.append(est_explain)
         ret.append((est_cost, opt_costs[i], est_explain, opt_explains[i],
             est_sql, opt_sqls[i]))
 
     cursor.close()
     con.close()
-    # assert len(est_costs) == len(opt_costs)
-    # return est_costs, opt_costs, est_explains, opt_explains, est_sqls, opt_sqls
     return ret
 
 class JoinLoss():
@@ -273,30 +274,8 @@ class JoinLoss():
         self.port = port
         self.db_name = db_name
 
-        # self.sql_cost_cache_fn = "/tmp/sql_cost.pkl"
-        # if os.path.isfile(self.sql_cost_cache_fn):
-            # with open(self.sql_cost_cache_fn, 'rb') as handle:
-                # self.sql_cost_cache = pickle.load(handle)
-        # else:
-            # # key: sql_key, vals: (cost, explain)
-            # self.sql_cost_cache = {}
-
-        self.opt_cache_fn = "/tmp/opt_cache.pkl"
-        if os.path.isfile(self.opt_cache_fn):
-            with open(self.opt_cache_fn, 'rb') as handle:
-                self.opt_cache = pickle.load(handle)
-        else:
-            # 0, 1 is for use_indexes or not
-            self.opt_cache = {}
-            self.opt_cache[0] = {}
-            self.opt_cache[1] = {}
-            self.opt_cache[0]["costs"] = {}
-            self.opt_cache[0]["explains"] = {}
-            self.opt_cache[0]["sqls"] = {}
-
-            self.opt_cache[1]["costs"] = {}
-            self.opt_cache[1]["explains"] = {}
-            self.opt_cache[1]["sqls"] = {}
+        self.opt_archive = klepto.archives.dir_archive("/tmp/opt_archive",
+                cached=True, serialized=True)
 
     def compute_join_order_loss(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, baseline_join_alg, use_indexes,
@@ -343,27 +322,21 @@ class JoinLoss():
             use_indexes = 1
         else:
             use_indexes = 0
-        opt_costs_cache = self.opt_cache[use_indexes]["costs"]
-        opt_sqls_cache = self.opt_cache[use_indexes]["sqls"]
-        opt_explains_cache = self.opt_cache[use_indexes]["explains"]
 
         for i, sql in enumerate(sqls):
-            sql_key = deterministic_hash(sql)
-            if sql_key in opt_costs_cache:
-                opt_costs[i] = opt_costs_cache[sql_key]
-                opt_explains[i] = opt_explains_cache[sql_key]
-                opt_sqls[i] = opt_sqls_cache[sql_key]
+            sql_key = deterministic_hash(sql) + use_indexes
+            if sql_key in self.opt_archive.archive:
+                (opt_costs[i], opt_explains[i], opt_sqls[i]) = \
+                        self.opt_cache.archive[sql_key]
 
         if pool is None:
-            # single threaded case for debugging
-            assert False
-            costs = []
-            for i, sql in enumerate(sqls):
-                costs.append(compute_join_order_loss_pg_single(sql,
-                    join_graphs[i], true_cardinalities[i], est_cardinalities[i],
-                    None, None, None, use_indexes, self.user,
-                    self.pwd, self.db_host, self.port,
-                    self.db_name))
+            # single threaded case, useful for debugging
+            all_costs = [compute_join_order_loss_pg_single(sqls, join_graphs,
+                    true_cardinalities, est_cardinalities, opt_costs,
+                    opt_explains, opt_sqls, use_indexes, self.user,
+                    self.pwd, self.db_host, self.port, self.db_name, False)]
+            batch_size = len(sqls)
+
         else:
             num_processes = pool._processes
             batch_size = max(1, math.ceil(len(sqls) / num_processes))
@@ -380,7 +353,7 @@ class JoinLoss():
                     opt_explains[start_idx:end_idx],
                     opt_sqls[start_idx:end_idx],
                     use_indexes, self.user, self.pwd, self.db_host,
-                    self.port, self.db_name))
+                    self.port, self.db_name, True))
 
             all_costs = pool.starmap(compute_join_order_loss_pg_single, par_args)
 
@@ -391,9 +364,6 @@ class JoinLoss():
                         in enumerate(costs):
                 sql = sqls[start_idx + i]
                 sql_key = deterministic_hash(sql)
-                # est_costs.append(est)
-                # est_explains.append(est_explain)
-                # est_sqls.append(est_sql)
 
                 est_costs[start_idx+i] = est
                 est_explains[start_idx+i] = est_explain
@@ -401,20 +371,12 @@ class JoinLoss():
                 opt_costs[start_idx+i] = opt
                 opt_explains[start_idx+i] = opt_explains
                 opt_sqls[start_idx+i] = opt_sql
-                # opt_costs.append(opt)
-                # opt_explains.append(opt_explain)
-                # opt_sqls.append(opt_sql)
 
-                if sql_key not in opt_costs_cache:
-                    opt_costs_cache[sql_key] = opt
-                    opt_explains_cache[sql_key] = opt_explain
-                    opt_sqls_cache[sql_key] = opt_sql
-                    new_seen = True
-
-        if new_seen:
-            with open(self.opt_cache_fn, 'wb') as handle:
-                pickle.dump(self.opt_cache, handle,
-                        protocol=pickle.HIGHEST_PROTOCOL)
+                # pool is None used when computing subquery priorities,
+                # archiving all those is too expensive..
+                if sql_key not in self.opt_archive.archive \
+                        and pool is not None:
+                    self.opt_archive.archive[sql_key] = (opt, opt_explain, opt_sql)
 
         return np.array(est_costs), np.array(opt_costs), est_explains, \
     opt_explains, est_sqls, opt_sqls

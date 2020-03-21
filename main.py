@@ -69,6 +69,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                num_last = args.avg_jl_num_last,
                 join_loss_data_file = args.join_loss_data_file,
                 train_card_key = args.train_card_key,
                 exp_prefix = args.exp_prefix,
@@ -91,8 +92,6 @@ def get_alg(alg):
                     adaptive_lr=args.adaptive_lr,
                     # rel_qerr_loss=args.rel_qerr_loss,
                     clip_gradient=args.clip_gradient,
-                    # baseline=args.baseline_join_alg,
-                    # nn_results_dir = args.nn_results_dir,
                     loss_func = args.loss_func,
                     sampling_priority_type = args.sampling_priority_type,
                     sampling_priority_alpha = args.sampling_priority_alpha,
@@ -376,13 +375,15 @@ def read_flags():
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
-            default="./all_join_loss_data.pkl")
+            default=None)
     parser.add_argument("--exp_prefix", type=str, required=False,
             default="")
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
+    parser.add_argument("--avg_jl_num_last", type=int, required=False,
+            default=50)
     parser.add_argument("--preload_features", type=int, required=False,
             default=1)
     parser.add_argument("--load_query_together", type=int, required=False,
@@ -474,9 +475,6 @@ def read_flags():
     parser.add_argument("--viz_fn", type=str,
             required=False, default="./test")
 
-    # parser.add_argument("--nn_results_dir", type=str, required=False,
-            # default="./nn_results")
-
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="adam")
     parser.add_argument("--net_name", type=str, required=False,
@@ -513,7 +511,7 @@ def read_flags():
     parser.add_argument("--random_seed", type=int, required=False,
             default=2112)
     parser.add_argument("--test", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--avg_factor", type=int, required=False,
             default=1)
     parser.add_argument("--test_size", type=float, required=False,
@@ -523,7 +521,7 @@ def read_flags():
     parser.add_argument("--losses", type=str, required=False,
             default="qerr,join-loss", help="comma separated list of loss names")
     parser.add_argument("--result_dir", type=str, required=False,
-            default="./new_results/")
+            default="./results/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,
             default="EXHAUSTIVE")
     parser.add_argument("--db_file_name", type=str, required=False,

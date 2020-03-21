@@ -70,7 +70,7 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
         aliases = tuple(aliases)
         subgraph = qrep["join_graph"].subgraph(aliases)
         sql = nx_graph_to_query(subgraph)
-        return sql
+        return sql, subgraph
 
     def handle_subtree(plan_tree, cur_node, cur_jerr):
         successors = list(plan_tree.successors(cur_node))
@@ -82,23 +82,23 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
         right = successors[1]
         left_aliases = plan_tree.nodes()[left]["aliases"]
         right_aliases = plan_tree.nodes()[right]["aliases"]
-        left_sql = get_sql(left_aliases)
-        right_sql = get_sql(right_aliases)
+        left_sql, left_sg = get_sql(left_aliases)
+        right_sql, right_sg = get_sql(right_aliases)
         left_total_cost = plan_tree.nodes()[left]["Total Cost"]
         right_total_cost = plan_tree.nodes()[right]["Total Cost"]
 
         if len(left_aliases) >= 3:
             (left_est_costs, left_opt_costs,_,_,_,_) = \
-                    join_loss_pg([left_sql], [true_cards], [est_cards], env, use_indexes,
-                            None, 1)
+                    join_loss_pg([left_sql], [left_sg], [true_cards],
+                            [est_cards], env, use_indexes, None, 1)
             left_jerr = left_est_costs[0] - left_opt_costs[0]
         else:
             left_jerr = 0.0
 
         if len(right_aliases) >= 3:
             (right_est_costs, right_opt_costs,_,_,_,_) = \
-                    join_loss_pg([right_sql], [true_cards], [est_cards], env, use_indexes,
-                            None, 1)
+                    join_loss_pg([right_sql], [right_sg], [true_cards],
+                            [est_cards], env, use_indexes, None, 1)
             right_jerr = right_est_costs[0] - right_opt_costs[0]
         else:
             right_jerr = 0.00
@@ -128,9 +128,13 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
 
     subpriorities = np.zeros(len(qrep["subset_graph"].nodes()))
 
+    ## FIXME: what is a good initial priority?
     # give everyone the initial priority
     for i, _ in enumerate(qrep["subset_graph"].nodes()):
         subpriorities[i] = jerr
+
+    for i, _ in enumerate(qrep["subset_graph"].nodes()):
+        subpriorities[i] = 0
 
     # add sub-jerr priorities to the ones that are included in them - might at
     # most double it
@@ -142,6 +146,11 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
 
     # TODO: normalize subpriorities
     subpriorities /= 1000000
+
+    ## make sure it sums to jerr
+    # subpriorities += 1
+    # subpriorities /= np.sum(subpriorities)
+    # subpriorities *= jerr
 
     return subpriorities
 
@@ -252,6 +261,10 @@ class NN(CardinalityEstimationAlg):
             self.__setattr__(k, val)
         if self.exp_prefix != "":
             self.exp_prefix += "-"
+        if self.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+            self.wj_times = get_wj_times_dict(self.train_card_key)
+        else:
+            self.wj_times = None
 
         self.start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
@@ -687,12 +700,11 @@ class NN(CardinalityEstimationAlg):
         priorities = np.power(priorities, self.sampling_priority_alpha)
         priorities = self._normalize_priorities(priorities)
 
-        NUM_LAST = 4
         if self.avg_jl_priority:
             self.past_priorities.append(priorities)
             if len(self.past_priorities) > 1:
                 new_priorities = np.zeros(len(priorities))
-                num_past = min(NUM_LAST, len(self.past_priorities))
+                num_past = min(self.num_last, len(self.past_priorities))
                 for i in range(1,num_past+1):
                     new_priorities += self.past_priorities[-i]
                 priorities = self._normalize_priorities(new_priorities)
@@ -735,7 +747,15 @@ class NN(CardinalityEstimationAlg):
                     est_sel = pred[idx]
                     est_card = est_sel*cards["total"]
                 ests[alias_key] = est_card
-                trues[alias_key] = cards[true_card_key]
+                if self.wj_times is not None:
+                    ck = "wanderjoin-" + str(self.wj_times[sample["template_name"]])
+                    true_val = cards[ck]
+                    if true_val == 0:
+                        true_val = cards["expected"]
+                else:
+                    true_val = cards[true_card_key]
+                trues[alias_key] = true_val
+
             est_cardinalities.append(ests)
             true_cardinalities.append(trues)
             query_idx += len(sample["subset_graph"].nodes())
@@ -908,8 +928,11 @@ class NN(CardinalityEstimationAlg):
 
                     jerr_ratio = est_costs / opt_costs
                     jerr = est_costs - opt_costs
-                    self.save_join_loss_stats(jerr, est_plans,
-                            self.training_samples, "train")
+                    # don't do this if train_card_key is not actual, as this
+                    # does not reflect real join loss
+                    if self.train_card_key == "actual":
+                        self.save_join_loss_stats(jerr, est_plans,
+                                self.training_samples, "train")
 
                     print("epoch: {}, jerr_ratio: {}, jerr: {}, time: {}"\
                             .format(self.epoch,
