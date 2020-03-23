@@ -108,6 +108,7 @@ class QueryDataset(data.Dataset):
             else:
                 cur_pred_features = self.db.get_pred_features(info["pred_cols"][0],
                         info["pred_vals"][0], info["pred_types"][0], pg_est)
+
             if self.heuristic_features:
                 assert cur_pred_features[-1] == 0.00
                 cur_pred_features[-1] = pg_sel
@@ -195,6 +196,7 @@ class QueryDataset(data.Dataset):
             for nodes in node_names:
                 info = qrep["subset_graph"].nodes()[nodes]
                 pg_est = info["cardinality"]["expected"]
+                # pg_est = info["cardinality"]["actual"]
                 if self.wj_times is not None:
                     ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
                     true_val = info["cardinality"][ck]

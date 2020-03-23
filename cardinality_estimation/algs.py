@@ -119,6 +119,10 @@ class Postgres(CardinalityEstimationAlg):
                     est = true_card
                 else:
                     est = info["cardinality"]["expected"]
+                    # if "expected" in info["cardinality"]:
+                        # est = info["cardinality"]["expected"]
+                    # else:
+                        # est = info["cardinality"]["actual"]
                 pred_dict[(alias_key)] = est
             preds.append(pred_dict)
         return preds

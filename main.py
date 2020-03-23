@@ -229,15 +229,24 @@ def main():
         skipped = 0
 
         for qfn in qfns:
+            if ".pkl" not in qfn:
+                continue
             qrep = load_sql_rep(qfn)
             zero_query = False
             for _,info in qrep["subset_graph"].nodes().items():
 
+                if "cardinality" not in info:
+                    zero_query = True
+                    break
                 # if args.train_card_key not in info["cardinality"]:
                     # zero_query = True
                     # break
 
                 if "actual" not in info["cardinality"]:
+                    zero_query = True
+                    break
+
+                if "expected" not in info["cardinality"]:
                     zero_query = True
                     break
 
@@ -262,9 +271,9 @@ def main():
                         break
 
                 # just so everyone is forced to use the wj template queries
-                if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
-                    zero_query = True
-                    break
+                # if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
+                    # zero_query = True
+                    # break
 
             if zero_query:
                 skipped += 1

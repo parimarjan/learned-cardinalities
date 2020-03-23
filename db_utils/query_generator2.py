@@ -3,6 +3,7 @@ import pdb
 from nltk.tokenize import word_tokenize
 import pygtrie
 
+ILIKE_PRED_FMT = "'%{ILIKE_PRED}%'"
 class QueryGenerator2():
     '''
     Generates sql queries based on a template.
@@ -19,8 +20,11 @@ class QueryGenerator2():
         self.base_sql = query_template["base_sql"]["sql"]
         self.templates = query_template["templates"]
         self.sampling_outputs = {}
+        self.ilike_output_size = {}
+        self.bad_sqls = []
+        self.trie_archive = klepto.archives.dir_archive("./qgen_tries/",
+                cached=True, serialized=True)
 
-        # tune-able params
         self.max_in_vals = 15
 
     def _update_preds_range(self, sql, column, key, pred_val):
@@ -34,7 +38,6 @@ class QueryGenerator2():
 
     def _generate_sql(self, pred_vals):
         '''
-        @sql: string.
         '''
         sql = self.base_sql
         # for each group, select appropriate predicates
@@ -46,6 +49,15 @@ class QueryGenerator2():
             sql = sql.replace(key, val)
 
         return sql
+
+    def _update_sql_ilike(self, ilike_filter, pred_group, pred_vals):
+        columns = pred_group["columns"]
+        assert len(columns) == 1
+        key = pred_group["keys"][0]
+        pred_type = pred_group["pred_type"]
+
+        pred_str = columns[0] + " " + pred_type + " " + ilike_filter
+        pred_vals[key] = pred_str
 
     def _update_sql_in(self, samples, pred_group, pred_vals):
         '''
@@ -115,7 +127,6 @@ class QueryGenerator2():
             if "multi" in pred_group:
                 # multiple predicate conditions, choose any one
                 pred_group = random.choice(pred_group["multi"])
-
             if "sql" in pred_group["type"]:
                 # cur_sql will be the sql used to sample for this predicate
                 # value
@@ -134,30 +145,52 @@ class QueryGenerator2():
                 if cur_key in self.sampling_outputs:
                     output = self.sampling_outputs[cur_key]
                 else:
+                    if cur_sql in self.bad_sqls:
+                        return None
+
                     output, _ = cached_execute_query(cur_sql, self.user,
                             self.db_host, self.port, self.pwd, self.db_name,
                             100, "./qgen_cache", None)
                     if pred_group["pred_type"].lower() == "ilike":
-                        print("going to tokenize all words")
-                        tokens = []
-                        for out in output:
-                            cur_tokens = word_tokenize(out[0].lower())
-                            if len(cur_tokens) > 15:
-                                print("too many tokens in column: ",
-                                        pred_group["columns"][0])
-                                return None
-                            tokens += cur_tokens
+                        cur_sql_key = deterministic_hash(cur_sql)
+                        if cur_sql_key in self.trie_archive.archive:
+                            print(cur_sql)
+                            print("found in archive")
+                            trie = self.trie_archive.archive[cur_sql_key]
+                        else:
+                            print("going to tokenize: ", cur_sql)
+                            tokens = []
+                            for out in output:
+                                if out[0] is None:
+                                    continue
+                                cur_tokens = word_tokenize(out[0].lower())
+                                if len(cur_tokens) > 150:
+                                    print("too many tokens in column: ",
+                                            pred_group["columns"][0], pred_vals)
+                                    self.bad_sqls.append(cur_sql)
+                                    return None
+                                tokens += cur_tokens
 
-                        print("going to make a trie..")
-                        trie = pygtrie.CharTrie()
-                        for token in tokens:
-                            if token in trie:
-                                trie[token] += 1
-                            else:
-                                trie[token] = 1
+                            print("going to make a trie..")
+                            trie = pygtrie.CharTrie()
+                            for token in tokens:
+                                if token in trie:
+                                    trie[token] += 1
+                                else:
+                                    trie[token] = 1
+                            self.trie_archive.archive[cur_sql_key] = trie
 
                         self.sampling_outputs[cur_key] = trie
-                        pdb.set_trace()
+
+                        output_keys = []
+                        weights = []
+                        for k,v in trie.items():
+                            output_keys.append(k)
+                            weights.append(v)
+
+                        self.ilike_output_size[cur_key] = (output_keys, weights)
+
+                        output = trie
                     else:
                         self.sampling_outputs[cur_key] = output
 
@@ -195,8 +228,93 @@ class QueryGenerator2():
                                 pred_group, pred_vals)
 
                 elif pred_group["pred_type"].lower() == "ilike":
-                    print(samples)
-                    pdb.set_trace()
+                    assert isinstance(output, pygtrie.CharTrie)
+
+                    # Note: the trie will only provide a lower-bound on the
+                    # number of matches, since ILIKE predicates would also
+                    # consider substrings. But this seems to be enough for our
+                    # purposes, as we will avoid queries that zero out
+                    output_keys, weights = self.ilike_output_size[cur_key]
+                    if len(output_keys) <= 1:
+                        return None
+
+                    # choose min_target, max_target for regex matches.
+                    if "thresholds" in pred_group:
+                        threshs = pred_group["thresholds"]
+                        idx = random.randint(0, len(threshs)-1)
+                        min_target = threshs[idx]
+                        if idx+1 == len(threshs):
+                            max_target = 100000000000
+                        else:
+                            max_target = threshs[idx+1]
+                    else:
+                        if random.random() > 0.5:
+                            cur_partition = random.randint(0, pred_group["num_quantiles"]-1)
+                            min_percentile = 100.0 / pred_group["num_quantiles"] * cur_partition
+                            max_percentile = 100.0 / pred_group["num_quantiles"] * (cur_partition+1)
+                            min_target = max(pred_group["min_count"],
+                                    np.percentile(weights, min_percentile))
+                            max_target = np.percentile(weights, max_percentile)
+                        else:
+                            num_rows = sum(weights)
+                            partition_size = num_rows / pred_group["num_quantiles"]
+                            cur_partition = random.randint(0, pred_group["num_quantiles"]-1)
+                            min_target = max(pred_group["min_count"],
+                                    cur_partition*partition_size)
+                            max_target = (cur_partition+1)*partition_size
+
+                            cur_partition = random.randint(0, pred_group["num_quantiles"]-1)
+
+                            min_percentile = 100.0 / pred_group["num_quantiles"] * cur_partition
+                            max_percentile = 100.0 / pred_group["num_quantiles"] * (cur_partition+1)
+                            min_target = max(pred_group["min_count"],
+                                    np.percentile(weights, min_percentile))
+                            max_target = np.percentile(weights, max_percentile)
+
+                    if min_target > max_target:
+                        print("min target {} > max target {}".format(min_target,
+                                    max_target))
+                        return None
+
+                    print("col: {}, min: {}, max: {}".format(pred_group["columns"],
+                        min_target, max_target))
+
+                    ilike_pred = None
+                    for i in range(1000):
+                        i += 1
+                        if i % 1000 == 0:
+                            print(i)
+                        if i % 2 == 0:
+                            # just choose randomly, more likely to find
+                            # relevant one
+                            key = random.choice(output_keys)
+                        else:
+                            key = random.choices(population=output_keys,
+                                    weights=weights, k=1)[0]
+                        if len(key) < pred_group["min_chars"]:
+                            continue
+
+                        max_filter_len = min(len(key), pred_group["max_chars"])
+                        num_chars = random.randint(pred_group["min_chars"],
+                                max_filter_len)
+                        ilike_pred = key[0:num_chars]
+                        est_size = sum(output[ilike_pred:])
+                        if est_size > min_target and est_size < max_target:
+                            break
+                        else:
+                            ilike_pred = None
+
+                    if ilike_pred is None:
+                        # print("did not find an appropriate predicate for ",
+                                # pred_group["columns"])
+                        return None
+                    else:
+                        print("col: {}, filter: {}, est size: {}".format(
+                            pred_group["columns"][0], ilike_pred, est_size))
+                    ilike_pred = ilike_pred.replace("'","")
+
+                    ilike_filter = ILIKE_PRED_FMT.format(ILIKE_PRED = ilike_pred)
+                    self._update_sql_ilike(ilike_filter, pred_group, pred_vals)
                 else:
                     assert False
 
@@ -280,8 +398,11 @@ class QueryGenerator2():
                 query_str = self._gen_query_str(template["predicates"])
                 if query_str is not None:
                     all_query_strs.append(query_str)
+                    print(query_str)
+                    # pdb.set_trace()
                 else:
-                    print("query str was None")
+                    pass
+                    # print("query str was None")
 
         print("{} took {} seconds to generate".format(len(all_query_strs),
             time.time()-start))

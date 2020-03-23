@@ -32,7 +32,7 @@ EXCEPTION_COUNT_CONSTANT = 150001000002
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
 
-DEBUG_CHECK_TIMES = True
+DEBUG_CHECK_TIMES = False
 CONF_ALPHA = 0.99
 
 def read_flags():
@@ -180,7 +180,11 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     site_cj = 0
     query_exec_times = []
 
-    for subqi, (subset, info) in enumerate(qrep["subset_graph"].nodes().items()):
+    node_list = list(qrep["subset_graph"].nodes())
+    node_list.sort(reverse=True, key = lambda x: len(x))
+    # for subqi, (subset, info) in enumerate(qrep["subset_graph"].nodes().items()):
+    for subqi, subset in enumerate(node_list):
+        info = qrep["subset_graph"].nodes()[subset]
         if "cardinality" not in info:
             info["cardinality"] = {}
         if "exec_time" not in info:
@@ -206,10 +210,14 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         if key_name in cards \
                 and not DEBUG_CHECK_TIMES:
+            if key_name == "actual":
+                if cards[key_name] == 0:
+                    # don't want to get cardinalities for zero queries
+                    break
+
             if not (sampling_percentage is not None and \
                     cards[key_name] >= TIMEOUT_COUNT_CONSTANT):
                 existing += 1
-                print("key name already in cards")
                 continue
 
         if card_type == "pg":
@@ -264,6 +272,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             cards[key_name] = card
             execs[key_name] = exec_time
             query_exec_times.append(exec_time)
+            if card == 0:
+                # bad times...
+                break
 
         elif card_type == "wanderjoin":
             assert "SELECT" in subsql

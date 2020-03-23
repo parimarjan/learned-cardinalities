@@ -76,6 +76,8 @@ def get_alg_name(exp_args):
         # if not exp_args["heuristic_features"]:
             # name += "-no_heuristic"
         return name
+    elif exp_args["algs"] == "sampling":
+        return exp_args["sampling_key"]
     else:
         return exp_args["algs"]
 

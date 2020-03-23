@@ -201,8 +201,6 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         val:
             float
     '''
-    # FIXME: do this earlier for each query...
-
     try:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd)
@@ -254,8 +252,6 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
 
         # FIXME: temporary
         if est_cost < opt_costs[i]:
-            # print(est_cost, opt_cost, opt_cost - est_cost)
-            # pdb.set_trace()
             est_cost = opt_costs[i]
 
         ret.append((est_cost, opt_costs[i], est_explain, opt_explains[i],
@@ -310,7 +306,6 @@ class JoinLoss():
 
     def _compute_join_order_loss_pg(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, num_processes, use_indexes, pool):
-
         est_costs = [None]*len(sqls)
         opt_costs = [None]*len(sqls)
         est_explains = [None]*len(sqls)
