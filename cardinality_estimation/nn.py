@@ -344,7 +344,7 @@ class NN(CardinalityEstimationAlg):
             if self.load_query_together:
                 assert False
             net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
-                    self.hidden_layer_size)
+                    self.hidden_layer_size, dropout= self.dropout)
         else:
             assert False
 
@@ -603,6 +603,9 @@ class NN(CardinalityEstimationAlg):
     def periodic_eval(self, samples_type):
         pred, Y = self.eval_samples(samples_type)
         losses = self.loss(pred, Y).detach().numpy()
+        # FIXME: self.loss could be various loss functions, like mse, but we care
+        # about observing how the q-error is evolving
+
         loss_avg = round(np.sum(losses) / len(losses), 6)
         # TODO: better print, use self.cur_stats and print after evals
         print("""{}: {}, N: {}, qerr: {}""".format(
@@ -651,7 +654,8 @@ class NN(CardinalityEstimationAlg):
                     print("not recalculating join loss for training")
                     return
                 print("recalculating join loss")
-
+            print("going to calculate join loss")
+            print(self.epoch, self.eval_epoch_jerr)
             # if priority on, then stats will be saved when calculating
             # priority
             jl_eval_start = time.time()

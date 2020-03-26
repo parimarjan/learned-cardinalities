@@ -84,8 +84,8 @@ def get_alg_name(exp_args):
 def skip_exp(exp_args):
     if exp_args["sampling_priority_alpha"] > 2.00:
         return True
-    if exp_args["max_discrete_featurizing_buckets"] > 10:
-        return True
+    # if exp_args["max_discrete_featurizing_buckets"] > 10:
+        # return True
 
     return False
 

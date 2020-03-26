@@ -254,11 +254,18 @@ class DB():
                 num_buckets = min(self.max_discrete_featurizing_buckets,
                         col_info["num_values"])
                 regex_val = val[0].replace("%","")
-                pred_idx = deterministic_hash(regex_val) % num_buckets
-                preds_vector[pred_idx_start+pred_idx] = 1.00
+                # pred_idx = deterministic_hash(regex_val) % num_buckets
+                # preds_vector[pred_idx_start+pred_idx] = 1.00
                 for v in regex_val:
                     pred_idx = deterministic_hash(str(v)) % num_buckets
                     preds_vector[pred_idx_start+pred_idx] = 1.00
+
+                REGEX_USE_BIGRAMS = True
+                if REGEX_USE_BIGRAMS:
+                    for i,v in enumerate(regex_val):
+                        if i != len(regex_val)-1:
+                            pred_idx = deterministic_hash(v+regex_val[i+1]) % num_buckets
+                            preds_vector[pred_idx_start+pred_idx] = 1.00
 
                 preds_vector[pred_idx_start + num_buckets + 1] = len(regex_val)
                 if bool(re.search(r'\d', regex_val)):

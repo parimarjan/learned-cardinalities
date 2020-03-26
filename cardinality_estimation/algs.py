@@ -50,6 +50,12 @@ WJ_TIMES["5a"] = 0.1
 WJ_TIMES["6a"] = 1.0
 WJ_TIMES["7a"] = 10.0
 WJ_TIMES["8a"] = 5.0
+WJ_TIMES["9a"] = 5.0
+WJ_TIMES["9b"] = 5.0
+WJ_TIMES["10a"] = 5.0
+WJ_TIMES["11a"] = 5.0
+WJ_TIMES["11b"] = 5.0
+WJ_TIMES["3b"] = 5.0
 
 WJ_TIMES0 = {}
 WJ_TIMES0["1a"] = 0.12
@@ -62,6 +68,12 @@ WJ_TIMES0["5a"] = 0.05
 WJ_TIMES0["6a"] = 0.5
 WJ_TIMES0["7a"] = 5.0
 WJ_TIMES0["8a"] = 2.5
+WJ_TIMES0["9a"] = 5.0
+WJ_TIMES0["9b"] = 5.0
+WJ_TIMES0["10a"] = 5.0
+WJ_TIMES0["11a"] = 5.0
+WJ_TIMES0["11b"] = 5.0
+WJ_TIMES0["3b"] = 5.0
 
 def get_wj_times_dict(wj_key):
     if wj_key == "wanderjoin":

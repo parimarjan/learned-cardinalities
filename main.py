@@ -69,6 +69,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                dropout = args.dropout,
                 num_last = args.avg_jl_num_last,
                 join_loss_data_file = args.join_loss_data_file,
                 train_card_key = args.train_card_key,
@@ -176,7 +177,7 @@ def main():
     # TODO: stop using klepto
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
-    db_key = deterministic_hash("db-" + args.query_templates)
+    db_key = deterministic_hash("db-" + args.query_directory + args.query_templates)
     found_db = db_key in misc_cache.archive
     # found_db = False
     if found_db:
@@ -205,9 +206,9 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-            if "7a" in template_name:
-                print("skipping template 7a")
-                continue
+        # if "7a" in template_name:
+            # print("skipping template 7a")
+            # continue
 
         start = time.time()
         # loading, or generating samples
@@ -283,7 +284,8 @@ def main():
             qrep["template_name"] = template_name
             samples.append(qrep)
 
-        if len(samples) == 0:
+        # if len(samples) == 0:
+        if len(samples) < 10:
             continue
 
         print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
@@ -457,6 +459,8 @@ def read_flags():
             required=False, default=0.001)
     parser.add_argument("--clip_gradient", type=float,
             required=False, default=10.0)
+    parser.add_argument("--dropout", type=float,
+            required=False, default=0.0)
     parser.add_argument("--rel_qerr_loss", type=int,
             required=False, default=0)
     parser.add_argument("--rel_jloss", type=int,
