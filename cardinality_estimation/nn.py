@@ -347,9 +347,23 @@ class NN(CardinalityEstimationAlg):
                     self.min_val = card
 
     def init_groups(self, num_groups):
-        groups = [[]]*num_groups
+        groups = []
+        for i in range(num_groups):
+            groups.append([])
 
-        self.max_tables / num_groups
+        tables_per_group = math.floor(self.max_tables / num_groups)
+        for i in range(num_groups):
+            start = i*tables_per_group
+            for j in range(start,start+tables_per_group,1):
+                groups[i].append(j+1)
+
+        if j+1 < self.max_tables+1:
+            for i in range(j+1,self.max_tables,1):
+                print(i+1)
+                groups[-1].append(i+1)
+
+        print("nn groups: ", groups)
+        return groups
 
     def _init_net(self, net_name, optimizer_name, sample):
         if net_name == "FCNN":
@@ -804,7 +818,7 @@ class NN(CardinalityEstimationAlg):
         if self.tfboard:
             self.initialize_tfboard()
         # model is always small enough that it runs fast w/o using many cores
-        torch.set_num_threads(1)
+        torch.set_num_threads(2)
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
                 max_discrete_featurizing_buckets =
@@ -812,8 +826,7 @@ class NN(CardinalityEstimationAlg):
                 heuristic_features = self.heuristic_features)
 
         self.init_stats(training_samples)
-        self.init_groups(self.num_groups)
-        # self.groups = self.init_groups(self.num_groups, training_samples)
+        self.groups = self.init_groups(self.num_groups)
 
         if self.normalization_type == "mscn":
             y = np.array(get_all_cardinalities(training_samples))
@@ -837,6 +850,7 @@ class NN(CardinalityEstimationAlg):
                 min_val = self.min_val,
                 max_val = self.max_val,
                 card_key = self.train_card_key)
+
         self.training_samples = training_samples
         if self.featurization_scheme == "combined":
             if self.load_query_together:
@@ -846,6 +860,34 @@ class NN(CardinalityEstimationAlg):
         else:
             self.num_features = len(training_set[0][0]) + \
                     len(training_set[0][1]) + len(training_set[0][2])
+
+        if self.priority_normalize_type == "paths1":
+            subw_start = time.time()
+            subquery_rel_weights = np.zeros(len(training_set))
+            qidx = 0
+            template_weights = {}
+            for sample in training_samples:
+                subsetg = sample["subset_graph"]
+                node_list = list(subsetg.nodes())
+                node_list.sort(key = lambda v: len(v))
+                dest = node_list[-1]
+                node_list.sort()
+                cur_weights = np.zeros(len(node_list))
+                if sample["template_name"] in template_weights:
+                    cur_weights = sample["template_name"]
+                else:
+                    for i, node in enumerate(node_list):
+                        all_paths = nx.all_simple_paths(subsetg, dest, node)
+                        num_paths = len(list(all_paths))
+                        cur_weights[i] = num_paths
+                    cur_weights = cur_weights / sum(cur_weights)
+                    assert np.abs(sum(cur_weights) - 1.0) < 0.001
+                    template_weights[sample["template_name"]] = cur_weights
+
+                subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
+
+                qidx += len(node_list)
+            print("subquery weights scalculated in: ", time.time()-subw_start)
 
         if self.loss_func == "cm_fcnn":
             inp_len = len(training_samples[0]["subset_graph"].nodes())
@@ -915,6 +957,7 @@ class NN(CardinalityEstimationAlg):
 
         # TODO: initialize self.num_features
         self.init_nets(training_set[0])
+
         model_size = self.num_parameters()
         print("""training samples: {}, feature length: {}, model size: {},
         max_discrete_buckets: {}, hidden_layer_size: {}""".\
@@ -973,12 +1016,18 @@ class NN(CardinalityEstimationAlg):
                         else:
                             sq_weight = jerr_ratio[si]
 
-                        if self.priority_err_divide_len:
+                        if self.priority_normalize_type == "div":
                             sq_weight /= len(sample["subset_graph"].nodes())
+                        elif self.priority_normalize_type == "paths1":
+                            pass
 
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight
+
                         query_idx += len(sample["subset_graph"].nodes())
+
+                    if self.priority_normalize_type == "paths1":
+                        weights *= subquery_rel_weights
 
                 elif self.sampling_priority_type == "subquery":
                     pr_start = time.time()
@@ -1038,6 +1087,7 @@ class NN(CardinalityEstimationAlg):
                     assert False
 
                 weights = self._update_sampling_weights(weights)
+
                 weights = torch.DoubleTensor(weights)
                 sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
                         num_samples=len(weights))

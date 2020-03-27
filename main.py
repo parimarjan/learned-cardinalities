@@ -78,7 +78,8 @@ def get_alg(alg):
                 load_query_together = args.load_query_together,
                 result_dir = args.result_dir,
                 priority_err_type = args.priority_err_type,
-                priority_err_divide_len = args.priority_err_divide_len,
+                # priority_err_divide_len = args.priority_err_divide_len,
+                priority_normalize_type = args.priority_normalize_type,
                 tfboard = args.tfboard,
                 jl_indexes = args.jl_indexes,
                 normalization_type = args.normalization_type,
@@ -418,8 +419,11 @@ def read_flags():
             default=-1)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
-    parser.add_argument("--priority_err_divide_len", type=int, required=False,
-            default=0)
+    parser.add_argument("--priority_normalize_type", type=str, required=False,
+            default="")
+
+    # parser.add_argument("--priority_err_divide_len", type=int, required=False,
+            # default=0)
     # parser.add_argument("--update_subq_cards", type=int, required=False,
             # default=0)
     # parser.add_argument("--update_subq_preds", type=int, required=False,
