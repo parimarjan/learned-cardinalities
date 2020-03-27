@@ -275,6 +275,7 @@ class NN(CardinalityEstimationAlg):
             self.mb_size = 1
         else:
             self.mb_size = 2500
+
         if self.nn_type == "microsoft":
             self.featurization_scheme = "combined"
         elif self.nn_type == "num_tables":
@@ -299,9 +300,9 @@ class NN(CardinalityEstimationAlg):
         else:
             assert False
 
-        self.net = None
-        self.optimizer = None
-        self.scheduler = None
+        # self.net = None
+        # self.optimizer = None
+        # self.scheduler = None
 
         # each element is a list of priorities
         self.past_priorities = []
@@ -329,6 +330,26 @@ class NN(CardinalityEstimationAlg):
 
         self.query_stats = defaultdict(list)
         self.query_qerr_stats = defaultdict(list)
+
+    def init_stats(self, samples):
+        self.max_tables = 0
+        self.max_val = 0
+        self.min_val = 100000
+
+        for sample in samples:
+            for node, info in sample["subset_graph"].nodes().items():
+                if len(node) > self.max_tables:
+                    self.max_tables = len(node)
+                card = info["cardinality"]["actual"]
+                if card > self.max_val:
+                    self.max_val = card
+                if card < self.min_val:
+                    self.min_val = card
+
+    def init_groups(self, num_groups):
+        groups = [[]]*num_groups
+
+        self.max_tables / num_groups
 
     def _init_net(self, net_name, optimizer_name, sample):
         if net_name == "FCNN":
@@ -383,20 +404,21 @@ class NN(CardinalityEstimationAlg):
 
     def init_nets(self, sample):
         # TODO: num_tables version, need have multiple neural nets
-        if self.nn_type == "num_tables":
-            self.nets = {}
-            self.optimizers = {}
-            self.schedulers = {}
-            for num_table in self.train_num_table_mapping:
-                num_table = self._map_num_tables(num_table)
-                if num_table not in self.nets:
-                    net, opt, scheduler = self._init_net(self.net_name,
-                            self.optimizer_name, sample)
-                    self.nets[num_table] = net
-                    self.optimizers[num_table] = opt
-                    self.schedulers[num_table] = scheduler
-            print("initialized {} nets for num_tables version".format(len(self.nets)))
-        elif self.nn_type == "mscn":
+        # if self.nn_type == "num_tables":
+            # self.nets = {}
+            # self.optimizers = {}
+            # self.schedulers = {}
+            # for num_table in self.train_num_table_mapping:
+                # num_table = self._map_num_tables(num_table)
+                # if num_table not in self.nets:
+                    # net, opt, scheduler = self._init_net(self.net_name,
+                            # self.optimizer_name, sample)
+                    # self.nets[num_table] = net
+                    # self.optimizers[num_table] = opt
+                    # self.schedulers[num_table] = scheduler
+            # print("initialized {} nets for num_tables version".format(len(self.nets)))
+
+        if self.nn_type == "mscn":
             self.net, self.optimizer, self.scheduler = \
                     self._init_net("SetConv", self.optimizer_name, sample)
         else:
@@ -776,22 +798,22 @@ class NN(CardinalityEstimationAlg):
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None, join_loss_pool = None):
         assert isinstance(training_samples[0], dict)
-        if not self.nn_type == "num_tables":
-            self.num_threads = multiprocessing.cpu_count()
-        else:
-            self.num_threads = multiprocessing.cpu_count()
 
         self.join_loss_pool = join_loss_pool
 
         if self.tfboard:
             self.initialize_tfboard()
         # model is always small enough that it runs fast w/o using many cores
-        torch.set_num_threads(2)
+        torch.set_num_threads(1)
         self.db = db
         db.init_featurizer(num_tables_feature = self.num_tables_feature,
                 max_discrete_featurizing_buckets =
                 self.max_discrete_featurizing_buckets,
                 heuristic_features = self.heuristic_features)
+
+        self.init_stats(training_samples)
+        self.init_groups(self.num_groups)
+        # self.groups = self.init_groups(self.num_groups, training_samples)
 
         if self.normalization_type == "mscn":
             y = np.array(get_all_cardinalities(training_samples))
@@ -840,6 +862,7 @@ class NN(CardinalityEstimationAlg):
             weights = torch.DoubleTensor([weight]*len(training_set))
             sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
                     num_samples=len(weights))
+            # shuffle has to be False if we're using a weighted sampler
             self.training_loader = data.DataLoader(training_set,
                     batch_size=self.mb_size, shuffle=False, num_workers=0,
                     sampler = sampler)

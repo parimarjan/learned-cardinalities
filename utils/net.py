@@ -153,7 +153,7 @@ class SetConv(nn.Module):
     def forward(self, samples, predicates, joins):
 
         hid_sample = self.sample_mlp1(samples)
-        hid_sample = self.drop_layer(hid_sample)
+        # hid_sample = self.drop_layer(hid_sample)
         hid_sample = self.sample_mlp2(hid_sample)
 
         hid_predicate = self.predicate_mlp1(predicates)
@@ -161,13 +161,13 @@ class SetConv(nn.Module):
         hid_predicate = self.predicate_mlp2(hid_predicate)
 
         hid_join = self.join_mlp1(joins)
-        hid_join = self.drop_layer(hid_join)
+        # hid_join = self.drop_layer(hid_join)
         hid_join = self.join_mlp2(hid_join)
 
         hid = torch.cat((hid_sample, hid_predicate, hid_join), 1)
 
         hid = self.out_mlp1(hid)
-        hid = self.drop_layer(hid)
+        # hid = self.drop_layer(hid)
         out = self.out_mlp2(hid)
 
         return out

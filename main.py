@@ -69,6 +69,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                num_groups = args.num_groups,
                 dropout = args.dropout,
                 num_last = args.avg_jl_num_last,
                 join_loss_data_file = args.join_loss_data_file,
@@ -394,7 +395,7 @@ def read_flags():
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
     parser.add_argument("--avg_jl_num_last", type=int, required=False,
-            default=50)
+            default=4)
     parser.add_argument("--preload_features", type=int, required=False,
             default=1)
     parser.add_argument("--load_query_together", type=int, required=False,
@@ -402,16 +403,13 @@ def read_flags():
     parser.add_argument("--normalization_type", type=str, required=False,
             default="pg_total_selectivity")
 
-    parser.add_argument("--num_tables_model", type=str, required=False,
-            default="nn")
     parser.add_argument("--nn_weights_init_pg", type=int, required=False,
             default=0)
     parser.add_argument("--single_threaded_nt", type=int, required=False,
             default=0)
-    parser.add_argument("--reuse_env", type=int, required=False,
-            default=1)
     parser.add_argument("--num_tables_feature", type=int, required=False,
             default=1)
+
     parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
             default=1)
     parser.add_argument("--heuristic_features", type=int, required=False,
@@ -471,6 +469,12 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
             required=False, default="mscn")
+    parser.add_argument("--num_groups", type=int, required=False,
+            default=1, help="""number of groups we divide the input space in.
+            If we have at most M tables in a query, and N groups, then each
+            group will have samples with M/N tables. e.g., N = 2, M=14,
+            samples with 1...7 tables will be in group 1, and rest in group 2.
+            """)
 
     parser.add_argument("--priority_err_type", type=str, required=False,
             default = "jerr", help="jerr or jratio")
