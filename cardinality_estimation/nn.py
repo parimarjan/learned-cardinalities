@@ -985,7 +985,7 @@ class NN(CardinalityEstimationAlg):
                 node_list.sort()
                 cur_weights = np.zeros(len(node_list))
                 if sample["template_name"] in template_weights:
-                    cur_weights = sample["template_name"]
+                    cur_weights = template_weights[sample["template_name"]]
                 else:
                     for i, node in enumerate(node_list):
                         all_paths = nx.all_simple_paths(subsetg, dest, node)
