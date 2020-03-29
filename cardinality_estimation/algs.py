@@ -517,7 +517,7 @@ def rel_loss(pred, ytrue, avg=True):
         error = errors
     return error
 
-def qloss(yhat, ytrue, avg=True):
+def qloss(yhat, ytrue):
     '''
     numpy version.
     '''
@@ -528,12 +528,7 @@ def qloss(yhat, ytrue, avg=True):
 
     # TODO: check this
     errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
-    if avg:
-        error = np.sum(errors) / len(yhat)
-    else:
-        return errors
-
-    return error
+    return errors
 
 def qloss_torch(yhat, ytrue):
     assert yhat.shape == ytrue.shape

@@ -40,6 +40,12 @@ import gc
 from cardinality_estimation.query_dataset import QueryDataset
 from torch.utils import data
 from cardinality_estimation.join_loss import JoinLoss
+from torch.multiprocessing import Pool as Pool2
+import torch.multiprocessing as mp
+try:
+    mp.set_start_method("spawn")
+except:
+    pass
 
 SUBQUERY_JERR_THRESHOLD = 100000
 PERCENTILES_TO_SAVE = [1,5,10,25, 50, 75, 90, 95, 99]
@@ -60,6 +66,38 @@ def fcnn_loss(net, use_qloss=False):
         else:
             return jloss
     return f
+
+def single_train_combined_net(net, optimizer, loader, loss_fn,
+        clip_gradient, load_query_together=False):
+    for idx, (xbatch, ybatch,_) in enumerate(loader):
+        # TODO: add handling for num_tables
+        if load_query_together:
+            # update the batches
+            xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
+                    xbatch.shape[2])
+            ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+
+        pred = net(xbatch).squeeze(1)
+        losses = loss_fn(pred, ybatch)
+        loss = losses.sum() / len(losses)
+        optimizer.zero_grad()
+        loss.backward()
+        if clip_gradient is not None:
+            clip_grad_norm_(net.parameters(), clip_gradient)
+        optimizer.step()
+
+def single_train_mscn(net, optimizer, loader, loss_fn,
+        clip_gradient, load_query_together=False):
+    assert not load_query_together
+    for idx, (tbatch, pbatch, jbatch, ybatch,_) in enumerate(loader):
+        pred = net(tbatch,pbatch,jbatch).squeeze(1)
+        losses = loss_fn(pred, ybatch)
+        loss = losses.sum() / len(losses)
+        optimizer.zero_grad()
+        loss.backward()
+        if clip_gradient is not None:
+            clip_grad_norm_(net.parameters(), clip_gradient)
+        optimizer.step()
 
 def compute_subquery_priorities(qrep, true_cards, est_cards,
         explain, jerr, env, use_indexes=True):
@@ -265,6 +303,8 @@ class NN(CardinalityEstimationAlg):
             self.wj_times = get_wj_times_dict(self.train_card_key)
         else:
             self.wj_times = None
+        if self.load_query_together:
+            assert self.num_groups == 1
 
         self.start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
@@ -300,9 +340,9 @@ class NN(CardinalityEstimationAlg):
         else:
             assert False
 
-        # self.net = None
-        # self.optimizer = None
-        # self.scheduler = None
+        self.nets = []
+        self.optimizers = []
+        self.schedulers = []
 
         # each element is a list of priorities
         self.past_priorities = []
@@ -335,9 +375,11 @@ class NN(CardinalityEstimationAlg):
         self.max_tables = 0
         self.max_val = 0
         self.min_val = 100000
+        self.total_training_samples = 0
 
         for sample in samples:
             for node, info in sample["subset_graph"].nodes().items():
+                self.total_training_samples += 1
                 if len(node) > self.max_tables:
                     self.max_tables = len(node)
                 card = info["cardinality"]["actual"]
@@ -417,70 +459,113 @@ class NN(CardinalityEstimationAlg):
         return net, optimizer, scheduler
 
     def init_nets(self, sample):
-        # TODO: num_tables version, need have multiple neural nets
-        # if self.nn_type == "num_tables":
-            # self.nets = {}
-            # self.optimizers = {}
-            # self.schedulers = {}
-            # for num_table in self.train_num_table_mapping:
-                # num_table = self._map_num_tables(num_table)
-                # if num_table not in self.nets:
-                    # net, opt, scheduler = self._init_net(self.net_name,
-                            # self.optimizer_name, sample)
-                    # self.nets[num_table] = net
-                    # self.optimizers[num_table] = opt
-                    # self.schedulers[num_table] = scheduler
-            # print("initialized {} nets for num_tables version".format(len(self.nets)))
+        for i in range(len(self.groups)):
+            if self.nn_type == "mscn":
+                net, optimizer, scheduler = \
+                        self._init_net("SetConv", self.optimizer_name, sample)
+            else:
+                net, optimizer, scheduler = \
+                        self._init_net(self.net_name, self.optimizer_name, sample)
+            self.nets.append(net)
+            self.optimizers.append(optimizer)
+            self.schedulers.append(scheduler)
 
-        if self.nn_type == "mscn":
-            self.net, self.optimizer, self.scheduler = \
-                    self._init_net("SetConv", self.optimizer_name, sample)
+        print("initialized {} nets for num_tables version".format(len(self.nets)))
+        assert len(self.nets) == len(self.groups)
+
+    def _eval_combined(self, net, loader):
+        tstart = time.time()
+        # TODO: set num threads, gradient off etc.
+        torch.set_grad_enabled(False)
+        all_preds = []
+        all_y = []
+        all_idxs = []
+
+        for idx, (xbatch, ybatch,info) in enumerate(loader):
+            pred = net(xbatch).squeeze(1)
+            all_preds.append(pred)
+            all_y.append(ybatch)
+            all_idxs.append(info["dataset_idx"])
+
+        pred = torch.cat(all_preds).detach().numpy()
+        y = torch.cat(all_y).detach().numpy()
+        all_idxs = torch.cat(all_idxs).detach().numpy()
+        return pred, y, all_idxs
+
+    def _eval_mscn(self, net, loader):
+        tstart = time.time()
+        # TODO: set num threads, gradient off etc.
+        torch.set_grad_enabled(False)
+        all_preds = []
+        all_y = []
+        all_idxs = []
+
+        for idx, (tbatch,pbatch,jbatch, ybatch,info) in enumerate(loader):
+            pred = net(tbatch,pbatch,jbatch).squeeze(1)
+            all_preds.append(pred)
+            all_y.append(ybatch)
+            all_idxs.append(info["dataset_idx"])
+
+        pred = torch.cat(all_preds).detach().numpy()
+        y = torch.cat(all_y).detach().numpy()
+        all_idxs = torch.cat(all_idxs).detach().numpy()
+        return pred, y, all_idxs
+
+    def _eval_loaders(self, loaders):
+        if len(loaders) == 1:
+            # could also reduce this to the second case, but we don't need to
+            # reindex stuff here, so might as well avoid it
+            net = self.nets[0]
+            loader = loaders[0]
+            if self.featurization_scheme == "combined":
+                res = self._eval_combined(net, loader)
+            elif self.featurization_scheme == "mscn":
+                res = self._eval_mscn(net, loader)
+
+            pred = to_variable(res[0]).float()
+            y = to_variable(res[1]).float()
         else:
-            self.net, self.optimizer, self.scheduler = \
-                    self._init_net(self.net_name, self.optimizer_name, sample)
+            # in this case, we need to fix indexes after the evaluation
+            res = []
+            for i, loader in enumerate(loaders):
+                if self.featurization_scheme == "combined":
+                    res.append(self._eval_combined(self.nets[i], loader))
+                elif self.featurization_scheme == "mscn":
+                    res.append(self._eval_mscn(self.nets[i], loader))
 
-    def _eval_combined(self, loader):
-        all_preds = []
-        all_y = []
+            # FIXME: this can be faster
+            idxs = [r[2] for r in res]
+            all_preds = [r[0] for r in res]
+            all_ys = [r[1] for r in res]
+            idxs = np.concatenate(idxs)
+            all_preds = np.concatenate(all_preds)
+            all_ys = np.concatenate(all_ys)
+            max_idx = np.max(idxs)
+            assert len(idxs) == max_idx+1
 
-        for idx, (xbatch, ybatch,_) in enumerate(loader):
-            if self.load_query_together:
-                # update the batches
-                xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
-                        xbatch.shape[2])
-                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+            pred = np.zeros(len(idxs))
+            y = np.zeros(len(idxs))
+            for i, val in enumerate(all_preds):
+                pred[idxs[i]] = val
+                y[idxs[i]] = all_ys[i]
+            pred = to_variable(pred).float()
+            y = to_variable(y).float()
 
-            pred = self.net(xbatch).squeeze(1)
-            all_preds.append(pred)
-            all_y.append(ybatch)
-        pred = torch.cat(all_preds)
-        y = torch.cat(all_y)
         return pred,y
 
-    def _eval_mscn(self, loader):
-        all_preds = []
-        all_y = []
-        for idx, (tbatch,pbatch,jbatch, ybatch,_) in enumerate(loader):
-            pred = self.net(tbatch,pbatch,jbatch).squeeze(1)
-            all_preds.append(pred)
-            all_y.append(ybatch)
-        pred = torch.cat(all_preds)
-        y = torch.cat(all_y)
-        return pred,y
-
-    def _eval_samples(self, loader):
+    def _eval_samples(self, loaders):
+        '''
+        @ret: numpy arrays
+        '''
         # don't need to compute gradients, saves a lot of memory
         torch.set_grad_enabled(False)
-        if self.featurization_scheme == "combined":
-            ret = self._eval_combined(loader)
-        elif self.featurization_scheme == "mscn":
-            ret = self._eval_mscn(loader)
+        ret = self._eval_loaders(loaders)
         torch.set_grad_enabled(True)
         return ret
 
     def eval_samples(self, samples_type):
-        loader = self.eval_loaders[samples_type]
-        return self._eval_samples(loader)
+        loaders = self.eval_loaders[samples_type]
+        return self._eval_samples(loaders)
 
     def add_row(self, losses, loss_type, epoch, template,
             num_tables, samples_type):
@@ -550,61 +635,47 @@ class NN(CardinalityEstimationAlg):
             params = sum([np.prod(p.size()) for p in model_parameters])
             # convert to MB
             return params*4 / 1e6
+        num_params = 0
+        for net in self.nets:
+            num_params += _calc_size(net)
 
-        if self.nn_type == "num_tables":
-            num_params = 0
-            for _,net in self.nets.items():
-                num_params += _calc_size(net)
-        else:
-            num_params = _calc_size(self.net)
         return num_params
 
-    def _train_combined_net(self):
-        for idx, (xbatch, ybatch,_) in enumerate(self.training_loader):
+    def _single_train_combined_net_cm(self, net, optimizer, loader):
+        assert self.load_query_together
+        for idx, (xbatch, ybatch,_) in enumerate(loader):
             # TODO: add handling for num_tables
-            if self.load_query_together:
-                # update the batches
-                xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
-                        xbatch.shape[2])
-                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
-
-            pred = self.net(xbatch).squeeze(1)
-            if self.loss_func == "cm_fcnn":
-                loss = self.cm_loss(pred, ybatch)
-                assert len(loss) == 1
-                self.optimizer.zero_grad()
-                loss.backward()
-                if self.clip_gradient is not None:
-                    clip_grad_norm_(self.net.parameters(), self.clip_gradient)
-                self.optimizer.step()
-            else:
-                losses = self.loss(pred, ybatch)
-                loss = losses.sum() / len(losses)
-                self.optimizer.zero_grad()
-                loss.backward()
-                if self.clip_gradient is not None:
-                    clip_grad_norm_(self.net.parameters(), self.clip_gradient)
-                self.optimizer.step()
-
-    def _train_mscn(self):
-        for idx, (tbatch, pbatch, jbatch, ybatch,_) in enumerate(self.training_loader):
-            # TODO: add handling for num_tables
-            pred = self.net(tbatch,pbatch,jbatch).squeeze(1)
-            losses = self.loss(pred, ybatch)
-            loss = losses.sum() / len(losses)
-            self.optimizer.zero_grad()
+            xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
+                    xbatch.shape[2])
+            ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+            pred = net(xbatch).squeeze(1)
+            loss = self.cm_loss(pred, ybatch)
+            assert len(loss) == 1
+            optimizer.zero_grad()
             loss.backward()
             if self.clip_gradient is not None:
                 clip_grad_norm_(self.net.parameters(), self.clip_gradient)
             self.optimizer.step()
+            optimizer.step()
 
     def train_one_epoch(self):
-        if self.featurization_scheme == "combined":
-            self._train_combined_net()
-        elif self.featurization_scheme == "mscn":
-            self._train_mscn()
-        else:
-            assert False
+        if self.loss_func == "cm_fcnn":
+            assert len(self.nets) == 1
+            self._single_train_combined_net_cm(self.nets[0], self.optimizers[0],
+                    self.training_loaders[0])
+
+        for i, net in enumerate(self.nets):
+            opt = self.optimizers[i]
+            loader = self.training_loaders[i]
+
+            if self.featurization_scheme == "combined":
+                single_train_combined_net(net, opt, loader, self.loss,
+                        self.clip_gradient, self.load_query_together)
+            elif self.featurization_scheme == "mscn":
+                single_train_mscn(net, opt, loader, self.loss,
+                        self.clip_gradient, self.load_query_together)
+            else:
+                assert False
 
     def save_join_loss_stats(self, join_losses, est_plans, samples,
             samples_type):
@@ -809,6 +880,38 @@ class NN(CardinalityEstimationAlg):
         self.tf_summary_writer = tf_summary.create_file_writer(log_dir)
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
 
+    def init_dataset(self, samples, shuffle, batch_size,
+            weighted=False):
+        training_sets = []
+        training_loaders = []
+        for i in range(len(self.groups)):
+            training_sets.append(QueryDataset(samples, self.db,
+                    self.featurization_scheme, self.heuristic_features,
+                    self.preload_features, self.normalization_type,
+                    self.load_query_together,
+                    min_val = self.min_val,
+                    max_val = self.max_val,
+                    card_key = self.train_card_key,
+                    group = self.groups[i]))
+            if not weighted:
+                training_loaders.append(data.DataLoader(training_sets[i],
+                        batch_size=batch_size, shuffle=shuffle, num_workers=0))
+            else:
+                weight = 1 / len(training_sets[i])
+                weights = torch.DoubleTensor([weight]*len(training_sets[i]))
+                sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
+                        num_samples=len(weights))
+                training_loader = data.DataLoader(training_sets[i],
+                        batch_size=self.mb_size, shuffle=False, num_workers=0,
+                        sampler = sampler)
+                training_loaders.append(training_loader)
+                # priority_loader = data.DataLoader(training_set,
+                        # batch_size=25000, shuffle=False, num_workers=0)
+
+        assert len(training_sets) == len(self.groups) == len(training_loaders)
+        return training_sets, training_loaders
+
+
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None, join_loss_pool = None):
         assert isinstance(training_samples[0], dict)
@@ -843,23 +946,31 @@ class NN(CardinalityEstimationAlg):
         self.env = JoinLoss(self.db.user, self.db.pwd, self.db.db_host,
                 self.db.port, self.db.db_name)
 
-        training_set = QueryDataset(training_samples, db,
-                self.featurization_scheme, self.heuristic_features,
-                self.preload_features, self.normalization_type,
-                self.load_query_together,
-                min_val = self.min_val,
-                max_val = self.max_val,
-                card_key = self.train_card_key)
-
         self.training_samples = training_samples
+        if self.sampling_priority_alpha > 0.00:
+            training_sets, self.training_loaders = self.init_dataset(training_samples,
+                                    False, self.mb_size, weighted=True)
+            priority_loaders = []
+            for i, ds in enumerate(self.training_sets):
+                priority_loaders.append(data.dataloader(ds,
+                        batch_size=25000, shuffle=False, num_workers=0))
+        else:
+            training_sets, self.training_loaders = self.init_dataset(training_samples,
+                                    True, self.mb_size, weighted=False)
+
+        assert len(self.training_loaders) == len(self.groups)
+
         if self.featurization_scheme == "combined":
             if self.load_query_together:
-                self.num_features = len(training_set[0][0][0])
+                self.num_features = len(training_sets[0][0][0][0])
             else:
-                self.num_features = len(training_set[0][0])
+                self.num_features = len(training_sets[0][0][0])
+                if len(self.groups) == 1:
+                    assert self.total_training_samples == len(training_sets[0])
         else:
-            self.num_features = len(training_set[0][0]) + \
-                    len(training_set[0][1]) + len(training_set[0][2])
+            self.num_features = len(training_sets[0][0][0]) + \
+                    len(training_sets[0][0][1]) + len(training_sets[0][0][2])
+
 
         if self.priority_normalize_type == "paths1":
             subw_start = time.time()
@@ -887,7 +998,7 @@ class NN(CardinalityEstimationAlg):
                 subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
 
                 qidx += len(node_list)
-            print("subquery weights scalculated in: ", time.time()-subw_start)
+            print("subquery weights calculate in: ", time.time()-subw_start)
 
         if self.loss_func == "cm_fcnn":
             inp_len = len(training_samples[0]["subset_graph"].nodes())
@@ -895,24 +1006,6 @@ class NN(CardinalityEstimationAlg):
                     # num_hidden_layers=1)
             fcnn_net = torch.load("./cm_fcnn.pt")
             self.cm_loss = fcnn_loss(fcnn_net)
-
-        # TODO: only for priority case, this should be updated after every
-        # epoch
-        if self.sampling_priority_alpha > 0.00:
-            # start with uniform weight
-            weight = 1 / len(training_set)
-            weights = torch.DoubleTensor([weight]*len(training_set))
-            sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
-                    num_samples=len(weights))
-            # shuffle has to be False if we're using a weighted sampler
-            self.training_loader = data.DataLoader(training_set,
-                    batch_size=self.mb_size, shuffle=False, num_workers=0,
-                    sampler = sampler)
-            priority_loader = data.DataLoader(training_set,
-                    batch_size=25000, shuffle=False, num_workers=0)
-        else:
-            self.training_loader = data.DataLoader(training_set,
-                    batch_size=self.mb_size, shuffle=True, num_workers=0)
 
         # evaluation set, smaller
         self.samples = {}
@@ -927,41 +1020,30 @@ class NN(CardinalityEstimationAlg):
         eval_training_samples = random.sample(training_samples,
                 int(len(training_samples) / eval_samples_size_divider))
         self.samples["train"] = eval_training_samples
-        eval_train_set = QueryDataset(eval_training_samples, db,
-                self.featurization_scheme, self.heuristic_features,
-                self.preload_features, self.normalization_type,
-                self.load_query_together,
-                min_val = self.min_val,
-                max_val = self.max_val)
-        eval_train_loader = data.DataLoader(eval_train_set,
-                batch_size=10000, shuffle=False,num_workers=0)
-        self.eval_loaders["train"] = eval_train_loader
+
+        eval_train_sets, eval_train_loaders = \
+                self.init_dataset(eval_training_samples, False, 10000, weighted=False)
+
+        self.eval_loaders["train"] = eval_train_loaders
 
         # TODO: add separate dataset, dataloaders for evaluation
         if test_samples is not None and len(test_samples) > 0:
             test_samples = random.sample(test_samples, int(len(test_samples) /
                     eval_samples_size_divider))
             self.samples["test"] = test_samples
-            # TODO: add test dataloader
-            test_set = QueryDataset(test_samples, db,
-                    self.featurization_scheme, self.heuristic_features,
-                    self.preload_features, self.normalization_type,
-                    self.load_query_together,
-                    min_val = self.min_val,
-                    max_val = self.max_val)
-            eval_test_loader = data.DataLoader(test_set,
-                    batch_size=10000, shuffle=False,num_workers=0)
-            self.eval_loaders["test"] = eval_test_loader
+            eval_test_sets, eval_test_loaders = \
+                    self.init_dataset(test_samples, False, 10000, weighted=False)
+            self.eval_loaders["test"] = eval_test_loaders
         else:
             self.samples["test"] = None
 
         # TODO: initialize self.num_features
-        self.init_nets(training_set[0])
+        self.init_nets(training_sets[0][0])
 
         model_size = self.num_parameters()
         print("""training samples: {}, feature length: {}, model size: {},
         max_discrete_buckets: {}, hidden_layer_size: {}""".\
-                format(len(training_set), self.num_features, model_size,
+                format(self.total_training_samples, self.num_features, model_size,
                     self.max_discrete_featurizing_buckets,
                     self.hidden_layer_size))
 
@@ -980,7 +1062,7 @@ class NN(CardinalityEstimationAlg):
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \
                             or self.epoch == self.prioritize_epoch):
-                pred, _ = self._eval_samples(priority_loader)
+                pred, _ = self._eval_samples(priority_loaders)
                 pred = pred.detach().numpy()
                 weights = np.zeros(len(training_set))
                 if self.sampling_priority_type == "query":
@@ -1099,19 +1181,14 @@ class NN(CardinalityEstimationAlg):
         '''
         @test_samples: [] sql_representation dicts
         '''
-        dataset = QueryDataset(test_samples, self.db,
-                self.featurization_scheme, self.heuristic_features,
-                self.preload_features, self.normalization_type,
-                self.load_query_together,
-                min_val = self.min_val,
-                max_val = self.max_val)
-        loader = data.DataLoader(dataset,
-                batch_size=1000, shuffle=False,num_workers=0)
-        pred, y = self._eval_samples(loader)
+        datasets, loaders = \
+                self.init_dataset(test_samples, False, 10000, weighted=False)
+        pred, y = self._eval_samples(loaders)
         if self.preload_features:
-            del(dataset.X)
-            del(dataset.Y)
-            del(dataset.info)
+            for dataset in datasets:
+                del(dataset.X)
+                del(dataset.Y)
+                del(dataset.info)
         loss = self.loss(pred, y).detach().numpy()
         print("loss after test: ", np.mean(loss))
         pred = pred.detach().numpy()
