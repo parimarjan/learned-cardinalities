@@ -89,17 +89,35 @@ def get_subq_flows(qrep):
     qsolx = np.array(x.value)
     return qsolx
 
+EMBEDDING_OUTPUT = None
+def embedding_hook(module, input_, output):
+    global EMBEDDING_OUTPUT
+    EMBEDDING_OUTPUT = output
+
 def fcnn_loss(net, use_qloss=False):
-    def f(yhat,y):
+    def f2(yhat,y):
         inp = torch.cat((yhat,y))
         jloss = net(inp)
-        if use_qloss:
-            qlosses = qloss_torch(yhat,y)
-            qloss = sum(qlosses) / len(qlosses)
-            # return qloss + jloss
-            return (qloss / 100.0) + jloss
-        else:
-            return jloss
+        return jloss
+        # if use_qloss:
+            # qlosses = qloss_torch(yhat,y)
+            # qloss = sum(qlosses) / len(qlosses)
+            # # return qloss + jloss
+            # return (qloss / 100.0) + jloss
+        # else:
+            # return jloss
+
+    def f(yhat,y):
+        net.layer1.register_forward_hook(embedding_hook)
+        net(yhat)
+        yhat_embedding = EMBEDDING_OUTPUT
+        net(y)
+        y_embedding = EMBEDDING_OUTPUT
+        # jloss = torch.nn.MSELoss(reduction='mean')(y_embedding, yhat_embedding)
+        jloss = qloss_torch(y_embedding, yhat_embedding)
+        jloss = sum(jloss) / len(jloss)
+        return jloss
+
     return f
 
 def single_train_combined_net(net, optimizer, loader, loss_fn,

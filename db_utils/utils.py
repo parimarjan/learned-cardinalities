@@ -20,10 +20,13 @@ from sqlparse.tokens import Keyword, DML
 
 import networkx as nx
 from networkx.drawing.nx_agraph import write_dot,graphviz_layout
-import matplotlib
-matplotlib.use('Agg')
+# import matplotlib
+# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
+# from matplotlib.backends.backend_pdf import PdfPages
+from networkx.drawing.nx_agraph import graphviz_layout, to_agraph
+from networkx.algorithms import bipartite
+from IPython.display import Image, display
 
 from sql_rep.utils import extract_from_clause, extract_join_clause, \
         extract_join_graph, get_pg_join_order, nx_graph_to_query
@@ -177,76 +180,6 @@ def get_leading_hint(explain):
     jo = "(" + jo + ")"
     return jo
 
-# def get_leading_hint(join_graph, explain):
-    # '''
-    # Ryan's implementation.
-    # '''
-    # def __extract_jo(plan):
-        # if plan["Node Type"] in join_types:
-            # left = list(extract_aliases(plan["Plans"][0], jg=join_graph))
-            # right = list(extract_aliases(plan["Plans"][1], jg=join_graph))
-
-            # if len(left) == 1 and len(right) == 1:
-                # left_alias = left[0][left[0].lower().find(" as ")+4:]
-                # right_alias = right[0][right[0].lower().find(" as ")+4:]
-                # return left_alias +  " " + right_alias
-
-            # if len(left) == 1:
-                # left_alias = left[0][left[0].lower().find(" as ")+4:]
-                # return left_alias + " (" + __extract_jo(plan["Plans"][1]) + ")"
-
-            # if len(right) == 1:
-                # right_alias = right[0][right[0].lower().find(" as ")+4:]
-                # return "(" + __extract_jo(plan["Plans"][0]) + ") " + right_alias
-
-            # return ("(" + __extract_jo(plan["Plans"][0])
-                    # + ") ("
-                    # + __extract_jo(plan["Plans"][1]) + ")")
-
-        # return __extract_jo(plan["Plans"][0])
-
-    # jo = __extract_jo(explain[0][0][0]["Plan"])
-    # jo = "(" + jo + ")"
-    # return PG_HINT_LEADING_TMP.format(JOIN_ORDER = jo)
-
-# def get_pg_join_order(join_graph, explain):
-    # '''
-    # Ryan's implementation.
-    # '''
-    # physical_join_ops = {}
-    # def __extract_jo(plan):
-        # if plan["Node Type"] in join_types:
-            # left = list(extract_aliases(plan["Plans"][0]))
-            # right = list(extract_aliases(plan["Plans"][1]))
-            # all_froms = left + right
-            # all_nodes = []
-            # for from_clause in all_froms:
-                # from_alias = from_clause[from_clause.find(" as ")+4:]
-                # if "_info" in from_alias:
-                    # print(from_alias)
-                    # pdb.set_trace()
-                # all_nodes.append(from_alias)
-            # all_nodes.sort()
-            # all_nodes = " ".join(all_nodes)
-            # physical_join_ops[all_nodes] = plan["Node Type"]
-
-            # if len(left) == 1 and len(right) == 1:
-                # return left[0] +  " CROSS JOIN " + right[0]
-
-            # if len(left) == 1:
-                # return left[0] + " CROSS JOIN (" + __extract_jo(plan["Plans"][1]) + ")"
-
-            # if len(right) == 1:
-                # return "(" + __extract_jo(plan["Plans"][0]) + ") CROSS JOIN " + right[0]
-
-            # return ("(" + __extract_jo(plan["Plans"][0])
-                    # + ") CROSS JOIN ("
-                    # + __extract_jo(plan["Plans"][1]) + ")")
-
-        # return __extract_jo(plan["Plans"][0])
-
-    # return __extract_jo(explain[0][0][0]["Plan"]), physical_join_ops
-
 def _plot_join_order_graph(G, base_table_nodes, join_nodes, pdf, title):
 
     def format_ints(num):
@@ -312,8 +245,8 @@ def _plot_join_order_graph(G, base_table_nodes, join_nodes, pdf, title):
 
     plt.tight_layout()
     # plt.savefig(fn)
-    pdf.savefig()
-    plt.close()
+    # pdf.savefig()
+    # plt.close()
 
 def explain_to_nx(explain):
     '''
@@ -436,6 +369,7 @@ def explain_to_nx(explain):
 def plot_explain_join_order(explain, true_cardinalities,
         est_cardinalities, pdf, title):
     '''
+    @true_cardinalities: dict for this particular explain
     '''
     G = explain_to_nx(explain)
     for node in G.nodes():
@@ -445,6 +379,9 @@ def plot_explain_join_order(explain, true_cardinalities,
         if card_key in true_cardinalities:
             G.nodes[node]["est_card"] = est_cardinalities[card_key]
             G.nodes[node]["true_card"] = true_cardinalities[card_key]
+        elif tuple(aliases) in true_cardinalities:
+            G.nodes[node]["est_card"] = est_cardinalities[tuple(aliases)]
+            G.nodes[node]["true_card"] = true_cardinalities[tuple(aliases)]
         else:
             # unknown, might be a cross-join?
             G.nodes[node]["est_card"] = CROSS_JOIN_CARD
@@ -1380,3 +1317,180 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     query = Query(sql, pred_columns, pred_vals, pred_types,
             true_val, total_count, pg_est)
     return query
+
+def draw_graph(g, highlight_nodes=set(), color_nodes={}, bold_edges=[],
+        save_to=None, node_attrs=[], node_shape="oval"):
+    '''
+    ryan's version.
+    '''
+    g = g.copy()
+    if highlight_nodes:
+        for n in g.nodes:
+            if n in highlight_nodes:
+                g.nodes[n]["style"] = "filled"
+                g.nodes[n]["fillcolor"] = "#FAED27"
+    elif color_nodes:
+        for n in g.nodes:
+            g.nodes[n]["style"] = "filled"
+            g.nodes[n]["fillcolor"] = color_nodes.get(n, "#FFFFFF")
+
+    if node_shape != "oval":
+        for n in g.nodes:
+            g.nodes[n]["shape"] = node_shape
+
+    if node_attrs:
+        for n in g.nodes:
+            label = f"{n}\n"
+            if len(node_attrs) == 1:
+                label += f"({g.nodes[n][node_attrs[0]]})"
+            else:
+                for attr in node_attrs:
+                    label += f"{attr}: {g.nodes[n][attr]}"
+            g.nodes[n]["label"] = label
+
+    if bold_edges:
+        for e in g.edges:
+            if e in bold_edges:
+                g.edges[e]["penwidth"] = "3"
+
+    A = to_agraph(g)
+    if save_to:
+        A.draw(save_to, prog="dot")
+
+    display(Image(A.draw(format="png", prog="dot")))
+
+
+def add_single_node_edges(subset_graph):
+    source = tuple("s")
+    subset_graph.add_node(source)
+    subset_graph.nodes()[source]["cardinality"] = {}
+    subset_graph.nodes()[source]["cardinality"]["actual"] = 1.0
+
+    for node in subset_graph.nodes():
+        if len(node) != 1:
+            continue
+        if node[0] == source[0]:
+            continue
+
+        # print("going to add edge from source to node: ", node)
+        subset_graph.add_edge(node, source, cost=0.0)
+        in_edges = subset_graph.in_edges(node)
+        out_edges = subset_graph.out_edges(node)
+        # print("in edges: ", in_edges)
+        # print("out edges: ", out_edges)
+
+        # if we need to add edges between single table nodes and rest
+        for node2 in subset_graph.nodes():
+            if len(node2) != 2:
+                continue
+            if node[0] in node2:
+                subset_graph.add_edge(node2, node)
+
+def compute_costs(subset_graph):
+    '''
+    @computes costs based on the MM1 cost model.
+    '''
+    NILJ_CONSTANT = 0.001
+    for edge in subset_graph.edges():
+        if len(edge[0]) == len(edge[1]):
+            assert edge[1] == tuple("s")
+            continue
+        assert len(edge[1]) < len(edge[0])
+        assert edge[1][0] in edge[0]
+        node1 = edge[1]
+        diff = set(edge[0]) - set(edge[1])
+        node2 = list(diff)
+        node2.sort()
+        node2 = tuple(node2)
+        assert node2 in subset_graph.nodes()
+        card1 = subset_graph.nodes()[node1]["cardinality"]
+        card2 = subset_graph.nodes()[node2]["cardinality"]
+
+        hash_join_cost = card1["actual"] + card2["actual"]
+        if len(node1) == 1:
+            nilj_cost = card2["actual"] + NILJ_CONSTANT*card1["actual"]
+        elif len(node2) == 1:
+            nilj_cost = card1["actual"] + NILJ_CONSTANT*card2["actual"]
+        else:
+            nilj_cost = 10000000000
+        cost = min(hash_join_cost, nilj_cost)
+        subset_graph[edge[0]][edge[1]]["cost"] = cost
+
+def construct_lp(subsetg):
+    '''
+    @ret:
+        list of node names
+        node_names : idx
+        edge_names : idx for the LP
+        A: |V| x |E| matrix
+        b: |V| matrix
+        where the edges
+    '''
+    node_dict = {}
+    edge_dict = {}
+    b = np.zeros(len(subsetg.nodes()))
+    A = np.zeros((len(subsetg.nodes()), len(subsetg.edges())))
+
+    nodes = list(subsetg.nodes())
+    nodes.sort()
+
+    # node with all tables is source, node with no tables is target
+    source_node = nodes[0]
+    for i, node in enumerate(nodes):
+        node_dict[node] = i
+        if len(node) > len(source_node):
+            source_node = node
+    target_node = tuple("s")
+    b[node_dict[source_node]] = 1
+    b[node_dict[target_node]] = -1
+
+    edges = list(subsetg.edges())
+    for i, edge in enumerate(edges):
+        edge_dict[edge] = i
+
+    for ni, node in enumerate(nodes):
+        # if node == target_node:
+            # print("setting target node constraints")
+            # in_edges = subsetg.in_edges(node)
+            # for edge in in_edges:
+                # idx = edge_dict[edge]
+                # assert A[ni,idx] == 0.00
+                # A[ni,idx] = 1
+            # continue
+        # elif node == source_node:
+            # print("setting source node constraints")
+            # assert node_dict[source_node] == ni
+            # out_edges = subsetg.out_edges(node)
+            # for edge in out_edges:
+                # idx = edge_dict[edge]
+                # assert A[ni,idx] == 0.00
+                # A[ni,idx] = +1
+            # continue
+
+        in_edges = subsetg.in_edges(node)
+        out_edges = subsetg.out_edges(node)
+        for edge in in_edges:
+            idx = edge_dict[edge]
+            assert A[ni,idx] == 0.00
+            A[ni,idx] = -1
+
+        for edge in out_edges:
+            idx = edge_dict[edge]
+            assert A[ni,idx] == 0.00
+            A[ni,idx] = 1
+
+    G = np.eye(len(edges))
+    G = -G
+    h = np.zeros(len(edges))
+    c = np.zeros(len(edges))
+    # find cost of each edge
+    for i, edge in enumerate(edges):
+        c[i] = subsetg[edge[0]][edge[1]]["cost"] / 10000
+
+    # print("going to rescale A matrix")
+    # for ni, node in enumerate(nodes):
+        # if sum(A[ni,:]) != 0:
+            # A[ni,:] /= sum(A[ni,:])
+
+    return edges, c, A, b, G, h
+

@@ -203,11 +203,15 @@ class QueryDataset(data.Dataset):
 
                 info = qrep["subset_graph"].nodes()[nodes]
                 pg_est = info["cardinality"]["expected"]
+                # true_val = info["cardinality"][self.card_key]
+                # if true_val == 0 or true_val == 1:
+                    # true_val = info["cardinality"]["actual"]
+                    # true_val = info["cardinality"]["expected"]
                 # pg_est = info["cardinality"]["actual"]
                 if self.wj_times is not None:
                     ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
                     true_val = info["cardinality"][ck]
-                    if true_val == 0:
+                    if true_val == 0 or true_val == 1:
                         true_val = info["cardinality"]["expected"]
                 else:
                     ck = self.card_key

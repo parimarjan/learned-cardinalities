@@ -67,18 +67,19 @@ class CostDataset(data.Dataset):
         Y = np.array(Y)
         if self.input_norm_type == 1:
             pass
-        elif self.input_norm_type == 2:
-            X = np.log(X)
-            X = (X - np.min(X)) / (np.max(X) - np.min(X))
+        # elif self.input_norm_type == 2:
+            # X = np.log(X)
+            # X = (X - np.min(X)) / (np.max(X) - np.min(X))
         elif self.input_norm_type == 3:
             X = (X - np.min(X, axis=0)) / (np.max(X, axis=0) - np.min(X, axis=0))
-        elif self.input_norm_type == 4:
-            X = np.log(X)
-            X = (X - np.mean(X)) / (np.std(X))
+        # elif self.input_norm_type == 4:
+            # X = np.log(X)
+            # X = (X - np.mean(X)) / (np.std(X))
         elif self.input_norm_type == 5:
             X = (X - np.mean(X, axis=0)) / (np.std(X, axis=0))
 
         # Y = (Y - np.min(Y)) / (np.max(Y) - np.min(Y))
+        Y = (Y - np.mean(Y, axis=0)) / (np.std(Y, axis=0))
         return to_variable(X).float(), to_variable(Y).float()
 
     def __len__(self):

@@ -243,6 +243,10 @@ def main():
             zero_query = False
             for _,info in qrep["subset_graph"].nodes().items():
 
+                if args.train_card_key not in info["cardinality"]:
+                    zero_query = True
+                    break
+
                 if "cardinality" not in info:
                     zero_query = True
                     break
@@ -512,7 +516,6 @@ def read_flags():
             group will have samples with M/N tables. e.g., N = 2, M=14,
             samples with 1...7 tables will be in group 1, and rest in group 2.
             """)
-
     parser.add_argument("--priority_err_type", type=str, required=False,
             default = "jerr", help="jerr or jratio")
     parser.add_argument("--avg_jl_priority", type=int, required=False,

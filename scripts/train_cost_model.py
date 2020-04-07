@@ -22,7 +22,7 @@ from metric_learn import LMNN, NCA
 def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--training_data_file", type=str, required=False,
-            default="./join_loss_data.pkl")
+            default="./join_loss_data/1a.pkl")
     parser.add_argument("--query_dir", type=str, required=False,
             default="./our_dataset/queries")
     parser.add_argument("--feat_type", type=str, required=False,
@@ -46,7 +46,7 @@ def read_flags():
     parser.add_argument("--input_feat_type", type=int, required=False,
             default=1)
     parser.add_argument("--input_norm_type", type=int, required=False,
-            default=2)
+            default=1)
     parser.add_argument("--test_while_training", type=int, required=False,
             default=0)
     parser.add_argument("--learn_type", type=str, required=False,
@@ -68,7 +68,7 @@ def main():
     assert len(mapping) != 0
     training_data = load_object(args.training_data_file)
     print(len(training_data["jloss"]), len(np.unique(training_data["jloss"])))
-    print(training_data.keys())
+    print("num queries: ", len(set(training_data["key"])))
     tr_keys, test_keys, tr_ests, test_ests, tr_costs, test_costs, tr_ratios, \
             test_ratios = \
             train_test_split(training_data["key"], training_data["est"],
@@ -95,17 +95,7 @@ def main():
             batch_size=10000, shuffle=False, num_workers=0)
 
     inp_len = len(train_dataset[0][0])
-
-    # nca = NCA(random_state=42)
-    # X = train_dataset.X
-    # Y = train_dataset.Y
-    # print("going to train metric learner...")
-    # # ...set init matrix...
-    # start = time.time()
-    # nca.fit(X, Y)
-    # print("metric learn fitted in: ", time.time() - start)
-
-    # pdb.set_trace()
+    print("inp len: ", inp_len)
 
     net = CostModelNet(inp_len, args.hidden_layer_multiple, 1,
             num_hidden_layers=args.num_hidden_layers)
@@ -142,7 +132,7 @@ def main():
                 # clip_grad_norm_(self.net.parameters(), args.clip_gradient)
             optimizer.step()
 
-    torch.save(net, "./cm_fcnn.pt")
+        torch.save(net, "./cm_fcnn.pt")
 
 if __name__ == "__main__":
     args = read_flags()
