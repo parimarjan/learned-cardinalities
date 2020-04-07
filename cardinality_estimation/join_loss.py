@@ -46,6 +46,8 @@ def _gen_pg_hint_cards(cards):
     '''
     card_str = ""
     for aliases, card in cards.items():
+        if isinstance(aliases, tuple):
+            aliases = " ".join(aliases)
         card_line = PG_HINT_CARD_TMP.format(TABLES = aliases,
                                             CARD = card)
         card_str += card_line
@@ -183,6 +185,55 @@ def _get_modified_sql(sql, cardinalities, join_ops,
     pg_hint_str = PG_HINT_CMNT_TMP.format(COMMENT=comment_str)
     sql = pg_hint_str + sql
     return sql
+
+def get_join_cost_sql(sql_order, true_cardinalities,
+        join_graph, use_indexes, user, pwd, db_host, port, db_name):
+    try:
+        con = pg.connect(port=port,dbname=db_name,
+                user=user,password=pwd)
+    except:
+        con = pg.connect(port=port,dbname=db_name,
+                user=user,password=pwd, host=db_host)
+
+    cursor = con.cursor()
+    cursor.execute("SET join_collapse_limit = {}".format(1))
+    cursor.execute("SET from_collapse_limit = {}".format(1))
+    # sql_order = "EXPLAIN " + sql_order
+    sql_order = " explain (format json) " + sql_order
+
+    cursor.execute(sql_order)
+    explain = cursor.fetchall()
+    est_join_order_sql, est_join_ops, scan_ops = get_pg_join_order(join_graph,
+            explain)
+    leading_hint = get_leading_hint(join_graph, explain)
+
+    cursor.execute("LOAD 'pg_hint_plan';")
+    cursor.execute("SET geqo_threshold = {}".format(MAX_JOINS))
+    # cursor.execute("SET join_collapse_limit = {}".format(MAX_JOINS))
+    # cursor.execute("SET from_collapse_limit = {}".format(MAX_JOINS))
+    if not use_indexes:
+        cursor.execute("SET enable_indexscan = off")
+        cursor.execute("SET enable_indexonlyscan = off")
+    else:
+        cursor.execute("SET enable_indexscan = on")
+        cursor.execute("SET enable_indexonlyscan = on")
+
+    est_opt_sql = nx_graph_to_query(join_graph,
+            from_clause=est_join_order_sql)
+
+    # add the join ops etc. information
+    cost_sql = _get_modified_sql(est_opt_sql, true_cardinalities,
+            None, leading_hint, None)
+
+    # exec_sql = _get_modified_sql(est_opt_sql, est_cardinalities,
+            # None, None, None)
+
+    est_cost, est_explain = _get_cost(cost_sql, cursor)
+    # debug_leading = get_leading_hint(join_graph, est_explain)
+
+    cursor.close()
+    con.close()
+    return cost_sql, est_cost, est_explain
 
 def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
         join_graph, use_indexes, user, pwd, db_host, port, db_name):

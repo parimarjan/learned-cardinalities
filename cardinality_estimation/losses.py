@@ -280,7 +280,6 @@ def save_join_loss_training_data(sqls, est_cardinalities,
     if jlosses_orig is not None:
         for k in jlosses.keys():
             jlosses[k] = jlosses_orig[k] + jlosses[k]
-        print("new len: ", len(jlosses[k]))
 
     save_object(jloss_fn, jlosses)
 

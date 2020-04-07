@@ -48,17 +48,35 @@ def percentile_help(q):
         return np.percentile(arr, q)
     return f
 
+EMBEDDING_OUTPUT = None
+def embedding_hook(module, input_, output):
+    global EMBEDDING_OUTPUT
+    EMBEDDING_OUTPUT = output
+
 def fcnn_loss(net, use_qloss=False):
-    def f(yhat,y):
+    def f2(yhat,y):
         inp = torch.cat((yhat,y))
         jloss = net(inp)
-        if use_qloss:
-            qlosses = qloss_torch(yhat,y)
-            qloss = sum(qlosses) / len(qlosses)
-            # return qloss + jloss
-            return (qloss / 100.0) + jloss
-        else:
-            return jloss
+        return jloss
+        # if use_qloss:
+            # qlosses = qloss_torch(yhat,y)
+            # qloss = sum(qlosses) / len(qlosses)
+            # # return qloss + jloss
+            # return (qloss / 100.0) + jloss
+        # else:
+            # return jloss
+
+    def f(yhat,y):
+        net.layer1.register_forward_hook(embedding_hook)
+        net(yhat)
+        yhat_embedding = EMBEDDING_OUTPUT
+        net(y)
+        y_embedding = EMBEDDING_OUTPUT
+        # jloss = torch.nn.MSELoss(reduction='mean')(y_embedding, yhat_embedding)
+        jloss = qloss_torch(y_embedding, yhat_embedding)
+        jloss = sum(jloss) / len(jloss)
+        return jloss
+
     return f
 
 def compute_subquery_priorities(qrep, true_cards, est_cards,
@@ -260,6 +278,9 @@ class NN(CardinalityEstimationAlg):
             self.mb_size = 1
         else:
             self.mb_size = 2500
+
+        # self.mb_size = 1
+
         if self.nn_type == "microsoft":
             self.featurization_scheme = "combined"
         elif self.nn_type == "num_tables":
@@ -519,7 +540,7 @@ class NN(CardinalityEstimationAlg):
             pred = self.net(xbatch).squeeze(1)
             if self.loss_func == "cm_fcnn":
                 loss = self.cm_loss(pred, ybatch)
-                assert len(loss) == 1
+                # assert len(loss) == 1
                 self.optimizer.zero_grad()
                 loss.backward()
                 if self.clip_gradient is not None:

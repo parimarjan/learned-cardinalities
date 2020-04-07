@@ -32,7 +32,7 @@ EXCEPTION_COUNT_CONSTANT = 150001000002
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
 
-DEBUG_CHECK_TIMES = True
+DEBUG_CHECK_TIMES = False
 CONF_ALPHA = 0.99
 
 def read_flags():
@@ -311,9 +311,20 @@ def main():
     for i, fn in enumerate(fns):
         if i >= args.num_queries and args.num_queries != -1:
             break
-        if ".pkl" not in fn:
+        if (".pkl" not in fn and ".sql" not in fn):
             continue
-        qrep = load_sql_rep(fn)
+
+        if ".pkl" in fn:
+            qrep = load_sql_rep(fn)
+        else:
+            with open(fn, "r") as f:
+                sql = f.read()
+            qrep = parse_sql(sql, None, None, None, None, None,
+                    compute_ground_truth=False)
+            qrep["subset_graph"] = \
+                    nx.OrderedDiGraph(json_graph.adjacency_graph(qrep["subset_graph"]))
+            qrep["join_graph"] = json_graph.adjacency_graph(qrep["join_graph"])
+            fn = fn.replace(".sql", ".pkl")
 
         if args.no_parallel:
             if args.card_type == "wanderjoin":

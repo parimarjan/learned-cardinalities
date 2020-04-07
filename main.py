@@ -232,8 +232,7 @@ def main():
             zero_query = False
             for _,info in qrep["subset_graph"].nodes().items():
 
-                # if args.train_card_key not in info["cardinality"]:
-                if "wanderjoin10.0" not in info["cardinality"]:
+                if args.train_card_key not in info["cardinality"]:
                     zero_query = True
                     break
 
@@ -435,6 +434,8 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
             required=False, default="mscn")
+    # parser.add_argument("--nn_type", type=str,
+            # required=False, default="microsoft")
 
     parser.add_argument("--priority_err_type", type=str, required=False,
             default = "jerr", help="jerr or jratio")
