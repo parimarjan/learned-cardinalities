@@ -308,8 +308,8 @@ def join_loss_pg(sqls, join_graphs,
         save_join_loss_training_data(sqls, est_cardinalities, est_costs,
                 opt_costs, est_plans, join_loss_data_file)
 
-    if pool is not None:
-        print("join_loss_pg took: ", time.time() - start)
+    # if pool is not None:
+        # print("join_loss_pg took: ", time.time() - start)
     return est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls
 
 def get_join_results_name(alg_name):

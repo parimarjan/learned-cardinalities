@@ -90,9 +90,6 @@ class SimpleRegression(torch.nn.Module):
         output = x
         for layer in self.layers:
             output = layer(output)
-        # output = self.layer1(x)
-        # output = self.layer2(output)
-        # output = self.layer3(output)
         return output
 
 # MSCN model, kipf et al.
@@ -102,8 +99,8 @@ class SetConv(nn.Module):
         super(SetConv, self).__init__()
         self.dropout = dropout
         # doesn't really make sense to have this be bigger...
-        sample_hid = min(hid_units, 128)
-        # sample_hid = hid_units
+        # sample_hid = min(hid_units, 128)
+        sample_hid = hid_units
         self.sample_mlp1 = nn.Sequential(
             nn.Linear(sample_feats, sample_hid),
             nn.ReLU()
@@ -124,8 +121,8 @@ class SetConv(nn.Module):
             nn.ReLU()
         ).to(device)
 
-        join_hid = min(hid_units, 128)
-        # join_hid = hid_units
+        # join_hid = min(hid_units, 128)
+        join_hid = hid_units
         self.join_mlp1 = nn.Sequential(
             nn.Linear(join_feats, join_hid),
             nn.ReLU()
