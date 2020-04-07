@@ -21,14 +21,25 @@ def verify_queries(query_strs):
     for cur_sql in query_strs:
         start = time.time()
         test_sql = "EXPLAIN " + cur_sql
-        try:
-            output, _ = cached_execute_query(test_sql, args.user,
-                    args.db_host, args.port, args.pwd, args.db_name,
-                    100, "./qgen_cache", None)
-        except:
-            print("skipping query: ")
-            print(cur_sql)
+        # test_sql = cur_sql
+        # try:
+            # output, _ = cached_execute_query(test_sql, args.user,
+                    # args.db_host, args.port, args.pwd, args.db_name,
+                    # 100, "./qgen_cache", None)
+        # except:
+            # print("skipping query: ")
+            # print(cur_sql)
+            # continue
+
+        output, _ = cached_execute_query(test_sql, args.user,
+                args.db_host, args.port, args.pwd, args.db_name,
+                100, "./qgen_cache", None)
+        if len(output) == 0:
+            print("zero query: ", test_sql)
             continue
+        else:
+            print("query len: {}, time: {}".format(len(output),
+                time.time()-start))
         all_queries.append(cur_sql)
     return all_queries
 
@@ -82,7 +93,7 @@ def read_flags():
     # FIXME: simplify this stuff
     parser = argparse.ArgumentParser()
     parser.add_argument("--db_name", type=str, required=False,
-            default="so")
+            default="imdb")
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
@@ -92,7 +103,7 @@ def read_flags():
     parser.add_argument("--template_dir", type=str, required=False,
             default=None)
     parser.add_argument("--port", type=str, required=False,
-            default=5433)
+            default=5432)
     parser.add_argument("--query_output_dir", type=str, required=False,
             default=None)
 

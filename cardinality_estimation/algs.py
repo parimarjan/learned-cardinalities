@@ -39,6 +39,50 @@ EXCEPTION_COUNT_CONSTANT = 150001000002
 # sentinel value for NULLS
 NULL_VALUE = "-1"
 
+WJ_TIMES = {}
+WJ_TIMES["1a"] = 0.25
+WJ_TIMES["2a"] = 0.5
+WJ_TIMES["2b"] = 1.0
+WJ_TIMES["2c"] = 0.5
+WJ_TIMES["3a"] = 0.25
+WJ_TIMES["4a"] = 0.1
+WJ_TIMES["5a"] = 0.1
+WJ_TIMES["6a"] = 1.0
+WJ_TIMES["7a"] = 10.0
+WJ_TIMES["8a"] = 5.0
+WJ_TIMES["9a"] = 5.0
+WJ_TIMES["9b"] = 5.0
+WJ_TIMES["10a"] = 5.0
+WJ_TIMES["11a"] = 5.0
+WJ_TIMES["11b"] = 5.0
+WJ_TIMES["3b"] = 5.0
+
+WJ_TIMES0 = {}
+WJ_TIMES0["1a"] = 0.12
+WJ_TIMES0["2a"] = 0.25
+WJ_TIMES0["2b"] = 0.5
+WJ_TIMES0["2c"] = 0.25
+WJ_TIMES0["3a"] = 0.12
+WJ_TIMES0["4a"] = 0.05
+WJ_TIMES0["5a"] = 0.05
+WJ_TIMES0["6a"] = 0.5
+WJ_TIMES0["7a"] = 5.0
+WJ_TIMES0["8a"] = 2.5
+WJ_TIMES0["9a"] = 5.0
+WJ_TIMES0["9b"] = 5.0
+WJ_TIMES0["10a"] = 5.0
+WJ_TIMES0["11a"] = 5.0
+WJ_TIMES0["11b"] = 5.0
+WJ_TIMES0["3b"] = 5.0
+
+def get_wj_times_dict(wj_key):
+    if wj_key == "wanderjoin":
+        return WJ_TIMES
+    elif wj_key == "wanderjoin0.5":
+        return WJ_TIMES0
+    elif wj_key == "wanderjoin2":
+        return None
+
 class CardinalityEstimationAlg():
 
     def __init__(self, *args, **kwargs):
@@ -87,6 +131,10 @@ class Postgres(CardinalityEstimationAlg):
                     est = true_card
                 else:
                     est = info["cardinality"]["expected"]
+                    # if "expected" in info["cardinality"]:
+                        # est = info["cardinality"]["expected"]
+                    # else:
+                        # est = info["cardinality"]["actual"]
                 pred_dict[(alias_key)] = est
             preds.append(pred_dict)
         return preds
@@ -97,29 +145,49 @@ class Postgres(CardinalityEstimationAlg):
 class SamplingTables(CardinalityEstimationAlg):
     def __init__(self, sampling_key):
         self.sampling_key = sampling_key
+        # dict with times, used if key is only wanderjoin
+        # self.sampling_times = WJ_TIMES
 
     def test(self, test_samples):
         assert isinstance(test_samples[0], dict)
         bad_ests = 0
         total = 0
         preds = []
+        if self.sampling_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+            wj_times = get_wj_times_dict(self.sampling_key)
+        else:
+            wj_times = None
+
         for sample in test_samples:
             pred_dict = {}
+            if wj_times is not None:
+                sk = "wanderjoin-" + str(wj_times[sample["template_name"]])
+            else:
+                sk = self.sampling_key
+
             for alias_key, info in sample["subset_graph"].nodes().items():
                 total += 1
                 cards = info["cardinality"]
-                if self.sampling_key in cards:
-                    cur_est = cards[self.sampling_key]
+                if sk in cards:
+                    cur_est = cards[sk]
                 else:
                     assert False
 
+                # if "ci" in alias_key and "n" in alias_key and len(alias_key) == 2:
+                    # print(alias_key, "est: " + str(cur_est), cards["actual"])
+                    # pdb.set_trace()
+
                 if cur_est == 0 or cur_est == 1:
+                # if cur_est == 0:
                     bad_ests += 1
+                    cur_est = cards["expected"]
+
                 if cur_est == 0:
                     cur_est += 1
                 pred_dict[(alias_key)] = cur_est
             preds.append(pred_dict)
         print("bad ests: {}, total: {}".format(bad_ests, total))
+        # print("set failed ests to actual est")
         return preds
 
     def __str__(self):
@@ -449,7 +517,7 @@ def rel_loss(pred, ytrue, avg=True):
         error = errors
     return error
 
-def qloss(yhat, ytrue, avg=True):
+def qloss(yhat, ytrue):
     '''
     numpy version.
     '''
@@ -460,12 +528,7 @@ def qloss(yhat, ytrue, avg=True):
 
     # TODO: check this
     errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
-    if avg:
-        error = np.sum(errors) / len(yhat)
-    else:
-        return errors
-
-    return error
+    return errors
 
 def qloss_torch(yhat, ytrue):
     assert yhat.shape == ytrue.shape

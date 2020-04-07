@@ -283,7 +283,8 @@ def save_join_loss_training_data(sqls, est_cardinalities,
 
     save_object(jloss_fn, jlosses)
 
-def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
+def join_loss_pg(sqls, join_graphs,
+        true_cardinalities, est_cardinalities, env,
         use_indexes, pdf=None, num_processes=1, pool=None,
         join_loss_data_file=None):
     '''
@@ -293,10 +294,11 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
 
     @ret:
     '''
+    start = time.time()
     for i,sql in enumerate(sqls):
         sqls[i] = fix_query(sql)
     est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
-                env.compute_join_order_loss(sqls,
+                env.compute_join_order_loss(sqls, join_graphs,
                         true_cardinalities, est_cardinalities,
                         None, use_indexes,
                         num_processes=num_processes, postgres=True, pool=pool)
@@ -305,6 +307,9 @@ def join_loss_pg(sqls, true_cardinalities, est_cardinalities, env,
         join_losses = est_costs - opt_costs
         save_join_loss_training_data(sqls, est_cardinalities, est_costs,
                 opt_costs, est_plans, join_loss_data_file)
+
+    if pool is not None:
+        print("join_loss_pg took: ", time.time() - start)
     return est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls
 
 def get_join_results_name(alg_name):
@@ -378,10 +383,12 @@ def compute_join_order_loss(queries, preds, **kwargs):
     est_cardinalities = []
     true_cardinalities = []
     sqls = []
+    join_graphs = []
 
     # TODO: save alg based predictions too
     for i, qrep in enumerate(queries):
         sqls.append(qrep["sql"])
+        join_graphs.append(qrep["join_graph"])
         ests = {}
         trues = {}
         predq = preds[i]
@@ -390,13 +397,16 @@ def compute_join_order_loss(queries, preds, **kwargs):
             alias_key = ' '.join(node)
             trues[alias_key] = node_info["cardinality"]["actual"]
             # ests[alias_key] = int(est_card)
+            if est_card == 0:
+                print("bad est card")
+                est_card += 1
             ests[alias_key] = est_card
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)
 
     if args.jl_use_postgres:
         est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
-                        join_loss_pg(sqls, true_cardinalities,
+                        join_loss_pg(sqls, join_graphs, true_cardinalities,
                                 est_cardinalities, env, use_indexes, pdf=None,
                                 pool = pool, join_loss_data_file =
                                 args.join_loss_data_file)

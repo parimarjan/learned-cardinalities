@@ -112,7 +112,7 @@ AND (Xprod_year_low)
   max_samples = 1
 
   sql = '''
-  SELECT it.id, count(*)
+  SELECT it.id, count(DISTINCT mi.info)
 	FROM movie_info as mi, info_type as it, title as t,
   kind_type as kt
 	WHERE t.id = mi.movie_id
@@ -121,8 +121,8 @@ AND (Xprod_year_low)
   AND (Xprod_year_up)
   AND (Xprod_year_low)
   AND (Xmovie_kind)
-	GROUP BY it.id HAVING COUNT(*) > 50000
-  ORDER BY COUNT(*) DESC
+	GROUP BY it.id HAVING COUNT(DISTINCT mi.info) > 2000
+  ORDER BY COUNT(DISTINCT mi.info) DESC
   '''
 
   [[templates.predicates]]
@@ -134,8 +134,9 @@ AND (Xprod_year_low)
 
   sampling_method = "quantile"
   num_quantiles = 2
-  min_samples = 1
-  max_samples = 4
+  min_count = 50
+  min_chars = 2
+  max_chars = 5
 
   sql = '''
   SELECT mi.info

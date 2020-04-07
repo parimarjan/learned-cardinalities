@@ -11,6 +11,7 @@ import time
 from collections import OrderedDict, defaultdict
 from multiprocessing import Pool
 import concurrent.futures
+import re
 
 SUBQUERY_TIMEOUT = 3*60000
 class DB():
@@ -61,6 +62,7 @@ class DB():
         self.joins = set()
         self.aliases = {}
         self.cmp_ops_onehot = {}
+        self.regex_cols = set()
 
         # for pgm stuff
         self.templates = []
@@ -192,6 +194,9 @@ class DB():
                         info["num_values"])
                 pred_len += num_buckets
                 continuous = False
+                if col in self.regex_cols:
+                    # give it more space...
+                    pred_len += 2
 
             self.featurizer[col] = (self.pred_features_len, pred_len, continuous)
             self.pred_features_len += pred_len
@@ -238,17 +243,40 @@ class DB():
         # assert num_pred_vals >= 2
 
         # 1 additional value for pg_est feature
-        assert num_pred_vals <= col_info["num_values"] + 1
+        # assert num_pred_vals <= col_info["num_values"] + 1
 
         if pred_est:
             preds_vector[pred_idx_start + num_pred_vals] = pred_est
 
         if not continuous:
-            num_buckets = min(self.max_discrete_featurizing_buckets,
-                    col_info["num_values"])
-            for v in val:
-                pred_idx = deterministic_hash(str(v)) % num_buckets
-                preds_vector[pred_idx_start+pred_idx] = 1.00
+            if "like" in cmp_op:
+                assert len(val) == 1
+                num_buckets = min(self.max_discrete_featurizing_buckets,
+                        col_info["num_values"])
+                regex_val = val[0].replace("%","")
+                # pred_idx = deterministic_hash(regex_val) % num_buckets
+                # preds_vector[pred_idx_start+pred_idx] = 1.00
+                for v in regex_val:
+                    pred_idx = deterministic_hash(str(v)) % num_buckets
+                    preds_vector[pred_idx_start+pred_idx] = 1.00
+
+                REGEX_USE_BIGRAMS = True
+                if REGEX_USE_BIGRAMS:
+                    for i,v in enumerate(regex_val):
+                        if i != len(regex_val)-1:
+                            pred_idx = deterministic_hash(v+regex_val[i+1]) % num_buckets
+                            preds_vector[pred_idx_start+pred_idx] = 1.00
+
+                preds_vector[pred_idx_start + num_buckets + 1] = len(regex_val)
+                if bool(re.search(r'\d', regex_val)):
+                    preds_vector[pred_idx_start + num_buckets + 1] = 1
+
+            else:
+                num_buckets = min(self.max_discrete_featurizing_buckets,
+                        col_info["num_values"])
+                for v in val:
+                    pred_idx = deterministic_hash(str(v)) % num_buckets
+                    preds_vector[pred_idx_start+pred_idx] = 1.00
         else:
             # do min-max stuff
             # assert len(val) == 2
@@ -319,6 +347,9 @@ class DB():
                                 col_info["num_values"])
                         assert num_pred_vals == num_buckets
                         # turn to 1 all the qualifying indexes in the 1-hot vector
+                        if "like" in cmp_op:
+                            print(cmp_op)
+                            pdb.set_trace()
                         for v in val:
                             pred_idx = deterministic_hash(v) % num_buckets
                             preds_vector[pred_idx_start+pred_idx] = 1.00
@@ -404,8 +435,11 @@ class DB():
         '''
         cur_columns = []
         for node, info in qrep["join_graph"].nodes(data=True):
-            for cmp_op in info["pred_types"]:
+            for i, cmp_op in enumerate(info["pred_types"]):
                 self.cmp_ops.add(cmp_op)
+                if "like" in cmp_op:
+                    self.regex_cols.add(info["pred_cols"][i])
+
             if node not in self.aliases:
                 self.aliases[node] = info["real_name"]
                 self.tables.add(info["real_name"])

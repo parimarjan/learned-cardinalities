@@ -69,13 +69,17 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                num_groups = args.num_groups,
+                dropout = args.dropout,
+                num_last = args.avg_jl_num_last,
                 join_loss_data_file = args.join_loss_data_file,
                 train_card_key = args.train_card_key,
                 exp_prefix = args.exp_prefix,
                 load_query_together = args.load_query_together,
                 result_dir = args.result_dir,
                 priority_err_type = args.priority_err_type,
-                priority_err_divide_len = args.priority_err_divide_len,
+                # priority_err_divide_len = args.priority_err_divide_len,
+                priority_normalize_type = args.priority_normalize_type,
                 tfboard = args.tfboard,
                 jl_indexes = args.jl_indexes,
                 normalization_type = args.normalization_type,
@@ -91,8 +95,6 @@ def get_alg(alg):
                     adaptive_lr=args.adaptive_lr,
                     # rel_qerr_loss=args.rel_qerr_loss,
                     clip_gradient=args.clip_gradient,
-                    # baseline=args.baseline_join_alg,
-                    # nn_results_dir = args.nn_results_dir,
                     loss_func = args.loss_func,
                     sampling_priority_type = args.sampling_priority_type,
                     sampling_priority_alpha = args.sampling_priority_alpha,
@@ -177,7 +179,7 @@ def main():
     # TODO: stop using klepto
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
-    db_key = deterministic_hash("db-" + args.query_templates)
+    db_key = deterministic_hash("db-" + args.query_directory + args.query_templates)
     found_db = db_key in misc_cache.archive
     # found_db = False
     if found_db:
@@ -191,6 +193,14 @@ def main():
     query_templates = args.query_templates.split(",")
 
     fns = list(glob.glob(args.query_directory + "/*"))
+
+    if args.sampling_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+        wj_times = get_wj_times_dict(args.sampling_key)
+    elif args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+        wj_times = get_wj_times_dict(args.train_card_key)
+    else:
+        wj_times = get_wj_times_dict("wanderjoin")
+
     for qdir in fns:
         template_name = os.path.basename(qdir)
         if args.query_templates != "all":
@@ -198,8 +208,8 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-        # if "7a" in qdir:
-            # print("skipping query 7a")
+        # if "7a" in template_name:
+            # print("skipping template 7a")
             # continue
 
         start = time.time()
@@ -209,10 +219,6 @@ def main():
         qfns.sort()
         if args.num_samples_per_template == -1:
             qfns = qfns
-        elif args.num_samples_per_template == -2:
-            assert False
-            num_samples = get_template_samples(fn)
-            qfns = qfns[0:num_samples]
         elif args.num_samples_per_template < len(qfns):
             qfns = qfns[0:args.num_samples_per_template]
         else:
@@ -223,11 +229,11 @@ def main():
             random.seed(args.random_seed)
             qfns = random.sample(qfns, int(len(qfns) / 10))
 
-        if args.algs == "sampling":
-            skey = args.sampling_type + str(args.sampling_percentage) + "_actual"
-
         skipped = 0
+
         for qfn in qfns:
+            if ".pkl" not in qfn:
+                continue
             qrep = load_sql_rep(qfn)
             zero_query = False
             for _,info in qrep["subset_graph"].nodes().items():
@@ -236,7 +242,18 @@ def main():
                     zero_query = True
                     break
 
+                if "cardinality" not in info:
+                    zero_query = True
+                    break
+                # if args.train_card_key not in info["cardinality"]:
+                    # zero_query = True
+                    # break
+
                 if "actual" not in info["cardinality"]:
+                    zero_query = True
+                    break
+
+                if "expected" not in info["cardinality"]:
                     zero_query = True
                     break
 
@@ -245,9 +262,25 @@ def main():
                     break
 
                 if args.sampling_key is not None:
-                    if args.sampling_key not in info["cardinality"]:
+                    if wj_times is None:
+                        if not (args.sampling_key in info["cardinality"]):
+                            zero_query = True
+                            break
+                    else:
+                        if not ("wanderjoin-" + str(wj_times[template_name])
+                                    in info["cardinality"]):
+                            zero_query = True
+                            break
+
+                if args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+                    if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
                         zero_query = True
                         break
+
+                # just so everyone is forced to use the wj template queries
+                # if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
+                    # zero_query = True
+                    # break
 
             if zero_query:
                 skipped += 1
@@ -257,7 +290,8 @@ def main():
             qrep["template_name"] = template_name
             samples.append(qrep)
 
-        if len(samples) == 0:
+        # if len(samples) == 0:
+        if len(samples) < 10:
             continue
 
         print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
@@ -311,7 +345,10 @@ def main():
 
     if "join-loss" in args.losses or \
             (args.sampling_priority_alpha > 0 and "nn" in args.algs):
-        num_processes = int(mp.cpu_count())
+        if args.join_loss_pool_num == -1:
+            num_processes = int(mp.cpu_count())
+        else:
+            num_processes = args.join_loss_pool_num
         join_loss_pool = mp.Pool(num_processes)
     else:
         join_loss_pool = None
@@ -355,13 +392,15 @@ def read_flags():
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
-            default="./all_join_loss_data.pkl")
+            default=None)
     parser.add_argument("--exp_prefix", type=str, required=False,
             default="")
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
+    parser.add_argument("--avg_jl_num_last", type=int, required=False,
+            default=4)
     parser.add_argument("--preload_features", type=int, required=False,
             default=1)
     parser.add_argument("--load_query_together", type=int, required=False,
@@ -369,24 +408,26 @@ def read_flags():
     parser.add_argument("--normalization_type", type=str, required=False,
             default="pg_total_selectivity")
 
-    parser.add_argument("--num_tables_model", type=str, required=False,
-            default="nn")
     parser.add_argument("--nn_weights_init_pg", type=int, required=False,
             default=0)
     parser.add_argument("--single_threaded_nt", type=int, required=False,
             default=0)
-    parser.add_argument("--reuse_env", type=int, required=False,
-            default=1)
     parser.add_argument("--num_tables_feature", type=int, required=False,
             default=1)
+
     parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
-            default=10)
+            default=1)
     parser.add_argument("--heuristic_features", type=int, required=False,
             default=1)
+    parser.add_argument("--join_loss_pool_num", type=int, required=False,
+            default=-1)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
-    parser.add_argument("--priority_err_divide_len", type=int, required=False,
-            default=0)
+    parser.add_argument("--priority_normalize_type", type=str, required=False,
+            default="")
+
+    # parser.add_argument("--priority_err_divide_len", type=int, required=False,
+            # default=0)
     # parser.add_argument("--update_subq_cards", type=int, required=False,
             # default=0)
     # parser.add_argument("--update_subq_preds", type=int, required=False,
@@ -424,6 +465,8 @@ def read_flags():
             required=False, default=0.001)
     parser.add_argument("--clip_gradient", type=float,
             required=False, default=10.0)
+    parser.add_argument("--dropout", type=float,
+            required=False, default=0.0)
     parser.add_argument("--rel_qerr_loss", type=int,
             required=False, default=0)
     parser.add_argument("--rel_jloss", type=int,
@@ -434,9 +477,12 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
             required=False, default="mscn")
-    # parser.add_argument("--nn_type", type=str,
-            # required=False, default="microsoft")
-
+    parser.add_argument("--num_groups", type=int, required=False,
+            default=1, help="""number of groups we divide the input space in.
+            If we have at most M tables in a query, and N groups, then each
+            group will have samples with M/N tables. e.g., N = 2, M=14,
+            samples with 1...7 tables will be in group 1, and rest in group 2.
+            """)
     parser.add_argument("--priority_err_type", type=str, required=False,
             default = "jerr", help="jerr or jratio")
     parser.add_argument("--avg_jl_priority", type=int, required=False,
@@ -452,9 +498,6 @@ def read_flags():
             required=False, default=0)
     parser.add_argument("--viz_fn", type=str,
             required=False, default="./test")
-
-    # parser.add_argument("--nn_results_dir", type=str, required=False,
-            # default="./nn_results")
 
     parser.add_argument("--optimizer_name", type=str, required=False,
             default="adam")
@@ -492,7 +535,7 @@ def read_flags():
     parser.add_argument("--random_seed", type=int, required=False,
             default=2112)
     parser.add_argument("--test", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--avg_factor", type=int, required=False,
             default=1)
     parser.add_argument("--test_size", type=float, required=False,
@@ -502,7 +545,7 @@ def read_flags():
     parser.add_argument("--losses", type=str, required=False,
             default="qerr,join-loss", help="comma separated list of loss names")
     parser.add_argument("--result_dir", type=str, required=False,
-            default="./new_results/")
+            default="./results/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,
             default="EXHAUSTIVE")
     parser.add_argument("--db_file_name", type=str, required=False,
@@ -525,9 +568,9 @@ def read_flags():
     parser.add_argument("--sampling_priority_alpha", type=float, required=False,
             default=0.00, help="")
     parser.add_argument("--prioritize_epoch", type=float, required=False,
-            default=2, help="")
+            default=1, help="")
     parser.add_argument("--reprioritize_epoch", type=int, required=False,
-            default=2, help="")
+            default=1, help="")
 
     parser.add_argument("--priority_query_len_scale", type=float, required=False,
             default=0, help="")

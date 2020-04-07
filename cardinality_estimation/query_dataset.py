@@ -5,12 +5,14 @@ from db_utils.utils import *
 from db_utils.query_storage import *
 from collections import defaultdict
 import numpy as np
+from cardinality_estimation.algs import get_wj_times_dict
 
 class QueryDataset(data.Dataset):
     def __init__(self, samples, db, featurization_type,
             heuristic_features, preload_features,
             normalization_type, load_query_together,
-            min_val=None, max_val=None, card_key="actual"):
+            min_val=None, max_val=None, card_key="actual",
+            group=None):
         '''
         @samples: [] sqlrep query dictionaries, which represent a query and all
         of its subqueries.
@@ -30,6 +32,12 @@ class QueryDataset(data.Dataset):
         self.min_val = min_val
         self.max_val = max_val
         self.card_key = card_key
+        self.group = group
+
+        if self.card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+            self.wj_times = get_wj_times_dict(self.card_key)
+        else:
+            self.wj_times = None
 
         if self.normalization_type == "mscn":
             assert min_val is not None
@@ -102,6 +110,7 @@ class QueryDataset(data.Dataset):
             else:
                 cur_pred_features = self.db.get_pred_features(info["pred_cols"][0],
                         info["pred_vals"][0], info["pred_types"][0], pg_est)
+
             if self.heuristic_features:
                 assert cur_pred_features[-1] == 0.00
                 cur_pred_features[-1] = pg_sel
@@ -148,7 +157,7 @@ class QueryDataset(data.Dataset):
 
         Y = []
         sample_info = []
-
+        qidx = 0
         for i, qrep in enumerate(samples):
             node_data = qrep["join_graph"].nodes(data=True)
             # TODO: can also save these values and generate features when
@@ -184,15 +193,29 @@ class QueryDataset(data.Dataset):
                 edge_key = (edge[0], edge[1])
                 edge_feat_dict[edge_key] = edge_features
 
+            # looping over all subqueries
             node_names = list(qrep["subset_graph"].nodes())
             node_names.sort()
-            for nodes in node_names:
+            for node_idx, nodes in enumerate(node_names):
+                if self.group is not None:
+                    if len(nodes) not in self.group:
+                        continue
+
                 info = qrep["subset_graph"].nodes()[nodes]
                 pg_est = info["cardinality"]["expected"]
-                true_val = info["cardinality"][self.card_key]
-                if true_val == 0 or true_val == 1:
+                # true_val = info["cardinality"][self.card_key]
+                # if true_val == 0 or true_val == 1:
                     # true_val = info["cardinality"]["actual"]
-                    true_val = info["cardinality"]["expected"]
+                    # true_val = info["cardinality"]["expected"]
+                # pg_est = info["cardinality"]["actual"]
+                if self.wj_times is not None:
+                    ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
+                    true_val = info["cardinality"][ck]
+                    if true_val == 0 or true_val == 1:
+                        true_val = info["cardinality"]["expected"]
+                else:
+                    ck = self.card_key
+                    true_val = info["cardinality"][ck]
 
                 total = info["cardinality"]["total"]
 
@@ -225,12 +248,14 @@ class QueryDataset(data.Dataset):
                 Y.append(self.normalize_val(true_val, total))
                 cur_info = {}
                 cur_info["num_tables"] = len(nodes)
+                cur_info["dataset_idx"] = qidx + node_idx
 
                 # FIXME:
                 # cur_info["total"] = total
                 cur_info["total"] = 0.00
-
                 sample_info.append(cur_info)
+
+            qidx += len(node_names)
 
         print("get features took: ", time.time() - start)
 
