@@ -415,7 +415,7 @@ class JoinLoss():
                 est_explains[start_idx+i] = est_explain
                 est_sqls[start_idx+i] = est_sql
                 opt_costs[start_idx+i] = opt
-                opt_explains[start_idx+i] = opt_explains
+                opt_explains[start_idx+i] = opt_explain
                 opt_sqls[start_idx+i] = opt_sql
 
                 # pool is None used when computing subquery priorities,
