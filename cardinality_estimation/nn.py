@@ -57,23 +57,32 @@ def percentile_help(q):
         return np.percentile(arr, q)
     return f
 
-def get_subq_flows(qrep):
+def get_subq_flows(qrep, dumb):
     # TODO: save or not?
+    start = time.time()
+    flow_cache = klepto.archives.dir_archive("./flow_cache",
+            cached=True, serialized=True)
+    # flow_cache.load()
+    key = deterministic_hash(qrep["sql"])
+    if key in flow_cache.archive:
+        # print("found key in flow cache!")
+        return flow_cache.archive[key]
+
     subsetg = qrep["subset_graph"]
     add_single_node_edges(subsetg)
-    # final_node = [n for n,d in subsetg.in_degree() if d==0][0]
-    # source_node = tuple("s")
+    final_node = [n for n,d in subsetg.in_degree() if d==0][0]
+    source_node = tuple("s")
     compute_costs(subsetg)
-    path = nx.shortest_path(subsetg, final_node, source_node, weight="cost")
-    print(path)
-    path = path[0:-1]
-    join_order = [tuple(sorted(x)) for x in path_to_join_order(path)]
-    join_order.reverse()
-    sql_to_exec = nodes_to_sql(join_order, join_graph)
-    print(join_order)
+    # path = nx.shortest_path(subsetg, final_node, source_node, weight="cost")
+    # print(path)
+    # path = path[0:-1]
+    # join_order = [tuple(sorted(x)) for x in path_to_join_order(path)]
+    # join_order.reverse()
+    # sql_to_exec = nodes_to_sql(join_order, join_graph)
+    # print(join_order)
     edges, c, A, b, G, h = construct_lp(subsetg)
-    print(A.shape)
-    print("A rank: ", np.linalg.matrix_rank(A))
+    # print(A.shape)
+    # print("A rank: ", np.linalg.matrix_rank(A))
 
     n = len(edges)
     P = np.zeros((len(edges),len(edges)))
@@ -87,7 +96,14 @@ def get_subq_flows(qrep):
                       A @ x == b])
     prob.solve()
     qsolx = np.array(x.value)
-    return qsolx
+
+    edge_dict = {}
+    for i, e in enumerate(edges):
+        edge_dict[e] = i
+
+    flow_cache.archive[key] = (qsolx, edge_dict)
+    print("calculated flows in: ", time.time()-start)
+    return qsolx, edge_dict
 
 EMBEDDING_OUTPUT = None
 def embedding_hook(module, input_, output):
@@ -664,10 +680,11 @@ class NN(CardinalityEstimationAlg):
         '''
         '''
         time_hash = str(deterministic_hash(self.start_time))[0:3]
-        name = "{PREFIX}{NN}-{PRIORITY}-{HASH}".format(\
+        name = "{PREFIX}{NN}-{PRIORITY}-{PR_NORM}-{HASH}".format(\
                     PREFIX = self.exp_prefix,
                     NN = self.__str__(),
                     PRIORITY = self.sampling_priority_alpha,
+                    PR_NORM = self.priority_normalize_type,
                     HASH = time_hash)
         return name
 
@@ -1074,16 +1091,56 @@ class NN(CardinalityEstimationAlg):
                     template_weights[sample["template_name"]] = cur_weights
 
                 subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
-
                 qidx += len(node_list)
             print("subquery weights calculate in: ", time.time()-subw_start)
-        elif self.priority_normalize_type == "flow1":
+        elif "flow" in self.priority_normalize_type:
+            print("going to use cvxpy to generate flow values")
+            # sample = training_samples[0]
+            # flows = get_subq_flows(sample)
+            subquery_rel_weights = np.zeros(len(training_sets[0]))
+            fl_start = time.time()
+            num_proc = 10
+            par_args = []
+            training_samples_hash = deterministic_hash(str(training_samples))
+            for s in training_samples:
+                par_args.append((s, None))
 
-            sample = training_samples[0]
-            flows = get_subq_flows(sample)
-            print(flows)
+            with Pool(processes = num_proc) as pool:
+                res = pool.starmap(get_subq_flows, par_args)
 
-            pdb.set_trace()
+            qidx = 0
+            for si, sample in enumerate(training_samples):
+                subsetg = sample["subset_graph"]
+                node_list = list(subsetg.nodes())
+                node_list.sort()
+                cur_weights = np.zeros(len(node_list))
+                # will update the cur_weights for this sample now
+                flows, edge_dict = res[si]
+
+                for i, node in enumerate(node_list):
+                    # all_paths = nx.all_simple_paths(subsetg, dest, node)
+                    # num_paths = len(list(all_paths))
+                    in_edges = subsetg.in_edges(node)
+                    node_pr = 0.0
+                    for edge in in_edges:
+                        node_pr += flows[edge_dict[edge]]
+
+                    if self.priority_normalize_type in ["flow1", "flow2"]:
+                        cur_weights[i] = node_pr
+                    elif self.priority_normalize_type == "flow3":
+                        cur_weights[i] = node_pr * (1 / len(node))
+
+                # do we need this? not sure
+                if self.priority_normalize_type == "flow1":
+                    cur_weights = cur_weights / sum(cur_weights)
+
+                # assert np.abs(sum(cur_weights) - 1.0) < 0.001
+
+                subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
+                qidx += len(node_list)
+
+            print("generating flow values took: ", time.time()-fl_start)
+            # pdb.set_trace()
 
         if self.loss_func == "cm_fcnn":
             inp_len = len(training_samples[0]["subset_graph"].nodes())
@@ -1195,6 +1252,8 @@ class NN(CardinalityEstimationAlg):
                             sq_weight /= len(sample["subset_graph"].nodes())
                         elif self.priority_normalize_type == "paths1":
                             pass
+                        elif self.priority_normalize_type == "flow1":
+                            pass
 
                         # the order of iteration doesn't matter here since each
                         # is being given the same weight
@@ -1204,6 +1263,8 @@ class NN(CardinalityEstimationAlg):
                         query_idx += len(sample["subset_graph"].nodes())
 
                     if self.priority_normalize_type == "paths1":
+                        weights *= subquery_rel_weights
+                    elif self.priority_normalize_type == "flow1":
                         weights *= subquery_rel_weights
 
                 elif self.sampling_priority_type == "subquery":

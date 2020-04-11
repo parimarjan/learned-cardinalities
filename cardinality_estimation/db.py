@@ -198,6 +198,9 @@ class DB():
                     # give it more space...
                     pred_len += 2
 
+                    ## extra space for regex buckets
+                    pred_len += num_buckets
+
             self.featurizer[col] = (self.pred_features_len, pred_len, continuous)
             self.pred_features_len += pred_len
 
@@ -253,6 +256,8 @@ class DB():
                 assert len(val) == 1
                 num_buckets = min(self.max_discrete_featurizing_buckets,
                         col_info["num_values"])
+                # first half of spaces reserved for "IN" predicates
+                pred_idx_start += num_buckets
                 regex_val = val[0].replace("%","")
                 pred_idx = deterministic_hash(regex_val) % num_buckets
                 preds_vector[pred_idx_start+pred_idx] = 1.00

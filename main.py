@@ -213,9 +213,9 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-        # if "7a" in template_name:
-            # print("skipping template 7a")
-            # continue
+        if "7a" in template_name:
+            print("skipping template 7a")
+            continue
 
         start = time.time()
         # loading, or generating samples
@@ -340,6 +340,7 @@ def main():
     # shuffle train, test queries so join loss computation can be parallelized
     # better: otherwise all queries from templates that take a long time would
     # go to same worker
+    random.seed(1234)
     random.shuffle(train_queries)
     random.shuffle(test_queries)
     if args.use_val_set:
@@ -443,7 +444,7 @@ def read_flags():
             default=0.1)
 
     parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
-            default=1)
+            default=10)
     parser.add_argument("--heuristic_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_loss_pool_num", type=int, required=False,
@@ -499,7 +500,7 @@ def read_flags():
     parser.add_argument("--rel_jloss", type=int,
             required=False, default=0)
     parser.add_argument("--use_val_set", type=int,
-            required=False, default=1)
+            required=False, default=0)
     parser.add_argument("--use_best_val_model", type=int,
             required=False, default=1)
     parser.add_argument("--start_validation", type=int,
@@ -542,7 +543,7 @@ def read_flags():
     parser.add_argument("--hidden_layer_multiple", type=float,
             required=False, default=None)
     parser.add_argument("--hidden_layer_size", type=int,
-            required=False, default=100)
+            required=False, default=256)
 
     # synthetic data flags
     parser.add_argument("--gen_synth_data", type=int, required=False,
