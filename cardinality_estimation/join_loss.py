@@ -218,7 +218,11 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
     cost_sql_key = deterministic_hash(cost_sql)
     if sql_costs is not None:
         if cost_sql_key in sql_costs.archive:
-            est_cost, est_explain = sql_costs.archive[cost_sql_key]
+            try:
+                est_cost, est_explain = sql_costs.archive[cost_sql_key]
+            except:
+                est_cost, est_explain = _get_cost(cost_sql, cursor)
+                sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
         else:
             est_cost, est_explain = _get_cost(cost_sql, cursor)
             sql_costs.archive[cost_sql_key] = (est_cost, est_explain)

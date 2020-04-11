@@ -69,6 +69,10 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                use_val_set = args.use_val_set,
+                use_best_val_model = args.use_best_val_model,
+                start_validation = args.start_validation,
+                weight_decay = args.weight_decay,
                 num_groups = args.num_groups,
                 dropout = args.dropout,
                 num_last = args.avg_jl_num_last,
@@ -190,6 +194,7 @@ def main():
                 args.db_name)
     train_queries = []
     test_queries = []
+    val_queries = []
     query_templates = args.query_templates.split(",")
 
     fns = list(glob.glob(args.query_directory + "/*"))
@@ -208,9 +213,9 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-        # if "7a" in template_name:
-            # print("skipping template 7a")
-            # continue
+        if "7a" in template_name:
+            print("skipping template 7a")
+            continue
 
         start = time.time()
         # loading, or generating samples
@@ -307,21 +312,39 @@ def main():
                 # db.update_db_stats(convert_sql_rep_to_query_rep(sample))
                 db.update_db_stats(sample)
 
-        if args.test:
+        if args.test and args.use_val_set:
+            # rem_queries, cur_val_queries = \
+                    # train_test_split(samples, test_size=0.2,
+                            # random_state=args.random_seed)
+            # cur_train_queries, cur_test_queries = train_test_split(rem_queries,
+                    # test_size=args.test_size, random_state=args.random_seed)
+
             cur_train_queries, cur_test_queries = train_test_split(samples,
                     test_size=args.test_size, random_state=args.random_seed)
+            cur_val_queries, cur_test_queries = train_test_split(cur_test_queries,
+                    test_size=0.6, random_state=args.random_seed)
+        elif args.test:
+            cur_train_queries, cur_test_queries = train_test_split(samples,
+                    test_size=args.test_size, random_state=args.random_seed)
+
         else:
             cur_train_queries = samples
             cur_test_queries = []
+            cur_val_queries = []
 
         train_queries += cur_train_queries
         test_queries += cur_test_queries
+        if args.use_val_set:
+            val_queries += cur_val_queries
 
     # shuffle train, test queries so join loss computation can be parallelized
     # better: otherwise all queries from templates that take a long time would
     # go to same worker
+    random.seed(1234)
     random.shuffle(train_queries)
     random.shuffle(test_queries)
+    if args.use_val_set:
+        random.shuffle(val_queries)
 
     if not found_db:
         misc_cache.archive[db_key] = db
@@ -337,8 +360,8 @@ def main():
     for loss_name in args.losses.split(","):
         losses.append(get_loss(loss_name))
 
-    print("algs: {}, train queries: {}, test queries: {}".format(\
-            args.algs, len(train_queries), len(test_queries)))
+    print("algs: {}, train queries: {}, val queries: {}, test queries: {}".format(\
+            args.algs, len(train_queries), len(val_queries), len(test_queries)))
 
     train_times = {}
     eval_times = {}
@@ -355,12 +378,15 @@ def main():
 
     for alg in algorithms:
         start = time.time()
-        if args.eval_test_while_training:
+        if args.use_val_set:
             alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    test_samples=test_queries, join_loss_pool=join_loss_pool)
+                    val_samples=val_queries, join_loss_pool=join_loss_pool)
+        elif args.eval_test_while_training:
+            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                    val_samples=test_queries, join_loss_pool=join_loss_pool)
         else:
             alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    test_samples=None, join_loss_pool=join_loss_pool)
+                    val_samples=None, join_loss_pool=join_loss_pool)
 
         train_times[alg.__str__()] = round(time.time() - start, 2)
 
@@ -400,13 +426,13 @@ def read_flags():
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
     parser.add_argument("--avg_jl_num_last", type=int, required=False,
-            default=4)
+            default=5)
     parser.add_argument("--preload_features", type=int, required=False,
             default=1)
     parser.add_argument("--load_query_together", type=int, required=False,
             default=0)
     parser.add_argument("--normalization_type", type=str, required=False,
-            default="pg_total_selectivity")
+            default="mscn")
 
     parser.add_argument("--nn_weights_init_pg", type=int, required=False,
             default=0)
@@ -414,9 +440,11 @@ def read_flags():
             default=0)
     parser.add_argument("--num_tables_feature", type=int, required=False,
             default=1)
+    parser.add_argument("--weight_decay", type=float, required=False,
+            default=0.1)
 
     parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
-            default=1)
+            default=10)
     parser.add_argument("--heuristic_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_loss_pool_num", type=int, required=False,
@@ -471,6 +499,12 @@ def read_flags():
             required=False, default=0)
     parser.add_argument("--rel_jloss", type=int,
             required=False, default=0)
+    parser.add_argument("--use_val_set", type=int,
+            required=False, default=0)
+    parser.add_argument("--use_best_val_model", type=int,
+            required=False, default=1)
+    parser.add_argument("--start_validation", type=int,
+            required=False, default=5)
     parser.add_argument("--eval_test_while_training", type=int,
             required=False, default=1)
     parser.add_argument("--jl_use_postgres", type=int,
@@ -500,7 +534,7 @@ def read_flags():
             required=False, default="./test")
 
     parser.add_argument("--optimizer_name", type=str, required=False,
-            default="adam")
+            default="adamw")
     parser.add_argument("--net_name", type=str, required=False,
             default="FCNN")
 
@@ -509,7 +543,7 @@ def read_flags():
     parser.add_argument("--hidden_layer_multiple", type=float,
             required=False, default=None)
     parser.add_argument("--hidden_layer_size", type=int,
-            required=False, default=100)
+            required=False, default=256)
 
     # synthetic data flags
     parser.add_argument("--gen_synth_data", type=int, required=False,
@@ -578,7 +612,7 @@ def read_flags():
             default=1, help="")
 
     parser.add_argument("--loss_func", type=str, required=False,
-            default="qloss")
+            default="mse")
 
     ## pgm flags
     parser.add_argument("--pgm_backend", type=str, required=False,

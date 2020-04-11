@@ -35,6 +35,9 @@ from sqlalchemy import create_engine
 from .algs import *
 import sys
 import gc
+import copy
+import cvxpy as cp
+import networkx as nx
 
 # dataset
 from cardinality_estimation.query_dataset import QueryDataset
@@ -57,6 +60,54 @@ def percentile_help(q):
 def flow_loss(yhat, y, sample):
     print(sample)
     pdb.set_trace()
+
+def get_subq_flows(qrep, dumb):
+    # TODO: save or not?
+    start = time.time()
+    flow_cache = klepto.archives.dir_archive("./flow_cache",
+            cached=True, serialized=True)
+    # flow_cache.load()
+    key = deterministic_hash(qrep["sql"])
+    if key in flow_cache.archive:
+        # print("found key in flow cache!")
+        return flow_cache.archive[key]
+
+    subsetg = qrep["subset_graph"]
+    add_single_node_edges(subsetg)
+    final_node = [n for n,d in subsetg.in_degree() if d==0][0]
+    source_node = tuple("s")
+    compute_costs(subsetg)
+    # path = nx.shortest_path(subsetg, final_node, source_node, weight="cost")
+    # print(path)
+    # path = path[0:-1]
+    # join_order = [tuple(sorted(x)) for x in path_to_join_order(path)]
+    # join_order.reverse()
+    # sql_to_exec = nodes_to_sql(join_order, join_graph)
+    # print(join_order)
+    edges, c, A, b, G, h = construct_lp(subsetg)
+    # print(A.shape)
+    # print("A rank: ", np.linalg.matrix_rank(A))
+
+    n = len(edges)
+    P = np.zeros((len(edges),len(edges)))
+    for i,c in enumerate(c):
+        P[i,i] = c
+
+    q = np.zeros(len(edges))
+    x = cp.Variable(n)
+    prob = cp.Problem(cp.Minimize((1/2)*cp.quad_form(x, P) + q.T @ x),
+                     [G @ x <= h,
+                      A @ x == b])
+    prob.solve()
+    qsolx = np.array(x.value)
+
+    edge_dict = {}
+    for i, e in enumerate(edges):
+        edge_dict[e] = i
+
+    flow_cache.archive[key] = (qsolx, edge_dict)
+    print("calculated flows in: ", time.time()-start)
+    return qsolx, edge_dict
 
 EMBEDDING_OUTPUT = None
 def embedding_hook(module, input_, output):
@@ -91,6 +142,7 @@ def fcnn_loss(net, use_qloss=False):
 
 def single_train_combined_net(net, optimizer, loader, loss_fn,
         clip_gradient, load_query_together=False):
+    torch.set_num_threads(1)
     for idx, (xbatch, ybatch,_) in enumerate(loader):
         # TODO: add handling for num_tables
         if load_query_together:
@@ -111,6 +163,7 @@ def single_train_combined_net(net, optimizer, loader, loss_fn,
 def single_train_mscn(net, optimizer, loader, loss_fn,
         clip_gradient, load_query_together=False):
     assert not load_query_together
+    torch.set_num_threads(1)
     for idx, (tbatch, pbatch, jbatch, ybatch,_) in enumerate(loader):
         pred = net(tbatch,pbatch,jbatch).squeeze(1)
         losses = loss_fn(pred, ybatch)
@@ -176,7 +229,9 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
             # as those subqueries are important to reduce the jerr here as
             # well)
             cur_aliases = plan_tree.nodes()[left]["aliases"] + plan_tree.nodes()[right]["aliases"]
-            for i, cur_nodes in enumerate(qrep["subset_graph"].nodes()):
+            node_list = list(qrep["subset_graph"].nodes())
+            node_list.sort()
+            for i, cur_nodes in enumerate(node_list):
                 if set(cur_nodes) <= set(cur_aliases):
                     subpriorities[i] += cur_jerr
             return
@@ -190,11 +245,13 @@ def compute_subquery_priorities(qrep, true_cards, est_cards,
 
     ## FIXME: what is a good initial priority?
     # give everyone the initial priority
-    for i, _ in enumerate(qrep["subset_graph"].nodes()):
+    node_list = list(qrep["subset_graph"].nodes())
+    node_list.sort()
+    for i, _ in enumerate(node_list):
         subpriorities[i] = jerr
 
-    for i, _ in enumerate(qrep["subset_graph"].nodes()):
-        subpriorities[i] = 0
+    # for i, _ in enumerate(qrep["subset_graph"].nodes()):
+        # subpriorities[i] = 0
 
     # add sub-jerr priorities to the ones that are included in them - might at
     # most double it
@@ -370,6 +427,8 @@ class NN(CardinalityEstimationAlg):
 
         # each element is a list of priorities
         self.past_priorities = []
+        for i in range(self.num_groups):
+            self.past_priorities.append([])
 
         # initialize stats collection stuff
 
@@ -386,6 +445,10 @@ class NN(CardinalityEstimationAlg):
         #   num_tables: all, OR t1,t2 etc.
         #   num_samples: in the given class, whose stats are being summarized.
         self.cur_stats = defaultdict(list)
+        self.best_join_loss = 10000000
+        self.best_model_dict = None
+        # self.start_validation = 5
+
         self.summary_funcs = [np.mean, np.max, np.min]
         self.summary_types = ["mean", "max", "min"]
         for q in PERCENTILES_TO_SAVE:
@@ -463,13 +526,16 @@ class NN(CardinalityEstimationAlg):
 
         if optimizer_name == "ams":
             optimizer = torch.optim.Adam(net.parameters(), lr=self.lr,
-                    amsgrad=True)
+                    amsgrad=True, weight_decay=self.weight_decay)
         elif optimizer_name == "adam":
             optimizer = torch.optim.Adam(net.parameters(), lr=self.lr,
-                    amsgrad=False)
+                    amsgrad=False, weight_decay=self.weight_decay)
+        elif optimizer_name == "adamw":
+            optimizer = torch.optim.AdamW(net.parameters(), lr=self.lr,
+                    amsgrad=False, weight_decay=self.weight_decay)
         elif optimizer_name == "sgd":
             optimizer = torch.optim.SGD(net.parameters(),
-                    lr=self.lr, momentum=0.9)
+                    lr=self.lr, momentum=0.9, weight_decay=self.weight_decay)
         else:
             assert False
 
@@ -630,18 +696,32 @@ class NN(CardinalityEstimationAlg):
         '''
         '''
         time_hash = str(deterministic_hash(self.start_time))[0:3]
-        name = "{PREFIX}{NN}-{PRIORITY}-{HASH}".format(\
+        name = "{PREFIX}{NN}-{PRIORITY}-{PR_NORM}-{HASH}".format(\
                     PREFIX = self.exp_prefix,
                     NN = self.__str__(),
                     PRIORITY = self.sampling_priority_alpha,
+                    PR_NORM = self.priority_normalize_type,
                     HASH = time_hash)
         return name
+
+    def save_model_dict(self):
+        if not os.path.exists(self.result_dir):
+            make_dir(self.result_dir)
+        exp_name = self.get_exp_name()
+        exp_dir = self.result_dir + "/" + exp_name
+        if not os.path.exists(exp_dir):
+            make_dir(exp_dir)
+        fn = exp_dir + "/" + "model_weights.pt"
+        torch.save(self.nets[0].state_dict(), fn)
 
     def save_stats(self):
         '''
         replaces the results file.
         '''
         # TODO: maybe reset cur_stats
+        if self.eval_epoch > 5:
+            return
+
         self.stats = pd.DataFrame(self.cur_stats)
         if not os.path.exists(self.result_dir):
             make_dir(self.result_dir)
@@ -742,6 +822,9 @@ class NN(CardinalityEstimationAlg):
             self.query_stats["explain"].append(est_plans[i])
 
     def periodic_eval(self, samples_type):
+        '''
+        FIXME: samples type is really train and validation and not test
+        '''
         pred, Y = self.eval_samples(samples_type)
         losses = self.loss(pred, Y).detach().numpy()
         # FIXME: self.loss could be various loss functions, like mse, but we care
@@ -749,8 +832,8 @@ class NN(CardinalityEstimationAlg):
 
         loss_avg = round(np.sum(losses) / len(losses), 6)
         # TODO: better print, use self.cur_stats and print after evals
-        print("""{}: {}, N: {}, qerr: {}""".format(
-            samples_type, self.epoch, len(Y), loss_avg))
+        # print("""{}: {}, N: {}, qerr: {}""".format(
+            # samples_type, self.epoch, len(Y), loss_avg))
         if self.adaptive_lr and self.scheduler is not None:
             self.scheduler.step(loss_avg)
 
@@ -786,38 +869,38 @@ class NN(CardinalityEstimationAlg):
             self.add_row(nt_losses["loss"].values, "qerr", self.epoch, "all",
                     str(nt), samples_type)
 
-        if (self.epoch % self.eval_epoch_jerr == 0 \
-                and self.epoch != 0):
-            if (samples_type == "train" and \
-                    self.sampling_priority_alpha > 0 and \
-                    self.epoch % self.reprioritize_epoch == 0):
-                if self.train_card_key == "actual":
-                    print("not recalculating join loss for training")
-                    return
-                print("recalculating join loss")
-            print("going to calculate join loss")
-            print(self.epoch, self.eval_epoch_jerr)
-            # if priority on, then stats will be saved when calculating
-            # priority
-            jl_eval_start = time.time()
-            assert self.jl_use_postgres
+        if (samples_type == "train" and \
+                self.sampling_priority_alpha > 0 and \
+                self.epoch % self.reprioritize_epoch == 0):
+            if self.train_card_key == "actual":
+                return
+        # if priority on, then stats will be saved when calculating
+        # priority
+        jl_eval_start = time.time()
+        assert self.jl_use_postgres
 
-            sqls, jgs, true_cardinalities, est_cardinalities = \
-                    self.get_query_estimates(pred, samples)
-            (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
-                    jgs,
-                    true_cardinalities, est_cardinalities, self.env,
-                    self.jl_indexes, None,
-                    pool = self.join_loss_pool,
-                    join_loss_data_file = self.join_loss_data_file)
+        sqls, jgs, true_cardinalities, est_cardinalities = \
+                self.get_query_estimates(pred, samples)
+        (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
+                jgs,
+                true_cardinalities, est_cardinalities, self.env,
+                self.jl_indexes, None,
+                pool = self.join_loss_pool,
+                join_loss_data_file = self.join_loss_data_file)
 
-            join_losses = np.array(est_costs) - np.array(opt_costs)
-            # join_losses = np.maximum(join_losses, 0.00)
+        join_losses = np.array(est_costs) - np.array(opt_costs)
+        # join_losses = np.maximum(join_losses, 0.00)
 
-            self.save_join_loss_stats(join_losses, est_plans, samples,
-                    samples_type)
+        self.save_join_loss_stats(join_losses, est_plans, samples,
+                samples_type)
 
-            # TODO: what to do with prioritization?
+        if np.mean(join_losses) < self.best_join_loss \
+                and self.epoch > self.start_validation \
+                and self.use_val_set:
+            self.best_join_loss = np.mean(join_losses)
+            self.best_model_dict = copy.deepcopy(self.nets[0].state_dict())
+            print("going to save best join error at epoch: ", self.epoch)
+            self.save_model_dict()
 
     def _normalize_priorities(self, priorities):
         total = np.float64(np.sum(priorities))
@@ -844,15 +927,6 @@ class NN(CardinalityEstimationAlg):
         '''
         priorities = np.power(priorities, self.sampling_priority_alpha)
         priorities = self._normalize_priorities(priorities)
-
-        if self.avg_jl_priority:
-            self.past_priorities.append(priorities)
-            if len(self.past_priorities) > 1:
-                new_priorities = np.zeros(len(priorities))
-                num_past = min(self.num_last, len(self.past_priorities))
-                for i in range(1,num_past+1):
-                    new_priorities += self.past_priorities[-i]
-                priorities = self._normalize_priorities(new_priorities)
 
         return priorities
 
@@ -946,7 +1020,7 @@ class NN(CardinalityEstimationAlg):
         return training_sets, training_loaders
 
     def train(self, db, training_samples, use_subqueries=False,
-            test_samples=None, join_loss_pool = None):
+            val_samples=None, join_loss_pool = None):
         assert isinstance(training_samples[0], dict)
 
         self.join_loss_pool = join_loss_pool
@@ -984,8 +1058,8 @@ class NN(CardinalityEstimationAlg):
             training_sets, self.training_loaders = self.init_dataset(training_samples,
                                     False, self.mb_size, weighted=True)
             priority_loaders = []
-            for i, ds in enumerate(self.training_sets):
-                priority_loaders.append(data.dataloader(ds,
+            for i, ds in enumerate(training_sets):
+                priority_loaders.append(data.DataLoader(ds,
                         batch_size=25000, shuffle=False, num_workers=0))
         else:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
@@ -1006,6 +1080,8 @@ class NN(CardinalityEstimationAlg):
 
 
         if self.priority_normalize_type == "paths1":
+            print("generating path probs")
+            training_set = training_sets[0]
             subw_start = time.time()
             subquery_rel_weights = np.zeros(len(training_set))
             qidx = 0
@@ -1018,8 +1094,9 @@ class NN(CardinalityEstimationAlg):
                 node_list.sort()
                 cur_weights = np.zeros(len(node_list))
                 if sample["template_name"] in template_weights:
-                    cur_weights = sample["template_name"]
+                    cur_weights = template_weights[sample["template_name"]]
                 else:
+                    print("sample template name: ", sample["template_name"])
                     for i, node in enumerate(node_list):
                         all_paths = nx.all_simple_paths(subsetg, dest, node)
                         num_paths = len(list(all_paths))
@@ -1029,9 +1106,56 @@ class NN(CardinalityEstimationAlg):
                     template_weights[sample["template_name"]] = cur_weights
 
                 subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
-
                 qidx += len(node_list)
             print("subquery weights calculate in: ", time.time()-subw_start)
+        elif "flow" in self.priority_normalize_type:
+            print("going to use cvxpy to generate flow values")
+            # sample = training_samples[0]
+            # flows = get_subq_flows(sample)
+            subquery_rel_weights = np.zeros(len(training_sets[0]))
+            fl_start = time.time()
+            num_proc = 10
+            par_args = []
+            training_samples_hash = deterministic_hash(str(training_samples))
+            for s in training_samples:
+                par_args.append((s, None))
+
+            with Pool(processes = num_proc) as pool:
+                res = pool.starmap(get_subq_flows, par_args)
+
+            qidx = 0
+            for si, sample in enumerate(training_samples):
+                subsetg = sample["subset_graph"]
+                node_list = list(subsetg.nodes())
+                node_list.sort()
+                cur_weights = np.zeros(len(node_list))
+                # will update the cur_weights for this sample now
+                flows, edge_dict = res[si]
+
+                for i, node in enumerate(node_list):
+                    # all_paths = nx.all_simple_paths(subsetg, dest, node)
+                    # num_paths = len(list(all_paths))
+                    in_edges = subsetg.in_edges(node)
+                    node_pr = 0.0
+                    for edge in in_edges:
+                        node_pr += flows[edge_dict[edge]]
+
+                    if self.priority_normalize_type in ["flow1", "flow2"]:
+                        cur_weights[i] = node_pr
+                    elif self.priority_normalize_type == "flow3":
+                        cur_weights[i] = node_pr * (1 / len(node))
+
+                # do we need this? not sure
+                if self.priority_normalize_type == "flow1":
+                    cur_weights = cur_weights / sum(cur_weights)
+
+                # assert np.abs(sum(cur_weights) - 1.0) < 0.001
+
+                subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
+                qidx += len(node_list)
+
+            print("generating flow values took: ", time.time()-fl_start)
+            # pdb.set_trace()
 
         if self.loss_func == "cm_fcnn":
             inp_len = len(training_samples[0]["subset_graph"].nodes())
@@ -1060,12 +1184,12 @@ class NN(CardinalityEstimationAlg):
         self.eval_loaders["train"] = eval_train_loaders
 
         # TODO: add separate dataset, dataloaders for evaluation
-        if test_samples is not None and len(test_samples) > 0:
-            test_samples = random.sample(test_samples, int(len(test_samples) /
+        if val_samples is not None and len(val_samples) > 0:
+            val_samples = random.sample(val_samples, int(len(val_samples) /
                     eval_samples_size_divider))
-            self.samples["test"] = test_samples
+            self.samples["test"] = val_samples
             eval_test_sets, eval_test_loaders = \
-                    self.init_dataset(test_samples, False, 10000, weighted=False)
+                    self.init_dataset(val_samples, False, 10000, weighted=False)
             self.eval_loaders["test"] = eval_test_loaders
         else:
             self.samples["test"] = None
@@ -1081,6 +1205,10 @@ class NN(CardinalityEstimationAlg):
                     self.hidden_layer_size))
 
         for self.epoch in range(1,self.max_epochs):
+            # if self.epoch > 15:
+                # print("skipping epochs over 15")
+                # continue
+
             if self.epoch % self.eval_epoch == 0:
                 eval_start = time.time()
                 self.periodic_eval("train")
@@ -1088,16 +1216,19 @@ class NN(CardinalityEstimationAlg):
                     self.periodic_eval("test")
                 self.save_stats()
 
+            elif self.epoch > self.start_validation and self.use_val_set:
+                if self.samples["test"] is not None:
+                    self.periodic_eval("test")
+
             start = time.time()
             self.train_one_epoch()
-            print("train epoch took: ", time.time() - start)
 
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \
                             or self.epoch == self.prioritize_epoch):
                 pred, _ = self._eval_samples(priority_loaders)
                 pred = pred.detach().numpy()
-                weights = np.zeros(len(training_set))
+                weights = np.zeros(self.total_training_samples)
                 if self.sampling_priority_type == "query":
                     # TODO: decompose
                     pr_start = time.time()
@@ -1113,6 +1244,7 @@ class NN(CardinalityEstimationAlg):
 
                     jerr_ratio = est_costs / opt_costs
                     jerr = est_costs - opt_costs
+                    jerr = np.maximum(jerr, 0.00)
                     # don't do this if train_card_key is not actual, as this
                     # does not reflect real join loss
                     if self.train_card_key == "actual":
@@ -1135,13 +1267,19 @@ class NN(CardinalityEstimationAlg):
                             sq_weight /= len(sample["subset_graph"].nodes())
                         elif self.priority_normalize_type == "paths1":
                             pass
+                        elif self.priority_normalize_type == "flow1":
+                            pass
 
+                        # the order of iteration doesn't matter here since each
+                        # is being given the same weight
                         for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
                             weights[query_idx+subq_idx] = sq_weight
 
                         query_idx += len(sample["subset_graph"].nodes())
 
                     if self.priority_normalize_type == "paths1":
+                        weights *= subquery_rel_weights
+                    elif self.priority_normalize_type == "flow1":
                         weights *= subquery_rel_weights
 
                 elif self.sampling_priority_type == "subquery":
@@ -1160,7 +1298,7 @@ class NN(CardinalityEstimationAlg):
                     self.save_join_loss_stats(jerrs, est_plans,
                             self.training_samples, "train")
 
-                    print("epoch: {}, jerr_ratio: {}, jerr: {}, time: {}"\
+                    print("subq_pr, epoch: {}, jerr_ratio: {}, jerr: {}, time: {}"\
                             .format(self.epoch,
                                 np.round(np.mean(jerr_ratio), 2),
                                 np.round(np.mean(jerrs), 2),
@@ -1172,8 +1310,6 @@ class NN(CardinalityEstimationAlg):
                                     true_cardinalities[si], est_cardinalities[si],
                                     est_plans[si], jerrs[si], self.env,
                                     self.jl_indexes))
-                    # with Pool(processes=num_proc) as pool:
-                        # all_subps = pool.starmap(compute_subquery_priorities, par_args)
                     all_subps = self.join_loss_pool.starmap(compute_subquery_priorities,
                             par_args)
 
@@ -1201,14 +1337,61 @@ class NN(CardinalityEstimationAlg):
                 else:
                     assert False
 
-                weights = self._update_sampling_weights(weights)
+                # if len(self.groups) == 1:
+                    # weights = self._update_sampling_weights(weights)
+                    # weights = torch.DoubleTensor(weights)
+                    # sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
+                            # num_samples=len(weights))
+                    # tloader = data.DataLoader(training_sets[0],
+                            # batch_size=25000, shuffle=False, num_workers=0,
+                            # sampler = sampler)
+                    # self.training_loaders[0] = tloader
+                # else:
+                group_weights = []
+                for group in self.groups:
+                    group_weights.append([])
 
-                weights = torch.DoubleTensor(weights)
-                sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
-                        num_samples=len(weights))
-                self.training_loader = data.DataLoader(training_set,
-                        batch_size=self.mb_size, shuffle=False, num_workers=0,
-                        sampler = sampler)
+                query_idx = 0
+                for si, sample in enumerate(self.training_samples):
+                    node_list = list(sample["subset_graph"].nodes())
+                    node_list.sort()
+                    for subq_idx, nodes in enumerate(node_list):
+                        num_nodes = len(nodes)
+                        wt = weights[query_idx+subq_idx]
+                        for gi, group in enumerate(self.groups):
+                            if num_nodes in group:
+                                group_weights[gi].append(wt)
+                    query_idx += len(node_list)
+
+                for gi, gwts in enumerate(group_weights):
+                    assert len(gwts) == len(training_sets[gi])
+                    gwts = self._update_sampling_weights(gwts)
+
+                    if self.avg_jl_priority:
+                        self.past_priorities[gi].append(gwts)
+                        if len(self.past_priorities[gi]) > 1:
+                            new_priorities = np.zeros(len(gwts))
+                            num_past = min(self.num_last,
+                                    len(self.past_priorities[gi]))
+                            for i in range(1,num_past+1):
+                                new_priorities += self.past_priorities[gi][-i]
+                            gwts = self._normalize_priorities(new_priorities)
+
+                    gwts = torch.DoubleTensor(gwts)
+                    sampler = torch.utils.data.sampler.WeightedRandomSampler(gwts,
+                            num_samples=len(gwts))
+                    tloader = data.DataLoader(training_sets[gi],
+                            batch_size=25000, shuffle=False, num_workers=0,
+                            sampler = sampler)
+                    self.training_loaders[gi] = tloader
+
+        if self.best_model_dict is not None and self.use_best_val_model:
+            print("""training done, will update our model based on validation set
+            errors now""")
+            self.nets[0].load_state_dict(self.best_model_dict)
+            self.nets[0].eval()
+        else:
+            self.save_model_dict()
 
     def test(self, test_samples):
         '''
@@ -1216,6 +1399,7 @@ class NN(CardinalityEstimationAlg):
         '''
         datasets, loaders = \
                 self.init_dataset(test_samples, False, 10000, weighted=False)
+        self.nets[0].eval()
         pred, y = self._eval_samples(loaders)
         if self.preload_features:
             for dataset in datasets:
