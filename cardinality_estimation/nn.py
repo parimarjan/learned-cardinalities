@@ -54,6 +54,10 @@ def percentile_help(q):
         return np.percentile(arr, q)
     return f
 
+def flow_loss(yhat, y, sample):
+    print(sample)
+    pdb.set_trace()
+
 EMBEDDING_OUTPUT = None
 def embedding_hook(module, input_, output):
     global EMBEDDING_OUTPUT
@@ -345,6 +349,8 @@ class NN(CardinalityEstimationAlg):
 
         if self.loss_func == "qloss":
             self.loss = qloss_torch
+        elif self.loss_func == "flow_loss":
+            self.loss = flow_loss
         elif self.loss_func == "rel":
             self.loss = rel_loss_torch
         elif self.loss_func == "weighted":
@@ -500,14 +506,24 @@ class NN(CardinalityEstimationAlg):
         all_idxs = []
 
         for idx, (xbatch, ybatch,info) in enumerate(loader):
+            if self.load_query_together:
+                # update the batches
+                xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
+                        xbatch.shape[2])
+                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+                all_idxs.append(0)
+            else:
+                all_idxs.append(info["dataset_idx"])
+
             pred = net(xbatch).squeeze(1)
             all_preds.append(pred)
             all_y.append(ybatch)
-            all_idxs.append(info["dataset_idx"])
 
         pred = torch.cat(all_preds).detach().numpy()
         y = torch.cat(all_y).detach().numpy()
-        all_idxs = torch.cat(all_idxs).detach().numpy()
+
+        if not self.load_query_together:
+            all_idxs = torch.cat(all_idxs).detach().numpy()
         return pred, y, all_idxs
 
     def _eval_mscn(self, net, loader):
@@ -928,7 +944,6 @@ class NN(CardinalityEstimationAlg):
 
         assert len(training_sets) == len(self.groups) == len(training_loaders)
         return training_sets, training_loaders
-
 
     def train(self, db, training_samples, use_subqueries=False,
             test_samples=None, join_loss_pool = None):

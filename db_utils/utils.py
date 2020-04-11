@@ -1393,6 +1393,37 @@ def add_single_node_edges(subset_graph):
             if node[0] in node2:
                 subset_graph.add_edge(node2, node)
 
+def compute_costs2(subset_graph):
+    '''
+    @computes costs based on the MM1 cost model.
+    '''
+    NILJ_CONSTANT = 0.001
+    for edge in subset_graph.edges():
+        assert len(edge[0]) < len(edge[1])
+        # assert edge[1][0] in edge[0]
+        assert edge[0][0] in edge[1]
+
+        node1 = edge[1]
+        diff = set(edge[1]) - set(edge[0])
+        node2 = list(diff)
+        node2.sort()
+        node2 = tuple(node2)
+        assert node2 in subset_graph.nodes()
+        card1 = subset_graph.nodes()[node1]["cardinality"]
+        card2 = subset_graph.nodes()[node2]["cardinality"]
+
+        hash_join_cost = card1["actual"] + card2["actual"]
+        if len(node1) == 1:
+            nilj_cost = card2["actual"] + NILJ_CONSTANT*card1["actual"]
+        elif len(node2) == 1:
+            nilj_cost = card1["actual"] + NILJ_CONSTANT*card2["actual"]
+        else:
+            nilj_cost = 10000000000
+        cost = min(hash_join_cost, nilj_cost)
+        assert cost != 0.0
+        # subset_graph[edge[0]][edge[1]]["cost"] = cost
+        subset_graph[edge[0]][edge[1]]["cost"] = cost + 1
+
 def compute_costs(subset_graph):
     '''
     @computes costs based on the MM1 cost model.
@@ -1405,6 +1436,7 @@ def compute_costs(subset_graph):
             continue
         assert len(edge[1]) < len(edge[0])
         assert edge[1][0] in edge[0]
+        ## FIXME:
         node1 = edge[1]
         diff = set(edge[0]) - set(edge[1])
         node2 = list(diff)
