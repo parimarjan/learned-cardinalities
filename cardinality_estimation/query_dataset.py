@@ -249,6 +249,7 @@ class QueryDataset(data.Dataset):
                 cur_info = {}
                 cur_info["num_tables"] = len(nodes)
                 cur_info["dataset_idx"] = qidx + node_idx
+                cur_info["query_idx"] = i
 
                 # FIXME:
                 # cur_info["total"] = total

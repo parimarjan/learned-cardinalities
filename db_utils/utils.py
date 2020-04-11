@@ -108,6 +108,8 @@ EDGE_COLORS = {}
 EDGE_COLORS["left"] = "b"
 EDGE_COLORS["right"] = "r"
 
+NILJ_CONSTANT = 0.001
+
 def get_default_con_creds():
     if "user" in os.environ:
         user = os.environ["LC_PG_USER"]
@@ -1397,7 +1399,6 @@ def compute_costs2(subset_graph):
     '''
     @computes costs based on the MM1 cost model.
     '''
-    NILJ_CONSTANT = 0.001
     for edge in subset_graph.edges():
         assert len(edge[0]) < len(edge[1])
         # assert edge[1][0] in edge[0]
@@ -1428,7 +1429,7 @@ def compute_costs(subset_graph):
     '''
     @computes costs based on the MM1 cost model.
     '''
-    NILJ_CONSTANT = 0.001
+    # NILJ_CONSTANT = 0.001
     for edge in subset_graph.edges():
         if len(edge[0]) == len(edge[1]):
             assert edge[1] == tuple("s")
