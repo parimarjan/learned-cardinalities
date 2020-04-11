@@ -1319,7 +1319,7 @@ def sql_to_query_object(sql, user, db_host, port, pwd, db_name,
     return query
 
 def draw_graph(g, highlight_nodes=set(), color_nodes={}, bold_edges=[],
-        save_to=None, node_attrs=[], node_shape="oval"):
+        save_to=None, node_attrs=[], node_shape="oval", edge_widths=None):
     '''
     ryan's version.
     '''
@@ -1352,6 +1352,13 @@ def draw_graph(g, highlight_nodes=set(), color_nodes={}, bold_edges=[],
         for e in g.edges:
             if e in bold_edges:
                 g.edges[e]["penwidth"] = "3"
+
+    if edge_widths:
+        for e in g.edges:
+            if e in edge_widths:
+                weight = edge_widths[e]
+                pen_width = max(10*weight, 0.05)
+                g.edges[e]["penwidth"] = pen_width
 
     A = to_agraph(g)
     if save_to:
@@ -1394,6 +1401,7 @@ def compute_costs(subset_graph):
     for edge in subset_graph.edges():
         if len(edge[0]) == len(edge[1]):
             assert edge[1] == tuple("s")
+            subset_graph[edge[0]][edge[1]]["cost"] = 1.0
             continue
         assert len(edge[1]) < len(edge[0])
         assert edge[1][0] in edge[0]
@@ -1414,7 +1422,78 @@ def compute_costs(subset_graph):
         else:
             nilj_cost = 10000000000
         cost = min(hash_join_cost, nilj_cost)
-        subset_graph[edge[0]][edge[1]]["cost"] = cost
+        assert cost != 0.0
+        # subset_graph[edge[0]][edge[1]]["cost"] = cost
+        subset_graph[edge[0]][edge[1]]["cost"] = cost + 1
+
+def constructG(subsetg):
+    '''
+    @ret:
+        G:
+        i:
+    '''
+    N = len(subsetg.nodes())
+    M = len(subsetg.edges())
+    G = np.zeros((N,N))
+    Q = np.zeros((M,N))
+    Gv = np.zeros(N)
+
+    node_dict = {}
+    edge_dict = {}
+
+    nodes = list(subsetg.nodes())
+    nodes.sort()
+
+    edges = list(subsetg.edges())
+    edges.sort()
+    for i, edge in enumerate(edges):
+        edge_dict[edge] = i
+
+    # node with all tables is source, node with no tables is target
+    source_node = nodes[0]
+    for i, node in enumerate(nodes):
+        node_dict[node] = i
+        if len(node) > len(source_node):
+            source_node = node
+    Gv[node_dict[source_node]] = 1
+    target_node = tuple("s")
+    Gv[node_dict[target_node]] = -1
+
+    for i, node in enumerate(nodes):
+        # going to set G[i,:]
+        in_edges = subsetg.in_edges(node)
+        out_edges = subsetg.out_edges(node)
+        for edge in in_edges:
+            assert edge[1] == node
+            cost = subsetg[edge[0]][edge[1]]["cost"] / 10000.0
+            # cost = subsetg[edge[0]][edge[1]]["cost"]
+            cost = 1 / cost
+            cur_node_idx = node_dict[edge[1]]
+            other_node_idx = node_dict[edge[0]]
+            G[i,cur_node_idx] += cost
+            G[i,other_node_idx] -= cost
+
+        for edge in out_edges:
+            assert edge[0] == node
+            cost = subsetg[edge[0]][edge[1]]["cost"] / 10000.0
+            # cost = subsetg[edge[0]][edge[1]]["cost"]
+            cost = 1 / cost
+            cur_node_idx = node_dict[edge[0]]
+            other_node_idx = node_dict[edge[1]]
+            G[i,cur_node_idx] += cost
+            G[i,other_node_idx] -= cost
+
+    for i, edge in enumerate(edges):
+        head_node = edge[0]
+        tail_node = edge[1]
+        hidx = node_dict[head_node]
+        tidx = node_dict[tail_node]
+        cost = subsetg[edge[0]][edge[1]]["cost"] / 10000.0
+        cost = 1 / cost
+        Q[i,hidx] = cost
+        Q[i,tidx] = -cost
+
+    return edges, G, Gv, Q
 
 def construct_lp(subsetg):
     '''
@@ -1445,6 +1524,7 @@ def construct_lp(subsetg):
     b[node_dict[target_node]] = -1
 
     edges = list(subsetg.edges())
+    edges.sort()
     for i, edge in enumerate(edges):
         edge_dict[edge] = i
 
@@ -1485,7 +1565,9 @@ def construct_lp(subsetg):
     c = np.zeros(len(edges))
     # find cost of each edge
     for i, edge in enumerate(edges):
-        c[i] = subsetg[edge[0]][edge[1]]["cost"] / 10000
+        c[i] = subsetg[edge[0]][edge[1]]["cost"] / 10000.0
+    # for i, edge in enumerate(edges):
+        # c[i] = subsetg[edge[0]][edge[1]]["cost"]
 
     # print("going to rescale A matrix")
     # for ni, node in enumerate(nodes):
