@@ -600,8 +600,10 @@ class NN(CardinalityEstimationAlg):
 
         if self.load_query_together:
             self.mb_size = 1
+            self.eval_batch_size = 1
         else:
             self.mb_size = 2500
+            self.eval_batch_size = 10000
 
         if self.nn_type == "microsoft":
             self.featurization_scheme = "combined"
@@ -1278,7 +1280,7 @@ class NN(CardinalityEstimationAlg):
             priority_loaders = []
             for i, ds in enumerate(training_sets):
                 priority_loaders.append(data.DataLoader(ds,
-                        batch_size=25000, shuffle=False, num_workers=0))
+                        batch_size=self.eval_batch_size, shuffle=False, num_workers=0))
         else:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
                                     True, self.mb_size, weighted=False)
@@ -1397,7 +1399,8 @@ class NN(CardinalityEstimationAlg):
         self.samples["train"] = eval_training_samples
 
         eval_train_sets, eval_train_loaders = \
-                self.init_dataset(eval_training_samples, False, 10000, weighted=False)
+                self.init_dataset(eval_training_samples, False,
+                        self.eval_batch_size, weighted=False)
 
         self.eval_loaders["train"] = eval_train_loaders
 
@@ -1407,7 +1410,8 @@ class NN(CardinalityEstimationAlg):
                     eval_samples_size_divider))
             self.samples["test"] = val_samples
             eval_test_sets, eval_test_loaders = \
-                    self.init_dataset(val_samples, False, 10000, weighted=False)
+                    self.init_dataset(val_samples, False, self.eval_batch_size,
+                            weighted=False)
             self.eval_loaders["test"] = eval_test_loaders
         else:
             self.samples["test"] = None
@@ -1555,16 +1559,6 @@ class NN(CardinalityEstimationAlg):
                 else:
                     assert False
 
-                # if len(self.groups) == 1:
-                    # weights = self._update_sampling_weights(weights)
-                    # weights = torch.DoubleTensor(weights)
-                    # sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
-                            # num_samples=len(weights))
-                    # tloader = data.DataLoader(training_sets[0],
-                            # batch_size=25000, shuffle=False, num_workers=0,
-                            # sampler = sampler)
-                    # self.training_loaders[0] = tloader
-                # else:
                 group_weights = []
                 for group in self.groups:
                     group_weights.append([])
@@ -1599,7 +1593,7 @@ class NN(CardinalityEstimationAlg):
                     sampler = torch.utils.data.sampler.WeightedRandomSampler(gwts,
                             num_samples=len(gwts))
                     tloader = data.DataLoader(training_sets[gi],
-                            batch_size=25000, shuffle=False, num_workers=0,
+                            batch_size=self.eval_batch_size, shuffle=False, num_workers=0,
                             sampler = sampler)
                     self.training_loaders[gi] = tloader
 
@@ -1616,7 +1610,8 @@ class NN(CardinalityEstimationAlg):
         @test_samples: [] sql_representation dicts
         '''
         datasets, loaders = \
-                self.init_dataset(test_samples, False, 10000, weighted=False)
+                self.init_dataset(test_samples, False, self.eval_batch_size,
+                        weighted=False)
         self.nets[0].eval()
         pred, y = self._eval_samples(loaders)
         if self.preload_features:
