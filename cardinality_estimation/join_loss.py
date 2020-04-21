@@ -430,3 +430,89 @@ class JoinLoss():
 
         return np.array(est_costs), np.array(opt_costs), est_explains, \
     opt_explains, est_sqls, opt_sqls
+
+def get_shortest_path_costs(subsetg, source_node, cost_key, ests,
+        known_cost):
+    '''
+    @ret: cost of the given path in subsetg.
+    '''
+    if known_cost is not None:
+        return known_cost
+
+    compute_costs(subsetg, cost_key=cost_key, ests=ests)
+    nodes = list(subsetg.nodes())
+    nodes.sort(key=lambda x: len(x))
+    final_node = nodes[-1]
+    # print(final_node)
+    path = nx.shortest_path(subsetg, final_node,
+            source_node, weight=cost_key)
+    # print(path)
+    cost = 0.0
+    for i in range(len(path)-1):
+        cost += subsetg[path[i]][path[i+1]]["cost"]
+
+    return cost
+
+class PlanError():
+
+    def __init__(self, cost_model, user=None, pwd=None, db_host=None,
+            port=None, db_name=None):
+        self.user = user
+        self.pwd = pwd
+        self.db_host = db_host
+        self.port = port
+        self.db_name = db_name
+        self.cost_model = cost_model
+        self.source_node = SOURCE_NODE
+
+        self.subsetgs = {}
+        self.opt_costs = {}
+
+        # self.opt_archive = klepto.archives.dir_archive("/tmp/opt_archive2",
+                # cached=True, serialized=True)
+
+    def compute_plan_error(self, qreps, ests, pool=None):
+        '''
+        @ests: [dicts] of estimates
+        '''
+        start = time.time()
+        subsetgs = []
+        opt_costs = []
+        for qrep in qreps:
+            qkey = deterministic_hash(qrep["sql"])
+            if qkey in self.subsetgs:
+                subsetgs.append(self.subsetgs[qkey])
+                opt_costs.append(self.opt_costs[qkey])
+            else:
+                subsetg = copy.deepcopy(qrep["subset_graph"])
+                add_single_node_edges(subsetg)
+                opt_cost = get_shortest_path_costs(subsetg, self.source_node, "cost",
+                        None, None)
+                # add costs
+                opt_costs.append(opt_cost)
+                subsetgs.append(subsetg)
+                self.subsetgs[qkey] = subsetg
+                self.opt_costs[qkey] = opt_cost
+
+        if pool is None:
+            assert False
+        else:
+            opt_par_args = []
+            par_args = []
+            for i, qrep in enumerate(qreps):
+                qkey = deterministic_hash(qrep["sql"])
+                subsetg = subsetgs[i]
+                # opt_cost = None
+                # opt_par_args.append((subsetg, self.source_node, "cost",
+                    # None, opt_cost))
+                par_args.append((subsetg, self.source_node, "est_cost",
+                    ests[i], None))
+
+            # opt_costs = pool.starmap(get_shortest_path_costs,
+                    # opt_par_args)
+            all_costs = pool.starmap(get_shortest_path_costs,
+                    par_args)
+        print("compute plan err took: ", time.time()-start)
+        return np.array(opt_costs), np.array(all_costs)
+
+

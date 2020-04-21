@@ -69,6 +69,8 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                weighted_qloss = args.weighted_qloss,
+                cost_model_plan_err = args.cost_model_plan_err,
                 use_val_set = args.use_val_set,
                 use_best_val_model = args.use_best_val_model,
                 start_validation = args.start_validation,
@@ -296,11 +298,12 @@ def main():
             samples.append(qrep)
 
         # if len(samples) == 0:
-        if len(samples) < 10:
-            continue
+        # if len(samples) < 10:
+            # continue
 
-        print(("template: {}, zeros skipped: {}, subqueries: {}, queries: {}"
+        print(("template: {}, zeros skipped: {}, edges: {}, subqueries: {}, queries: {}"
                 ", loading time: {}").format( template_name, skipped,
+                    len(samples[0]["subset_graph"].edges()),
                     len(samples[0]["subset_graph"].nodes()), len(samples),
                     time.time()-start))
 
@@ -424,6 +427,10 @@ def read_flags():
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
+            default=0)
+    parser.add_argument("--cost_model_plan_err", type=int, required=False,
+            default=1)
+    parser.add_argument("--weighted_qloss", type=int, required=False,
             default=0)
     parser.add_argument("--avg_jl_num_last", type=int, required=False,
             default=5)

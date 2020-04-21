@@ -487,7 +487,6 @@ def get_summary_df(results_dir):
             continue
         exp_args = vars(exp_args)
         exp_args["alg"] = get_alg_name(exp_args)
-        # exp_args["alg"] += str(exp_args["sampling_priority_alpha"])
         if skip_exp(exp_args):
             continue
 

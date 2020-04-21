@@ -283,7 +283,11 @@ class QueryDataset(data.Dataset):
                     return self.X[start_idx:end_idx], self.Y[start_idx:end_idx], \
                             self.info[start_idx:end_idx]
                 else:
-                    assert False
+                    return (self.X["table"][start_idx:end_idx],
+                            self.X["pred"][start_idx:end_idx],
+                            self.X["join"][start_idx:end_idx],
+                            self.Y[start_idx:end_idx],
+                            self.info[start_idx:end_idx])
             else:
                 # usual path
                 if self.featurization_type == "combined":

@@ -18,6 +18,12 @@ import sys
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+import math
+
+def nCr(n,r):
+    f = math.factorial
+    return f(n) / f(r) / f(n-r)
+
 def shuffle_list(*ls):
   l = list(zip(*ls))
   random.shuffle(l)
@@ -78,6 +84,13 @@ def load_object(file_name):
         with open(file_name, "rb") as f:
             res = pickle.loads(f.read())
     return res
+
+def update_list(fn, new_obj):
+    obj = load_object(fn)
+    if obj is None:
+        obj = []
+    obj.append(new_obj)
+    save_object(fn, obj)
 
 def save_or_update(obj_name, obj):
     # TODO: generalize this functionality
