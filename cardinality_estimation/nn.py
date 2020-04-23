@@ -42,7 +42,7 @@ import networkx as nx
 # dataset
 from cardinality_estimation.query_dataset import QueryDataset
 from torch.utils import data
-from cardinality_estimation.join_loss import JoinLoss, PlanError
+from cardinality_estimation.join_loss import JoinLoss, PlanError,FlowLossEnv
 from torch.multiprocessing import Pool as Pool2
 import torch.multiprocessing as mp
 try:
@@ -50,7 +50,17 @@ try:
 except:
     pass
 
-from cardinality_estimation.flow_loss import FlowLoss, get_edge_costs, constructG
+from cardinality_estimation.flow_loss import FlowLoss, get_edge_costs, \
+        constructG
+
+def update_samples(samples):
+    start = time.time()
+    for sample in samples:
+        subsetg = copy.deepcopy(sample["subset_graph"])
+        add_single_node_edges(subsetg)
+        compute_costs(subsetg, cost_key="cost", ests=None)
+        sample["subset_graph_paths"] = subsetg
+    print("updated samples with shortest path costs in ", time.time()-start)
 
 SUBQUERY_JERR_THRESHOLD = 100000
 PERCENTILES_TO_SAVE = [1,5,10,25, 50, 75, 90, 95, 99]
@@ -88,119 +98,6 @@ def add_single_node_edges(subset_graph):
                 continue
             if node[0] in node2:
                 subset_graph.add_edge(node2, node)
-
-# def constructG(subsetg, preds):
-    # '''
-    # '''
-    # N = len(subsetg.nodes()) - 1
-    # M = len(subsetg.edges())
-    # G = to_variable(np.zeros((N,N))).float()
-    # Q = to_variable(np.zeros((M,N))).float()
-    # Gv = to_variable(np.zeros(N)).float()
-
-    # node_dict = {}
-    # edge_dict = {}
-
-    # nodes = list(subsetg.nodes())
-    # nodes.remove(SOURCE_NODE)
-    # assert len(nodes) == N
-    # nodes.sort()
-    # final_node = nodes[0]
-    # for i, node in enumerate(nodes):
-        # node_dict[node] = i
-        # if len(node) > len(final_node):
-            # final_node = node
-    # edges = list(subsetg.edges())
-    # edges.sort()
-    # for i, edge in enumerate(edges):
-        # edge_dict[edge] = i
-
-    # Gv[node_dict[final_node]] = 1.0
-
-    # for i, node in enumerate(nodes):
-        # # going to set G[i,:]
-        # in_edges = subsetg.in_edges(node)
-        # out_edges = subsetg.out_edges(node)
-        # for edge in in_edges:
-            # assert edge[1] == node
-            # cost = preds[edge_dict[edge]]
-            # # cost = 1.0 / cost
-            # cur_node_idx = node_dict[edge[1]]
-            # other_node_idx = node_dict[edge[0]]
-            # G[i,cur_node_idx] += cost
-            # G[i,other_node_idx] -= cost
-
-        # for edge in out_edges:
-            # assert edge[0] == node
-            # cost = preds[edge_dict[edge]]
-            # # cost = 1.0 / cost
-            # cur_node_idx = node_dict[edge[0]]
-            # G[i,cur_node_idx] += cost
-
-            # other_node = edge[1]
-            # if other_node in node_dict:
-                # other_node_idx = node_dict[other_node]
-                # G[i,other_node_idx] -= cost
-
-    # for i, edge in enumerate(edges):
-        # cost = preds[edge_dict[edge]]
-        # # cost = 1.0 / cost
-
-        # head_node = edge[0]
-        # tail_node = edge[1]
-        # hidx = node_dict[head_node]
-        # Q[i,hidx] = cost
-        # if tail_node in node_dict:
-            # tidx = node_dict[tail_node]
-            # Q[i,tidx] = -cost
-
-    # return edges, G, Gv, Q
-
-# def get_edge_costs(subsetg, ests, node_dict):
-    # '''
-    # @ret: returns costs for each edge in the subset graph.
-    # '''
-
-    # edges = list(subsetg.edges())
-    # edges.sort()
-
-    # # FIXME: need to handle target node as a special case
-    # # costs = torch.zeros(len(edges))
-    # costs = to_variable(np.zeros(len(edges))).float()
-    # for edgei, edge in enumerate(edges):
-        # if len(edge[0]) == len(edge[1]):
-            # assert edge[1] == SOURCE_NODE
-            # costs[edgei] = 1.0
-            # continue
-
-        # assert len(edge[1]) < len(edge[0])
-        # assert edge[1][0] in edge[0]
-        # ## FIXME:
-        # node1 = edge[1]
-        # diff = set(edge[0]) - set(edge[1])
-        # node2 = list(diff)
-        # node2.sort()
-        # node2 = tuple(node2)
-        # assert node2 in subsetg.nodes()
-        # # card1 = subsetg.nodes()[node1]["cardinality"]
-        # # card2 = subsetg.nodes()[node2]["cardinality"]
-        # card1 = ests[node_dict[node1]]
-        # card2 = ests[node_dict[node2]]
-        # # so far, we've just been playing around with getting the indexes
-        # # right. Now onto setting the right torch values so the gradients may
-        # # flow through
-
-        # hash_join_cost = card1 + card2
-        # if len(node1) == 1:
-            # nilj_cost = card2 + NILJ_CONSTANT*card1
-        # elif len(node2) == 1:
-            # nilj_cost = card1 + NILJ_CONSTANT*card2
-        # else:
-            # nilj_cost = 10000000000
-        # cost = torch.min(hash_join_cost, nilj_cost)
-        # assert cost != 0.0
-        # costs[edgei] = cost
-    # return costs
 
 def flow_loss(yhat, y, sample, normalization_type,
         min_val, max_val):
@@ -785,11 +682,14 @@ class NN(CardinalityEstimationAlg):
         self.best_model_dict = None
         # self.start_validation = 5
 
-        self.summary_funcs = [np.mean, np.max, np.min]
-        self.summary_types = ["mean", "max", "min"]
-        for q in PERCENTILES_TO_SAVE:
-            self.summary_funcs.append(percentile_help(q))
-            self.summary_types.append("percentile:{}".format(str(q)))
+        # self.summary_funcs = [np.mean, np.max, np.min]
+        # self.summary_types = ["mean", "max", "min"]
+        self.summary_funcs = [np.mean]
+        self.summary_types = ["mean"]
+
+        # for q in PERCENTILES_TO_SAVE:
+            # self.summary_funcs.append(percentile_help(q))
+            # self.summary_types.append("percentile:{}".format(str(q)))
 
         self.query_stats = defaultdict(list)
         self.query_qerr_stats = defaultdict(list)
@@ -798,6 +698,10 @@ class NN(CardinalityEstimationAlg):
             clip_gradient, samples, normalization_type, min_val, max_val,
             load_query_together=False):
         torch.set_num_threads(1)
+        if self.save_gradients:
+            grads = []
+            grad_samples = []
+
         for idx, (tbatch, pbatch, jbatch, ybatch,info) in enumerate(loader):
             start = time.time()
             if load_query_together:
@@ -815,14 +719,19 @@ class NN(CardinalityEstimationAlg):
                 sample = samples[query_idx]
 
             pred = net(tbatch,pbatch,jbatch).squeeze(1)
-            # if loss_fn_name == "flow_loss":
+
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
-                node_dict,edge_dict,subsetg,trueC,opt_flow_loss,final_node = \
+                template = sample["template_name"]
+
+                node_dict,edge_dict,con_mat,final_node = \
+                        self.flow_template_info[template]
+                subsetg,trueC,opt_flow_loss, = \
                         self.flow_training_info[query_idx]
+
                 losses = loss_fn(pred, ybatch, normalization_type, min_val,
                         max_val, node_dict, edge_dict,
-                        subsetg,trueC,opt_flow_loss,final_node)
+                        subsetg,trueC,opt_flow_loss,final_node, con_mat)
             else:
                 losses = loss_fn(pred, ybatch)
 
@@ -835,8 +744,17 @@ class NN(CardinalityEstimationAlg):
                 qloss = qloss_torch(pred, ybatch)
                 loss += (sum(qloss) / len(qloss))
 
-            optimizer.zero_grad()
-            loss.backward()
+            if self.save_gradients:
+                optimizer.zero_grad()
+                pred.retain_grad()
+                loss.backward()
+                # grads
+                grads.append(np.mean(pred.grad.detach().numpy()))
+                grad_samples.append(sample)
+            else:
+                optimizer.zero_grad()
+                loss.backward()
+
             if clip_gradient is not None:
                 clip_grad_norm_(net.parameters(), clip_gradient)
             optimizer.step()
@@ -844,6 +762,10 @@ class NN(CardinalityEstimationAlg):
             idx_time = time.time() - start
             if idx_time > 10:
                 print("train idx took: ", idx_time)
+
+        if self.save_gradients:
+            self.save_join_loss_stats(grads, None, grad_samples,
+                    "train", loss_key="gradients")
 
     def init_stats(self, samples):
         self.max_tables = 0
@@ -1087,11 +1009,18 @@ class NN(CardinalityEstimationAlg):
             if self.summary_types[i] == "mean" and \
                     (template == "all" or num_tables == "all") \
                     and self.tfboard:
-                stat_name = self.tf_stat_fmt.format(
-                        samples_type = samples_type,
-                        loss_type = loss_type,
-                        num_tables = num_tables,
-                        template = template)
+                if "ratio" in loss_type:
+                    stat_name = self.tf_stat_fmt.format(
+                            samples_type = samples_type,
+                            loss_type = loss_type,
+                            num_tables = "",
+                            template = "")
+                else:
+                    stat_name = self.tf_stat_fmt.format(
+                            samples_type = samples_type,
+                            loss_type = loss_type,
+                            num_tables = num_tables,
+                            template = template)
                 with self.tf_summary_writer.as_default():
                     tf_summary.scalar(stat_name, loss, step=epoch)
 
@@ -1298,6 +1227,17 @@ class NN(CardinalityEstimationAlg):
         sqls, jgs, true_cardinalities, est_cardinalities = \
                 self.get_query_estimates(pred, samples)
 
+        if self.eval_flow_loss:
+            opt_flow_costs, est_flow_costs  = \
+                    self.flow_loss_env.compute_loss(samples,
+                            est_cardinalities, pool = self.join_loss_pool)
+            opt_flow_losses = est_flow_costs - opt_flow_costs
+            opt_flow_ratios = est_flow_costs / opt_flow_costs
+            self.save_join_loss_stats(opt_flow_losses, None, samples,
+                    samples_type, loss_key="flow_err")
+            self.save_join_loss_stats(opt_flow_ratios, None, samples,
+                    samples_type, loss_key="flow_ratio")
+
         if self.cost_model_plan_err:
             opt_plan_costs, est_plan_costs  = \
                     self.plan_err.compute_plan_error(samples,
@@ -1469,12 +1409,8 @@ class NN(CardinalityEstimationAlg):
         if self.tfboard:
             self.initialize_tfboard()
         # model is always small enough that it runs fast w/o using many cores
-        torch.set_num_threads(2)
+        # torch.set_num_threads(2)
         self.db = db
-        db.init_featurizer(num_tables_feature = self.num_tables_feature,
-                max_discrete_featurizing_buckets =
-                self.max_discrete_featurizing_buckets,
-                heuristic_features = self.heuristic_features)
 
         self.training_samples = training_samples
         self.init_stats(training_samples)
@@ -1495,6 +1431,7 @@ class NN(CardinalityEstimationAlg):
         self.env = JoinLoss(self.db.user, self.db.pwd, self.db.db_host,
                 self.db.port, self.db.db_name)
         self.plan_err = PlanError("mm1")
+        self.flow_loss_env = FlowLossEnv("mm1")
 
         self.training_samples = training_samples
         if self.sampling_priority_alpha > 0.00:
@@ -1525,51 +1462,70 @@ class NN(CardinalityEstimationAlg):
             # precompute a whole bunch of training things
             # self.flow_training_subsetgs = []
             self.flow_training_info = []
+            self.flow_template_info = {}
+
             for sample in self.training_samples:
                 subsetg = copy.deepcopy(sample["subset_graph"])
-                # node_dict, edge_dict
-                node_dict = {}
-                edge_dict = {}
-                nodes = list(subsetg.nodes())
-                nodes.sort()
-                true_cards = to_variable(np.zeros(len(subsetg.nodes())))
-                final_node = nodes[0]
-                for i,node in enumerate(nodes):
-                    node_dict[node] = i
+                template = sample["template_name"]
+                if template in self.flow_template_info:
+                    node_dict, edge_dict, con_mat, final_node = \
+                            self.flow_template_info[template]
+                    add_single_node_edges(subsetg)
+                else:
+                    # node_dict, edge_dict
+                    node_dict = {}
+                    edge_dict = {}
+                    nodes = list(subsetg.nodes())
+                    nodes.sort()
+                    final_node = nodes[0]
+                    for i,node in enumerate(nodes):
+                        node_dict[node] = i
+                        if len(node) > len(final_node):
+                            final_node = node
+
+                    add_single_node_edges(subsetg)
+                    edges = list(subsetg.edges())
+                    edges.sort()
+
+                    # con_mat = np.zeros((len(edges),len(node_dict)))
+                    con_mat = to_variable(np.zeros((len(edges),len(node_dict)))).float()
+                    # edge dict is after adding source node
+                    for i, edge in enumerate(edges):
+                        edge_dict[edge] = i
+                        hidx = node_dict[edge[0]]
+                        con_mat[i,hidx] = 1.0
+                        if edge[1] in node_dict:
+                            tidx = node_dict[edge[1]]
+                            con_mat[i,tidx] = -1.0
+
+                    self.flow_template_info[template] = \
+                        node_dict, edge_dict, con_mat, final_node
+
+                true_cards = to_variable(np.zeros(len(node_dict)))
+                for node, i in node_dict.items():
                     true_cards[i] = \
                         subsetg.nodes()[node]["cardinality"]["actual"]
-                    if len(node) > len(final_node):
-                        final_node = node
-
-                add_single_node_edges(subsetg)
-
-                edges = list(subsetg.edges())
-                edges.sort()
-                # edge dict is after adding source node
-                for i, edge in enumerate(edges):
-                    edge_dict[edge] = i
 
                 trueC_vec, _ = get_edge_costs(subsetg, true_cards, node_dict,
                         edge_dict, None, None, None)
+
                 trueC = torch.eye(len(trueC_vec))
                 for i, curC in enumerate(trueC_vec):
                     trueC[i,i] = curC
 
-                # TODO: find optimal flow cost
-                # first, calculate optimal flow loss
-                # edges,G,Gv,Q,edge_dict,node_dict = constructG(subsetg, trueC_vec)
-                G,Gv,Q = constructG(subsetg, trueC_vec, node_dict, edge_dict,
-                        final_node)
+                if self.normalize_flow_loss:
+                    G,Gv,Q = constructG(subsetg, trueC_vec,
+                            node_dict, edge_dict, final_node)
 
-                invG = torch.inverse(G)
-                v = invG @ Gv
-                left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
-                right = Q @ (v)
-                opt_flow_loss = left @ trueC @ right
-                # ctx.opt_flow_loss = opt_flow_loss
-                # opt_flow_loss = 1.0
-                self.flow_training_info.append((node_dict, edge_dict, subsetg,
-                    trueC, opt_flow_loss, final_node))
+                    invG = torch.inverse(G)
+                    v = invG @ Gv
+                    left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
+                    right = Q @ (v)
+                    opt_flow_loss = left @ trueC @ right
+                else:
+                    opt_flow_loss = 1.00
+                self.flow_training_info.append((subsetg,
+                    trueC, opt_flow_loss))
 
         subquery_rel_weights = None
         if self.priority_normalize_type == "paths1":
@@ -1716,6 +1672,9 @@ class NN(CardinalityEstimationAlg):
             # eval_samples_size_divider = 10
             eval_samples_size_divider = 1
 
+        if self.cost_model_plan_err or self.eval_flow_loss:
+            update_samples(training_samples)
+
         eval_training_samples = random.sample(training_samples,
                 int(len(training_samples) / eval_samples_size_divider))
         self.samples["train"] = eval_training_samples
@@ -1730,6 +1689,8 @@ class NN(CardinalityEstimationAlg):
         if val_samples is not None and len(val_samples) > 0:
             val_samples = random.sample(val_samples, int(len(val_samples) /
                     eval_samples_size_divider))
+            if self.cost_model_plan_err or self.eval_flow_loss:
+                update_samples(val_samples)
             self.samples["test"] = val_samples
             eval_test_sets, eval_test_loaders = \
                     self.init_dataset(val_samples, False, self.eval_batch_size,
@@ -1749,10 +1710,6 @@ class NN(CardinalityEstimationAlg):
                     self.hidden_layer_size))
 
         for self.epoch in range(1,self.max_epochs):
-            # if self.epoch > 15:
-                # print("skipping epochs over 15")
-                # continue
-
             if self.epoch % self.eval_epoch == 0:
                 eval_start = time.time()
                 self.periodic_eval("train")
@@ -1822,10 +1779,6 @@ class NN(CardinalityEstimationAlg):
 
                         query_idx += len(sample["subset_graph"].nodes())
 
-                    # if self.priority_normalize_type == "paths1":
-                        # weights *= subquery_rel_weights
-                    # elif self.priority_normalize_type == "flow1":
-                        # weights *= subquery_rel_weights
                     if subquery_rel_weights is not None:
                         weights *= subquery_rel_weights
 

@@ -530,6 +530,15 @@ def qloss(yhat, ytrue):
     errors = np.maximum( (ytrue / yhat), (yhat / ytrue))
     return errors
 
+def ll_scaled_norm_loss(preds, targets):
+    preds = preds.squeeze(1)
+    losses = torch.zeros_like(preds)
+    mask = (targets > -1) & (targets < 1)
+    losses[mask] = (preds[mask] - targets[mask]) ** 2
+    factor = preds[~mask] / targets[~mask]
+    losses[~mask] = 0.5 * (factor ** 2) - factor + .5
+    return torch.mean(losses)
+
 def qloss_torch(yhat, ytrue):
     assert yhat.shape == ytrue.shape
 

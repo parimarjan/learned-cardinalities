@@ -202,6 +202,27 @@ def compute_dfdg_row_orig(edge_num, edge, node_dict, Q, G, invG, v,
     ret = vT @ right
     return ret
 
+def constructG2(subsetg, preds, node_dict, edge_dict,
+        final_node, con_mat):
+    '''
+    TODO:
+        sorted list of nodes, edges, node_dict, edge_dict will be args
+            + final_node
+    '''
+    start = time.time()
+    # Gv can be pre-computed too
+    Gv = to_variable(np.zeros(N)).float()
+    Gv[node_dict[final_node]] = 1.0
+
+    preds = 1.0 / preds
+    diagC = np.diag(preds)
+    # TODO: explain
+    Q = diagC @ con_mat
+    G = Q.T @ con_mat
+
+    # print("constructG took: ", time.time()-start)
+    return G, Gv, Q
+
 def constructG(subsetg, preds, node_dict, edge_dict,
         final_node):
     '''
@@ -330,12 +351,11 @@ class FlowLoss(Function):
     @staticmethod
     def forward(ctx, yhat, y, normalization_type,
             min_val, max_val, node_dict, edge_dict, subsetg,
-            trueC, opt_flow_loss, final_node):
+            trueC, opt_flow_loss, final_node, con_mat):
         '''
         '''
         # Note: do flow loss computation and save G, invG etc. for backward
         # pass
-        # ctx.subset_graph = sample["subset_graph"]
         start = time.time()
         ctx.subsetg = subsetg
         ctx.normalization_type = normalization_type
@@ -359,7 +379,6 @@ class FlowLoss(Function):
 
         # calculate flow loss
         G,Gv,Q = constructG(subsetg, predC, node_dict, edge_dict, final_node)
-
         mat_start = time.time()
         invG = torch.inverse(G)
         v = invG @ Gv
@@ -378,6 +397,7 @@ class FlowLoss(Function):
             pdb.set_trace()
         loss = loss.reshape(1,1)
 
+        # print("mat computations took: ", time.time()-mat_start)
         # print("flow loss took: ", time.time()-start)
         return loss
 
@@ -438,7 +458,8 @@ class FlowLoss(Function):
         # print("backwards, dCdg: ", dCdg)
 
         yhat_grad = ctx.dgdxT @ dCdg
-        print("flow loss backward took: ", time.time()-start)
-        pdb.set_trace()
+        # print("flow loss backward took: ", time.time()-start)
+        # pdb.set_trace()
         yhat_grad /= ctx.opt_flow_loss
-        return yhat_grad,None, None, None, None, None,None,None,None,None,None
+        return yhat_grad,None, None, None, None, \
+                            None,None,None,None,None,None,None

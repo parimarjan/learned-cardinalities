@@ -439,14 +439,15 @@ def get_shortest_path_costs(subsetg, source_node, cost_key, ests,
     if known_cost is not None:
         return known_cost
 
-    compute_costs(subsetg, cost_key=cost_key, ests=ests)
+    # this should already be pre-computed
+    if cost_key != "cost":
+        compute_costs(subsetg, cost_key=cost_key, ests=ests)
+
     nodes = list(subsetg.nodes())
     nodes.sort(key=lambda x: len(x))
     final_node = nodes[-1]
-    # print(final_node)
     path = nx.shortest_path(subsetg, final_node,
             source_node, weight=cost_key)
-    # print(path)
     cost = 0.0
     for i in range(len(path)-1):
         cost += subsetg[path[i]][path[i+1]]["cost"]
@@ -482,37 +483,183 @@ class PlanError():
             qkey = deterministic_hash(qrep["sql"])
             if qkey in self.subsetgs:
                 subsetgs.append(self.subsetgs[qkey])
-                opt_costs.append(self.opt_costs[qkey])
             else:
-                subsetg = copy.deepcopy(qrep["subset_graph"])
-                add_single_node_edges(subsetg)
-                opt_cost = get_shortest_path_costs(subsetg, self.source_node, "cost",
-                        None, None)
-                # add costs
-                opt_costs.append(opt_cost)
+                # add_single_node_edges(subsetg)
+                subsetg = qrep["subset_graph_paths"]
                 subsetgs.append(subsetg)
                 self.subsetgs[qkey] = subsetg
-                self.opt_costs[qkey] = opt_cost
 
         if pool is None:
             assert False
         else:
+            # FIXME: faster if we divide into equal chunks and launch only 1
+            # process per batch (?)
             opt_par_args = []
             par_args = []
+            seen_new = False
             for i, qrep in enumerate(qreps):
                 qkey = deterministic_hash(qrep["sql"])
                 subsetg = subsetgs[i]
-                # opt_cost = None
-                # opt_par_args.append((subsetg, self.source_node, "cost",
-                    # None, opt_cost))
+                opt_cost = None
+                if qkey in self.opt_costs:
+                    opt_cost = self.opt_costs[qkey]
+                else:
+                    seen_new = True
+
+                opt_par_args.append((subsetg, self.source_node, "cost",
+                    None, opt_cost))
                 par_args.append((subsetg, self.source_node, "est_cost",
                     ests[i], None))
 
-            # opt_costs = pool.starmap(get_shortest_path_costs,
-                    # opt_par_args)
+            opt_costs = pool.starmap(get_shortest_path_costs,
+                    opt_par_args)
+
+            if seen_new:
+                for i, qrep in enumerate(qreps):
+                    qkey = deterministic_hash(qrep["sql"])
+                    self.opt_costs[qkey] = opt_costs[i]
+
             all_costs = pool.starmap(get_shortest_path_costs,
                     par_args)
         print("compute plan err took: ", time.time()-start)
         return np.array(opt_costs), np.array(all_costs)
 
+def constructG_numpy(subsetg, preds,
+        node_dict, edge_dict, final_node):
+    '''
+    TODO:
+        sorted list of nodes, edges, node_dict, edge_dict will be args
+            + final_node
+    '''
+    start = time.time()
+    N = len(subsetg.nodes()) - 1
+    M = len(subsetg.edges())
+    G = np.zeros((N,N))
+    Q = np.zeros((M,N))
+    Gv = np.zeros(N)
+    Gv[node_dict[final_node]] = 1.0
+
+    # FIXME: this loop is surprisingly expensive, can we convert it to matrix ops?
+    for edge, i in edge_dict.items():
+        cost = preds[i]
+        cost = 1.0 / cost
+
+        head_node = edge[0]
+        tail_node = edge[1]
+        hidx = node_dict[head_node]
+        Q[i,hidx] = cost
+        G[hidx,hidx] += cost
+
+        if tail_node in node_dict:
+            tidx = node_dict[tail_node]
+            Q[i,tidx] = -cost
+            G[tidx,tidx] += cost
+            G[hidx,tidx] -= cost
+            G[tidx,hidx] -= cost
+
+    return G, Gv, Q
+
+def get_flow_cost(subsetg, source_node, cost_key, ests,
+        known_cost):
+    '''
+    '''
+    # only forward pass of flow-loss
+    node_dict = {}
+    edge_dict = {}
+    nodes = list(subsetg.nodes())
+    nodes.remove(SOURCE_NODE)
+    nodes.sort()
+    final_node = nodes[0]
+    for i,node in enumerate(nodes):
+        node_dict[node] = i
+        if len(node) > len(final_node):
+            final_node = node
+    edges = list(subsetg.edges())
+    edges.sort()
+    for i, edge in enumerate(edges):
+        edge_dict[edge] = i
+
+    # ctx.dgdxT = dgdxT
+    if cost_key != "cost":
+        compute_costs(subsetg, cost_key=cost_key,
+                ests=ests)
+    predC = np.zeros(len(edge_dict))
+    trueC = np.zeros((len(edge_dict), len(edge_dict)))
+
+    for edge, idx in edge_dict.items():
+        trueC[idx,idx] = subsetg[edge[0]][edge[1]]["cost"]
+        # print("before cost key fail")
+        # pdb.set_trace()
+        predC[idx] = subsetg[edge[0]][edge[1]][cost_key]
+
+    # calculate flow loss
+    G,Gv,Q = constructG_numpy(subsetg, predC, node_dict, edge_dict,
+            final_node)
+    invG = np.linalg.inv(G)
+    v = invG @ Gv
+
+    left = (Gv @ invG.T) @ Q.T
+    right = Q @ (v)
+    loss = left @ trueC @ right
+    # assert len(loss) == 1
+    return loss
+
+class FlowLossEnv():
+
+    def __init__(self, cost_model):
+        self.cost_model = cost_model
+        self.source_node = SOURCE_NODE
+
+        self.subsetgs = {}
+        self.opt_costs = {}
+
+    def compute_loss(self, qreps, ests, pool=None):
+        '''
+        @ests: [dicts] of estimates
+        '''
+        start = time.time()
+        subsetgs = []
+        opt_costs = []
+        for qrep in qreps:
+            qkey = deterministic_hash(qrep["sql"])
+            if qkey in self.subsetgs:
+                subsetgs.append(self.subsetgs[qkey])
+            else:
+                # add_single_node_edges(subsetg)
+                subsetg = qrep["subset_graph_paths"]
+                subsetgs.append(subsetg)
+                self.subsetgs[qkey] = subsetg
+
+        if pool is None:
+            assert False
+        else:
+            # FIXME: faster if we divide into equal chunks and launch only 1
+            # process per batch (?)
+            opt_par_args = []
+            par_args = []
+            seen_new = False
+            for i, qrep in enumerate(qreps):
+                qkey = deterministic_hash(qrep["sql"])
+                subsetg = subsetgs[i]
+                opt_cost = None
+                if qkey in self.opt_costs:
+                    opt_cost = self.opt_costs[qkey]
+                else:
+                    seen_new = True
+
+                opt_par_args.append((subsetg, self.source_node, "cost",
+                    None, opt_cost))
+                par_args.append((subsetg, self.source_node, "est_cost",
+                    ests[i], None))
+
+            opt_costs = pool.starmap(get_flow_cost,
+                    opt_par_args)
+            if seen_new:
+                for i, qrep in enumerate(qreps):
+                    qkey = deterministic_hash(qrep["sql"])
+                    self.opt_costs[qkey] = opt_costs[i]
+            all_costs = pool.starmap(get_flow_cost,
+                    par_args)
+        print("compute plan err took: ", time.time()-start)
+        return np.array(opt_costs), np.array(all_costs)
 

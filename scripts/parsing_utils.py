@@ -73,8 +73,8 @@ def get_alg_name(exp_args):
 def skip_exp(exp_args):
     if exp_args["sampling_priority_alpha"] > 2.00:
         return True
-    if exp_args["max_discrete_featurizing_buckets"] > 10:
-        return True
+    # if exp_args["max_discrete_featurizing_buckets"] > 10:
+        # return True
 
     return False
 
@@ -114,6 +114,46 @@ def get_all_qerrs():
     if args.only_test:
         df = df[df["samples_type"] == "test"]
     return df
+
+def get_all_training_df(results_dir):
+    all_dfs = []
+    fns = os.listdir(results_dir)
+    for fn in fns:
+        # convert to same format as qerrs
+        cur_dir = results_dir + "/" + fn
+        exp_args = load_object(cur_dir + "/args.pkl")
+        if exp_args is None:
+            continue
+        exp_args = vars(exp_args)
+        if skip_exp(exp_args):
+            continue
+        alg = get_alg_name(exp_args)
+        nns = load_object(cur_dir + "/nn.pkl")
+        df = nns["stats"]
+        df["alg"] = alg
+        df["hls"] = exp_args["hidden_layer_size"]
+        df["exp_name"] = fn
+        df["lr"] = exp_args["lr"]
+        df["clip_gradient"] = exp_args["clip_gradient"]
+        df["loss_func"] = exp_args["loss_func"]
+
+        if exp_args["sampling_priority_alpha"] > 0:
+            df["priority"] = True
+        else:
+            df["priority"] = False
+
+        if "normalize_flow_loss" in exp_args:
+            df["normalize_flow_loss"] = exp_args["normalize_flow_loss"]
+        else:
+            df["normalize_flow_loss"] = True
+
+        # # TODO: add training / test detail
+        # # TODO: add template detail
+        # # TODO: need map from query_name : test/train + template etc.
+
+        all_dfs.append(df)
+
+    return pd.concat(all_dfs)
 
 def get_all_plans(results_dir):
     all_dfs = []

@@ -69,8 +69,11 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                normalize_flow_loss = args.normalize_flow_loss,
+                save_gradients = args.save_gradients,
                 weighted_qloss = args.weighted_qloss,
                 cost_model_plan_err = args.cost_model_plan_err,
+                eval_flow_loss = args.eval_flow_loss,
                 use_val_set = args.use_val_set,
                 use_best_val_model = args.use_best_val_model,
                 start_validation = args.start_validation,
@@ -352,6 +355,12 @@ def main():
     if not found_db:
         misc_cache.archive[db_key] = db
 
+    db.init_featurizer(num_tables_feature = args.num_tables_feature,
+            max_discrete_featurizing_buckets =
+            args.max_discrete_featurizing_buckets,
+            heuristic_features = args.heuristic_features,
+            flow_features = args.flow_features)
+
     if len(train_queries) == 0:
         # debugging, so doesn't crash
         train_queries = test_queries
@@ -430,6 +439,8 @@ def read_flags():
             default=0)
     parser.add_argument("--cost_model_plan_err", type=int, required=False,
             default=1)
+    parser.add_argument("--eval_flow_loss", type=int, required=False,
+            default=1)
     parser.add_argument("--weighted_qloss", type=int, required=False,
             default=0)
     parser.add_argument("--avg_jl_num_last", type=int, required=False,
@@ -447,6 +458,9 @@ def read_flags():
             default=0)
     parser.add_argument("--num_tables_feature", type=int, required=False,
             default=1)
+    parser.add_argument("--flow_features", type=int, required=False,
+            default=1)
+
     parser.add_argument("--weight_decay", type=float, required=False,
             default=0.1)
 
@@ -460,6 +474,8 @@ def read_flags():
             default=0)
     parser.add_argument("--priority_normalize_type", type=str, required=False,
             default="")
+    parser.add_argument("--normalize_flow_loss", type=int, required=False,
+            default=1)
 
     # parser.add_argument("--priority_err_divide_len", type=int, required=False,
             # default=0)
@@ -497,9 +513,11 @@ def read_flags():
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=1)
     parser.add_argument("--lr", type=float,
-            required=False, default=0.001)
+            required=False, default=0.0001)
     parser.add_argument("--clip_gradient", type=float,
-            required=False, default=10.0)
+            required=False, default=20.0)
+    parser.add_argument("--save_gradients", type=int,
+            required=False, default=1)
     parser.add_argument("--dropout", type=float,
             required=False, default=0.0)
     parser.add_argument("--rel_qerr_loss", type=int,

@@ -70,6 +70,9 @@ class DB():
         self.primary_keys = set() # table.key
         self.alias_to_keys = defaultdict(set)
 
+        self.flow_node_features = ["in_edges", "out_edges", "paths",
+                "tolerance", "pg_flow"]
+
     def get_entropies(self):
         '''
         pairwise entropies among all columns of the db?
@@ -138,8 +141,10 @@ class DB():
         print("saved cache to disk")
         self.sql_cache.dump()
 
-    def init_featurizer(self, heuristic_features=True, num_tables_feature=False,
-            max_discrete_featurizing_buckets=10):
+    def init_featurizer(self, heuristic_features=True,
+            num_tables_feature=False,
+            max_discrete_featurizing_buckets=10,
+            flow_features=True):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -152,6 +157,7 @@ class DB():
         E.g. TODO.
         '''
         self.heuristic_features = heuristic_features
+        self.flow_features = flow_features
         # let's figure out the feature len based on db.stats
         assert self.featurizer is None
         # only need to know the number of tables for table features
@@ -200,6 +206,9 @@ class DB():
 
                     ## extra space for regex buckets
                     pred_len += num_buckets
+
+            # if self.flow_features:
+                # pred_len += self.num_flow_features
 
             self.featurizer[col] = (self.pred_features_len, pred_len, continuous)
             self.pred_features_len += pred_len

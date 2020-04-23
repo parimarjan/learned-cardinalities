@@ -1402,7 +1402,7 @@ def compute_costs(subset_graph, cost_key="cost", ests=None):
     for edge in subset_graph.edges():
         if len(edge[0]) == len(edge[1]):
             assert edge[1] == tuple("s")
-            subset_graph[edge[0]][edge[1]]["cost"] = 1.0
+            subset_graph[edge[0]][edge[1]][cost_key] = 1.0
             continue
         assert len(edge[1]) < len(edge[0])
         assert edge[1][0] in edge[0]
