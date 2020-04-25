@@ -11,6 +11,7 @@ class QueryDataset(data.Dataset):
     def __init__(self, samples, db, featurization_type,
             heuristic_features, preload_features,
             normalization_type, load_query_together,
+            flow_features,
             min_val=None, max_val=None, card_key="actual",
             group=None):
         '''
@@ -33,6 +34,8 @@ class QueryDataset(data.Dataset):
         self.max_val = max_val
         self.card_key = card_key
         self.group = group
+        self.flow_features = flow_features
+        print("dataset: ", flow_features)
 
         if self.card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
             self.wj_times = get_wj_times_dict(self.card_key)
@@ -83,60 +86,6 @@ class QueryDataset(data.Dataset):
 
             qidx += len(qrep["subset_graph"].nodes())
         return idx_map, idx_starts
-
-    def _get_feature_vector(self, qrep, nodes):
-        '''
-        '''
-        card_info = qrep["subset_graph"].nodes()[nodes]
-        pg_sel = float(card_info["cardinality"]["expected"]) / card_info["cardinality"]["total"]
-        true_sel = float(card_info["cardinality"][self.card_key]) / card_info["cardinality"]["total"]
-        pred_features = np.zeros(self.db.pred_features_len)
-        table_features = np.zeros(len(self.db.tables))
-        join_features = np.zeros(len(self.db.joins))
-
-        node_data = qrep["join_graph"].nodes(data=True)
-        for node in nodes:
-            # no overlap between these arrays
-            info = node_data[node]
-            table_features += self.db.get_table_features(info["real_name"])
-            pg_est = None
-            # FIXME: depends on normalization type
-            if self.heuristic_features:
-                node_key = tuple([node])
-                cards = qrep["subset_graph"].nodes()[node_key]["cardinality"]
-                pg_est = float(cards["expected"]) / cards["total"]
-            if len(info["pred_cols"]) == 0:
-                cur_pred_features = np.zeros(self.db.pred_features_len)
-            else:
-                cur_pred_features = self.db.get_pred_features(info["pred_cols"][0],
-                        info["pred_vals"][0], info["pred_types"][0], pg_est)
-
-            if self.heuristic_features:
-                assert cur_pred_features[-1] == 0.00
-                cur_pred_features[-1] = pg_sel
-            pred_features += cur_pred_features
-
-        edge_data = qrep["join_graph"].edges(data=True)
-        for edge in edge_data:
-            if edge[0] in nodes and edge[1] in nodes:
-                info = edge[2]
-                cur_edge_features = self.db.get_join_features(info["join_condition"])
-                join_features += cur_edge_features
-
-        if self.normalization_type == "pg_total_selectivity":
-            y = to_variable(np.array([true_sel])).float()[0]
-        else:
-            assert False
-
-        cur_info = {}
-        if self.featurization_type == "combined":
-            x = np.concatenate([table_features, join_features, pred_features])
-            x = to_variable(x).float()
-            return x,y,cur_info
-        else:
-            return to_variable(table_features).float(), \
-                   to_variable(pred_features).float(), \
-                   to_variable(join_features).float(), y, cur_info
 
     def normalize_val(self, val, total):
         if self.normalization_type == "mscn":
@@ -193,7 +142,8 @@ class QueryDataset(data.Dataset):
                 edge_key = (edge[0], edge[1])
                 edge_feat_dict[edge_key] = edge_features
 
-            # looping over all subqueries
+            # now, we will generate the actual feature vectors over all the
+            # subqueries
             node_names = list(qrep["subset_graph"].nodes())
             node_names.sort()
             for node_idx, nodes in enumerate(node_names):
@@ -222,6 +172,9 @@ class QueryDataset(data.Dataset):
                 pred_features = np.zeros(self.db.pred_features_len)
                 table_features = np.zeros(len(self.db.tables))
                 join_features = np.zeros(len(self.db.joins))
+
+                # these are base tables within a join, or node in the subset
+                # graph
                 for node in nodes:
                     # no overlap between these arrays
                     pred_features += pred_feat_dict[node]
@@ -236,14 +189,28 @@ class QueryDataset(data.Dataset):
                         if (node1, node2) in edge_feat_dict:
                             join_features += edge_feat_dict[(node1, node2)]
 
+                if self.flow_features:
+                    # use db to generate feature vec using nodes + qrep
+                    flow_features = self.db.get_flow_features(nodes,
+                            qrep["subset_graph_paths"], qrep["template_name"])
+                    # heuristic estimate for the cardinality of this node
+                    flow_features[-1] = pred_features[-1]
+                else:
+                    flow_features = []
+
                 # now, store features
                 if self.featurization_type == "combined":
-                    X.append(np.concatenate((table_features, join_features,
-                        pred_features)))
+                    if self.flow_features:
+                        X.append(np.concatenate((table_features, join_features,
+                            pred_features, flow_features)))
+                    else:
+                        X.append(np.concatenate((table_features, join_features,
+                            pred_features)))
                 else:
                     X["table"].append(table_features)
                     X["join"].append(join_features)
                     X["pred"].append(pred_features)
+                    X["flow"].append(flow_features)
 
                 Y.append(self.normalize_val(true_val, total))
                 cur_info = {}
@@ -286,6 +253,7 @@ class QueryDataset(data.Dataset):
                     return (self.X["table"][start_idx:end_idx],
                             self.X["pred"][start_idx:end_idx],
                             self.X["join"][start_idx:end_idx],
+                            self.X["flow"][start_idx:end_idx],
                             self.Y[start_idx:end_idx],
                             self.info[start_idx:end_idx])
             else:
@@ -294,7 +262,8 @@ class QueryDataset(data.Dataset):
                     return self.X[index], self.Y[index], self.info[index]
                 else:
                     return (self.X["table"][index], self.X["pred"][index],
-                            self.X["join"][index], self.Y[index], self.info[index])
+                            self.X["join"][index], self.X["flow"][index],
+                            self.Y[index], self.info[index])
         else:
             assert False
             qidx = self.subq_to_query_idx[index]

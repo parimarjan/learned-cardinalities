@@ -69,6 +69,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                flow_features = args.flow_features,
                 normalize_flow_loss = args.normalize_flow_loss,
                 save_gradients = args.save_gradients,
                 weighted_qloss = args.weighted_qloss,
@@ -315,8 +316,7 @@ def main():
                 # not all samples may share all predicates etc. so updating
                 # them all. stats will not be recomputed for repeated columns
                 # FIXME:
-                # db.update_db_stats(convert_sql_rep_to_query_rep(sample))
-                db.update_db_stats(sample)
+                db.update_db_stats(sample, args.flow_features)
 
         if args.test and args.use_val_set:
             # rem_queries, cur_val_queries = \

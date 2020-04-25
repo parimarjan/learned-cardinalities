@@ -53,13 +53,51 @@ except:
 from cardinality_estimation.flow_loss import FlowLoss, get_edge_costs, \
         constructG
 
-def update_samples(samples):
+def update_samples(samples, flow_features):
     start = time.time()
     for sample in samples:
         subsetg = copy.deepcopy(sample["subset_graph"])
         add_single_node_edges(subsetg)
-        compute_costs(subsetg, cost_key="cost", ests=None)
+        pg_total_cost = compute_costs(subsetg, cost_key="pg_cost", ests="expected")
+        _ = compute_costs(subsetg, cost_key="cost", ests=None)
+        subsetg.graph["total_cost"] = pg_total_cost
         sample["subset_graph_paths"] = subsetg
+
+    if not flow_features:
+        return
+    num_proc = 16
+
+    # par_args = []
+    # for s in samples:
+        # par_args.append((s, "pg_cost"))
+
+    # with Pool(processes = num_proc) as pool:
+        # res = pool.starmap(get_subq_flows, par_args)
+
+    # for si in range(len(samples)):
+        # subsetg = samples[si]["subset_graph_paths"]
+        # flows, edge_dict = res[si]
+        # total_flows = np.sum(flows)
+        # for edge in subsetg.edges():
+            # subsetg[edge[0]][edge[1]]["pg_flow"] = flows[edge_dict[edge]]
+        # subsetg.graph["total_flow"] = total_flows
+
+    par_args = []
+    for i in range(len(samples)):
+        par_args.append((samples[i], "expected", "pg_cost"))
+
+    with Pool(processes = num_proc) as pool:
+        res = pool.starmap(get_subq_tolerances, par_args)
+
+    for i in range(len(samples)):
+        tolerances = res[i]
+        subsetg = samples[i]["subset_graph_paths"]
+        nodes = list(subsetg.nodes())
+        nodes.remove(SOURCE_NODE)
+        nodes.sort()
+        for j, node in enumerate(nodes):
+            subsetg.nodes()[node]["tolerance"] = tolerances[j]
+
     print("updated samples with shortest path costs in ", time.time()-start)
 
 SUBQUERY_JERR_THRESHOLD = 100000
@@ -165,7 +203,7 @@ def flow_loss(yhat, y, sample, normalization_type,
         print("flow loss took: ", time.time()-start)
     return loss, predC
 
-def get_subq_tolerances(qrep, dumb):
+def get_subq_tolerances(qrep, card_key, cost_key):
     '''
     For each subquery, multiply cardinality by x, and see if shortest path
     changed.
@@ -181,7 +219,7 @@ def get_subq_tolerances(qrep, dumb):
             node2 = tuple(node2)
             assert node2 in subsetg.nodes()
             card1 = new_card
-            card2 = subsetg.nodes()[node2]["cardinality"]["actual"]
+            card2 = subsetg.nodes()[node2]["cardinality"][card_key]
 
             hash_join_cost = card1 + card2
             if len(node1) == 1:
@@ -192,29 +230,28 @@ def get_subq_tolerances(qrep, dumb):
                 nilj_cost = 10000000000
             cost = min(hash_join_cost, nilj_cost)
             assert cost != 0.0
-            subsetg[edge[0]][edge[1]]["cost"] = cost
+            subsetg[edge[0]][edge[1]][cost_key] = cost
 
     tcache = klepto.archives.dir_archive("./tolerances_cache",
             cached=True, serialized=True)
-    key = deterministic_hash(qrep["sql"])
+    key = deterministic_hash(card_key + cost_key + qrep["sql"])
     if key in tcache.archive:
         return tcache.archive[key]
     tstart = time.time()
     nodes = list(qrep["subset_graph"].nodes())
     nodes.sort()
     tolerances = np.zeros(len(nodes))
-    subsetg = copy.deepcopy(qrep["subset_graph"])
-    add_single_node_edges(subsetg)
+    subsetg = qrep["subset_graph_paths"]
     final_node = [n for n,d in subsetg.in_degree() if d==0][0]
     source_node = tuple("s")
-    compute_costs(subsetg)
+
     opt_path = nx.shortest_path(subsetg, final_node, source_node,
-            weight="cost")
+            weight=cost_key)
 
     for i, node in enumerate(nodes):
         in_edges = subsetg.in_edges(node)
-        actual = subsetg.nodes()[node]["cardinality"]["actual"]
-        for j in range(1, 12):
+        actual = subsetg.nodes()[node]["cardinality"][card_key]
+        for j in range(1, 11):
             err = 2**j
             updated_card = actual / err
 
@@ -224,58 +261,42 @@ def get_subq_tolerances(qrep, dumb):
 
             set_costs(in_edges, node, updated_card, subsetg)
             cur_path = nx.shortest_path(subsetg, final_node, source_node,
-                    weight="cost")
+                    weight=cost_key)
             if cur_path != opt_path:
                 break
 
             updated_card2 = actual * err
             set_costs(in_edges, node, updated_card, subsetg)
             cur_path = nx.shortest_path(subsetg, final_node, source_node,
-                    weight="cost")
+                    weight=cost_key)
 
             if cur_path != opt_path:
                 break
 
-        # print("node: {}, tolerance: {}".format(node, 2**j))
-        # pdb.set_trace()
         # reset to original cardinality, and change costs for in edges back
         tolerances[i] = 2**j
         set_costs(in_edges, node, actual, subsetg)
-
-        # test_path = nx.shortest_path(subsetg, final_node, source_node,
-                # weight="cost")
-        # assert test_path == opt_path
 
     if time.time() - tstart > 5:
         tcache.archive[key] = tolerances
 
     return tolerances
 
-def get_subq_flows(qrep, dumb):
+def get_subq_flows(qrep, cost_key):
     # TODO: save or not?
     start = time.time()
     flow_cache = klepto.archives.dir_archive("./flow_cache",
             cached=True, serialized=True)
-    key = deterministic_hash(qrep["sql"])
+    if cost_key != "cost":
+        key = deterministic_hash(cost_key + qrep["sql"])
+    else:
+        key = deterministic_hash(qrep["sql"])
+
     if key in flow_cache.archive:
-        # print("found key in flow cache!")
         return flow_cache.archive[key]
 
-    subsetg = qrep["subset_graph"]
-    add_single_node_edges(subsetg)
-    final_node = [n for n,d in subsetg.in_degree() if d==0][0]
-    source_node = tuple("s")
-    compute_costs(subsetg)
-    # path = nx.shortest_path(subsetg, final_node, source_node, weight="cost")
-    # print(path)
-    # path = path[0:-1]
-    # join_order = [tuple(sorted(x)) for x in path_to_join_order(path)]
-    # join_order.reverse()
-    # sql_to_exec = nodes_to_sql(join_order, join_graph)
-    # print(join_order)
-    edges, c, A, b, G, h = construct_lp(subsetg)
-    # print(A.shape)
-    # print("A rank: ", np.linalg.matrix_rank(A))
+    subsetg = qrep["subset_graph_paths"]
+    edges, c, A, b, G, h = construct_lp(subsetg, cost_key)
 
     n = len(edges)
     P = np.zeros((len(edges),len(edges)))
@@ -295,7 +316,6 @@ def get_subq_flows(qrep, dumb):
         edge_dict[e] = i
 
     flow_cache.archive[key] = (qsolx, edge_dict)
-    print("calculated flows in: ", time.time()-start)
     return qsolx, edge_dict
 
 EMBEDDING_OUTPUT = None
@@ -363,12 +383,6 @@ def single_train_combined_net(net, optimizer, loader, loss_fn, loss_fn_name,
         opt_start = time.time()
         optimizer.zero_grad()
         loss.backward()
-
-        # debug stuff
-        # pred.retain_grad()
-        # loss.backward()
-        # print(max(pred.grad))
-        # pdb.set_trace()
 
         if clip_gradient is not None:
             clip_grad_norm_(net.parameters(), clip_gradient)
@@ -702,7 +716,7 @@ class NN(CardinalityEstimationAlg):
             grads = []
             grad_samples = []
 
-        for idx, (tbatch, pbatch, jbatch, ybatch,info) in enumerate(loader):
+        for idx, (tbatch, pbatch, jbatch,fbatch, ybatch,info) in enumerate(loader):
             start = time.time()
             if load_query_together:
                 # update the batches
@@ -712,13 +726,18 @@ class NN(CardinalityEstimationAlg):
                         pbatch.shape[2])
                 jbatch = jbatch.reshape(jbatch.shape[0]*jbatch.shape[1],
                         jbatch.shape[2])
+                fbatch = fbatch.reshape(fbatch.shape[0]*fbatch.shape[1],
+                        fbatch.shape[2])
+
                 ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
 
                 query_idx = info[0]["query_idx"]
                 assert query_idx == info[1]["query_idx"]
                 sample = samples[query_idx]
+            else:
+                sample = None
 
-            pred = net(tbatch,pbatch,jbatch).squeeze(1)
+            pred = net(tbatch,pbatch,jbatch,fbatch).squeeze(1)
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
@@ -731,7 +750,8 @@ class NN(CardinalityEstimationAlg):
 
                 losses = loss_fn(pred, ybatch, normalization_type, min_val,
                         max_val, node_dict, edge_dict,
-                        subsetg,trueC,opt_flow_loss,final_node, con_mat)
+                        subsetg,trueC,opt_flow_loss,final_node, con_mat,
+                        self.join_loss_pool)
             else:
                 losses = loss_fn(pred, ybatch)
 
@@ -744,13 +764,14 @@ class NN(CardinalityEstimationAlg):
                 qloss = qloss_torch(pred, ybatch)
                 loss += (sum(qloss) / len(qloss))
 
-            if self.save_gradients:
+            if self.save_gradients and "flow_loss" in loss_fn_name:
                 optimizer.zero_grad()
                 pred.retain_grad()
                 loss.backward()
                 # grads
-                grads.append(np.mean(pred.grad.detach().numpy()))
-                grad_samples.append(sample)
+                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                if sample is not None:
+                    grad_samples.append(sample)
             else:
                 optimizer.zero_grad()
                 loss.backward()
@@ -763,7 +784,7 @@ class NN(CardinalityEstimationAlg):
             if idx_time > 10:
                 print("train idx took: ", idx_time)
 
-        if self.save_gradients:
+        if self.save_gradients and len(grad_samples) > 0:
             self.save_join_loss_stats(grads, None, grad_samples,
                     "train", loss_key="gradients")
 
@@ -816,10 +837,11 @@ class NN(CardinalityEstimationAlg):
         elif net_name == "SetConv":
             if self.load_query_together:
                 net = SetConv(len(sample[0][0]), len(sample[1][0]),
-                        len(sample[2][0]),
+                        len(sample[2][0]), len(sample[3][0]),
                         self.hidden_layer_size, dropout= self.dropout)
             else:
                 net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
+                        len(sample[3]),
                         self.hidden_layer_size, dropout= self.dropout)
         else:
             assert False
@@ -912,7 +934,7 @@ class NN(CardinalityEstimationAlg):
         all_y = []
         all_idxs = []
 
-        for idx, (tbatch,pbatch,jbatch, ybatch,info) in enumerate(loader):
+        for idx, (tbatch,pbatch,jbatch,fbatch, ybatch,info) in enumerate(loader):
             if self.load_query_together:
                 # update the batches
                 tbatch = tbatch.reshape(tbatch.shape[0]*tbatch.shape[1],
@@ -921,12 +943,15 @@ class NN(CardinalityEstimationAlg):
                         pbatch.shape[2])
                 jbatch = jbatch.reshape(jbatch.shape[0]*jbatch.shape[1],
                         jbatch.shape[2])
+                fbatch = fbatch.reshape(fbatch.shape[0]*fbatch.shape[1],
+                        fbatch.shape[2])
+
                 ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
                 all_idxs.append(0)
             else:
                 all_idxs.append(info["dataset_idx"])
 
-            pred = net(tbatch,pbatch,jbatch).squeeze(1)
+            pred = net(tbatch,pbatch,jbatch,fbatch).squeeze(1)
             all_preds.append(pred)
             all_y.append(ybatch)
 
@@ -1377,7 +1402,7 @@ class NN(CardinalityEstimationAlg):
             training_sets.append(QueryDataset(samples, self.db,
                     self.featurization_scheme, self.heuristic_features,
                     self.preload_features, self.normalization_type,
-                    self.load_query_together,
+                    self.load_query_together, self.flow_features,
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = self.train_card_key,
@@ -1415,6 +1440,11 @@ class NN(CardinalityEstimationAlg):
         self.training_samples = training_samples
         self.init_stats(training_samples)
         self.groups = self.init_groups(self.num_groups)
+        if self.cost_model_plan_err or self.eval_flow_loss or \
+                self.flow_features:
+            update_samples(training_samples, self.flow_features)
+            if val_samples:
+                update_samples(val_samples, self.flow_features)
 
         if self.normalization_type == "mscn":
             y = np.array(get_all_cardinalities(training_samples))
@@ -1457,6 +1487,7 @@ class NN(CardinalityEstimationAlg):
         else:
             self.num_features = len(training_sets[0][0][0]) + \
                     len(training_sets[0][0][1]) + len(training_sets[0][0][2])
+
 
         if "flow" in self.loss_func:
             # precompute a whole bunch of training things
@@ -1505,6 +1536,10 @@ class NN(CardinalityEstimationAlg):
                 for node, i in node_dict.items():
                     true_cards[i] = \
                         subsetg.nodes()[node]["cardinality"]["actual"]
+                    if true_cards[i] < 1:
+                        print("true estimate less than 1!")
+                        print(true_cards[i])
+                        pdb.set_trace()
 
                 trueC_vec, _ = get_edge_costs(subsetg, true_cards, node_dict,
                         edge_dict, None, None, None)
@@ -1587,16 +1622,14 @@ class NN(CardinalityEstimationAlg):
             # pdb.set_trace()
 
         elif "flow" in self.priority_normalize_type:
-            print("going to use cvxpy to generate flow values")
             # sample = training_samples[0]
-            # flows = get_subq_flows(sample)
             subquery_rel_weights = np.zeros(len(training_sets[0]))
             fl_start = time.time()
             num_proc = 10
             par_args = []
             # training_samples_hash = deterministic_hash(str(training_samples))
             for s in training_samples:
-                par_args.append((s, None))
+                par_args.append((s, "cost"))
 
             with Pool(processes = num_proc) as pool:
                 res = pool.starmap(get_subq_flows, par_args)
@@ -1672,9 +1705,6 @@ class NN(CardinalityEstimationAlg):
             # eval_samples_size_divider = 10
             eval_samples_size_divider = 1
 
-        if self.cost_model_plan_err or self.eval_flow_loss:
-            update_samples(training_samples)
-
         eval_training_samples = random.sample(training_samples,
                 int(len(training_samples) / eval_samples_size_divider))
         self.samples["train"] = eval_training_samples
@@ -1689,8 +1719,6 @@ class NN(CardinalityEstimationAlg):
         if val_samples is not None and len(val_samples) > 0:
             val_samples = random.sample(val_samples, int(len(val_samples) /
                     eval_samples_size_divider))
-            if self.cost_model_plan_err or self.eval_flow_loss:
-                update_samples(val_samples)
             self.samples["test"] = val_samples
             eval_test_sets, eval_test_loaders = \
                     self.init_dataset(val_samples, False, self.eval_batch_size,

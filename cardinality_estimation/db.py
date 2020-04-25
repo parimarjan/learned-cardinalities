@@ -73,6 +73,26 @@ class DB():
         self.flow_node_features = ["in_edges", "out_edges", "paths",
                 "tolerance", "pg_flow"]
 
+        self.max_in_degree = 0
+        self.max_out_degree = 0
+        self.max_paths = 0
+
+        # the node-edge connectivities stay constant through templates
+        # key: template_name
+        # val: {}:
+        #   key: node name
+        #   val: tolerance in powers of 10
+        self.template_info = {}
+
+        # things like tolerances, flows need to be computed on a per query
+        # basis (maybe we should not precompute these?)
+        self.query_info = {}
+
+        # self.feat_num_paths = False
+        # self.feat_flows = False
+        # self.feat_pg_costs = True
+        # self.feat_tolerance = True
+
     def get_entropies(self):
         '''
         pairwise entropies among all columns of the db?
@@ -144,7 +164,9 @@ class DB():
     def init_featurizer(self, heuristic_features=True,
             num_tables_feature=False,
             max_discrete_featurizing_buckets=10,
-            flow_features=True):
+            flow_features = True,
+            feat_num_paths=False, feat_flows=False,
+            feat_pg_costs = True, feat_tolerance=True):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -207,9 +229,6 @@ class DB():
                     ## extra space for regex buckets
                     pred_len += num_buckets
 
-            # if self.flow_features:
-                # pred_len += self.num_flow_features
-
             self.featurizer[col] = (self.pred_features_len, pred_len, continuous)
             self.pred_features_len += pred_len
 
@@ -220,6 +239,91 @@ class DB():
         # for num_tables present
         if num_tables_feature:
             self.pred_features_len += 1
+
+        self.flow_features = flow_features
+        self.feat_num_paths = feat_num_paths
+        self.feat_flows = feat_flows
+        self.feat_pg_costs = feat_pg_costs
+        self.feat_tolerance = feat_tolerance
+
+        if flow_features:
+            self.flow_features = flow_features
+            # num flow features: concat of 1-hot vectors
+            self.num_flow_features = 0
+            self.num_flow_features += self.max_in_degree+1
+            self.num_flow_features += self.max_out_degree+1
+
+            self.num_flow_features += len(self.aliases)
+
+            # for heuristic estimate for the node
+            self.num_flow_features += 1
+
+            # for normalized value of num_paths
+            if self.feat_num_paths:
+                self.num_flow_features += 1
+            if self.feat_pg_costs:
+                self.num_flow_features += 1
+            if self.feat_tolerance:
+                # 1-hot vector of 2...2^10
+                self.num_flow_features += 10
+            if self.feat_flows:
+                self.num_flow_features += 1
+
+    def get_flow_features(self, node, subsetg,
+            template_name):
+        flow_features = np.zeros(self.num_flow_features)
+        cur_idx = 0
+        # incoming edges
+        in_degree = subsetg.in_degree(node)
+        flow_features[cur_idx + in_degree] = 1.0
+        cur_idx += self.max_in_degree+1
+        # outgoing edges
+        out_degree = subsetg.out_degree(node)
+        flow_features[cur_idx + out_degree] = 1.0
+        cur_idx += self.max_out_degree+1
+        # num tables
+        max_tables = len(self.aliases)
+        nt = len(node)
+        assert nt <= max_tables
+        flow_features[cur_idx + nt] = 1.0
+        cur_idx += max_tables
+
+        # precomputed based stuff
+        if self.feat_num_paths:
+            if node in self.template_info[template_name]:
+                num_paths = self.template_info[template_name][node]["num_paths"]
+            else:
+                num_paths = 0
+
+            # assuming min num_paths = 0, min-max normalization
+            flow_features[cur_idx] = num_paths / self.max_paths
+            cur_idx += 1
+
+        if self.feat_pg_costs:
+            in_edges = subsetg.in_edges(node)
+            in_cost = 0.0
+            for edge in in_edges:
+                in_cost += subsetg[edge[0]][edge[1]]["pg_cost"]
+            # normalized pg cost
+            flow_features[cur_idx] = in_cost / subsetg.graph["total_cost"]
+            cur_idx += 1
+
+        if self.feat_tolerance:
+            tol = subsetg.nodes()[node]["tolerance"]
+            tol_idx = int(np.log2(tol))
+            flow_features[cur_idx + tol_idx] = 1.0
+            cur_idx += 10
+
+        if self.feat_flows:
+            in_edges = subsetg.in_edges(node)
+            in_flows = 0.0
+            for edge in in_edges:
+                in_flows += subsetg[edge[0]][edge[1]]["pg_flow"]
+            # normalized pg flow
+            flow_features[cur_idx] = in_flows
+            cur_idx += 1
+
+        return flow_features
 
     def get_table_features(self, table):
         '''
@@ -451,7 +555,7 @@ class DB():
         self.sql_cache.dump()
         return queries
 
-    def update_db_stats(self, qrep):
+    def update_db_stats(self, qrep, flow_features):
         '''
         @query: Query object
         '''
@@ -475,6 +579,44 @@ class DB():
             keys.sort()
             keys = ",".join(keys)
             self.joins.add(keys)
+
+        if flow_features:
+            flow_start = time.time()
+            # TODO: track max incoming / outgoing edges, so we can have a
+            # one-hot vector of #incoming / #outgoing
+            subsetg = qrep["subset_graph"]
+            node_list = list(subsetg.nodes())
+            node_list.sort(key = lambda v: len(v))
+            dest = node_list[-1]
+            node_list.sort()
+
+            for node in subsetg.nodes():
+                in_degree = subsetg.in_degree(node)
+                if in_degree > self.max_in_degree:
+                    self.max_in_degree = in_degree
+
+                out_degree = subsetg.out_degree(node)
+                if out_degree > self.max_out_degree:
+                    self.max_out_degree = out_degree
+
+                # TODO: compute flow / tolerances
+                tmp_name = qrep["template_name"]
+                if tmp_name in self.template_info:
+                    continue
+                info = {}
+                info[node] = {}
+                # paths from node -> dest, but edges are reversed in our
+                # representation
+                # if self.feat_num_paths:
+                    # all_paths = nx.all_simple_paths(subsetg, dest, node)
+                    # num_paths = len(list(all_paths))
+                    # if num_paths > self.max_paths:
+                        # self.max_paths = num_paths
+                    # info[node]["num_paths"] = num_paths
+                # self.template_info[tmp_name] = info
+
+            if time.time() - flow_start > 10:
+                print("generated stats for flows in: ", time.time()-flow_start)
 
         updated_cols = []
         for column in cur_columns:
@@ -522,69 +664,3 @@ class DB():
 
         if len(updated_cols) > 0:
             print("generated statistics for:", ",".join(updated_cols))
-
-    def update_db_stats_old(self, query):
-        '''
-        @query: Query object
-        '''
-        for cmp_op in query.cmp_ops:
-            self.cmp_ops.add(cmp_op)
-
-        joins = extract_join_clause(query.query)
-        for join in joins:
-            keys = join.split("=")
-            keys.sort()
-            keys = ",".join(keys)
-            self.joins.add(keys)
-
-        for i, alias in enumerate(query.aliases):
-            if alias not in self.aliases:
-                self.aliases[alias] = query.table_names[i]
-                self.tables.add(query.table_names[i])
-
-        all_columns = []
-        for column in query.pred_column_names:
-            if column in self.column_stats:
-                continue
-            # need to load it. first check if it is in the cache, else
-            # regenerate it.
-            hashed_stats = deterministic_hash(column)
-            all_columns.append(column)
-            column_stats = {}
-            table = column[0:column.find(".")]
-            if table in self.aliases:
-                table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
-                                    ALIAS = table)
-            min_query = MIN_TEMPLATE.format(TABLE = table,
-                                            COL   = column)
-            max_query = MAX_TEMPLATE.format(TABLE = table,
-                                            COL   = column)
-            unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
-                                                      COL = column)
-            total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
-            unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
-                                                            COL = column)
-
-            # TODO: move to using cached_execute
-            column_stats[column] = {}
-            column_stats[column]["min_value"] = self.execute(min_query)[0][0]
-            column_stats[column]["max_value"] = self.execute(max_query)[0][0]
-            column_stats[column]["num_values"] = \
-                    self.execute(unique_count_query)[0][0]
-            column_stats[column]["total_values"] = \
-                    self.execute(total_count_query)[0][0]
-
-            # only store all the values for tables with small alphabet
-            # sizes (so we can use them for things like the PGM).
-            # Otherwise, it bloats up the cache.
-            if column_stats[column]["num_values"] <= 5000:
-                column_stats[column]["unique_values"] = \
-                        self.execute(unique_vals_query)
-            else:
-                column_stats[column]["unique_values"] = None
-
-            self.sql_cache.archive[hashed_stats] = column_stats
-            self.column_stats.update(column_stats)
-
-        if len(all_columns) > 0:
-            print("generated statistics for:", ",".join(all_columns))

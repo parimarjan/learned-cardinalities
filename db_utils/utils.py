@@ -1399,6 +1399,7 @@ def compute_costs(subset_graph, cost_key="cost", ests=None):
     '''
     @computes costs based on the MM1 cost model.
     '''
+    total_cost = 0.0
     for edge in subset_graph.edges():
         if len(edge[0]) == len(edge[1]):
             assert edge[1] == tuple("s")
@@ -1415,7 +1416,10 @@ def compute_costs(subset_graph, cost_key="cost", ests=None):
         assert node2 in subset_graph.nodes()
         cards1 = subset_graph.nodes()[node1]["cardinality"]
         cards2 = subset_graph.nodes()[node2]["cardinality"]
-        if ests is None:
+        if isinstance(ests, str):
+            card1 = cards1[ests]
+            card2 = cards2[ests]
+        elif ests is None:
             card1 = cards1["actual"]
             card2 = cards2["actual"]
         else:
@@ -1431,8 +1435,9 @@ def compute_costs(subset_graph, cost_key="cost", ests=None):
             nilj_cost = 10000000000
         cost = min(hash_join_cost, nilj_cost)
         assert cost != 0.0
-        # subset_graph[edge[0]][edge[1]]["cost"] = cost
         subset_graph[edge[0]][edge[1]][cost_key] = cost
+        total_cost += cost
+    return total_cost
 
 def constructG(subsetg):
     '''
@@ -1503,7 +1508,7 @@ def constructG(subsetg):
 
     return edges, G, Gv, Q
 
-def construct_lp(subsetg):
+def construct_lp(subsetg, cost_key="cost"):
     '''
     @ret:
         list of node names
@@ -1537,24 +1542,6 @@ def construct_lp(subsetg):
         edge_dict[edge] = i
 
     for ni, node in enumerate(nodes):
-        # if node == target_node:
-            # print("setting target node constraints")
-            # in_edges = subsetg.in_edges(node)
-            # for edge in in_edges:
-                # idx = edge_dict[edge]
-                # assert A[ni,idx] == 0.00
-                # A[ni,idx] = 1
-            # continue
-        # elif node == source_node:
-            # print("setting source node constraints")
-            # assert node_dict[source_node] == ni
-            # out_edges = subsetg.out_edges(node)
-            # for edge in out_edges:
-                # idx = edge_dict[edge]
-                # assert A[ni,idx] == 0.00
-                # A[ni,idx] = +1
-            # continue
-
         in_edges = subsetg.in_edges(node)
         out_edges = subsetg.out_edges(node)
         for edge in in_edges:
@@ -1573,14 +1560,7 @@ def construct_lp(subsetg):
     c = np.zeros(len(edges))
     # find cost of each edge
     for i, edge in enumerate(edges):
-        c[i] = subsetg[edge[0]][edge[1]]["cost"] / 10000.0
-    # for i, edge in enumerate(edges):
-        # c[i] = subsetg[edge[0]][edge[1]]["cost"]
-
-    # print("going to rescale A matrix")
-    # for ni, node in enumerate(nodes):
-        # if sum(A[ni,:]) != 0:
-            # A[ni,:] /= sum(A[ni,:])
+        c[i] = subsetg[edge[0]][edge[1]][cost_key] / 10000.0
 
     return edges, c, A, b, G, h
 

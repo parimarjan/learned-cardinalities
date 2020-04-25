@@ -119,15 +119,19 @@ def get_all_training_df(results_dir):
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
+        print(fn)
         # convert to same format as qerrs
         cur_dir = results_dir + "/" + fn
         exp_args = load_object(cur_dir + "/args.pkl")
         if exp_args is None:
+            print("exp args None!")
             continue
         exp_args = vars(exp_args)
         if skip_exp(exp_args):
+            print("skip exp!")
             continue
         alg = get_alg_name(exp_args)
+        print("alg: ", alg)
         nns = load_object(cur_dir + "/nn.pkl")
         df = nns["stats"]
         df["alg"] = alg

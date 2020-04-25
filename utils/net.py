@@ -94,10 +94,12 @@ class SimpleRegression(torch.nn.Module):
 
 # MSCN model, kipf et al.
 class SetConv(nn.Module):
-    def __init__(self, sample_feats, predicate_feats, join_feats, hid_units,
-            dropout=0.0):
+    def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
+            hid_units, dropout=0.0):
         super(SetConv, self).__init__()
         self.dropout = dropout
+        print("flow feats: ", flow_feats)
+        self.flow_feats = flow_feats
         # doesn't really make sense to have this be bigger...
         # sample_hid = min(hid_units, 128)
         sample_hid = hid_units
@@ -133,7 +135,22 @@ class SetConv(nn.Module):
             nn.ReLU()
         ).to(device)
 
+        if flow_feats > 0:
+            flow_hid = hid_units
+            self.flow_mlp1 = nn.Sequential(
+                nn.Linear(self.flow_feats, flow_hid),
+                nn.ReLU()
+            ).to(device)
+
+            self.flow_mlp2 = nn.Sequential(
+                nn.Linear(flow_hid, flow_hid),
+                nn.ReLU()
+            ).to(device)
+
         total_hid = sample_hid + join_hid + hid_units
+
+        if flow_feats:
+            total_hid += flow_hid
 
         self.out_mlp1 = nn.Sequential(
                 nn.Linear(total_hid, hid_units),
@@ -147,7 +164,8 @@ class SetConv(nn.Module):
 
         self.drop_layer = nn.Dropout(self.dropout)
 
-    def forward(self, samples, predicates, joins):
+    def forward(self, samples, predicates, joins,
+            flows):
 
         hid_sample = self.sample_mlp1(samples)
         # hid_sample = self.drop_layer(hid_sample)
@@ -161,7 +179,13 @@ class SetConv(nn.Module):
         # hid_join = self.drop_layer(hid_join)
         hid_join = self.join_mlp2(hid_join)
 
-        hid = torch.cat((hid_sample, hid_predicate, hid_join), 1)
+        if self.flow_feats:
+            hid_flow = self.flow_mlp1(flows)
+            # hid_join = self.drop_layer(hid_flow)
+            hid_flow = self.flow_mlp2(hid_flow)
+            hid = torch.cat((hid_sample, hid_predicate, hid_join, hid_flow), 1)
+        else:
+            hid = torch.cat((hid_sample, hid_predicate, hid_join), 1)
 
         hid = self.out_mlp1(hid)
         # hid = self.drop_layer(hid)
