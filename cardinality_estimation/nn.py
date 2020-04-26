@@ -53,6 +53,9 @@ except:
 from cardinality_estimation.flow_loss import FlowLoss, get_edge_costs, \
         constructG
 
+# def collate_fn(sample):
+    # return sample[0]
+
 def update_samples(samples, flow_features):
     start = time.time()
     for sample in samples:
@@ -633,6 +636,7 @@ class NN(CardinalityEstimationAlg):
         if self.load_query_together:
             self.mb_size = 1
             self.eval_batch_size = 1
+            self.query_batch_size = 10
         else:
             self.mb_size = 2500
             self.eval_batch_size = 10000
@@ -708,6 +712,137 @@ class NN(CardinalityEstimationAlg):
         self.query_stats = defaultdict(list)
         self.query_qerr_stats = defaultdict(list)
 
+    def train_mscn_query(self, net, optimizer, loader, loss_fn, loss_fn_name,
+            clip_gradient, samples, normalization_type, min_val, max_val,
+            load_query_together=False):
+        # torch.set_num_threads(1)
+        if self.save_gradients:
+            grads = []
+            grad_samples = []
+
+        total = len(self.training_samples)
+        num_iters = math.ceil(total / self.query_batch_size)
+        itr = iter(loader)
+
+        for i in range(num_iters):
+            start = time.time()
+            mb_tbatch = []
+            mb_pbatch = []
+            mb_jbatch = []
+            mb_fbatch = []
+            mb_ybatch = []
+            batch_samples = []
+            qidxs = []
+
+            for j in range(self.query_batch_size):
+                try:
+                    tbatch,pbatch, jbatch,fbatch, ybatch,info = next(itr)
+                except:
+                    break
+
+                tbatch = tbatch.reshape(tbatch.shape[0]*tbatch.shape[1],
+                        tbatch.shape[2])
+                pbatch = pbatch.reshape(pbatch.shape[0]*pbatch.shape[1],
+                        pbatch.shape[2])
+                jbatch = jbatch.reshape(jbatch.shape[0]*jbatch.shape[1],
+                        jbatch.shape[2])
+                fbatch = fbatch.reshape(fbatch.shape[0]*fbatch.shape[1],
+                        fbatch.shape[2])
+                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+                mb_tbatch.append(tbatch)
+                mb_pbatch.append(pbatch)
+                mb_jbatch.append(jbatch)
+                mb_fbatch.append(fbatch)
+                mb_ybatch.append(ybatch)
+
+                # for si in range(batch_size):
+                    # qidx = info[0]["query_idx"][si]
+                qidx = info[0]["query_idx"][0].item()
+                qidxs.append(qidx)
+                batch_samples.append(samples[qidx])
+
+            if len(mb_tbatch) == 0:
+                continue
+            b1 = torch.cat(mb_tbatch)
+            b2 = torch.cat(mb_pbatch)
+            b3 = torch.cat(mb_jbatch)
+            b4 = torch.cat(mb_fbatch)
+            yb = torch.cat(mb_ybatch)
+
+            np.array_equal(b1[0], mb_tbatch[0])
+            np.array_equal(b1[2], mb_tbatch[2])
+
+            pred = net(b1,b2,b3,b4).squeeze(1)
+
+            if "flow_loss" in loss_fn_name:
+                ndicts = []
+                edicts = []
+                con_mats = []
+                final_nodes = []
+
+                for qidx in qidxs:
+                    sample = samples[qidx]
+                    template = sample["template_name"]
+                    node_dict,edge_dict,con_mat,final_node = \
+                            self.flow_template_info[template]
+                    ndicts.append(node_dict)
+                    edicts.append(edge_dict)
+                    con_mats.append(con_mat)
+                    final_nodes.append(final_node)
+
+                subsetgs = []
+                trueCs = []
+                opt_flow_losses = []
+                for qidx in qidxs:
+                    subsetg,trueC,opt_flow_loss, = \
+                            self.flow_training_info[qidx]
+                    subsetgs.append(subsetg)
+                    trueCs.append(trueC)
+                    opt_flow_losses.append(opt_flow_loss)
+
+                losses = loss_fn(pred, yb.detach(), normalization_type, min_val,
+                        max_val, ndicts, edicts,
+                        subsetgs,trueCs,opt_flow_losses,final_nodes, con_mats,
+                        self.join_loss_pool)
+            else:
+                losses = loss_fn(pred, yb)
+
+            try:
+                loss = losses.sum() / len(losses)
+            except:
+                loss = losses
+
+            if self.weighted_qloss:
+                qloss = qloss_torch(pred, yb)
+                loss += (sum(qloss) / len(qloss))
+
+            if self.save_gradients and "flow_loss" in loss_fn_name:
+                optimizer.zero_grad()
+                pred.retain_grad()
+                loss.backward()
+                # grads
+                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                print(np.mean(grads))
+                if sample is not None:
+                    grad_samples.append(sample)
+            else:
+                optimizer.zero_grad()
+                loss.backward()
+
+            if clip_gradient is not None:
+                clip_grad_norm_(net.parameters(), clip_gradient)
+
+            optimizer.step()
+
+            idx_time = time.time() - start
+            if idx_time > 10:
+                print("train idx took: ", idx_time)
+
+        if self.save_gradients and len(grad_samples) > 0:
+            self.save_join_loss_stats(grads, None, grad_samples,
+                    "train", loss_key="gradients")
+        # pdb.set_trace()
+
     def train_mscn(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
             load_query_together=False):
@@ -719,7 +854,8 @@ class NN(CardinalityEstimationAlg):
         for idx, (tbatch, pbatch, jbatch,fbatch, ybatch,info) in enumerate(loader):
             start = time.time()
             if load_query_together:
-                # update the batches
+                assert tbatch.shape[0] <= self.mb_size
+                batch_size = tbatch.shape[0]
                 tbatch = tbatch.reshape(tbatch.shape[0]*tbatch.shape[1],
                         tbatch.shape[2])
                 pbatch = pbatch.reshape(pbatch.shape[0]*pbatch.shape[1],
@@ -728,29 +864,51 @@ class NN(CardinalityEstimationAlg):
                         jbatch.shape[2])
                 fbatch = fbatch.reshape(fbatch.shape[0]*fbatch.shape[1],
                         fbatch.shape[2])
-
                 ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+                batch_samples = []
+                qidxs = []
 
-                query_idx = info[0]["query_idx"]
-                assert query_idx == info[1]["query_idx"]
-                sample = samples[query_idx]
+                for si in range(batch_size):
+                    qidx = info[0]["query_idx"][si]
+                    qidxs.append(qidx)
+                    batch_samples.append(samples[qidx])
             else:
-                sample = None
+                batch_samples = None
+                # sample = None
 
             pred = net(tbatch,pbatch,jbatch,fbatch).squeeze(1)
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
-                template = sample["template_name"]
 
-                node_dict,edge_dict,con_mat,final_node = \
-                        self.flow_template_info[template]
-                subsetg,trueC,opt_flow_loss, = \
-                        self.flow_training_info[query_idx]
+                ndicts = []
+                edicts = []
+                con_mats = []
+                final_nodes = []
 
-                losses = loss_fn(pred, ybatch, normalization_type, min_val,
-                        max_val, node_dict, edge_dict,
-                        subsetg,trueC,opt_flow_loss,final_node, con_mat,
+                for qidx in qidxs:
+                    sample = samples[qidx]
+                    template = sample["template_name"]
+                    node_dict,edge_dict,con_mat,final_node = \
+                            self.flow_template_info[template]
+                    ndicts.append(node_dict)
+                    edicts.append(edge_dict)
+                    con_mats.append(con_mat)
+                    final_nodes.append(final_node)
+
+                subsetgs = []
+                trueCs = []
+                opt_flow_losses = []
+                for qidx in qidxs:
+                    subsetg,trueC,opt_flow_loss, = \
+                            self.flow_training_info[qidx]
+                    subsetgs.append(subsetg)
+                    trueCs.append(trueC)
+                    opt_flow_losses.append(opt_flow_loss)
+
+                losses = loss_fn(pred, ybatch.detach(), normalization_type, min_val,
+                        max_val, ndicts, edicts,
+                        subsetgs,trueCs,opt_flow_losses,final_nodes, con_mats,
                         self.join_loss_pool)
             else:
                 losses = loss_fn(pred, ybatch)
@@ -778,6 +936,7 @@ class NN(CardinalityEstimationAlg):
 
             if clip_gradient is not None:
                 clip_grad_norm_(net.parameters(), clip_gradient)
+
             optimizer.step()
 
             idx_time = time.time() - start
@@ -1145,11 +1304,18 @@ class NN(CardinalityEstimationAlg):
                         self.min_val, self.max_val,
                         self.load_query_together)
             elif self.featurization_scheme == "mscn":
-                self.train_mscn(net, opt, loader, self.loss,
-                        self.loss_func, self.clip_gradient,
-                        self.training_samples, self.normalization_type,
-                        self.min_val, self.max_val,
-                        self.load_query_together)
+                if self.load_query_together:
+                    self.train_mscn_query(net, opt, loader, self.loss,
+                            self.loss_func, self.clip_gradient,
+                            self.training_samples, self.normalization_type,
+                            self.min_val, self.max_val,
+                            self.load_query_together)
+                else:
+                    self.train_mscn(net, opt, loader, self.loss,
+                            self.loss_func, self.clip_gradient,
+                            self.training_samples, self.normalization_type,
+                            self.min_val, self.max_val,
+                            self.load_query_together)
             else:
                 assert False
 
@@ -1547,6 +1713,7 @@ class NN(CardinalityEstimationAlg):
                 trueC = torch.eye(len(trueC_vec))
                 for i, curC in enumerate(trueC_vec):
                     trueC[i,i] = curC
+                trueC = trueC.detach()
 
                 if self.normalize_flow_loss:
                     G,Gv,Q = constructG(subsetg, trueC_vec,

@@ -79,49 +79,6 @@ def compute_dfdg_row(edge_num, edge, node_dict, QinvG, v,
     ret = vT @ torch.transpose(rightSlice, 0, 1)
     return ret
 
-def compute_dfdg_row_orig(edge_num, edge, node_dict, Q, G, invG, v,
-        subsetg):
-
-    dGdgi = torch.zeros(G.shape)
-    dQdgi = torch.zeros(Q.shape)
-
-    head_node = node_dict[edge[0]]
-    dGdgi[head_node, head_node] = 1.0
-
-    dQdgi[edge_num, head_node] = 1.0
-
-    if edge[1] in node_dict:
-        tail_node = node_dict[edge[1]]
-        dGdgi[head_node, tail_node] = -1.0
-        dGdgi[tail_node, tail_node] = +1.0
-        dGdgi[tail_node, head_node] = -1.0
-
-        dQdgi[edge_num, tail_node] = -1.0
-    else:
-        # don't need to adjust any value
-        pass
-
-    # now we've all the ingredients for the formula
-    vT = v
-
-    ## simplification:
-    # invG_col = invG[:,head_node]
-    # invG_col = torch.reshape(invG_col, (len(invG_col), 1))
-    # dGdgi_row = dGdgi[head_node,:]
-    # dGdgi_row = torch.reshape(dGdgi_row, (1, len(dGdgi_row)))
-    # simpleRight = invG_col @ dGdgi_row
-    # QinvGdGdgi = Q @ simpleRight
-
-    # print(simpleRight.shape)
-    # pdb.set_trace()
-
-    ## without simplification:
-    QinvGdGdgi = Q @ invG @ dGdgi
-
-    right = torch.transpose(dQdgi - QinvGdGdgi, 0, 1)
-    ret = vT @ right
-    return ret
-
 def constructG2(subsetg, preds, node_dict, edge_dict,
         final_node, con_mat):
     '''
@@ -317,84 +274,96 @@ def single_forward(yhat, normalization_type, min_val,
     left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
     right = Q @ (v)
     loss = left @ trueC @ right
+    return loss, dgdxT.detach(), invG.detach(), Q.detach(), v.detach()
 
-    if loss.item() == 0.0:
-        print("flow loss was zero!")
-        print(true_vals)
-        print(preds)
-        pdb.set_trace()
-    loss = loss.reshape(1,1)
-    return loss, dgdxT
+def single_backward(subsetg, edge_dict, node_dict, Q, invG,
+        v, dgdxT, opt_flow_loss, trueC):
+    start = time.time()
+    N = len(subsetg.nodes()) - 1
+    M = len(subsetg.edges())
+    dfdg = torch.zeros((M,M))
+
+    # compute each row
+    rstart = time.time()
+    QinvG = Q @ invG
+    QinvG = QinvG.detach().numpy()
+    v = v.detach().numpy()
+
+    ## original
+    for edge, idx in edge_dict.items():
+        # corresponding to ith cost edge
+        row = compute_dfdg_row_np(idx, edge, node_dict, QinvG,
+                v)
+        dfdg[idx,:] = torch.from_numpy(row)
+
+    # print("computing dfdg took: ", time.time()-rstart)
+
+    dCdg = 2 * (dfdg @ (trueC @ (Q @ v)))
+
+    # update_list("dCdg_grad.pkl", dCdg.detach().numpy())
+    # print("backwards, dCdg: ", dCdg)
+
+    yhat_grad = dgdxT @ dCdg
+    # print("single backward took: ", time.time()-start)
+    yhat_grad /= opt_flow_loss
+    return yhat_grad.detach().numpy()
 
 class FlowLoss(Function):
     @staticmethod
     def forward(ctx, yhat, y, normalization_type,
-            min_val, max_val, node_dict, edge_dict, subsetg,
-            trueC, opt_flow_loss, final_node, con_mat,
+            min_val, max_val, node_dicts, edge_dicts, subsetgs,
+            trueCs, opt_flow_losses, final_nodes, con_mats,
             pool):
         '''
         '''
         # Note: do flow loss computation and save G, invG etc. for backward
         # pass
         yhat = yhat.detach()
-        trueC = trueC.detach()
-
         ctx.pool = pool
         start = time.time()
-        # single_forward(yhat, normalization_type, min_val, max_val,
-                # node_dict, edge_dict, subsetg, trueC, final_node)
         par_args = []
-        par_args.append((yhat, normalization_type, min_val, max_val,
-                node_dict, edge_dict, subsetg, trueC, final_node))
-        res = ctx.pool.starmap(single_forward, par_args)
+        qidx = 0
+        for i, subsetg in enumerate(subsetgs):
+            # num nodes = num of yhat predictions
+            num_nodes = len(subsetg.nodes())-1
+            par_args.append((yhat[qidx:qidx+num_nodes],
+                             normalization_type,
+                             min_val,
+                             max_val,
+                             node_dicts[i],
+                             edge_dicts[i],
+                             subsetg,
+                             trueCs[i].detach(),
+                             final_nodes[i]))
+            qidx += num_nodes
 
-        print("single forward took: ", time.time()-start)
-        pdb.set_trace()
+        results = ctx.pool.starmap(single_forward, par_args)
 
-        ctx.subsetg = subsetg
+        # print("single forward took: ", time.time()-start)
+
+        # return loss, dgdxT, invG, Q, v
+        loss = 0.0
+        ctx.dgdxTs = []
+        ctx.invGs = []
+        ctx.Qs = []
+        ctx.vs = []
+        for i, res in enumerate(results):
+            loss += res[0]
+            ctx.dgdxTs.append(res[1])
+            ctx.invGs.append(res[2])
+            ctx.Qs.append(res[3])
+            ctx.vs.append(res[4])
+
+        # save for backward
+        ctx.edge_dicts = edge_dicts
+        ctx.node_dicts = node_dicts
+        ctx.subsetgs = subsetgs
         ctx.normalization_type = normalization_type
         ctx.min_val = min_val
         ctx.max_val = max_val
-        ctx.opt_flow_loss = opt_flow_loss
-        assert len(y) == len(node_dict)
-        est_cards = to_variable(np.zeros(len(y))).float()
-        for node,i in node_dict.items():
-            if normalization_type == "mscn":
-                est_cards[i] = torch.exp(((yhat[i] + min_val)*(max_val-min_val)))
-            elif normalization_type == "pg_total_selectivity":
-                est_cards[i] = yhat[i]*subsetg.nodes()[node]["cardinality"]["total"]
-            else:
-                assert False
-
-        # TODO: simplify get_edge_costs further
-        predC, dgdxT = get_edge_costs(subsetg, est_cards, node_dict, edge_dict,
-                normalization_type, min_val, max_val)
-        ctx.dgdxT = dgdxT
-
-        # calculate flow loss
-        G,Gv,Q = constructG(subsetg, predC, node_dict, edge_dict, final_node)
-
-        mat_start = time.time()
-        invG = torch.inverse(G)
-        v = invG @ Gv
-        left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
-        right = Q @ (v)
-        loss = left @ trueC @ right
-
-        if loss.item() == 0.0:
-            print("flow loss was zero!")
-            print(true_vals)
-            print(preds)
-            pdb.set_trace()
-        loss = loss.reshape(1,1)
-
-        # print("mat computations took: ", time.time()-mat_start)
-
-        # print("flow loss took: ", time.time()-start)
-        ctx.save_for_backward(yhat, Gv, Q, trueC, invG, v)
-        ctx.edge_dict = edge_dict
-        ctx.node_dict = node_dict
-        return loss
+        ctx.opt_flow_losses = opt_flow_losses
+        ctx.trueCs = trueCs
+        return loss / len(subsetgs)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -406,57 +375,18 @@ class FlowLoss(Function):
         assert not ctx.needs_input_grad[1]
         assert not ctx.needs_input_grad[2]
 
-        # should we make sure these are contiguous in memory etc?
-        yhat, Gv, Q, trueC, invG, v = ctx.saved_tensors
-        subsetg = ctx.subsetg
-        edge_dict = ctx.edge_dict
-        node_dict = ctx.node_dict
-        N = len(subsetg.nodes()) - 1
-        M = len(subsetg.edges())
+        par_args = []
+        for i in range(len(ctx.subsetgs)):
+            par_args.append((ctx.subsetgs[i],
+                             ctx.edge_dicts[i],
+                             ctx.node_dicts[i],
+                             ctx.Qs[i], ctx.invGs[i],
+                             ctx.vs[i], ctx.dgdxTs[i],
+                             ctx.opt_flow_losses[i], ctx.trueCs[i]))
 
-        dfdg = torch.zeros((M,M))
+        results = ctx.pool.starmap(single_backward, par_args)
+        yhat_grad = np.concatenate(results)
+        yhat_grad /= len(ctx.subsetgs)
 
-        # because this term is reused many times in the calculation below
-
-        # compute each row
-        rstart = time.time()
-        QinvG = Q @ invG
-        QinvG = QinvG.detach().numpy()
-        v = v.detach().numpy()
-
-        ## original
-        for edge, idx in edge_dict.items():
-            # corresponding to ith cost edge
-            row = compute_dfdg_row_np(idx, edge, node_dict, QinvG,
-                    v)
-            dfdg[idx,:] = torch.from_numpy(row)
-
-            ## DEBUG code below this
-            # row = compute_dfdg_row(idx, edge, node_dict, QinvG,
-                    # v, subsetg)
-            # dfdg[idx,:] = row
-
-            ## debug code
-            # row_true = compute_dfdg_row_orig(idx, edge, node_dict, Q, G, invG, v, subsetg)
-            # if np.linalg.norm(np.array(row - row_true)) > 1:
-                # print(edge)
-                # print(i)
-                # # print(row)
-                # # print(row_true)
-                # print("norm diff: ", np.linalg.norm(np.array(row-row_true)))
-            # else:
-                # print(edge)
-
-        print("computing dfdg took: ", time.time()-rstart)
-
-        dCdg = 2 * (dfdg @ (trueC @ (Q @ v)))
-
-        # update_list("dCdg_grad.pkl", dCdg.detach().numpy())
-        # print("backwards, dCdg: ", dCdg)
-
-        yhat_grad = ctx.dgdxT @ dCdg
-        print("flow loss backward took: ", time.time()-start)
-        pdb.set_trace()
-        yhat_grad /= ctx.opt_flow_loss
-        return yhat_grad,None, None, None, None, None, \
+        return torch.from_numpy(yhat_grad),None, None, None, None, None, \
                             None,None,None,None,None,None,None
