@@ -513,10 +513,38 @@ def get_summary_df(results_dir):
             # else:
                 # qerrs[exp_column] = None
 
-        if exp_args["sampling_priority_alpha"] > 0.0:
-            cur_df["priority"] = "yes"
+        cur_df["alg"] = exp_args["alg"]
+        cur_df["hls"] = exp_args["hidden_layer_size"]
+        cur_df["exp_name"] = fn
+        cur_df["lr"] = exp_args["lr"]
+        cur_df["clip_gradient"] = exp_args["clip_gradient"]
+        cur_df["loss_func"] = exp_args["loss_func"]
+        cur_df["weight_decay"] = exp_args["weight_decay"]
+
+        if exp_args["sampling_priority_alpha"] > 0:
+            cur_df["priority"] = True
         else:
-            cur_df["priority"] = "no"
+            cur_df["priority"] = False
+
+        if "normalize_flow_loss" in exp_args:
+            cur_df["normalize_flow_loss"] = exp_args["normalize_flow_loss"]
+        else:
+            cur_df["normalize_flow_loss"] = 1
+
+        if "flow_features" in exp_args:
+            print("flow f: ", exp_args["flow_features"])
+            print("special cases for flow features ")
+            if "343" in fn:
+                cur_df["flow_features"] = ""
+            elif "flow" not in exp_args["loss_func"]:
+                cur_df["flow_features"] = ""
+            elif exp_args["flow_features"] and "flow" in exp_args["loss_func"]:
+                cur_df["flow_features"] = "flow_features"
+            else:
+                cur_df["flow_features"] = ""
+        else:
+            print("flow features was not in df!")
+            df["flow_features"] = ""
 
         all_dfs.append(cur_df)
 

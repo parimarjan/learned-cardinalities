@@ -76,6 +76,7 @@ class DB():
         self.max_in_degree = 0
         self.max_out_degree = 0
         self.max_paths = 0
+        self.feat_num_paths = False
 
         # the node-edge connectivities stay constant through templates
         # key: template_name
@@ -87,11 +88,6 @@ class DB():
         # things like tolerances, flows need to be computed on a per query
         # basis (maybe we should not precompute these?)
         self.query_info = {}
-
-        # self.feat_num_paths = False
-        # self.feat_flows = False
-        # self.feat_pg_costs = True
-        # self.feat_tolerance = True
 
     def get_entropies(self):
         '''
@@ -165,8 +161,9 @@ class DB():
             num_tables_feature=False,
             max_discrete_featurizing_buckets=10,
             flow_features = True,
-            feat_num_paths=False, feat_flows=False,
-            feat_pg_costs = True, feat_tolerance=True):
+            feat_num_paths= False, feat_flows=False,
+            feat_pg_costs = True, feat_tolerance=True,
+            feat_template=True, feat_pg_path=True):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -239,12 +236,16 @@ class DB():
         # for num_tables present
         if num_tables_feature:
             self.pred_features_len += 1
+        # FIXME:
+        self.pred_features_len += 1
 
         self.flow_features = flow_features
         self.feat_num_paths = feat_num_paths
         self.feat_flows = feat_flows
         self.feat_pg_costs = feat_pg_costs
         self.feat_tolerance = feat_tolerance
+        self.feat_template = feat_template
+        self.feat_pg_path = feat_pg_path
 
         if flow_features:
             self.flow_features = flow_features
@@ -267,6 +268,12 @@ class DB():
                 # 1-hot vector of 2...2^10
                 self.num_flow_features += 10
             if self.feat_flows:
+                self.num_flow_features += 1
+
+            if self.feat_template:
+                self.num_flow_features += len(self.templates)
+
+            if self.feat_pg_path:
                 self.num_flow_features += 1
 
     def get_flow_features(self, node, subsetg,
@@ -322,6 +329,18 @@ class DB():
             # normalized pg flow
             flow_features[cur_idx] = in_flows
             cur_idx += 1
+
+        if self.feat_template:
+            tidx = 0
+            for i,t in enumerate(self.templates):
+                if t == template_name:
+                    tidx = i
+            flow_features[cur_idx + tidx] = 1.0
+            cur_idx += len(self.templates)
+
+        if self.feat_pg_path:
+            if "pg_path" in subsetg.nodes()[node]:
+                flow_features[cur_idx] = 1.0
 
         return flow_features
 
@@ -559,6 +578,9 @@ class DB():
         '''
         @query: Query object
         '''
+        if qrep["template_name"] not in self.templates:
+            self.templates.append(qrep["template_name"])
+
         cur_columns = []
         for node, info in qrep["join_graph"].nodes(data=True):
             for i, cmp_op in enumerate(info["pred_types"]):
@@ -589,6 +611,8 @@ class DB():
             node_list.sort(key = lambda v: len(v))
             dest = node_list[-1]
             node_list.sort()
+            info = {}
+            tmp_name = qrep["template_name"]
 
             for node in subsetg.nodes():
                 in_degree = subsetg.in_degree(node)
@@ -600,20 +624,19 @@ class DB():
                     self.max_out_degree = out_degree
 
                 # TODO: compute flow / tolerances
-                tmp_name = qrep["template_name"]
                 if tmp_name in self.template_info:
                     continue
-                info = {}
                 info[node] = {}
                 # paths from node -> dest, but edges are reversed in our
                 # representation
-                # if self.feat_num_paths:
-                    # all_paths = nx.all_simple_paths(subsetg, dest, node)
-                    # num_paths = len(list(all_paths))
-                    # if num_paths > self.max_paths:
-                        # self.max_paths = num_paths
-                    # info[node]["num_paths"] = num_paths
-                # self.template_info[tmp_name] = info
+                if self.feat_num_paths:
+                    all_paths = nx.all_simple_paths(subsetg, dest, node)
+                    num_paths = len(list(all_paths))
+                    if num_paths > self.max_paths:
+                        self.max_paths = num_paths
+                    info[node]["num_paths"] = num_paths
+
+            self.template_info[tmp_name] = info
 
             if time.time() - flow_start > 10:
                 print("generated stats for flows in: ", time.time()-flow_start)

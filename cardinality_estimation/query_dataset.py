@@ -35,7 +35,6 @@ class QueryDataset(data.Dataset):
         self.card_key = card_key
         self.group = group
         self.flow_features = flow_features
-        print("dataset: ", flow_features)
 
         if self.card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
             self.wj_times = get_wj_times_dict(self.card_key)

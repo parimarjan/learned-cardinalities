@@ -69,9 +69,11 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                query_batch_size = args.query_batch_size,
                 flow_features = args.flow_features,
                 normalize_flow_loss = args.normalize_flow_loss,
                 save_gradients = args.save_gradients,
+                weighted_mse = args.weighted_mse,
                 weighted_qloss = args.weighted_qloss,
                 cost_model_plan_err = args.cost_model_plan_err,
                 eval_flow_loss = args.eval_flow_loss,
@@ -219,9 +221,9 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-        if "7a" in template_name:
-            print("skipping template 7a")
-            continue
+        # if "7a" in template_name:
+            # print("skipping template 7a")
+            # continue
 
         start = time.time()
         # loading, or generating samples
@@ -375,6 +377,16 @@ def main():
     print("algs: {}, train queries: {}, val queries: {}, test queries: {}".format(\
             args.algs, len(train_queries), len(val_queries), len(test_queries)))
 
+    # here, we assume that the alg name is unique enough, for their results to
+    # be grouped together
+    exp_name = algorithms[0].get_exp_name()
+    rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
+                                   ALG = exp_name)
+    print("going to save results at: ", rdir)
+    make_dir(rdir)
+    args_fn = rdir + "/" + "args.pkl"
+    save_object(args_fn, args)
+
     train_times = {}
     eval_times = {}
 
@@ -443,12 +455,16 @@ def read_flags():
             default=1)
     parser.add_argument("--weighted_qloss", type=int, required=False,
             default=0)
+    parser.add_argument("--weighted_mse", type=int, required=False,
+            default=0)
     parser.add_argument("--avg_jl_num_last", type=int, required=False,
             default=5)
     parser.add_argument("--preload_features", type=int, required=False,
             default=1)
     parser.add_argument("--load_query_together", type=int, required=False,
             default=0)
+    parser.add_argument("--query_batch_size", type=int, required=False,
+            default=1)
     parser.add_argument("--normalization_type", type=str, required=False,
             default="mscn")
 
@@ -462,7 +478,7 @@ def read_flags():
             default=1)
 
     parser.add_argument("--weight_decay", type=float, required=False,
-            default=0.1)
+            default=0.0)
 
     parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
             default=10)

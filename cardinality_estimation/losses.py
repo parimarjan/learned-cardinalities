@@ -198,8 +198,8 @@ def compute_qerror(queries, preds, **kwargs):
             samples_type, -1)
 
     fn = rdir + "/" + "qerr.pkl"
-    args_fn = rdir + "/" + "args.pkl"
-    save_object(args_fn, args)
+    # args_fn = rdir + "/" + "args.pkl"
+    # save_object(args_fn, args)
 
     # update the qerrors here
     old_results = load_object(fn)

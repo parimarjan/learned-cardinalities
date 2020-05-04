@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import pdb
+import numpy as np
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -163,6 +164,28 @@ class SetConv(nn.Module):
         ).to(device)
 
         self.drop_layer = nn.Dropout(self.dropout)
+
+    def compute_grads(self):
+        wts = []
+        wts.append(self.sample_mlp1[0].weight.grad)
+        wts.append(self.sample_mlp2[0].weight.grad)
+        wts.append(self.predicate_mlp1[0].weight.grad)
+        wts.append(self.predicate_mlp2[0].weight.grad)
+        wts.append(self.join_mlp1[0].weight.grad)
+        wts.append(self.join_mlp2[0].weight.grad)
+
+        wts.append(self.out_mlp1[0].weight.grad)
+        wts.append(self.out_mlp2[0].weight.grad)
+
+        if self.flow_feats:
+            wts.append(self.flow_mlp1[0].weight.grad)
+            wts.append(self.flow_mlp2[0].weight.grad)
+
+        mean_wts = []
+        for i,wt in enumerate(wts):
+            mean_wts.append(np.mean(np.abs(wt.detach().numpy())))
+
+        return mean_wts
 
     def forward(self, samples, predicates, joins,
             flows):

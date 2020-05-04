@@ -7,6 +7,10 @@ import argparse
 import pandas as pd
 from collections import defaultdict
 import os
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
 # from utils import *
 import pdb
 # from db_utils.utils import *
@@ -140,6 +144,7 @@ def get_all_training_df(results_dir):
         df["lr"] = exp_args["lr"]
         df["clip_gradient"] = exp_args["clip_gradient"]
         df["loss_func"] = exp_args["loss_func"]
+        df["weight_decay"] = exp_args["weight_decay"]
 
         if exp_args["sampling_priority_alpha"] > 0:
             df["priority"] = True
@@ -149,7 +154,22 @@ def get_all_training_df(results_dir):
         if "normalize_flow_loss" in exp_args:
             df["normalize_flow_loss"] = exp_args["normalize_flow_loss"]
         else:
-            df["normalize_flow_loss"] = True
+            df["normalize_flow_loss"] = 1
+
+        if "flow_features" in exp_args:
+            print("flow f: ", exp_args["flow_features"])
+            print("special cases for flow features ")
+            if "343" in fn:
+                df["flow_features"] = ""
+            elif "flow" not in exp_args["loss_func"]:
+                df["flow_features"] = ""
+            elif exp_args["flow_features"] and "flow" in exp_args["loss_func"]:
+                df["flow_features"] = "flow_features"
+            else:
+                df["flow_features"] = ""
+        else:
+            print("flow features was not in df!")
+            df["flow_features"] = ""
 
         # # TODO: add training / test detail
         # # TODO: add template detail
@@ -195,6 +215,125 @@ def get_all_plans(results_dir):
 
     return pd.concat(all_dfs)
 
+### Helper plotting utilities for jupyter notebooks
+def plot_summaries(df, loss_type, HUE_COLORS=None):
+    #fig=plt.figure(figsize=(10, 10), dpi= 80, facecolor='w', edgecolor='k')
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20,10))
+    cur_df = df[df["loss_type"] == loss_type]
+    #sns.catplot(x="alg_name", y="loss", data=cur_df, col_wrap = 2, cols="samples_type", kind="bar")
+    train_df = cur_df[cur_df["samples_type"] == "train"]
+    sns.barplot(x="alg_name", y="loss", data=train_df, hue="alg_name", palette=HUE_COLORS, ax = ax1)
+    test_df = cur_df[cur_df["samples_type"] == "test"]
+    sns.barplot(x="alg_name", y="loss", data=test_df, hue="alg_name", palette=HUE_COLORS, ax = ax2)
+    ax1.set_title("Train", fontsize=25)
+    ax2.set_title("Test", fontsize=25)
+    sup_title = ERROR_NAMES[loss_type]
+    fig.suptitle(sup_title, fontsize=75)
+    # fg.despine(left=True)
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
+    plt.show()
+    plt.clf()
+
+
+ERROR_NAMES = {}
+ERROR_NAMES["qerr"] = "MSE"
+ERROR_NAMES["flow_err"] = "Flow Loss"
+ERROR_NAMES["flow_ratio"] = "Flow Ratio"
+ERROR_NAMES["mm1_plan_err"] = "Simple Plan Error"
+ERROR_NAMES["mm1_plan_ratio"] = "Simple Plan Ratio"
+ERROR_NAMES["jerr"] = "Postgres Plan Error"
+ERROR_NAMES["jerr_ratio"] = "Postgres Plan Error"
+title_fmt = "{}"
+
+def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
+        HUE_COLORS=None, miny=None):
+    #fig=plt.figure(figsize=(10, 10), dpi= 80, facecolor='w', edgecolor='k')
+    loss_title = ERROR_NAMES[loss_type]
+    title = title_fmt.format(loss_title)
+
+    ax.set_title(title, fontsize=40)
+    cur_df = df[df["samples_type"] == samples_type]
+    cur_df = cur_df[cur_df["loss_type"] == loss_type]
+
+    scale_df = df[df["epoch"] >= 4]
+    scale_df = scale_df[scale_df["loss_type"] == loss_type]
+    maxy = max(scale_df["loss"])
+    if miny is None:
+        miny = min(scale_df["loss"])
+
+    sns.lineplot(x="epoch", y="loss", hue="alg_name", data=cur_df, palette=HUE_COLORS, ci=None,
+                 ax=ax, legend="full", linewidth=10)
+    ax.set_ylim((miny,maxy))
+    # plt.setp(g.ax.lines,linewidth=lw)  # set lw for all lines of g axes
+    # ax.set_linewidth(10)
+    # ax.spines[0].set_linewidth(0.5)
+
+    #plt.ylim((0,10000))
+    ax.set_yscale(yscale)
+    ax.get_legend().remove()
+    # plt.rc('ticklabel', fontsize=10)
+    ax.tick_params(labelsize=20)
+    # ax.label(labelsize=20)
+    ax.xaxis.label.set_size(20)
+    # ax.xaxis.label.set_size(20)
+
+    #plt.show()
+
+def construct_summary(df, samples_type, title, HUE_COLORS=None):
+    fig, axs = plt.subplots(1, 4, figsize=(40,10))
+    fig.suptitle(title, fontsize=50)
+    # if samples_type == "train":
+        # plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
+                        # legend="brief", HUE_COLORS=HUE_COLORS, miny=0.0)
+    # else:
+    plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
+                 HUE_COLORS=HUE_COLORS, miny=0.0)
+
+    plot_loss_summary(df, "flow_ratio", samples_type, "linear", axs[1],
+                HUE_COLORS=HUE_COLORS, miny=1.0)
+    plot_loss_summary(df, "mm1_plan_ratio", samples_type, "linear", axs[2],
+            HUE_COLORS=HUE_COLORS, miny=1.0)
+    plot_loss_summary(df, "jerr", samples_type, "linear", axs[3],
+            HUE_COLORS=HUE_COLORS, miny = 0)
+
+    if samples_type == "train":
+        plt.tight_layout(rect=[0, 0, 1, 0.70])
+        handles, labels = axs[-1].get_legend_handles_labels()
+        leg = fig.legend(handles, labels, loc='upper left',
+                prop={'size': 30})
+        for line in leg.get_lines():
+            line.set_linewidth(10.0)
+    else:
+        plt.tight_layout(rect=[0, 0, 1, 0.90])
+
+    plt.show()
+
+def plot_alg_grad(par_grad_df, alg_name, HUE_COLORS=None):
+    par_grad_df = par_grad_df[par_grad_df["alg_name"] == alg_name]
+    fg = sns.relplot(x="epoch", y="loss", data=par_grad_df, col="loss_type", col_wrap=3,
+            hue="alg_name", palette=HUE_COLORS, kind="line", facet_kws={'sharey': False, 'sharex': True},
+               legend=False, linewidth=10.0)
+    title = "Parameter Gradients, per layer: " + alg_name
+    fg.fig.suptitle(title,
+                x=0.5, y=.99, horizontalalignment='center',
+                verticalalignment='top', fontsize = 40)
+    fg.despine(left=True)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+
+def plot_tmp_grad(par_grad_df, alg_name, HUE_COLORS=None):
+    par_grad_df = par_grad_df[par_grad_df["alg_name"] == alg_name]
+    fg = sns.relplot(x="epoch", y="loss", data=par_grad_df, col="template", col_wrap=3,
+            hue="alg_name", palette=HUE_COLORS, kind="line", facet_kws={'sharey': False, 'sharex': True},
+               legend=False, linewidth=10.0)
+    title = "Parameter Gradients for each template " + alg_name
+    fg.fig.suptitle(title,
+                x=0.5, y=.99, horizontalalignment='center',
+                verticalalignment='top', fontsize = 40)
+    fg.despine(left=True)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+
 def main():
     query_dir = "./our_dataset/queries/"
     qkey_mapping = qkey_map(args.query_dir)
@@ -205,3 +344,4 @@ def main():
 if __name__ == "__main__":
     args = read_flags()
     main()
+

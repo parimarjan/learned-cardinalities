@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 
 system = platform.system()
 if system == 'Linux':
-    lib_file = "libpgm.so"
+    lib_file = "libpgmgm.so"
 else:
     lib_file = "libpgm.dylib"
 
@@ -87,14 +87,14 @@ class PGM():
         if self.backend == "ourpgm":
             pgm.py_init.restype = c_void_p
             print("before py_init")
-            self.ourpgm_model = pgm.py_init(mapped_samples.ctypes.data_as(c_void_p),
+            self.ourpgm_model = pgm.py_init(
+                    mapped_samples.ctypes.data_as(c_void_p),
                     c_long(mapped_samples.shape[0]),
                     c_long(mapped_samples.shape[1]),
                     weights.ctypes.data_as(c_void_p),
                     c_long(weights.shape[0]),
                     self.use_svd,
                     c_long(self.num_singular_vals), self.recompute)
-            print("py init returned")
             pgm.py_train(c_void_p(self.ourpgm_model))
         elif self.backend == "pomegranate":
             # TODO: cache the trained model, based on hash of mapped samples?
