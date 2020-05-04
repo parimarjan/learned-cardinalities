@@ -559,6 +559,7 @@ def constructG_numpy(subsetg, preds,
 
     return G, Gv, Q
 
+# TODO: use c++ version!
 def get_flow_cost(subsetg, source_node, cost_key, ests,
         known_cost):
     '''

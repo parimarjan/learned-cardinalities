@@ -54,11 +54,80 @@ try:
 except:
     pass
 
-from cardinality_estimation.flow_loss import FlowLoss, get_edge_costs, \
-        constructG
+from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variables
 
 # def collate_fn(sample):
     # return sample[0]
+
+def get_subsetg_vectors(sample):
+    node_dict = {}
+    # edge_dict = {}
+    nodes = list(sample["subset_graph"].nodes())
+    nodes.sort()
+
+    subsetg = sample["subset_graph"]
+    edges = list(sample["subset_graph_paths"].edges())
+    edges.sort()
+
+    # for i, edge in enumerate(edges):
+        # edge_dict[edge] = i
+
+    totals = np.zeros(len(nodes), dtype=np.float32)
+    edges_head = [0]*len(edges)
+    edges_tail = [0]*len(edges)
+    edges_cost_node1 = [0]*len(edges)
+    edges_cost_node2 = [0]*len(edges)
+    nilj = [0]*len(edges)
+    final_node = 0
+    max_len_nodes = 0
+
+    # for node, nodei in node_dict.items():
+    for nodei, node in enumerate(nodes):
+        node_dict[node] = nodei
+        totals[nodei] = subsetg.nodes()[node]["cardinality"]["total"]
+        if len(node) > max_len_nodes:
+            max_len_nodes = len(node)
+            final_node = nodei
+
+    for edgei, edge in enumerate(edges):
+        if len(edge[0]) == len(edge[1]):
+            assert edge[1] == SOURCE_NODE
+            edges_head[edgei] = node_dict[edge[0]]
+            edges_tail[edgei] = SOURCE_NODE_CONST
+            edges_cost_node1[edgei] = SOURCE_NODE_CONST
+            edges_cost_node2[edgei] = SOURCE_NODE_CONST
+            continue
+
+        edges_head[edgei] = node_dict[edge[0]]
+        edges_tail[edgei] = node_dict[edge[1]]
+
+        assert len(edge[1]) < len(edge[0])
+        assert edge[1][0] in edge[0]
+        ## FIXME:
+        node1 = edge[1]
+        diff = set(edge[0]) - set(edge[1])
+        node2 = list(diff)
+        # node2.sort()
+        node2 = tuple(node2)
+        assert node2 in subsetg.nodes()
+
+        edges_cost_node1[edgei] = node_dict[node1]
+        edges_cost_node2[edgei] = node_dict[node2]
+
+        if len(node1) == 1:
+            # nilj_cost = card2 + NILJ_CONSTANT*card1
+            nilj[edgei] = 1
+        elif len(node2) == 1:
+            nilj[edgei] = 2
+
+    edges_head = np.array(edges_head, dtype=np.int32)
+    edges_tail = np.array(edges_tail, dtype=np.int32)
+    edges_cost_node1 = np.array(edges_cost_node1, dtype=np.int32)
+    edges_cost_node2 = np.array(edges_cost_node2, dtype=np.int32)
+    nilj = np.array(nilj, dtype=np.int32)
+
+    return totals, edges_head, edges_tail, nilj, \
+            edges_cost_node1, edges_cost_node2, final_node
 
 # once we have stored them in archive, parallel just slows down stuff
 UPDATE_TOLERANCES_PAR = True
@@ -814,15 +883,15 @@ class NN(CardinalityEstimationAlg):
                 con_mats = []
                 final_nodes = []
 
-                for qidx in qidxs:
-                    sample = samples[qidx]
-                    template = sample["template_name"]
-                    node_dict,edge_dict,con_mat,final_node = \
-                            self.flow_template_info[template]
-                    ndicts.append(node_dict)
-                    edicts.append(edge_dict)
-                    con_mats.append(con_mat)
-                    final_nodes.append(final_node)
+                # for qidx in qidxs:
+                    # sample = samples[qidx]
+                    # template = sample["template_name"]
+                    # node_dict,edge_dict,con_mat,final_node = \
+                            # self.flow_template_info[template]
+                    # ndicts.append(node_dict)
+                    # edicts.append(edge_dict)
+                    # con_mats.append(con_mat)
+                    # final_nodes.append(final_node)
 
                 subsetgs = []
                 trueCs = []
@@ -900,7 +969,6 @@ class NN(CardinalityEstimationAlg):
             start = time.time()
             if load_query_together:
                 assert tbatch.shape[0] <= self.mb_size
-                batch_size = tbatch.shape[0]
                 tbatch = tbatch.reshape(tbatch.shape[0]*tbatch.shape[1],
                         tbatch.shape[2])
                 pbatch = pbatch.reshape(pbatch.shape[0]*pbatch.shape[1],
@@ -910,50 +978,22 @@ class NN(CardinalityEstimationAlg):
                 fbatch = fbatch.reshape(fbatch.shape[0]*fbatch.shape[1],
                         fbatch.shape[2])
                 ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
-                batch_samples = []
-                qidxs = []
-
-                for si in range(batch_size):
-                    qidx = info[0]["query_idx"][si]
-                    qidxs.append(qidx)
-                    batch_samples.append(samples[qidx])
+                qidx = info[0]["query_idx"][0]
+                sample = samples[qidx]
             else:
-                batch_samples = None
-                # sample = None
+                sample = None
 
             pred = net(tbatch,pbatch,jbatch,fbatch).squeeze(1)
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
-
-                ndicts = []
-                edicts = []
-                con_mats = []
-                final_nodes = []
-
-                for qidx in qidxs:
-                    sample = samples[qidx]
-                    template = sample["template_name"]
-                    node_dict,edge_dict,con_mat,final_node = \
-                            self.flow_template_info[template]
-                    ndicts.append(node_dict)
-                    edicts.append(edge_dict)
-                    con_mats.append(con_mat)
-                    final_nodes.append(final_node)
-
-                subsetgs = []
-                trueCs = []
-                opt_flow_losses = []
-                for qidx in qidxs:
-                    subsetg,trueC,opt_flow_loss, = \
-                            self.flow_training_info[qidx]
-                    subsetgs.append(subsetg)
-                    trueCs.append(trueC)
-                    opt_flow_losses.append(opt_flow_loss)
-
-                losses = loss_fn(pred, ybatch.detach(), normalization_type, min_val,
-                        max_val, ndicts, edicts,
-                        subsetgs,trueCs,opt_flow_losses,final_nodes, con_mats,
+                tinfos = []
+                tinfo = self.flow_training_info[qidx]
+                tinfos.append(tinfo)
+                losses = loss_fn(pred, ybatch.detach(),
+                        normalization_type, min_val,
+                        max_val, tinfos,
+                        self.normalize_flow_loss,
                         self.join_loss_pool)
             else:
                 losses = loss_fn(pred, ybatch)
@@ -1712,97 +1752,71 @@ class NN(CardinalityEstimationAlg):
                     len(training_sets[0][0][1]) + len(training_sets[0][0][2])
 
         if "flow" in self.loss_func:
-            # print("precomputing flow loss info")
+            print("precomputing flow loss info")
             fstart = time.time()
             # precompute a whole bunch of training things
-            # self.flow_training_subsetgs = []
             self.flow_training_info = []
-            self.flow_template_info = {}
             farchive = klepto.archives.dir_archive("./flow_info_archive",
                     cached=True, serialized=True)
             farchive.load()
-
+            new_seen = False
             for sample in self.training_samples:
-                subsetg = sample["subset_graph_paths"]
-                template = sample["template_name"]
                 qkey = deterministic_hash(sample["sql"])
-
-                # if template in self.flow_template_info:
-                if template in farchive:
-                    node_dict, edge_dict, con_mat, final_node = \
-                            farchive[template]
-                    self.flow_template_info[template] = \
-                        node_dict, edge_dict, con_mat, final_node
+                if qkey in farchive:
+                    # print("found flow info in archive!")
+                    # pdb.set_trace()
+                    subsetg_vectors = farchive[qkey]
+                    assert len(subsetg_vectors) == 9
                 else:
-                    # node_dict, edge_dict
-                    node_dict = {}
-                    edge_dict = {}
+                    new_seen = True
+                    subsetg_vectors = list(get_subsetg_vectors(sample))
+                    true_cards = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
                     nodes = list(sample["subset_graph"].nodes())
                     nodes.sort()
-                    final_node = nodes[0]
-                    for i,node in enumerate(nodes):
-                        node_dict[node] = i
-                        if len(node) > len(final_node):
-                            final_node = node
-
-                    # add_single_node_edges(subsetg)
-                    edges = list(subsetg.edges())
-                    edges.sort()
-
-                    # con_mat = np.zeros((len(edges),len(node_dict)))
-                    # con_mat = to_variable(np.zeros((len(edges),len(node_dict)))).float()
-                    # edge dict is after adding source node
-                    con_mat = None
-                    for i, edge in enumerate(edges):
-                        edge_dict[edge] = i
-                        # hidx = node_dict[edge[0]]
-                        # con_mat[i,hidx] = 1.0
-                        # if edge[1] in node_dict:
-                            # tidx = node_dict[edge[1]]
-                            # con_mat[i,tidx] = -1.0
-
-                    self.flow_template_info[template] = \
-                        node_dict, edge_dict, con_mat, final_node
-                    farchive[template] = \
-                        node_dict, edge_dict, con_mat, final_node
-
-                if qkey in farchive:
-                    opt_flow_loss, trueC_vec = farchive[qkey]
-                    trueC = torch.eye(len(trueC_vec))
-                    for i, curC in enumerate(trueC_vec):
-                        trueC[i,i] = curC
-                else:
-                    true_cards = to_variable(np.zeros(len(node_dict)))
-                    for node, i in node_dict.items():
+                    for i, node in enumerate(nodes):
                         true_cards[i] = \
-                            subsetg.nodes()[node]["cardinality"]["actual"]
+                            sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
 
-                    trueC_vec, _ = get_edge_costs(subsetg, true_cards, node_dict,
-                            edge_dict, None, None, None)
+                    trueC_vec, dgdxT, G, Q = \
+                        get_optimization_variables(true_cards,
+                            subsetg_vectors[0], self.min_val,
+                                self.max_val, self.normalization_type,
+                                subsetg_vectors[4],
+                                subsetg_vectors[5],
+                                subsetg_vectors[3],
+                                subsetg_vectors[1],
+                                subsetg_vectors[2])
+
+                    Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
+                    Gv[subsetg_vectors[-1]] = 1.0
+
+                    trueC_vec = to_variable(trueC_vec).float()
+                    dgdxT = to_variable(dgdxT).float()
+                    G = to_variable(G).float()
+                    Q = to_variable(Q).float()
 
                     trueC = torch.eye(len(trueC_vec))
                     for i, curC in enumerate(trueC_vec):
                         trueC[i,i] = curC
-                    trueC = trueC.detach()
-
-                    G,Gv,Q = constructG(subsetg, trueC_vec,
-                            node_dict, edge_dict, final_node)
 
                     invG = torch.inverse(G)
                     v = invG @ Gv
                     left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
                     right = Q @ (v)
                     opt_flow_loss = left @ trueC @ right
-                    farchive[qkey] = (opt_flow_loss, trueC_vec)
+                    subsetg_vectors.append(trueC)
+                    subsetg_vectors.append(opt_flow_loss)
+                    farchive[qkey] = subsetg_vectors
 
-                if not self.normalize_flow_loss:
-                    opt_flow_loss = 1.00
+                # if not self.normalize_flow_loss:
+                    # opt_flow_loss = 1.00
 
-                self.flow_training_info.append((subsetg,
-                    trueC, opt_flow_loss))
+                self.flow_training_info.append(subsetg_vectors)
 
             print("precomputing flow info took: ", time.time()-fstart)
-            farchive.dump()
+            if new_seen:
+                farchive.dump()
+                del(farchive)
 
         subquery_rel_weights = None
         if self.priority_normalize_type == "paths1":
