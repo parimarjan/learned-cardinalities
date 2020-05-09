@@ -375,8 +375,7 @@ def get_edge_costs(subsetg, ests, node_dict, edge_dict,
     return costs, dgdxT
 
 def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
-        edges_cost_node2, nilj,
-        normalization_type, min_val, max_val, trueC,
+        edges_cost_node2, nilj, normalization_type, min_val, max_val, trueC,
         final_node):
     '''
     @yhat: NN outputs for nodes (sorted by nodes.sort())
@@ -388,48 +387,6 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     @edges_cost_node1:
     @edges_cost_node2: these are single tables..
     '''
-    # totals = np.zeros(len(yhat), dtype=np.float32)
-    # edges_head = [0]*len(edge_dict)
-    # edges_tail = [0]*len(edge_dict)
-    # edges_cost_node1 = [0]*len(edge_dict)
-    # edges_cost_node2 = [0]*len(edge_dict)
-    # nilj = [0]*len(edge_dict)
-
-    # for node, nodei in node_dict.items():
-        # totals[nodei] = subsetg.nodes()[node]["cardinality"]["total"]
-
-    # for edge, edgei in edge_dict.items():
-        # if len(edge[0]) == len(edge[1]):
-            # assert edge[1] == SOURCE_NODE
-            # edges_head[edgei] = node_dict[edge[0]]
-            # edges_tail[edgei] = SOURCE_NODE_CONST
-            # edges_cost_node1[edgei] = SOURCE_NODE_CONST
-            # edges_cost_node2[edgei] = SOURCE_NODE_CONST
-            # continue
-
-        # edges_head[edgei] = node_dict[edge[0]]
-        # edges_tail[edgei] = node_dict[edge[1]]
-
-        # # FIXME: how do we get information about this from arrays?
-        # assert len(edge[1]) < len(edge[0])
-        # assert edge[1][0] in edge[0]
-        # ## FIXME:
-        # node1 = edge[1]
-        # diff = set(edge[0]) - set(edge[1])
-        # node2 = list(diff)
-        # # node2.sort()
-        # node2 = tuple(node2)
-        # assert node2 in subsetg.nodes()
-
-        # edges_cost_node1[edgei] = node_dict[node1]
-        # edges_cost_node2[edgei] = node_dict[node2]
-
-        # if len(node1) == 1:
-            # # nilj_cost = card2 + NILJ_CONSTANT*card1
-            # nilj[edgei] = 1
-        # elif len(node2) == 1:
-            # nilj[edgei] = 2
-
     est_cards = to_variable(np.zeros(len(yhat))).float()
     for i in range(len(yhat)):
         if normalization_type == "mscn":
@@ -439,26 +396,11 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
         else:
             assert False
 
-
     predC2, dgdxT2, G2, Q2 = get_optimization_variables(est_cards, totals,
             min_val, max_val, normalization_type, edges_cost_node1,
             edges_cost_node2, nilj, edges_head, edges_tail)
     Gv2 = to_variable(np.zeros(len(totals))).float()
     Gv2[final_node] = 1.0
-
-    ## debug code
-    # predC, dgdxT = get_edge_costs(subsetg, est_cards, node_dict, edge_dict,
-            # normalization_type, min_val, max_val)
-    # G,Gv,Q = constructG(subsetg, predC, node_dict, edge_dict, final_node)
-    # assert np.allclose(predC, predC2)
-    # assert np.allclose(dgdxT.detach().numpy(), dgdxT2)
-    # if not np.allclose(G.detach().numpy(), G2):
-        # print(np.linalg.norm(G.detach().numpy()-G2))
-        # print(np.linalg.norm(Q.detach().numpy()-Q2))
-        # print("G not same!")
-        # pdb.set_trace()
-    # assert np.allclose(Q.detach().numpy(), Q2)
-    # pdb.set_trace()
 
     predC2 = to_variable(predC2).float()
     dgdxT2 = to_variable(dgdxT2).float()
@@ -473,45 +415,6 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     loss = left @ trueC @ right
 
     return loss, dgdxT2.detach(), invG.detach(), Q2.detach(), v.detach()
-
-def single_forward(yhat, normalization_type, min_val,
-        max_val, node_dict, edge_dict, subsetg, trueC,
-        final_node):
-    '''
-    '''
-    # torch.set_grad_enabled(False)
-    est_cards = to_variable(np.zeros(len(yhat))).float()
-
-    # TODO: what is sorted order of each of the arrays?
-    # TODO: can just replace this with loop over sorted node array
-    # access each i in sorted manner...
-    # node name is ONLY used to access total, totals should be an appropriately
-    # sorted array already
-    ## Should NOT NEED node names ever.
-
-    for node,i in node_dict.items():
-        if normalization_type == "mscn":
-            est_cards[i] = torch.exp(((yhat[i] + min_val)*(max_val-min_val)))
-        elif normalization_type == "pg_total_selectivity":
-            est_cards[i] = yhat[i]*subsetg.nodes()[node]["cardinality"]["total"]
-        else:
-            assert False
-
-    # TODO: simplify get_edge_costs further
-    predC, dgdxT = get_edge_costs(subsetg, est_cards, node_dict, edge_dict,
-            normalization_type, min_val, max_val)
-
-    # calculate flow loss
-    G,Gv,Q = constructG(subsetg, predC, node_dict, edge_dict, final_node)
-
-    mat_start = time.time()
-    invG = torch.inverse(G)
-    v = invG @ Gv
-    left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
-    right = Q @ (v)
-    loss = left @ trueC @ right
-
-    return loss, dgdxT.detach(), invG.detach(), Q.detach(), v.detach()
 
 def single_backward(Q, invG,
         v, dgdxT, opt_flow_loss, trueC,
@@ -573,20 +476,15 @@ class FlowLoss(Function):
     def forward(ctx, yhat, y, normalization_type,
             min_val, max_val, subsetg_vectors,
             normalize_flow_loss,
-            # node_dicts, edge_dicts, subsetgs,
-            # trueCs, opt_flow_losses, final_nodes, con_mats,
             pool):
         '''
         '''
         # Note: do flow loss computation and save G, invG etc. for backward
         # pass
+        # torch.set_num_threads(1)
         yhat = yhat.detach()
-        # ctx.yhat = yhat
         ctx.pool = pool
         ctx.normalize_flow_loss = normalize_flow_loss
-        # subsetg_vectors ret: totals, edges_head, edges_tail, nilj, \
-                # edges_cost_node1, edges_cost_node2, final_node, trueC,
-                # opt_cost
         ctx.subsetg_vectors = subsetg_vectors
         assert len(subsetg_vectors[0]) == 9
         start = time.time()
@@ -623,14 +521,18 @@ class FlowLoss(Function):
                 ctx.Qs.append(res[3])
                 ctx.vs.append(res[4])
         else:
-            # subsetg_vectors ret: totals, edges_head, edges_tail, nilj, \
-                    # edges_cost_node1, edges_cost_node2, final_node, trueC,
+            # totals, edges_head, edges_tail, nilj, \
+                    # edges_cost_node1, edges_cost_node2, final_node, trueC_vec,
                     # opt_cost
             totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                    edges_cost_node2, final_node, trueC, opt_cost \
+                    edges_cost_node2, final_node, trueC_vec, opt_cost \
                         = ctx.subsetg_vectors[0]
 
-            # pdb.set_trace()
+            trueC = torch.eye(len(trueC_vec)).float().detach()
+            for i, curC in enumerate(trueC_vec):
+                trueC[i,i] = curC
+            ctx.trueC = trueC
+
             start = time.time()
             res = single_forward2(yhat, totals,
                     edges_head, edges_tail, edges_cost_node1,
@@ -644,31 +546,6 @@ class FlowLoss(Function):
             ctx.invGs.append(res[2])
             ctx.Qs.append(res[3])
             ctx.vs.append(res[4])
-
-            ## debug code:
-            # print("single forward done!")
-            # res = single_forward(yhat, normalization_type,
-                    # min_val, max_val, node_dicts[0],
-                    # edge_dicts[0], subsetgs[0],
-                    # trueCs[0].detach(), final_nodes[0])
-            # for i,r in enumerate(res):
-                # print(i, np.allclose(res2[i].detach().numpy(),
-                    # r.detach().numpy()))
-            # pdb.set_trace()
-
-        # save for backward
-        # ctx.edge_dicts = edge_dicts
-        # ctx.node_dicts = node_dicts
-        # ctx.subsetgs = subsetgs
-        # ctx.normalization_type = normalization_type
-        # ctx.min_val = min_val
-        # ctx.max_val = max_val
-        # ctx.opt_flow_losses = opt_flow_losses
-        # ctx.trueCs = trueCs
-
-        # print("forward took: ", time.time()-start)
-        # print("loss: ", loss)
-        # pdb.set_trace()
         return loss
 
     @staticmethod
@@ -677,6 +554,7 @@ class FlowLoss(Function):
         return gradients wrt preds, and bunch of Nones
         '''
         # torch.set_grad_enabled(False)
+        # torch.set_num_threads(1)
         start = time.time()
         assert ctx.needs_input_grad[0]
         assert not ctx.needs_input_grad[1]
@@ -698,11 +576,10 @@ class FlowLoss(Function):
         else:
 
             _, edges_head, edges_tail, _, _, \
-                    _, _, trueC, opt_cost \
+                    _, _, _, opt_cost \
                         = ctx.subsetg_vectors[0]
+            trueC = ctx.trueC
             yhat_grad = single_backward(
-                             # ctx.edge_dicts[0],
-                             # ctx.node_dicts[0],
                              ctx.Qs[0], ctx.invGs[0],
                              ctx.vs[0], ctx.dgdxTs[0],
                              opt_cost, trueC,

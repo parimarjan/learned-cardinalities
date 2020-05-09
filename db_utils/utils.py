@@ -1565,3 +1565,74 @@ def construct_lp(subsetg, cost_key="cost"):
 
     return edges, c, A, b, G, h
 
+def get_subsetg_vectors(sample):
+    start = time.time()
+    node_dict = {}
+    # edge_dict = {}
+    nodes = list(sample["subset_graph"].nodes())
+    nodes.sort()
+
+    subsetg = sample["subset_graph"]
+    edges = list(sample["subset_graph_paths"].edges())
+    edges.sort()
+
+    # for i, edge in enumerate(edges):
+        # edge_dict[edge] = i
+
+    totals = np.zeros(len(nodes), dtype=np.float32)
+    edges_head = [0]*len(edges)
+    edges_tail = [0]*len(edges)
+    edges_cost_node1 = [0]*len(edges)
+    edges_cost_node2 = [0]*len(edges)
+    nilj = [0]*len(edges)
+    final_node = 0
+    max_len_nodes = 0
+
+    # for node, nodei in node_dict.items():
+    for nodei, node in enumerate(nodes):
+        node_dict[node] = nodei
+        totals[nodei] = subsetg.nodes()[node]["cardinality"]["total"]
+        if len(node) > max_len_nodes:
+            max_len_nodes = len(node)
+            final_node = nodei
+
+    for edgei, edge in enumerate(edges):
+        if len(edge[0]) == len(edge[1]):
+            assert edge[1] == SOURCE_NODE
+            edges_head[edgei] = node_dict[edge[0]]
+            edges_tail[edgei] = SOURCE_NODE_CONST
+            edges_cost_node1[edgei] = SOURCE_NODE_CONST
+            edges_cost_node2[edgei] = SOURCE_NODE_CONST
+            continue
+
+        edges_head[edgei] = node_dict[edge[0]]
+        edges_tail[edgei] = node_dict[edge[1]]
+
+        assert len(edge[1]) < len(edge[0])
+        assert edge[1][0] in edge[0]
+        ## FIXME:
+        node1 = edge[1]
+        diff = set(edge[0]) - set(edge[1])
+        node2 = list(diff)
+        # node2.sort()
+        node2 = tuple(node2)
+        assert node2 in subsetg.nodes()
+
+        edges_cost_node1[edgei] = node_dict[node1]
+        edges_cost_node2[edgei] = node_dict[node2]
+
+        if len(node1) == 1:
+            # nilj_cost = card2 + NILJ_CONSTANT*card1
+            nilj[edgei] = 1
+        elif len(node2) == 1:
+            nilj[edgei] = 2
+
+    edges_head = np.array(edges_head, dtype=np.int32)
+    edges_tail = np.array(edges_tail, dtype=np.int32)
+    edges_cost_node1 = np.array(edges_cost_node1, dtype=np.int32)
+    edges_cost_node2 = np.array(edges_cost_node2, dtype=np.int32)
+    nilj = np.array(nilj, dtype=np.int32)
+
+    # print("get subsetg vectors took: ", time.time()-start)
+    return totals, edges_head, edges_tail, nilj, \
+            edges_cost_node1, edges_cost_node2, final_node

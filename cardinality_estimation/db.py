@@ -70,8 +70,8 @@ class DB():
         self.primary_keys = set() # table.key
         self.alias_to_keys = defaultdict(set)
 
-        self.flow_node_features = ["in_edges", "out_edges", "paths",
-                "tolerance", "pg_flow"]
+        # self.flow_node_features = ["in_edges", "out_edges", "paths",
+                # "tolerance", "pg_flow"]
 
         self.max_in_degree = 0
         self.max_out_degree = 0
@@ -163,7 +163,8 @@ class DB():
             flow_features = True,
             feat_num_paths= False, feat_flows=False,
             feat_pg_costs = True, feat_tolerance=True,
-            feat_template=True, feat_pg_path=True):
+            feat_template=True, feat_pg_path=True,
+            feat_rel_pg_ests=True, feat_join_graph_neighbors=True):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -246,6 +247,8 @@ class DB():
         self.feat_tolerance = feat_tolerance
         self.feat_template = feat_template
         self.feat_pg_path = feat_pg_path
+        self.feat_rel_pg_ests = feat_rel_pg_ests
+        self.feat_join_graph_neighbors = feat_join_graph_neighbors
 
         if flow_features:
             self.flow_features = flow_features
@@ -276,8 +279,22 @@ class DB():
             if self.feat_pg_path:
                 self.num_flow_features += 1
 
+            if self.feat_rel_pg_ests:
+                # current node size est, relative to total cost
+                self.num_flow_features += 1
+
+                # current node est, relative to all neighbors in the join graph
+                ## we will hard code the neighbor into a 1-hot vector
+                self.num_flow_features += len(self.table_featurizer)
+
+            if self.feat_join_graph_neighbors:
+                self.num_flow_features += len(self.table_featurizer)
+
+            # pg est for the node
+            self.num_flow_features += 1
+
     def get_flow_features(self, node, subsetg,
-            template_name):
+            template_name, join_graph):
         flow_features = np.zeros(self.num_flow_features)
         cur_idx = 0
         # incoming edges
@@ -341,6 +358,35 @@ class DB():
         if self.feat_pg_path:
             if "pg_path" in subsetg.nodes()[node]:
                 flow_features[cur_idx] = 1.0
+
+        if self.feat_join_graph_neighbors:
+            neighbors = nx.node_boundary(join_graph, node)
+            for al in neighbors:
+                table = self.aliases[al]
+                tidx = self.table_featurizer[table]
+                flow_features[cur_idx + tidx] = 1.0
+            cur_idx += len(self.table_featurizer)
+
+        if self.feat_rel_pg_ests:
+            total_cost = subsetg.graph["total_cost"]
+            pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
+            flow_features[cur_idx] = pg_est / total_cost
+            cur_idx += 1
+            neighbors = nx.node_boundary(join_graph, node)
+
+            # neighbors in join graph
+            for al in neighbors:
+                # aidx = self.aliases[al]
+                table = self.aliases[al]
+                tidx = self.table_featurizer[table]
+                ncard = subsetg.nodes()[tuple([al])]["cardinality"]["expected"]
+                # TODO: should this be normalized? how?
+                flow_features[cur_idx + tidx] = pg_est / ncard
+                flow_features[cur_idx + tidx] /= 1e5
+
+            cur_idx += len(self.table_featurizer)
+
+        # pg_est for node will be added in query_dataset..
 
         return flow_features
 

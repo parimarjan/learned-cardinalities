@@ -113,6 +113,8 @@ def get_alg(alg):
                     priority_query_len_scale = args.priority_query_len_scale,
                     net_name = args.net_name,
                     eval_epoch_jerr = args.eval_epoch_jerr,
+                    eval_epoch_flow_err = args.eval_epoch_flow_err,
+                    eval_epoch_plan_err = args.eval_epoch_plan_err,
                     # eval_num_tables = args.eval_num_tables,
                     jl_use_postgres = args.jl_use_postgres,
                     num_tables_feature = args.num_tables_feature,
@@ -221,9 +223,9 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-        if "7a" in template_name:
-            print("skipping template 7a")
-            continue
+        # if "7a" in template_name:
+            # print("skipping template 7a")
+            # continue
 
         start = time.time()
         # loading, or generating samples
@@ -528,6 +530,11 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=1)
+    parser.add_argument("--eval_epoch_flow_err", type=int,
+            required=False, default=1)
+    parser.add_argument("--eval_epoch_plan_err", type=int,
+            required=False, default=1)
+
     parser.add_argument("--lr", type=float,
             required=False, default=0.0001)
     parser.add_argument("--clip_gradient", type=float,
@@ -620,7 +627,7 @@ def read_flags():
     parser.add_argument("--losses", type=str, required=False,
             default="qerr,join-loss", help="comma separated list of loss names")
     parser.add_argument("--result_dir", type=str, required=False,
-            default="./results/")
+            default="./results2/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,
             default="EXHAUSTIVE")
     parser.add_argument("--db_file_name", type=str, required=False,

@@ -361,6 +361,7 @@ class JoinLoss():
 
     def _compute_join_order_loss_pg(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, num_processes, use_indexes, pool):
+        start = time.time()
         est_costs = [None]*len(sqls)
         opt_costs = [None]*len(sqls)
         est_explains = [None]*len(sqls)
@@ -428,31 +429,39 @@ class JoinLoss():
                         and pool is not None:
                     self.opt_archive.archive[sql_key] = (opt, opt_explain, opt_sql)
 
+        print("compute postgres join error took: ", time.time()-start)
         return np.array(est_costs), np.array(opt_costs), est_explains, \
     opt_explains, est_sqls, opt_sqls
 
-def get_shortest_path_costs(subsetg, source_node, cost_key, ests,
-        known_cost):
+def get_shortest_path_costs(subsetgs, source_node, cost_key,
+        all_ests, known_costs):
     '''
     @ret: cost of the given path in subsetg.
     '''
-    if known_cost is not None:
-        return known_cost
+    costs = []
+    for i in range(len(subsetgs)):
+        if known_costs and known_costs[i] is not None:
+            costs.append(known_costs[i])
+            continue
+        subsetg = subsetgs[i]
 
-    # this should already be pre-computed
-    if cost_key != "cost":
-        compute_costs(subsetg, cost_key=cost_key, ests=ests)
+        # this should already be pre-computed
+        if cost_key != "cost":
+            ests = all_ests[i]
+            compute_costs(subsetg, cost_key=cost_key, ests=ests)
 
-    nodes = list(subsetg.nodes())
-    nodes.sort(key=lambda x: len(x))
-    final_node = nodes[-1]
-    path = nx.shortest_path(subsetg, final_node,
-            source_node, weight=cost_key)
-    cost = 0.0
-    for i in range(len(path)-1):
-        cost += subsetg[path[i]][path[i+1]]["cost"]
+        # TODO: precompute..
+        nodes = list(subsetg.nodes())
+        nodes.sort(key=lambda x: len(x))
+        final_node = nodes[-1]
+        path = nx.shortest_path(subsetg, final_node,
+                source_node, weight=cost_key)
+        cost = 0.0
+        for i in range(len(path)-1):
+            cost += subsetg[path[i]][path[i+1]]["cost"]
+        costs.append(cost)
 
-    return cost
+    return costs
 
 class PlanError():
 
@@ -479,48 +488,60 @@ class PlanError():
         start = time.time()
         subsetgs = []
         opt_costs = []
+        new_opt_cost = False
         for qrep in qreps:
             qkey = deterministic_hash(qrep["sql"])
-            if qkey in self.subsetgs:
-                subsetgs.append(self.subsetgs[qkey])
+            subsetg = qrep["subset_graph_paths"]
+            if qkey in self.opt_costs:
+                # subsetgs.append(self.subsetgs[qkey])
+                opt_costs.append(self.opt_costs[qkey])
             else:
+                opt_costs.append(None)
                 # add_single_node_edges(subsetg)
-                subsetg = qrep["subset_graph_paths"]
-                subsetgs.append(subsetg)
-                self.subsetgs[qkey] = subsetg
+                # self.subsetgs[qkey] = subsetg
+                new_opt_cost = True
+
+            subsetgs.append(subsetg)
 
         if pool is None:
             assert False
         else:
-            # FIXME: faster if we divide into equal chunks and launch only 1
-            # process per batch (?)
+            num_processes = pool._processes
+            batch_size = max(1, math.ceil(len(qreps) / num_processes))
+            assert num_processes * batch_size >= len(qreps)
             opt_par_args = []
             par_args = []
-            seen_new = False
-            for i, qrep in enumerate(qreps):
-                qkey = deterministic_hash(qrep["sql"])
-                subsetg = subsetgs[i]
-                opt_cost = None
-                if qkey in self.opt_costs:
-                    opt_cost = self.opt_costs[qkey]
-                else:
-                    seen_new = True
+            # opt_costs = []
+            # seen_new = False
+            for proc_num in range(num_processes):
+                start_idx = proc_num * batch_size
+                end_idx = min(start_idx + batch_size, len(qreps))
+                if new_opt_cost:
+                    opt_par_args.append((subsetgs[start_idx:end_idx],
+                        self.source_node, "cost", None,
+                        opt_costs[start_idx:end_idx]))
+                par_args.append((subsetgs[start_idx:end_idx],
+                    self.source_node, "est_cost", ests[start_idx:end_idx], None))
 
-                opt_par_args.append((subsetg, self.source_node, "cost",
-                    None, opt_cost))
-                par_args.append((subsetg, self.source_node, "est_cost",
-                    ests[i], None))
+            if new_opt_cost:
+                opt_costs = []
+                opt_costs_batched = pool.starmap(get_shortest_path_costs,
+                        opt_par_args)
+                for c in opt_costs_batched:
+                    opt_costs += c
 
-            opt_costs = pool.starmap(get_shortest_path_costs,
-                    opt_par_args)
-
-            if seen_new:
                 for i, qrep in enumerate(qreps):
                     qkey = deterministic_hash(qrep["sql"])
                     self.opt_costs[qkey] = opt_costs[i]
 
-            all_costs = pool.starmap(get_shortest_path_costs,
+            all_costs = []
+            all_costs_batched = pool.starmap(get_shortest_path_costs,
                     par_args)
+            for c in all_costs_batched:
+                all_costs += c
+
+            # print("plan err lens: ", len(all_costs_batched), len(opt_costs_batched),
+                    # len(all_costs), len(opt_costs))
         print("compute plan err took: ", time.time()-start)
         return np.array(opt_costs), np.array(all_costs)
 
@@ -558,6 +579,10 @@ def constructG_numpy(subsetg, preds,
             G[tidx,hidx] -= cost
 
     return G, Gv, Q
+
+def get_flow_cost2(sample, source_node, cost_key,
+        ests, known_cost):
+    pass
 
 # TODO: use c++ version!
 def get_flow_cost(subsetg, source_node, cost_key, ests,
@@ -661,6 +686,6 @@ class FlowLossEnv():
                     self.opt_costs[qkey] = opt_costs[i]
             all_costs = pool.starmap(get_flow_cost,
                     par_args)
-        print("compute plan err took: ", time.time()-start)
+        print("compute flow err took: ", time.time()-start)
         return np.array(opt_costs), np.array(all_costs)
 

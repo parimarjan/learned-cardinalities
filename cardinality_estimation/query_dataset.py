@@ -191,7 +191,10 @@ class QueryDataset(data.Dataset):
                 if self.flow_features:
                     # use db to generate feature vec using nodes + qrep
                     flow_features = self.db.get_flow_features(nodes,
-                            qrep["subset_graph_paths"], qrep["template_name"])
+                            qrep["subset_graph_paths"], qrep["template_name"],
+                            qrep["join_graph"])
+                            # self.min_val, self.max_val,
+                            # self.normalization_type)
                     # heuristic estimate for the cardinality of this node
                     flow_features[-1] = pred_features[-1]
                 else:
