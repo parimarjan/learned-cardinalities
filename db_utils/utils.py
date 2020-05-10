@@ -1424,8 +1424,13 @@ def compute_costs(subset_graph, cost_key="cost", ests=None):
             card1 = cards1["actual"]
             card2 = cards2["actual"]
         else:
-            card1 = ests[" ".join(node1)]
-            card2 = ests[" ".join(node2)]
+            assert isinstance(ests, dict)
+            if node1 in ests:
+                card1 = ests[node1]
+                card2 = ests[node2]
+            else:
+                card1 = ests[" ".join(node1)]
+                card2 = ests[" ".join(node2)]
 
         hash_join_cost = card1 + card2
         if len(node1) == 1:

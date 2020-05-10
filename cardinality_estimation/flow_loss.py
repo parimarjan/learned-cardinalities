@@ -143,20 +143,41 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         min_val = 0.0
         max_val = 0.0
 
-    # TODO: this should be in the correct format already...
-    ests = ests.detach().numpy()
-    # edges_cost_node1 = np.array(edges_cost_node1, dtype=np.int32)
-    # edges_cost_node2 = np.array(edges_cost_node2, dtype=np.int32)
-    # edges_head = np.array(edges_head, dtype=np.int32)
-    # edges_tail = np.array(edges_tail, dtype=np.int32)
-    # nilj = np.array(nilj, dtype=np.int32)
+    if not isinstance(ests, np.ndarray):
+        ests = ests.detach().numpy()
 
-    costs = np.zeros(len(edges_cost_node1), dtype=np.float32)
-    dgdxT = np.zeros((len(ests), len(edges_cost_node1)), dtype=np.float32)
-    G = np.zeros((len(ests),len(ests)), dtype=np.float32)
-    Q = np.zeros((len(costs),len(ests)), dtype=np.float32)
+    # costs = np.zeros(len(edges_cost_node1), dtype=np.float32)
+    # dgdxT = np.zeros((len(ests), len(edges_cost_node1)), dtype=np.float32)
+    # G = np.zeros((len(ests),len(ests)), dtype=np.float32)
+    # Q = np.zeros((len(costs),len(ests)), dtype=np.float32)
 
-    fl_cpp.get_optimization_variables(ests.ctypes.data_as(c_void_p),
+    costs2 = np.zeros(len(edges_cost_node1), dtype=np.float32)
+    dgdxT2 = np.zeros((len(ests), len(edges_cost_node1)), dtype=np.float32)
+    G2 = np.zeros((len(ests),len(ests)), dtype=np.float32)
+    Q2 = np.zeros((len(edges_cost_node1),len(ests)), dtype=np.float32)
+
+    # start = time.time()
+    # fl_cpp.get_optimization_variables(ests.ctypes.data_as(c_void_p),
+            # totals.ctypes.data_as(c_void_p),
+            # c_double(min_val),
+            # c_double(max_val),
+            # c_int(norm_type),
+            # edges_cost_node1.ctypes.data_as(c_void_p),
+            # edges_cost_node2.ctypes.data_as(c_void_p),
+            # edges_head.ctypes.data_as(c_void_p),
+            # edges_tail.ctypes.data_as(c_void_p),
+            # nilj.ctypes.data_as(c_void_p),
+            # c_int(len(ests)),
+            # c_int(len(costs)),
+            # costs.ctypes.data_as(c_void_p),
+            # dgdxT.ctypes.data_as(c_void_p),
+            # G.ctypes.data_as(c_void_p),
+            # Q.ctypes.data_as(c_void_p),
+            # c_int(10))
+    # print("took: ", time.time()-start)
+
+    start = time.time()
+    fl_cpp.get_opt_debug(ests.ctypes.data_as(c_void_p),
             totals.ctypes.data_as(c_void_p),
             c_double(min_val),
             c_double(max_val),
@@ -167,14 +188,14 @@ def get_optimization_variables(ests, totals, min_val, max_val,
             edges_tail.ctypes.data_as(c_void_p),
             nilj.ctypes.data_as(c_void_p),
             c_int(len(ests)),
-            c_int(len(costs)),
-            costs.ctypes.data_as(c_void_p),
-            dgdxT.ctypes.data_as(c_void_p),
-            G.ctypes.data_as(c_void_p),
-            Q.ctypes.data_as(c_void_p))
+            c_int(len(costs2)),
+            costs2.ctypes.data_as(c_void_p),
+            dgdxT2.ctypes.data_as(c_void_p),
+            G2.ctypes.data_as(c_void_p),
+            Q2.ctypes.data_as(c_void_p))
+    # print("took2: ", time.time()-start)
 
-    # print("get optimization variables took: ", time.time()-start)
-    return costs, dgdxT, G, Q
+    return costs2, dgdxT2, G2, Q2
 
 
 def get_edge_costs2(ests, totals, min_val, max_val,
@@ -260,7 +281,7 @@ def get_edge_costs2(ests, totals, min_val, max_val,
                     dgdxT[node1, i] = - (max_val*card1 / ((cost)**2))
                     dgdxT[node2, i] = - (max_val*card2*NILJ_CONSTANT / ((cost)**2))
 
-    print("get edge costs took: ", time.time()-start)
+    # print("get edge costs took: ", time.time()-start)
     return costs, dgdxT
 
 def get_edge_costs(subsetg, ests, node_dict, edge_dict,
@@ -371,12 +392,12 @@ def get_edge_costs(subsetg, ests, node_dict, edge_dict,
                     dgdxT[idx1, edgei] = - (max_val*card1 / ((cost)**2))
                     dgdxT[idx2, edgei] = - (max_val*card2*NILJ_CONSTANT / ((cost)**2))
 
-    print("get edge costs took: ", time.time()-start)
+    # print("get edge costs took: ", time.time()-start)
     return costs, dgdxT
 
 def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
-        edges_cost_node2, nilj, normalization_type, min_val, max_val, trueC,
-        final_node):
+        edges_cost_node2, nilj, normalization_type, min_val, max_val,
+        trueC_vec, final_node):
     '''
     @yhat: NN outputs for nodes (sorted by nodes.sort())
     @totals: Total estimates for each node (sorted ...)
@@ -387,7 +408,8 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     @edges_cost_node1:
     @edges_cost_node2: these are single tables..
     '''
-    est_cards = to_variable(np.zeros(len(yhat))).float()
+    start = time.time()
+    est_cards = to_variable(np.zeros(len(yhat), dtype=np.float32)).float()
     for i in range(len(yhat)):
         if normalization_type == "mscn":
             est_cards[i] = torch.exp(((yhat[i] + min_val)*(max_val-min_val)))
@@ -396,79 +418,107 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
         else:
             assert False
 
+    # print("est_cards took: ", time.time()-start)
+
+    start = time.time()
     predC2, dgdxT2, G2, Q2 = get_optimization_variables(est_cards, totals,
             min_val, max_val, normalization_type, edges_cost_node1,
             edges_cost_node2, nilj, edges_head, edges_tail)
-    Gv2 = to_variable(np.zeros(len(totals))).float()
+    # print("get opt variables took: ", time.time()-start)
+    # print(np.linalg.norm(predC2), np.linalg.norm(dgdxT2), np.linalg.norm(G2))
+    # pdb.set_trace()
+
+    Gv2 = np.zeros(len(totals))
     Gv2[final_node] = 1.0
 
+    Gv2 = to_variable(Gv2).float()
     predC2 = to_variable(predC2).float()
     dgdxT2 = to_variable(dgdxT2).float()
     G2 = to_variable(G2).float()
-    Q2 = to_variable(Q2).float()
-
-    mat_start = time.time()
     invG = torch.inverse(G2)
-    v = invG @ Gv2
-    left = (Gv2 @ torch.transpose(invG,0,1)) @ torch.transpose(Q2, 0, 1)
-    right = Q2 @ (v)
-    loss = left @ trueC @ right
+    v = invG @ Gv2 # vshape: Nx1
+    v = v.detach().numpy()
 
-    return loss, dgdxT2.detach(), invG.detach(), Q2.detach(), v.detach()
+    # TODO: we don't even need to compute the loss here if we don't want to
+    mat_start = time.time()
+    loss2 = np.zeros(1, dtype=np.float32)
+    assert Q2.dtype == np.float32
+    assert v.dtype == np.float32
+    trueC_vec = trueC_vec.detach().numpy()
+    assert trueC_vec.dtype == np.float32
+    fl_cpp.get_qvtqv(
+            c_int(len(edges_head)),
+            c_int(len(v)),
+            edges_head.ctypes.data_as(c_void_p),
+            edges_tail.ctypes.data_as(c_void_p),
+            Q2.ctypes.data_as(c_void_p),
+            v.ctypes.data_as(c_void_p),
+            trueC_vec.ctypes.data_as(c_void_p),
+            loss2.ctypes.data_as(c_void_p)
+            )
+
+    # print("forward took: ", time.time()-start)
+    return to_variable(loss2).float(), dgdxT2.detach(), invG.detach().numpy(), Q2, v
 
 def single_backward(Q, invG,
-        v, dgdxT, opt_flow_loss, trueC,
+        v, dgdxT, opt_flow_loss, trueC_vec,
         edges_head, edges_tail, normalize_flow_loss):
 
     start = time.time()
-    QinvG = Q @ invG
-    QinvG = QinvG.detach().numpy()
-    v = v.detach().numpy()
 
-    # dfdg_old = torch.zeros((trueC.shape))
-    # compute each row
-    # rstart = time.time()
+    assert Q.dtype == np.float32
+    assert invG.dtype == np.float32
 
-    # for edge, idx in edge_dict.items():
-        # # corresponding to ith cost edge
-        # # row = compute_dfdg_row_np(idx, edge, node_dict, QinvG,
-                # # v)
-        # # dfdg_old[idx,:] = torch.from_numpy(row)
-        # row = compute_dfdg_row(idx, edge, node_dict,
-                # to_variable(QinvG).float(),
-                # to_variable(v).float())
-        # dfdg_old[idx,:] = row
+    QinvG2 = np.zeros((Q.shape[0], invG.shape[1]), dtype=np.float32)
+    fl_cpp.get_qinvg(c_int(len(edges_head)),
+            c_int(len(v)),
+            edges_head.ctypes.data_as(c_void_p),
+            edges_tail.ctypes.data_as(c_void_p),
+            Q.ctypes.data_as(c_void_p),
+            invG.ctypes.data_as(c_void_p),
+            QinvG2.ctypes.data_as(c_void_p))
 
-    # print("computing dfdg took: ", time.time()-rstart)
-
-    dfdg = np.zeros((trueC.shape), dtype=np.float32)
-    rstart2 = time.time()
-
+    dfdg = np.zeros((len(edges_head), len(edges_head)), dtype=np.float32)
+    dfdg_start = time.time()
+    num_threads = int(len(edges_head) / 400)
+    num_threads = max(1, num_threads)
     fl_cpp.get_dfdg(
             c_int(len(edges_head)),
             c_int(len(v)),
             edges_head.ctypes.data_as(c_void_p),
             edges_tail.ctypes.data_as(c_void_p),
-            QinvG.ctypes.data_as(c_void_p),
+            QinvG2.ctypes.data_as(c_void_p),
             v.ctypes.data_as(c_void_p),
             dfdg.ctypes.data_as(c_void_p),
-            c_int(20))
-
-    # print("computing dfdg2 took: ", time.time()-rstart2)
-
-    ## debug code
-    # print(dfdg[0,0], dfdg[0,1])
-    # print(dfdg_old[0,0], dfdg_old[0,1])
-    # print("norm diff: ", np.linalg.norm(dfdg - dfdg_old.detach().numpy()))
-    # print(np.allclose(dfdg_old.detach().numpy(), dfdg))
-    # pdb.set_trace()
+            c_int(num_threads))
+    # print("dfdg took: ", time.time()-dfdg_start)
 
     dfdg = to_variable(dfdg).float()
-    dCdg = 2 * (dfdg @ (trueC @ (Q @ v)))
+    trueC_vec = trueC_vec.detach().numpy()
+
+    assert trueC_vec.dtype == np.float32
+    assert Q.dtype == np.float32
+    assert v.dtype == np.float32
+
+    tQv = np.zeros(len(edges_head), dtype=np.float32)
+    fl_cpp.get_tqv(
+            c_int(len(edges_head)),
+            c_int(len(v)),
+            edges_head.ctypes.data_as(c_void_p),
+            edges_tail.ctypes.data_as(c_void_p),
+            Q.ctypes.data_as(c_void_p),
+            v.ctypes.data_as(c_void_p),
+            trueC_vec.ctypes.data_as(c_void_p),
+            c_int(2),
+            tQv.ctypes.data_as(c_void_p)
+            )
+
+    dCdg = dfdg @ tQv
 
     yhat_grad = dgdxT @ dCdg
     if normalize_flow_loss:
         yhat_grad /= opt_flow_loss
+
     return yhat_grad
 
 class FlowLoss(Function):
@@ -508,7 +558,7 @@ class FlowLoss(Function):
                                  node_dicts[i],
                                  edge_dicts[i],
                                  subsetg,
-                                 trueCs[i].detach(),
+                                 # trueCs[i].detach(),
                                  final_nodes[i]))
                 qidx += num_nodes
 
@@ -521,17 +571,14 @@ class FlowLoss(Function):
                 ctx.Qs.append(res[3])
                 ctx.vs.append(res[4])
         else:
-            # totals, edges_head, edges_tail, nilj, \
-                    # edges_cost_node1, edges_cost_node2, final_node, trueC_vec,
-                    # opt_cost
             totals, edges_head, edges_tail, nilj, edges_cost_node1, \
                     edges_cost_node2, final_node, trueC_vec, opt_cost \
                         = ctx.subsetg_vectors[0]
 
-            trueC = torch.eye(len(trueC_vec)).float().detach()
-            for i, curC in enumerate(trueC_vec):
-                trueC[i,i] = curC
-            ctx.trueC = trueC
+            # trueC = torch.eye(len(trueC_vec)).float().detach()
+            # for i, curC in enumerate(trueC_vec):
+                # trueC[i,i] = curC
+            # ctx.trueC = trueC
 
             start = time.time()
             res = single_forward2(yhat, totals,
@@ -540,12 +587,15 @@ class FlowLoss(Function):
                     nilj,
                     normalization_type,
                     min_val, max_val,
-                    trueC.detach(), final_node)
+                    trueC_vec, final_node)
+
             loss = res[0]
             ctx.dgdxTs.append(res[1])
             ctx.invGs.append(res[2])
             ctx.Qs.append(res[3])
             ctx.vs.append(res[4])
+
+        # print("forward took: ", time.time()-start)
         return loss
 
     @staticmethod
@@ -576,19 +626,15 @@ class FlowLoss(Function):
         else:
 
             _, edges_head, edges_tail, _, _, \
-                    _, _, _, opt_cost \
+                    _, _, trueC_vec, opt_cost \
                         = ctx.subsetg_vectors[0]
-            trueC = ctx.trueC
             yhat_grad = single_backward(
                              ctx.Qs[0], ctx.invGs[0],
                              ctx.vs[0], ctx.dgdxTs[0],
-                             opt_cost, trueC,
+                             opt_cost, trueC_vec,
                              edges_head,
                              edges_tail,
                              ctx.normalize_flow_loss)
-
-        # print("backward took: ", time.time()-start)
-        # pdb.set_trace()
 
         return yhat_grad,None,None,None,None,None,None,None,None
 

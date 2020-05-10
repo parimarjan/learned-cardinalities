@@ -137,6 +137,8 @@ def get_all_training_df(results_dir):
         alg = get_alg_name(exp_args)
         print("alg: ", alg)
         nns = load_object(cur_dir + "/nn.pkl")
+        args_hash = str(deterministic_hash(str(exp_args)))[0:5]
+
         df = nns["stats"]
         df["alg"] = alg
         df["hls"] = exp_args["hidden_layer_size"]
@@ -145,6 +147,8 @@ def get_all_training_df(results_dir):
         df["clip_gradient"] = exp_args["clip_gradient"]
         df["loss_func"] = exp_args["loss_func"]
         df["weight_decay"] = exp_args["weight_decay"]
+        df["weighted_mse"] = exp_args["weighted_mse"]
+        df["exp_hash"] = args_hash
 
         if exp_args["sampling_priority_alpha"] > 0:
             df["priority"] = True

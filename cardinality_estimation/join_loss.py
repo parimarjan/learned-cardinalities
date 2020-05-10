@@ -481,7 +481,7 @@ class PlanError():
         # self.opt_archive = klepto.archives.dir_archive("/tmp/opt_archive2",
                 # cached=True, serialized=True)
 
-    def compute_plan_error(self, qreps, ests, pool=None):
+    def compute_loss(self, qreps, ests, pool=None):
         '''
         @ests: [dicts] of estimates
         '''

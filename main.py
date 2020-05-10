@@ -457,8 +457,8 @@ def read_flags():
             default=1)
     parser.add_argument("--weighted_qloss", type=int, required=False,
             default=0)
-    parser.add_argument("--weighted_mse", type=int, required=False,
-            default=0)
+    parser.add_argument("--weighted_mse", type=float, required=False,
+            default=0.0)
     parser.add_argument("--avg_jl_num_last", type=int, required=False,
             default=5)
     parser.add_argument("--preload_features", type=int, required=False,
