@@ -253,7 +253,8 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
 
 def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         est_cardinalities, opt_costs, opt_explains, opt_sqls,
-        use_indexes, user, pwd, db_host, port, db_name, use_archive):
+        use_indexes, user, pwd, db_host, port, db_name, use_archive,
+        cost_model):
     '''
     @query: str
     @true_cardinalities:
@@ -267,6 +268,12 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         val:
             float
     '''
+    def set_indexes(cursor, val):
+        cursor.execute("SET enable_indexscan = {}".format(val))
+        cursor.execute("SET enable_indexonlyscan = {}".format(val))
+        cursor.execute("SET enable_bitmapscan = {}".format(val))
+        cursor.execute("SET enable_tidscan = {}".format(val))
+
     try:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd)
@@ -275,7 +282,11 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
                 user=user,password=pwd, host=db_host)
 
     if use_archive:
-        sql_costs_archive = klepto.archives.dir_archive("/tmp/sql_costs",
+        if cost_model == "cm1":
+            archive_fn = "/tmp/sql_costs"
+        else:
+            archive_fn = "/tmp/sql_costs_" + cost_model
+        sql_costs_archive = klepto.archives.dir_archive(archive_fn,
                 cached=True, serialized=True)
     else:
         sql_costs_archive = None
@@ -286,11 +297,25 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
     cursor.execute("SET join_collapse_limit = {}".format(MAX_JOINS))
     cursor.execute("SET from_collapse_limit = {}".format(MAX_JOINS))
     if not use_indexes:
-        cursor.execute("SET enable_indexscan = off")
-        cursor.execute("SET enable_indexonlyscan = off")
+        set_indexes(cursor, "off")
     else:
-        cursor.execute("SET enable_indexscan = on")
-        cursor.execute("SET enable_indexonlyscan = on")
+        set_indexes(cursor, "on")
+
+    if cost_model == "hash_join":
+        cursor.execute("SET enable_hashjoin = on")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = off")
+        set_indexes(cursor, "off")
+    elif cost_model == "nested_loop":
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        set_indexes(cursor, "off")
+    elif cost_model == "nested_loop_indexes":
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        set_indexes(cursor, "on")
 
     ret = []
     for i, query in enumerate(queries):
@@ -329,14 +354,16 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
 
 class JoinLoss():
 
-    def __init__(self, user, pwd, db_host, port, db_name):
+    def __init__(self, cost_model, user, pwd, db_host, port, db_name):
+        self.cost_model = cost_model
         self.user = user
         self.pwd = pwd
         self.db_host = db_host
         self.port = port
         self.db_name = db_name
 
-        self.opt_archive = klepto.archives.dir_archive("/tmp/opt_archive",
+        opt_archive_fn = "/tmp/opt_archive_" + cost_model
+        self.opt_archive = klepto.archives.dir_archive(opt_archive_fn,
                 cached=True, serialized=True)
 
     def compute_join_order_loss(self, sqls, join_graphs, true_cardinalities,
@@ -386,17 +413,18 @@ class JoinLoss():
             use_indexes = 0
 
         for i, sql in enumerate(sqls):
-            sql_key = deterministic_hash(sql) + use_indexes
+            sql_key = deterministic_hash(sql)
             if sql_key in self.opt_archive.archive:
                 (opt_costs[i], opt_explains[i], opt_sqls[i]) = \
-                        self.opt_cache.archive[sql_key]
+                        self.opt_archive.archive[sql_key]
 
         if pool is None:
             # single threaded case, useful for debugging
             all_costs = [compute_join_order_loss_pg_single(sqls, join_graphs,
                     true_cardinalities, est_cardinalities, opt_costs,
                     opt_explains, opt_sqls, use_indexes, self.user,
-                    self.pwd, self.db_host, self.port, self.db_name, False)]
+                    self.pwd, self.db_host, self.port, self.db_name, False,
+                    self.cost_model)]
             batch_size = len(sqls)
 
         else:
@@ -415,7 +443,7 @@ class JoinLoss():
                     opt_explains[start_idx:end_idx],
                     opt_sqls[start_idx:end_idx],
                     use_indexes, self.user, self.pwd, self.db_host,
-                    self.port, self.db_name, True))
+                    self.port, self.db_name, True, self.cost_model))
 
             all_costs = pool.starmap(compute_join_order_loss_pg_single, par_args)
 
@@ -440,46 +468,91 @@ class JoinLoss():
                         and pool is not None:
                     self.opt_archive.archive[sql_key] = (opt, opt_explain, opt_sql)
 
+        # print("num explains: ", len(est_explains))
+        # for exp in est_explains:
+            # vals = extract_values(exp[0][0][0], "Node Type")
+            # nl_count = 0
+            # hj_count = 0
+            # ind_count = 0
+            # for v in vals:
+                # if "Nested" in v:
+                    # nl_count += 1
+                # if "Hash Join" in v:
+                    # hj_count += 1
+                # if "Index" in v:
+                    # ind_count += 1
+
+            # print("nl: {}, hj: {}, index: {}".format(nl_count, hj_count,
+                # ind_count))
+
         print("compute postgres join error took: ", time.time()-start)
         return np.array(est_costs), np.array(opt_costs), est_explains, \
     opt_explains, est_sqls, opt_sqls
 
 def fl_cpp_get_flow_loss(samples, source_node, cost_key,
-        all_ests, known_costs):
+        all_ests, known_costs, cost_model):
     costs = []
+    farchive = klepto.archives.dir_archive("./flow_info_archive",
+            cached=True, serialized=True)
+    # farchive.load()
+    seen_new = False
     for i, sample in enumerate(samples):
         if known_costs and known_costs[i] is not None:
             costs.append(known_costs[i])
             continue
+        qkey = deterministic_hash(sample["sql"])
+        if qkey in farchive.archive:
+            subsetg_vectors = farchive.archive[qkey]
+            assert len(subsetg_vectors) == 9
+            totals, edges_head, edges_tail, nilj, edges_cost_node1, \
+                    edges_cost_node2, final_node, trueC_vec, opt_cost = subsetg_vectors
 
-        subsetg_vectors = list(get_subsetg_vectors(sample))
-
-        totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                edges_cost_node2, final_node = subsetg_vectors
-
-        true_cards = np.zeros(len(subsetg_vectors[0]),
-                dtype=np.float32)
-        est_cards = np.zeros(len(subsetg_vectors[0]),
-                dtype=np.float32)
-        nodes = list(sample["subset_graph"].nodes())
-        nodes.sort()
-        for ni, node in enumerate(nodes):
-            if all_ests is not None:
+            if all_ests is None:
+                costs.append(opt_cost)
+                continue
+            if isinstance(trueC_vec, torch.Tensor):
+                trueC_vec = trueC_vec.detach().numpy()
+            est_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+            nodes = list(sample["subset_graph"].nodes())
+            nodes.sort()
+            for ni, node in enumerate(nodes):
+                assert all_ests is not None
                 if node in all_ests[i]:
                     est_cards[ni] = all_ests[i][node]
                 else:
                     est_cards[ni] = all_ests[i][" ".join(node)]
-            else:
-                # est_cards are also true cardinalities here
-                est_cards[ni] = \
+        else:
+            seen_new = True
+            # this must be for true cards
+            assert all_ests is None
+            subsetg_vectors = list(get_subsetg_vectors(sample))
+
+            totals, edges_head, edges_tail, nilj, edges_cost_node1, \
+                    edges_cost_node2, final_node = subsetg_vectors
+            true_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+            est_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+            nodes = list(sample["subset_graph"].nodes())
+            nodes.sort()
+            for ni, node in enumerate(nodes):
+                if all_ests is not None:
+                    if node in all_ests[i]:
+                        est_cards[ni] = all_ests[i][node]
+                    else:
+                        est_cards[ni] = all_ests[i][" ".join(node)]
+                else:
+                    # est_cards are also true cardinalities here
+                    est_cards[ni] = \
+                            sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+                true_cards[ni] = \
                         sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
 
-            true_cards[ni] = \
-                    sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
-
-        trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
-                0.0, 24.0, "mscn", edges_cost_node1,
-                edges_cost_node2, nilj, edges_head, edges_tail)
+            trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
+                    0.0, 24.0, "mscn", edges_cost_node1,
+                    edges_cost_node2, nilj, edges_head, edges_tail)
 
         predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
                 0.0, 24.0, "mscn", edges_cost_node1,
@@ -505,10 +578,17 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
                 loss2.ctypes.data_as(c_void_p)
                 )
         costs.append(loss2[0])
+
+        if all_ests is None:
+            # was for true cards
+            subsetg_vectors.append(trueC_vec)
+            subsetg_vectors.append(loss2[0])
+            farchive.archive[qkey] = subsetg_vectors
+
     return costs
 
 def get_shortest_path_costs(samples, source_node, cost_key,
-        all_ests, known_costs):
+        all_ests, known_costs, cost_model):
     '''
     @ret: cost of the given path in subsetg.
     '''
@@ -522,7 +602,8 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         # this should already be pre-computed
         if cost_key != "cost":
             ests = all_ests[i]
-            compute_costs(subsetg, cost_key=cost_key, ests=ests)
+            compute_costs(subsetg, cost_model, cost_key=cost_key,
+                    ests=ests)
 
         # TODO: precompute..
         nodes = list(subsetg.nodes())
@@ -558,9 +639,6 @@ class PlanError():
         self.subsetgs = {}
         self.opt_costs = {}
 
-        # self.opt_archive = klepto.archives.dir_archive("/tmp/opt_archive2",
-                # cached=True, serialized=True)
-
     def compute_loss(self, qreps, ests, pool=None):
         '''
         @ests: [dicts] of estimates
@@ -585,24 +663,17 @@ class PlanError():
             assert num_processes * batch_size >= len(qreps)
             opt_par_args = []
             par_args = []
-            # opt_costs = []
-            # seen_new = False
             for proc_num in range(num_processes):
                 start_idx = proc_num * batch_size
                 end_idx = min(start_idx + batch_size, len(qreps))
-                # DEBUG = True
-                # if DEBUG:
-                    # self.loss_func(qreps[start_idx:end_idx],
-                            # self.source_node, "est_cost",
-                            # ests[start_idx:end_idx], None)
-                    # pdb.set_trace()
 
                 if new_opt_cost:
                     opt_par_args.append((qreps[start_idx:end_idx],
                         self.source_node, "cost", None,
-                        opt_costs[start_idx:end_idx]))
+                        opt_costs[start_idx:end_idx], self.cost_model))
                 par_args.append((qreps[start_idx:end_idx],
-                    self.source_node, "est_cost", ests[start_idx:end_idx], None))
+                    self.source_node, "est_cost", ests[start_idx:end_idx],
+                    None, self.cost_model))
 
             if new_opt_cost:
                 opt_costs = []
@@ -621,169 +692,5 @@ class PlanError():
             for c in all_costs_batched:
                 all_costs += c
 
-        print("compute plan err took: ", time.time()-start)
+        print("compute {} took: {}".format(self.loss_type, time.time()-start))
         return np.array(opt_costs), np.array(all_costs)
-
-def constructG_numpy(subsetg, preds,
-        node_dict, edge_dict, final_node):
-    '''
-    TODO:
-        sorted list of nodes, edges, node_dict, edge_dict will be args
-            + final_node
-    '''
-    start = time.time()
-    N = len(subsetg.nodes()) - 1
-    M = len(subsetg.edges())
-    G = np.zeros((N,N))
-    Q = np.zeros((M,N))
-    Gv = np.zeros(N)
-    Gv[node_dict[final_node]] = 1.0
-
-    # FIXME: this loop is surprisingly expensive, can we convert it to matrix ops?
-    for edge, i in edge_dict.items():
-        cost = preds[i]
-        cost = 1.0 / cost
-
-        head_node = edge[0]
-        tail_node = edge[1]
-        hidx = node_dict[head_node]
-        Q[i,hidx] = cost
-        G[hidx,hidx] += cost
-
-        if tail_node in node_dict:
-            tidx = node_dict[tail_node]
-            Q[i,tidx] = -cost
-            G[tidx,tidx] += cost
-            G[hidx,tidx] -= cost
-            G[tidx,hidx] -= cost
-
-    return G, Gv, Q
-
-# def get_shortest_path_costs(subsetgs, source_node, cost_key,
-        # all_ests, known_costs):
-
-def get_flow_cost2(sample, source_node, cost_key,
-        ests, known_cost):
-    if known_cost is not None:
-        return known_cost
-    farchive = klepto.archives.dir_archive("./flow_info_archive",
-        cached=True, serialized=True)
-    qkey = deterministic_hash(sample["sql"])
-    if qkey in farchive:
-        subsetg_vectors = farchive[qkey]
-        assert len(subsetg_vectors) == 9
-    else:
-        new_seen = True
-        subsetg_vectors = list(get_subsetg_vectors(sample))
-
-
-# TODO: use c++ version!
-def get_flow_cost(subsetg, source_node, cost_key, ests,
-        known_cost):
-    '''
-    '''
-    # only forward pass of flow-loss
-    node_dict = {}
-    edge_dict = {}
-    nodes = list(subsetg.nodes())
-    nodes.remove(SOURCE_NODE)
-    nodes.sort()
-    final_node = nodes[0]
-    for i,node in enumerate(nodes):
-        node_dict[node] = i
-        if len(node) > len(final_node):
-            final_node = node
-    edges = list(subsetg.edges())
-    edges.sort()
-    for i, edge in enumerate(edges):
-        edge_dict[edge] = i
-
-    # ctx.dgdxT = dgdxT
-    if cost_key != "cost":
-        compute_costs(subsetg, cost_key=cost_key,
-                ests=ests)
-    predC = np.zeros(len(edge_dict))
-    trueC = np.zeros((len(edge_dict), len(edge_dict)))
-
-    for edge, idx in edge_dict.items():
-        trueC[idx,idx] = subsetg[edge[0]][edge[1]]["cost"]
-        # print("before cost key fail")
-        # pdb.set_trace()
-        predC[idx] = subsetg[edge[0]][edge[1]][cost_key]
-
-    # calculate flow loss
-    G,Gv,Q = constructG_numpy(subsetg, predC, node_dict, edge_dict,
-            final_node)
-    invG = np.linalg.inv(G)
-    v = invG @ Gv
-
-    left = (Gv @ invG.T) @ Q.T
-    right = Q @ (v)
-    loss = left @ trueC @ right
-    # assert len(loss) == 1
-    return loss
-
-class FlowLossEnv():
-
-    def __init__(self, cost_model):
-        self.cost_model = cost_model
-        self.source_node = SOURCE_NODE
-
-        self.subsetgs = {}
-        self.opt_costs = {}
-
-    def compute_loss(self, qreps, ests, pool=None):
-        '''
-        @ests: [dicts] of estimates
-        '''
-        start = time.time()
-        subsetgs = []
-        opt_costs = []
-        for qrep in qreps:
-            qkey = deterministic_hash(qrep["sql"])
-            if qkey in self.subsetgs:
-                subsetgs.append(self.subsetgs[qkey])
-            else:
-                # add_single_node_edges(subsetg)
-                subsetg = qrep["subset_graph_paths"]
-                subsetgs.append(subsetg)
-                self.subsetgs[qkey] = subsetg
-
-        if pool is None:
-            assert False
-        else:
-            # FIXME: faster if we divide into equal chunks and launch only 1
-            # process per batch (?)
-            opt_par_args = []
-            par_args = []
-            seen_new = False
-            for i, qrep in enumerate(qreps):
-                qkey = deterministic_hash(qrep["sql"])
-                subsetg = subsetgs[i]
-                opt_cost = None
-                if qkey in self.opt_costs:
-                    opt_cost = self.opt_costs[qkey]
-                else:
-                    seen_new = True
-
-                opt_par_args.append((subsetg, self.source_node, "cost",
-                    None, opt_cost))
-                par_args.append((subsetg, self.source_node, "est_cost",
-                    ests[i], None))
-
-            opt_costs = pool.starmap(get_flow_cost,
-                    opt_par_args)
-            # opt_costs = pool.starmap(get_flow_cost2,
-                    # opt_par_args)
-            if seen_new:
-                for i, qrep in enumerate(qreps):
-                    qkey = deterministic_hash(qrep["sql"])
-                    self.opt_costs[qkey] = opt_costs[i]
-            all_costs = pool.starmap(get_flow_cost,
-                    par_args)
-            # all_costs = pool.starmap(get_flow_cost2,
-                    # par_args)
-
-        print("compute flow err took: ", time.time()-start)
-        return np.array(opt_costs), np.array(all_costs)
-

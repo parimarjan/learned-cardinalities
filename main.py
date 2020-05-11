@@ -69,6 +69,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                cost_model = args.cost_model,
                 query_batch_size = args.query_batch_size,
                 flow_features = args.flow_features,
                 normalize_flow_loss = args.normalize_flow_loss,
@@ -443,6 +444,8 @@ def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
+    parser.add_argument("--cost_model", type=str, required=False,
+            default="cm1")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
             default=None)
     parser.add_argument("--exp_prefix", type=str, required=False,

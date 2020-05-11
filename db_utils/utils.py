@@ -111,6 +111,7 @@ EDGE_COLORS["left"] = "b"
 EDGE_COLORS["right"] = "r"
 
 NILJ_CONSTANT = 0.001
+NILJ_CONSTANT2 = 0.1
 
 def get_default_con_creds():
     if "user" in os.environ:
@@ -1396,7 +1397,8 @@ def add_single_node_edges(subset_graph):
             if node[0] in node2:
                 subset_graph.add_edge(node2, node)
 
-def compute_costs(subset_graph, cost_key="cost", ests=None):
+def compute_costs(subset_graph, cost_model,
+        cost_key="cost", ests=None):
     '''
     @computes costs based on the MM1 cost model.
     '''
@@ -1432,6 +1434,15 @@ def compute_costs(subset_graph, cost_key="cost", ests=None):
                 card1 = ests[" ".join(node1)]
                 card2 = ests[" ".join(node2)]
 
+        cost = get_costs(card1, card2, node1, node2, cost_model)
+        assert cost != 0.0
+        subset_graph[edge[0]][edge[1]][cost_key] = cost
+
+        total_cost += cost
+    return total_cost
+
+def get_costs(card1, card2, node1, node2, cost_model):
+    if cost_model == "cm1":
         hash_join_cost = card1 + card2
         if len(node1) == 1:
             nilj_cost = card2 + NILJ_CONSTANT*card1
@@ -1440,10 +1451,14 @@ def compute_costs(subset_graph, cost_key="cost", ests=None):
         else:
             nilj_cost = 10000000000
         cost = min(hash_join_cost, nilj_cost)
-        assert cost != 0.0
-        subset_graph[edge[0]][edge[1]][cost_key] = cost
-        total_cost += cost
-    return total_cost
+    elif cost_model == "nested_loop_index":
+        if len(node1) == 1:
+            cost = card2 + NILJ_CONSTANT2*card2
+        elif len(node2) == 1:
+            cost = card1 + NILJ_CONSTANT2*card1
+        else:
+            cost = card1*card2
+    return cost
 
 def constructG(subsetg):
     '''

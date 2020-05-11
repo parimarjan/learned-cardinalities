@@ -3,7 +3,7 @@ import pdb
 # import park
 from utils.utils import *
 from cardinality_estimation.query import *
-from cardinality_estimation.join_loss import JoinLoss,FlowLossEnv,PlanError
+from cardinality_estimation.join_loss import JoinLoss,PlanError
 
 import itertools
 import multiprocessing
@@ -386,7 +386,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
 
     # env = park.make('query_optimizer')
     args = kwargs["args"]
-    env = JoinLoss(args.user, args.pwd, args.db_host,
+    env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
             args.port, args.db_name)
     use_indexes = args.jl_indexes
     exp_name = kwargs["exp_name"]
@@ -464,7 +464,7 @@ def compute_flow_loss(queries, preds, **kwargs):
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
     args = kwargs["args"]
-    env = PlanError("cm1", "flow-loss")
+    env = PlanError(args.cost_model, "flow-loss")
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
     pool = kwargs["pool"]
@@ -504,7 +504,7 @@ def compute_plan_loss(queries, preds, **kwargs):
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
     args = kwargs["args"]
-    env = PlanError("cm1", "plan-loss")
+    env = PlanError(args.cost_model, "plan-loss")
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
     pool = kwargs["pool"]

@@ -42,7 +42,7 @@ import networkx as nx
 # dataset
 from cardinality_estimation.query_dataset import QueryDataset
 from torch.utils import data
-from cardinality_estimation.join_loss import JoinLoss, PlanError,FlowLossEnv
+from cardinality_estimation.join_loss import JoinLoss, PlanError
 from torch.multiprocessing import Pool as Pool2
 import torch.multiprocessing as mp
 # import torch.multiprocessing
@@ -61,7 +61,8 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
 
 # once we have stored them in archive, parallel just slows down stuff
 UPDATE_TOLERANCES_PAR = True
-def update_samples(samples, flow_features):
+def update_samples(samples, flow_features, cost_model):
+    # FIXME: need to use correct cost_model here
     start = time.time()
     new_seen = False
     for sample in samples:
@@ -70,8 +71,10 @@ def update_samples(samples, flow_features):
         new_seen = True
         subsetg = copy.deepcopy(sample["subset_graph"])
         add_single_node_edges(subsetg)
-        pg_total_cost = compute_costs(subsetg, cost_key="pg_cost", ests="expected")
-        _ = compute_costs(subsetg, cost_key="cost", ests=None)
+        pg_total_cost = compute_costs(subsetg, cost_model,
+                cost_key="pg_cost", ests="expected")
+        _ = compute_costs(subsetg, cost_model, cost_key="cost",
+                ests=None)
         subsetg.graph["total_cost"] = pg_total_cost
         sample["subset_graph_paths"] = subsetg
 
@@ -741,146 +744,6 @@ class NN(CardinalityEstimationAlg):
         self.query_stats = defaultdict(list)
         self.query_qerr_stats = defaultdict(list)
 
-    def train_mscn_query(self, net, optimizer, loader, loss_fn, loss_fn_name,
-            clip_gradient, samples, normalization_type, min_val, max_val,
-            load_query_together=False):
-        start = time.time()
-        torch.set_num_threads(1)
-        if self.save_gradients:
-            grads = []
-            grad_samples = []
-
-        total = len(self.training_samples)
-        num_iters = math.ceil(total / self.query_batch_size)
-        itr = iter(loader)
-
-        for i in range(num_iters):
-            mb_tbatch = []
-            mb_pbatch = []
-            mb_jbatch = []
-            mb_fbatch = []
-            mb_ybatch = []
-            batch_samples = []
-            qidxs = []
-
-            for j in range(self.query_batch_size):
-                try:
-                    tbatch,pbatch, jbatch,fbatch, ybatch,info = next(itr)
-                except:
-                    break
-
-                tbatch = tbatch.reshape(tbatch.shape[0]*tbatch.shape[1],
-                        tbatch.shape[2])
-                pbatch = pbatch.reshape(pbatch.shape[0]*pbatch.shape[1],
-                        pbatch.shape[2])
-                jbatch = jbatch.reshape(jbatch.shape[0]*jbatch.shape[1],
-                        jbatch.shape[2])
-                fbatch = fbatch.reshape(fbatch.shape[0]*fbatch.shape[1],
-                        fbatch.shape[2])
-                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
-                mb_tbatch.append(tbatch)
-                mb_pbatch.append(pbatch)
-                mb_jbatch.append(jbatch)
-                mb_fbatch.append(fbatch)
-                mb_ybatch.append(ybatch)
-
-                # for si in range(batch_size):
-                    # qidx = info[0]["query_idx"][si]
-                qidx = info[0]["query_idx"][0].item()
-                qidxs.append(qidx)
-                batch_samples.append(samples[qidx])
-
-            if len(mb_tbatch) == 0:
-                continue
-            b1 = torch.cat(mb_tbatch)
-            b2 = torch.cat(mb_pbatch)
-            b3 = torch.cat(mb_jbatch)
-            b4 = torch.cat(mb_fbatch)
-            yb = torch.cat(mb_ybatch)
-            if DEBUG:
-                print("till torch.cat: ", time.time()-start)
-
-            pred = net(b1,b2,b3,b4).squeeze(1)
-
-            if "flow_loss" in loss_fn_name:
-                ndicts = []
-                edicts = []
-                con_mats = []
-                final_nodes = []
-
-                # for qidx in qidxs:
-                    # sample = samples[qidx]
-                    # template = sample["template_name"]
-                    # node_dict,edge_dict,con_mat,final_node = \
-                            # self.flow_template_info[template]
-                    # ndicts.append(node_dict)
-                    # edicts.append(edge_dict)
-                    # con_mats.append(con_mat)
-                    # final_nodes.append(final_node)
-
-                subsetgs = []
-                trueCs = []
-                opt_flow_losses = []
-                for qidx in qidxs:
-                    subsetg,trueC,opt_flow_loss, = \
-                            self.flow_training_info[qidx]
-                    subsetgs.append(subsetg)
-                    trueCs.append(trueC)
-                    opt_flow_losses.append(opt_flow_loss)
-
-                if DEBUG:
-                    print("batch {}, before forward: {}".format(i,
-                            time.time()-start))
-
-                losses = loss_fn(pred, yb.detach(), normalization_type, min_val,
-                        max_val, ndicts, edicts,
-                        subsetgs,trueCs,opt_flow_losses,final_nodes, con_mats,
-                        self.join_loss_pool)
-            else:
-                losses = loss_fn(pred, yb)
-
-            try:
-                loss = losses.sum() / len(losses)
-            except:
-                loss = losses
-
-            if self.weighted_qloss:
-                qloss = qloss_torch(pred, yb)
-                loss += (sum(qloss) / len(qloss))
-
-            if self.weighted_mse != 0.0:
-                mse = torch.nn.MSELoss(reduction="mean")(pred,
-                        yb)
-                loss += self.weighted_mse*mse
-
-            if self.save_gradients and "flow_loss" in loss_fn_name:
-                optimizer.zero_grad()
-                pred.retain_grad()
-                loss.backward()
-                # grads
-                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
-                if sample is not None:
-                    grad_samples.append(sample)
-            else:
-                optimizer.zero_grad()
-                loss.backward()
-
-            if DEBUG:
-                print("after backward, total time: {}".format(time.time()-start))
-
-            if clip_gradient is not None:
-                clip_grad_norm_(net.parameters(), clip_gradient)
-
-            optimizer.step()
-
-        if self.save_gradients and len(grad_samples) > 0:
-            # print("gradients: ", np.mean(grads))
-            self.save_join_loss_stats(grads, None, grad_samples,
-                    "train", loss_key="gradients")
-
-        print("mscn train epoch took: ", time.time()-start)
-        pdb.set_trace()
-
     def train_mscn(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
             load_query_together=False):
@@ -889,6 +752,16 @@ class NN(CardinalityEstimationAlg):
             grads = []
             par_grads = defaultdict(list)
             grad_samples = []
+
+        # FIXME: requires that each sample seen in training set
+        if "flow_loss" in loss_fn:
+            opt_flow_costs = []
+            est_flow_costs = []
+            # self.save_join_loss_stats(opt_flow_losses, None, samples,
+                    # samples_type, loss_key="flow_err")
+            # self.save_join_loss_stats(opt_flow_ratios, None, samples,
+                    # samples_type, loss_key="flow_ratio")
+
 
         for idx, (tbatch, pbatch, jbatch,fbatch, ybatch,info) in enumerate(loader):
             start = time.time()
@@ -912,24 +785,20 @@ class NN(CardinalityEstimationAlg):
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
-                # tinfos = []
                 subsetg_vectors = self.flow_training_info[qidx]
 
-                # TODO: or precompute these in parallel at the start of the
-                # training iteration if this is too slow? (...takes too much
-                # memory...)
-                # subsetg_vectors = list(get_subsetg_vectors(samples[qidx]))
-                # subsetg_vectors += tinfo
-
-                if len(subsetg_vectors) != 9:
-                    print(len(subsetg_vectors))
-                    pdb.set_trace()
+                assert len(subsetg_vectors) == 9
 
                 losses = loss_fn(pred, ybatch.detach(),
                         normalization_type, min_val,
                         max_val, [subsetg_vectors],
                         self.normalize_flow_loss,
                         self.join_loss_pool)
+                # assert len(losses) == 1
+                print(losses)
+                print(subsetg_vectors[-1])
+                pdb.set_trace()
+
             else:
                 losses = loss_fn(pred, ybatch)
 
@@ -938,14 +807,14 @@ class NN(CardinalityEstimationAlg):
             except:
                 loss = losses
 
-            if self.weighted_qloss:
+            if self.weighted_qloss != 0.0:
                 qloss = qloss_torch(pred, ybatch)
-                loss += (sum(qloss) / len(qloss))
+                loss += self.weighted_qloss* (sum(qloss) / len(qloss))
 
-            if self.weighted_mse:
+            if self.weighted_mse != 0.0:
                 mse = torch.nn.MSELoss(reduction="mean")(pred,
                         ybatch)
-                loss += 10*mse
+                loss += self.weighted_mse * mse
 
             if self.save_gradients and "flow_loss" in loss_fn_name:
                 optimizer.zero_grad()
@@ -1642,9 +1511,10 @@ class NN(CardinalityEstimationAlg):
         self.groups = self.init_groups(self.num_groups)
         if self.cost_model_plan_err or self.eval_flow_loss or \
                 self.flow_features:
-            update_samples(training_samples, self.flow_features)
+            update_samples(training_samples, self.flow_features,
+                    self.cost_model)
             if val_samples:
-                update_samples(val_samples, self.flow_features)
+                update_samples(val_samples, self.flow_features, self.cost_model)
 
         if self.normalization_type == "mscn":
             y = np.array(get_all_cardinalities(training_samples))
@@ -1658,11 +1528,10 @@ class NN(CardinalityEstimationAlg):
             self.min_val, self.max_val = None, None
 
         # create a new park env, and close at the end.
-        self.env = JoinLoss(self.db.user, self.db.pwd, self.db.db_host,
-                self.db.port, self.db.db_name)
-        self.plan_err = PlanError("cm1", "plan-loss")
-        # self.flow_loss_env = FlowLossEnv("cm1")
-        self.flow_loss_env = PlanError("cm1", "flow-loss")
+        self.env = JoinLoss(self.cost_model, self.db.user, self.db.pwd,
+                self.db.db_host, self.db.port, self.db.db_name)
+        self.plan_err = PlanError(self.cost_model, "plan-loss")
+        self.flow_loss_env = PlanError(self.cost_model, "flow-loss")
 
         self.training_samples = training_samples
         if self.sampling_priority_alpha > 0.00:
