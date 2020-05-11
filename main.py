@@ -625,7 +625,8 @@ def read_flags():
     parser.add_argument("--algs", type=str, required=False,
             default="postgres")
     parser.add_argument("--losses", type=str, required=False,
-            default="qerr,join-loss", help="comma separated list of loss names")
+            default="qerr,join-loss,flow-loss,plan-loss",
+            help="comma separated list of loss names")
     parser.add_argument("--result_dir", type=str, required=False,
             default="./results2/")
     parser.add_argument("--baseline_join_alg", type=str, required=False,

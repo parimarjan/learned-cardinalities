@@ -131,6 +131,10 @@ def constructG(subsetg, preds, node_dict, edge_dict,
 def get_optimization_variables(ests, totals, min_val, max_val,
         normalization_type, edges_cost_node1, edges_cost_node2,
         nilj, edges_head, edges_tail):
+    '''
+    @ests: these are actual values for each estimate. totals,min_val,max_val
+    are only required for the derivatives.
+    '''
     start = time.time()
 
     # TODO: speed up this init stuff?
@@ -156,28 +160,8 @@ def get_optimization_variables(ests, totals, min_val, max_val,
     G2 = np.zeros((len(ests),len(ests)), dtype=np.float32)
     Q2 = np.zeros((len(edges_cost_node1),len(ests)), dtype=np.float32)
 
-    # start = time.time()
-    # fl_cpp.get_optimization_variables(ests.ctypes.data_as(c_void_p),
-            # totals.ctypes.data_as(c_void_p),
-            # c_double(min_val),
-            # c_double(max_val),
-            # c_int(norm_type),
-            # edges_cost_node1.ctypes.data_as(c_void_p),
-            # edges_cost_node2.ctypes.data_as(c_void_p),
-            # edges_head.ctypes.data_as(c_void_p),
-            # edges_tail.ctypes.data_as(c_void_p),
-            # nilj.ctypes.data_as(c_void_p),
-            # c_int(len(ests)),
-            # c_int(len(costs)),
-            # costs.ctypes.data_as(c_void_p),
-            # dgdxT.ctypes.data_as(c_void_p),
-            # G.ctypes.data_as(c_void_p),
-            # Q.ctypes.data_as(c_void_p),
-            # c_int(10))
-    # print("took: ", time.time()-start)
-
     start = time.time()
-    fl_cpp.get_opt_debug(ests.ctypes.data_as(c_void_p),
+    fl_cpp.get_optimization_variables(ests.ctypes.data_as(c_void_p),
             totals.ctypes.data_as(c_void_p),
             c_double(min_val),
             c_double(max_val),
@@ -193,7 +177,6 @@ def get_optimization_variables(ests, totals, min_val, max_val,
             dgdxT2.ctypes.data_as(c_void_p),
             G2.ctypes.data_as(c_void_p),
             Q2.ctypes.data_as(c_void_p))
-    # print("took2: ", time.time()-start)
 
     return costs2, dgdxT2, G2, Q2
 
@@ -418,15 +401,11 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
         else:
             assert False
 
-    # print("est_cards took: ", time.time()-start)
-
     start = time.time()
     predC2, dgdxT2, G2, Q2 = get_optimization_variables(est_cards, totals,
             min_val, max_val, normalization_type, edges_cost_node1,
             edges_cost_node2, nilj, edges_head, edges_tail)
     # print("get opt variables took: ", time.time()-start)
-    # print(np.linalg.norm(predC2), np.linalg.norm(dgdxT2), np.linalg.norm(G2))
-    # pdb.set_trace()
 
     Gv2 = np.zeros(len(totals))
     Gv2[final_node] = 1.0
@@ -574,11 +553,6 @@ class FlowLoss(Function):
             totals, edges_head, edges_tail, nilj, edges_cost_node1, \
                     edges_cost_node2, final_node, trueC_vec, opt_cost \
                         = ctx.subsetg_vectors[0]
-
-            # trueC = torch.eye(len(trueC_vec)).float().detach()
-            # for i, curC in enumerate(trueC_vec):
-                # trueC[i,i] = curC
-            # ctx.trueC = trueC
 
             start = time.time()
             res = single_forward2(yhat, totals,

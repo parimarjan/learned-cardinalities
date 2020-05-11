@@ -1660,8 +1660,9 @@ class NN(CardinalityEstimationAlg):
         # create a new park env, and close at the end.
         self.env = JoinLoss(self.db.user, self.db.pwd, self.db.db_host,
                 self.db.port, self.db.db_name)
-        self.plan_err = PlanError("cm1")
-        self.flow_loss_env = FlowLossEnv("cm1")
+        self.plan_err = PlanError("cm1", "plan-loss")
+        # self.flow_loss_env = FlowLossEnv("cm1")
+        self.flow_loss_env = PlanError("cm1", "flow-loss")
 
         self.training_samples = training_samples
         if self.sampling_priority_alpha > 0.00:
@@ -1700,8 +1701,6 @@ class NN(CardinalityEstimationAlg):
             for sample in self.training_samples:
                 qkey = deterministic_hash(sample["sql"])
                 if qkey in farchive:
-                    # archive_info = farchive[qkey]
-                    # assert len(archive_info) == 2
                     subsetg_vectors = farchive[qkey]
                     assert len(subsetg_vectors) == 9
                 else:
@@ -1746,8 +1745,7 @@ class NN(CardinalityEstimationAlg):
                     subsetg_vectors.append(trueC_vec)
                     subsetg_vectors.append(opt_flow_loss)
 
-                    # farchive[qkey] = archive_info
-                    # farchive.dump()
+                    farchive[qkey] = subsetg_vectors
 
                 self.flow_training_info.append(subsetg_vectors)
 

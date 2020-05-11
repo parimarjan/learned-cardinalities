@@ -4,9 +4,20 @@ from db_utils.utils import *
 from sql_rep.utils import extract_aliases
 import multiprocessing as mp
 import math
+from cardinality_estimation.flow_loss import *
 
 import pdb
 import klepto
+
+system = platform.system()
+if system == 'Linux':
+    lib_file = "libflowloss.so"
+else:
+    lib_file = "libflowloss.dylib"
+
+lib_dir = "./flow_loss_cpp"
+lib_file = lib_dir + "/" + lib_file
+fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
 
 PG_HINT_CMNT_TMP = '''/*+ {COMMENT} */'''
 PG_HINT_JOIN_TMP = "{JOIN_TYPE} ({TABLES}) "
@@ -433,17 +444,80 @@ class JoinLoss():
         return np.array(est_costs), np.array(opt_costs), est_explains, \
     opt_explains, est_sqls, opt_sqls
 
-def get_shortest_path_costs(subsetgs, source_node, cost_key,
+def fl_cpp_get_flow_loss(samples, source_node, cost_key,
+        all_ests, known_costs):
+    costs = []
+    for i, sample in enumerate(samples):
+        if known_costs and known_costs[i] is not None:
+            costs.append(known_costs[i])
+            continue
+
+        subsetg_vectors = list(get_subsetg_vectors(sample))
+
+        totals, edges_head, edges_tail, nilj, edges_cost_node1, \
+                edges_cost_node2, final_node = subsetg_vectors
+
+        true_cards = np.zeros(len(subsetg_vectors[0]),
+                dtype=np.float32)
+        est_cards = np.zeros(len(subsetg_vectors[0]),
+                dtype=np.float32)
+        nodes = list(sample["subset_graph"].nodes())
+        nodes.sort()
+        for ni, node in enumerate(nodes):
+            if all_ests is not None:
+                if node in all_ests[i]:
+                    est_cards[ni] = all_ests[i][node]
+                else:
+                    est_cards[ni] = all_ests[i][" ".join(node)]
+            else:
+                # est_cards are also true cardinalities here
+                est_cards[ni] = \
+                        sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+            true_cards[ni] = \
+                    sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+        trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
+                0.0, 24.0, "mscn", edges_cost_node1,
+                edges_cost_node2, nilj, edges_head, edges_tail)
+
+        predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
+                0.0, 24.0, "mscn", edges_cost_node1,
+                edges_cost_node2, nilj, edges_head, edges_tail)
+
+        Gv2 = np.zeros(len(totals), dtype=np.float32)
+        Gv2[final_node] = 1.0
+        invG = np.linalg.inv(G2)
+        v = invG @ Gv2
+        mat_start = time.time()
+        loss2 = np.zeros(1, dtype=np.float32)
+        assert Q2.dtype == np.float32
+        assert v.dtype == np.float32
+        assert trueC_vec.dtype == np.float32
+        fl_cpp.get_qvtqv(
+                c_int(len(edges_head)),
+                c_int(len(v)),
+                edges_head.ctypes.data_as(c_void_p),
+                edges_tail.ctypes.data_as(c_void_p),
+                Q2.ctypes.data_as(c_void_p),
+                v.ctypes.data_as(c_void_p),
+                trueC_vec.ctypes.data_as(c_void_p),
+                loss2.ctypes.data_as(c_void_p)
+                )
+        costs.append(loss2[0])
+    return costs
+
+def get_shortest_path_costs(samples, source_node, cost_key,
         all_ests, known_costs):
     '''
     @ret: cost of the given path in subsetg.
     '''
     costs = []
-    for i in range(len(subsetgs)):
+    for i in range(len(samples)):
         if known_costs and known_costs[i] is not None:
             costs.append(known_costs[i])
             continue
-        subsetg = subsetgs[i]
+        subsetg = samples[i]["subset_graph_paths"]
 
         # this should already be pre-computed
         if cost_key != "cost":
@@ -465,15 +539,21 @@ def get_shortest_path_costs(subsetgs, source_node, cost_key,
 
 class PlanError():
 
-    def __init__(self, cost_model, user=None, pwd=None, db_host=None,
-            port=None, db_name=None):
+    def __init__(self, cost_model, loss_type,
+            user=None, pwd=None, db_host=None, port=None, db_name=None):
         self.user = user
         self.pwd = pwd
         self.db_host = db_host
         self.port = port
         self.db_name = db_name
+
         self.cost_model = cost_model
         self.source_node = SOURCE_NODE
+        self.loss_type = loss_type
+        if loss_type == "plan-loss":
+            self.loss_func = get_shortest_path_costs
+        elif loss_type == "flow-loss":
+            self.loss_func = fl_cpp_get_flow_loss
 
         self.subsetgs = {}
         self.opt_costs = {}
@@ -491,17 +571,11 @@ class PlanError():
         new_opt_cost = False
         for qrep in qreps:
             qkey = deterministic_hash(qrep["sql"])
-            subsetg = qrep["subset_graph_paths"]
             if qkey in self.opt_costs:
-                # subsetgs.append(self.subsetgs[qkey])
                 opt_costs.append(self.opt_costs[qkey])
             else:
                 opt_costs.append(None)
-                # add_single_node_edges(subsetg)
-                # self.subsetgs[qkey] = subsetg
                 new_opt_cost = True
-
-            subsetgs.append(subsetg)
 
         if pool is None:
             assert False
@@ -516,16 +590,23 @@ class PlanError():
             for proc_num in range(num_processes):
                 start_idx = proc_num * batch_size
                 end_idx = min(start_idx + batch_size, len(qreps))
+                # DEBUG = True
+                # if DEBUG:
+                    # self.loss_func(qreps[start_idx:end_idx],
+                            # self.source_node, "est_cost",
+                            # ests[start_idx:end_idx], None)
+                    # pdb.set_trace()
+
                 if new_opt_cost:
-                    opt_par_args.append((subsetgs[start_idx:end_idx],
+                    opt_par_args.append((qreps[start_idx:end_idx],
                         self.source_node, "cost", None,
                         opt_costs[start_idx:end_idx]))
-                par_args.append((subsetgs[start_idx:end_idx],
+                par_args.append((qreps[start_idx:end_idx],
                     self.source_node, "est_cost", ests[start_idx:end_idx], None))
 
             if new_opt_cost:
                 opt_costs = []
-                opt_costs_batched = pool.starmap(get_shortest_path_costs,
+                opt_costs_batched = pool.starmap(self.loss_func,
                         opt_par_args)
                 for c in opt_costs_batched:
                     opt_costs += c
@@ -535,13 +616,11 @@ class PlanError():
                     self.opt_costs[qkey] = opt_costs[i]
 
             all_costs = []
-            all_costs_batched = pool.starmap(get_shortest_path_costs,
+            all_costs_batched = pool.starmap(self.loss_func,
                     par_args)
             for c in all_costs_batched:
                 all_costs += c
 
-            # print("plan err lens: ", len(all_costs_batched), len(opt_costs_batched),
-                    # len(all_costs), len(opt_costs))
         print("compute plan err took: ", time.time()-start)
         return np.array(opt_costs), np.array(all_costs)
 
@@ -580,9 +659,23 @@ def constructG_numpy(subsetg, preds,
 
     return G, Gv, Q
 
+# def get_shortest_path_costs(subsetgs, source_node, cost_key,
+        # all_ests, known_costs):
+
 def get_flow_cost2(sample, source_node, cost_key,
         ests, known_cost):
-    pass
+    if known_cost is not None:
+        return known_cost
+    farchive = klepto.archives.dir_archive("./flow_info_archive",
+        cached=True, serialized=True)
+    qkey = deterministic_hash(sample["sql"])
+    if qkey in farchive:
+        subsetg_vectors = farchive[qkey]
+        assert len(subsetg_vectors) == 9
+    else:
+        new_seen = True
+        subsetg_vectors = list(get_subsetg_vectors(sample))
+
 
 # TODO: use c++ version!
 def get_flow_cost(subsetg, source_node, cost_key, ests,
@@ -680,12 +773,17 @@ class FlowLossEnv():
 
             opt_costs = pool.starmap(get_flow_cost,
                     opt_par_args)
+            # opt_costs = pool.starmap(get_flow_cost2,
+                    # opt_par_args)
             if seen_new:
                 for i, qrep in enumerate(qreps):
                     qkey = deterministic_hash(qrep["sql"])
                     self.opt_costs[qkey] = opt_costs[i]
             all_costs = pool.starmap(get_flow_cost,
                     par_args)
+            # all_costs = pool.starmap(get_flow_cost2,
+                    # par_args)
+
         print("compute flow err took: ", time.time()-start)
         return np.array(opt_costs), np.array(all_costs)
 

@@ -253,7 +253,7 @@ void get_opt_var_par(
 
 /* Note: the values to be returned are passed in as well.
  */
-extern "C" void get_optimization_variables(
+extern "C" void get_optimization_variables_par(
     float *ests, float *totals,
     double min_val, double max_val, int normalization_type,
     int *edges_cost_node1, int *edges_cost_node2,
@@ -281,7 +281,7 @@ extern "C" void get_optimization_variables(
   }
 }
 
-extern "C" void get_opt_debug(
+extern "C" void get_optimization_variables(
     float *ests, float *totals,
     double min_val, double max_val, int normalization_type,
     int *edges_cost_node1, int *edges_cost_node2,

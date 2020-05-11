@@ -464,7 +464,7 @@ def compute_flow_loss(queries, preds, **kwargs):
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
     args = kwargs["args"]
-    env = FlowLossEnv("cm1")
+    env = PlanError("cm1", "flow-loss")
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
     pool = kwargs["pool"]
@@ -497,14 +497,14 @@ def compute_flow_loss(queries, preds, **kwargs):
     combined_df = pd.concat([costs, cur_df], ignore_index=True)
     save_object(costs_fn, combined_df)
 
-    return opt_costs, est_costs
+    return np.array(est_costs) - np.array(opt_costs)
 
 def compute_plan_loss(queries, preds, **kwargs):
     assert isinstance(queries, list)
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
     args = kwargs["args"]
-    env = PlanError("cm1")
+    env = PlanError("cm1", "plan-loss")
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
     pool = kwargs["pool"]
@@ -537,5 +537,4 @@ def compute_plan_loss(queries, preds, **kwargs):
     combined_df = pd.concat([costs, cur_df], ignore_index=True)
     save_object(costs_fn, combined_df)
 
-    return opt_costs, est_costs
-
+    return np.array(est_costs) - np.array(opt_costs)
