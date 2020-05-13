@@ -311,11 +311,13 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         set_indexes(cursor, "off")
-    elif cost_model == "nested_loop_indexes":
+    elif cost_model == "nested_loop_index":
         cursor.execute("SET enable_hashjoin = off")
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         set_indexes(cursor, "on")
+    else:
+        assert False
 
     ret = []
     for i, query in enumerate(queries):
@@ -491,10 +493,10 @@ class JoinLoss():
 
 def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         all_ests, known_costs, cost_model):
+    start = time.time()
     costs = []
     farchive = klepto.archives.dir_archive("./flow_info_archive",
             cached=True, serialized=True)
-    # farchive.load()
     seen_new = False
     for i, sample in enumerate(samples):
         if known_costs and known_costs[i] is not None:
@@ -502,14 +504,15 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
             continue
         qkey = deterministic_hash(sample["sql"])
         if qkey in farchive.archive:
+        # if False:
             subsetg_vectors = farchive.archive[qkey]
             assert len(subsetg_vectors) == 9
             totals, edges_head, edges_tail, nilj, edges_cost_node1, \
                     edges_cost_node2, final_node, trueC_vec, opt_cost = subsetg_vectors
-
             if all_ests is None:
                 costs.append(opt_cost)
                 continue
+
             if isinstance(trueC_vec, torch.Tensor):
                 trueC_vec = trueC_vec.detach().numpy()
             est_cards = np.zeros(len(subsetg_vectors[0]),
@@ -551,21 +554,28 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
                         sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
 
             trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
-                    0.0, 24.0, "mscn", edges_cost_node1,
-                    edges_cost_node2, nilj, edges_head, edges_tail)
+                    0.0, 24.0, None, edges_cost_node1,
+                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
 
         predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
-                0.0, 24.0, "mscn", edges_cost_node1,
-                edges_cost_node2, nilj, edges_head, edges_tail)
+                0.0, 24.0, None, edges_cost_node1,
+                edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
 
         Gv2 = np.zeros(len(totals), dtype=np.float32)
         Gv2[final_node] = 1.0
-        invG = np.linalg.inv(G2)
-        v = invG @ Gv2
-        mat_start = time.time()
+        Gv2 = to_variable(Gv2).float()
+        predC2 = to_variable(predC2).float()
+        G2 = to_variable(G2).float()
+        invG = torch.inverse(G2)
+        v = invG @ Gv2 # vshape: Nx1
+        v = v.detach().numpy()
+
+        # TODO: we don't even need to compute the loss here if we don't want to
         loss2 = np.zeros(1, dtype=np.float32)
         assert Q2.dtype == np.float32
         assert v.dtype == np.float32
+        if isinstance(trueC_vec, torch.Tensor):
+            trueC_vec = trueC_vec.detach().numpy()
         assert trueC_vec.dtype == np.float32
         fl_cpp.get_qvtqv(
                 c_int(len(edges_head)),
@@ -577,8 +587,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
                 trueC_vec.ctypes.data_as(c_void_p),
                 loss2.ctypes.data_as(c_void_p)
                 )
-        costs.append(loss2[0])
 
+        costs.append(loss2[0])
         if all_ests is None:
             # was for true cards
             subsetg_vectors.append(trueC_vec)
@@ -655,17 +665,23 @@ class PlanError():
                 opt_costs.append(None)
                 new_opt_cost = True
 
-        if pool is None:
-            assert False
+        if pool is None or self.loss_type == "flow-loss":
+            opt_costs = self.loss_func(qreps, self.source_node, "cost", None, opt_costs,
+                    self.cost_model)
+            all_costs = self.loss_func(qreps, self.source_node, "est_cost", ests, None,
+                    self.cost_model)
         else:
             num_processes = pool._processes
             batch_size = max(1, math.ceil(len(qreps) / num_processes))
             assert num_processes * batch_size >= len(qreps)
             opt_par_args = []
             par_args = []
+
             for proc_num in range(num_processes):
                 start_idx = proc_num * batch_size
                 end_idx = min(start_idx + batch_size, len(qreps))
+                if end_idx <= start_idx:
+                    continue
 
                 if new_opt_cost:
                     opt_par_args.append((qreps[start_idx:end_idx],

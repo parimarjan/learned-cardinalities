@@ -27,7 +27,7 @@ DEBUG = False
 
 def get_optimization_variables(ests, totals, min_val, max_val,
         normalization_type, edges_cost_node1, edges_cost_node2,
-        nilj, edges_head, edges_tail):
+        nilj, edges_head, edges_tail, cost_model):
     '''
     @ests: these are actual values for each estimate. totals,min_val,max_val
     are only required for the derivatives.
@@ -35,10 +35,20 @@ def get_optimization_variables(ests, totals, min_val, max_val,
     start = time.time()
 
     # TODO: speed up this init stuff?
-    if normalization_type == "mscn":
+    if normalization_type is None:
+        norm_type = 0
+    elif normalization_type == "mscn":
         norm_type = 2
     else:
         norm_type = 1
+
+    if cost_model == "cm1":
+        cost_model_num = 1
+    elif cost_model == "nested_loop_index":
+        cost_model_num = 2
+    else:
+        assert False
+
     # TODO: make sure everything is the correct type beforehand
     if min_val is None:
         min_val = 0.0
@@ -73,7 +83,8 @@ def get_optimization_variables(ests, totals, min_val, max_val,
             costs2.ctypes.data_as(c_void_p),
             dgdxT2.ctypes.data_as(c_void_p),
             G2.ctypes.data_as(c_void_p),
-            Q2.ctypes.data_as(c_void_p))
+            Q2.ctypes.data_as(c_void_p),
+            c_int(cost_model_num))
 
     return costs2, dgdxT2, G2, Q2
 
@@ -166,7 +177,7 @@ def get_edge_costs2(ests, totals, min_val, max_val,
 
 def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
         edges_cost_node2, nilj, normalization_type, min_val, max_val,
-        trueC_vec, final_node):
+        trueC_vec, final_node, cost_model):
     '''
     @yhat: NN outputs for nodes (sorted by nodes.sort())
     @totals: Total estimates for each node (sorted ...)
@@ -190,12 +201,13 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     start = time.time()
     predC2, dgdxT2, G2, Q2 = get_optimization_variables(est_cards, totals,
             min_val, max_val, normalization_type, edges_cost_node1,
-            edges_cost_node2, nilj, edges_head, edges_tail)
+            edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
     # print("get opt variables took: ", time.time()-start)
 
     Gv2 = np.zeros(len(totals))
     Gv2[final_node] = 1.0
 
+    mat_start = time.time()
     Gv2 = to_variable(Gv2).float()
     predC2 = to_variable(predC2).float()
     dgdxT2 = to_variable(dgdxT2).float()
@@ -205,7 +217,6 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     v = v.detach().numpy()
 
     # TODO: we don't even need to compute the loss here if we don't want to
-    mat_start = time.time()
     loss2 = np.zeros(1, dtype=np.float32)
     assert Q2.dtype == np.float32
     assert v.dtype == np.float32
@@ -293,7 +304,7 @@ class FlowLoss(Function):
     def forward(ctx, yhat, y, normalization_type,
             min_val, max_val, subsetg_vectors,
             normalize_flow_loss,
-            pool):
+            pool, cost_model):
         '''
         '''
         # Note: do flow loss computation and save G, invG etc. for backward
@@ -349,7 +360,7 @@ class FlowLoss(Function):
                     nilj,
                     normalization_type,
                     min_val, max_val,
-                    trueC_vec, final_node)
+                    trueC_vec, final_node, cost_model)
 
             loss = res[0]
             ctx.dgdxTs.append(res[1])
@@ -398,5 +409,5 @@ class FlowLoss(Function):
                              edges_tail,
                              ctx.normalize_flow_loss)
 
-        return yhat_grad,None,None,None,None,None,None,None,None
+        return yhat_grad,None,None,None,None,None,None,None,None,None
 

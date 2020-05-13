@@ -123,7 +123,6 @@ def get_all_training_df(results_dir):
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
-        print(fn)
         # convert to same format as qerrs
         cur_dir = results_dir + "/" + fn
         exp_args = load_object(cur_dir + "/args.pkl")
@@ -135,7 +134,6 @@ def get_all_training_df(results_dir):
             print("skip exp!")
             continue
         alg = get_alg_name(exp_args)
-        print("alg: ", alg)
         nns = load_object(cur_dir + "/nn.pkl")
         args_hash = str(deterministic_hash(str(exp_args)))[0:5]
 
@@ -146,7 +144,12 @@ def get_all_training_df(results_dir):
         df["lr"] = exp_args["lr"]
         df["clip_gradient"] = exp_args["clip_gradient"]
         df["loss_func"] = exp_args["loss_func"]
-        df["weight_decay"] = exp_args["weight_decay"]
+        # print(cur_dir)
+        if exp_args["weight_decay"] == 4.0 and "138" in cur_dir:
+            # print("resetting buggy weight decay to 10")
+            df["weight_decay"] = 10.0
+        else:
+            df["weight_decay"] = exp_args["weight_decay"]
         df["weighted_mse"] = exp_args["weighted_mse"]
         df["exp_hash"] = args_hash
 
@@ -161,8 +164,7 @@ def get_all_training_df(results_dir):
             df["normalize_flow_loss"] = 1
 
         if "flow_features" in exp_args:
-            print("flow f: ", exp_args["flow_features"])
-            print("special cases for flow features ")
+            # print("flow f: ", exp_args["flow_features"])
             if "343" in fn:
                 df["flow_features"] = ""
             elif "flow" not in exp_args["loss_func"]:
@@ -220,15 +222,17 @@ def get_all_plans(results_dir):
     return pd.concat(all_dfs)
 
 ### Helper plotting utilities for jupyter notebooks
-def plot_summaries(df, loss_type, HUE_COLORS=None):
+def plot_summaries(df, loss_type, HUE_COLORS=None, order=None):
     #fig=plt.figure(figsize=(10, 10), dpi= 80, facecolor='w', edgecolor='k')
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20,10))
     cur_df = df[df["loss_type"] == loss_type]
     #sns.catplot(x="alg_name", y="loss", data=cur_df, col_wrap = 2, cols="samples_type", kind="bar")
     train_df = cur_df[cur_df["samples_type"] == "train"]
-    sns.barplot(x="alg_name", y="loss", data=train_df, hue="alg_name", palette=HUE_COLORS, ax = ax1)
+    sns.barplot(x="alg_name", y="loss", data=train_df, hue="alg_name",
+            palette=HUE_COLORS, ax = ax1, order=order)
     test_df = cur_df[cur_df["samples_type"] == "test"]
-    sns.barplot(x="alg_name", y="loss", data=test_df, hue="alg_name", palette=HUE_COLORS, ax = ax2)
+    sns.barplot(x="alg_name", y="loss", data=test_df, hue="alg_name",
+            palette=HUE_COLORS, ax = ax2, order=order)
     ax1.set_title("Train", fontsize=25)
     ax2.set_title("Test", fontsize=25)
     sup_title = ERROR_NAMES[loss_type]
@@ -245,12 +249,16 @@ ERROR_NAMES["flow_err"] = "Flow Loss"
 ERROR_NAMES["flow_ratio"] = "Flow Ratio"
 ERROR_NAMES["mm1_plan_err"] = "Simple Plan Error"
 ERROR_NAMES["mm1_plan_ratio"] = "Simple Plan Ratio"
+
+ERROR_NAMES["plan_err"] = "Simple Plan Error"
+ERROR_NAMES["plan_ratio"] = "Simple Plan Ratio"
+
 ERROR_NAMES["jerr"] = "Postgres Plan Error"
 ERROR_NAMES["jerr_ratio"] = "Postgres Plan Error"
 title_fmt = "{}"
 
 def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
-        HUE_COLORS=None, miny=None):
+        HUE_COLORS=None, miny=None, maxy=None):
     #fig=plt.figure(figsize=(10, 10), dpi= 80, facecolor='w', edgecolor='k')
     loss_title = ERROR_NAMES[loss_type]
     title = title_fmt.format(loss_title)
@@ -261,9 +269,10 @@ def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
 
     scale_df = df[df["epoch"] >= 4]
     scale_df = scale_df[scale_df["loss_type"] == loss_type]
-    maxy = max(scale_df["loss"])
     if miny is None:
         miny = min(scale_df["loss"])
+    if maxy is None:
+        maxy = max(scale_df["loss"])
 
     sns.lineplot(x="epoch", y="loss", hue="alg_name", data=cur_df, palette=HUE_COLORS, ci=None,
                  ax=ax, legend="full", linewidth=10)
@@ -298,7 +307,7 @@ def construct_summary(df, samples_type, title, HUE_COLORS=None):
     plot_loss_summary(df, "mm1_plan_ratio", samples_type, "linear", axs[2],
             HUE_COLORS=HUE_COLORS, miny=1.0)
     plot_loss_summary(df, "jerr", samples_type, "linear", axs[3],
-            HUE_COLORS=HUE_COLORS, miny = 0)
+            HUE_COLORS=HUE_COLORS, miny = 0, maxy=2e6)
 
     if samples_type == "train":
         plt.tight_layout(rect=[0, 0, 1, 0.70])

@@ -224,9 +224,9 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-        # if "7a" in template_name:
-            # print("skipping template 7a")
-            # continue
+        if "7a" in template_name:
+            print("skipping template 7a")
+            continue
 
         start = time.time()
         # loading, or generating samples
@@ -490,7 +490,7 @@ def read_flags():
     parser.add_argument("--heuristic_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_loss_pool_num", type=int, required=False,
-            default=-1)
+            default=60)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
     parser.add_argument("--priority_normalize_type", type=str, required=False,

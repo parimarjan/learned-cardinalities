@@ -66,8 +66,8 @@ def update_samples(samples, flow_features, cost_model):
     start = time.time()
     new_seen = False
     for sample in samples:
-        if "subset_graph_paths" in sample:
-            continue
+        # if "subset_graph_paths" in sample:
+            # continue
         new_seen = True
         subsetg = copy.deepcopy(sample["subset_graph"])
         add_single_node_edges(subsetg)
@@ -130,9 +130,8 @@ def update_samples(samples, flow_features, cost_model):
         for j, node in enumerate(nodes):
             subsetg.nodes()[node]["tolerance"] = tolerances[j]
 
-
-    for sample in samples:
-        save_sql_rep(sample["name"], sample)
+    # for sample in samples:
+        # save_sql_rep(sample["name"], sample)
 
     print("updated samples with tolerances", time.time()-start)
 
@@ -754,14 +753,9 @@ class NN(CardinalityEstimationAlg):
             grad_samples = []
 
         # FIXME: requires that each sample seen in training set
-        if "flow_loss" in loss_fn:
+        if "flow_loss" in loss_fn_name:
             opt_flow_costs = []
             est_flow_costs = []
-            # self.save_join_loss_stats(opt_flow_losses, None, samples,
-                    # samples_type, loss_key="flow_err")
-            # self.save_join_loss_stats(opt_flow_ratios, None, samples,
-                    # samples_type, loss_key="flow_ratio")
-
 
         for idx, (tbatch, pbatch, jbatch,fbatch, ybatch,info) in enumerate(loader):
             start = time.time()
@@ -793,12 +787,7 @@ class NN(CardinalityEstimationAlg):
                         normalization_type, min_val,
                         max_val, [subsetg_vectors],
                         self.normalize_flow_loss,
-                        self.join_loss_pool)
-                # assert len(losses) == 1
-                print(losses)
-                print(subsetg_vectors[-1])
-                pdb.set_trace()
-
+                        self.join_loss_pool, self.cost_model)
             else:
                 losses = loss_fn(pred, ybatch)
 
@@ -1570,6 +1559,7 @@ class NN(CardinalityEstimationAlg):
             for sample in self.training_samples:
                 qkey = deterministic_hash(sample["sql"])
                 if qkey in farchive:
+                # if False:
                     subsetg_vectors = farchive[qkey]
                     assert len(subsetg_vectors) == 9
                 else:
@@ -1591,7 +1581,8 @@ class NN(CardinalityEstimationAlg):
                                 subsetg_vectors[5],
                                 subsetg_vectors[3],
                                 subsetg_vectors[1],
-                                subsetg_vectors[2])
+                                subsetg_vectors[2],
+                                self.cost_model)
 
                     Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
                     Gv[subsetg_vectors[-1]] = 1.0

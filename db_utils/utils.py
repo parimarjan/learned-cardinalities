@@ -111,7 +111,7 @@ EDGE_COLORS["left"] = "b"
 EDGE_COLORS["right"] = "r"
 
 NILJ_CONSTANT = 0.001
-NILJ_CONSTANT2 = 0.1
+NILJ_CONSTANT2 = 2.0
 
 def get_default_con_creds():
     if "user" in os.environ:
@@ -1434,14 +1434,16 @@ def compute_costs(subset_graph, cost_model,
                 card1 = ests[" ".join(node1)]
                 card2 = ests[" ".join(node2)]
 
-        cost = get_costs(card1, card2, node1, node2, cost_model)
+        cost = get_costs(subset_graph, card1, card2, node1, node2, edge[0],
+                cost_model)
         assert cost != 0.0
         subset_graph[edge[0]][edge[1]][cost_key] = cost
 
         total_cost += cost
     return total_cost
 
-def get_costs(card1, card2, node1, node2, cost_model):
+def get_costs(subset_graph, card1, card2, node1, node2, joined_node,
+        cost_model):
     if cost_model == "cm1":
         hash_join_cost = card1 + card2
         if len(node1) == 1:
@@ -1452,12 +1454,20 @@ def get_costs(card1, card2, node1, node2, cost_model):
             nilj_cost = 10000000000
         cost = min(hash_join_cost, nilj_cost)
     elif cost_model == "nested_loop_index":
+        # TODO: calculate second multiple
+        joined_total = subset_graph.nodes()[joined_node]["cardinality"]["total"]
         if len(node1) == 1:
-            cost = card2 + NILJ_CONSTANT2*card2
+            # using index on node1
+            ratio_mul = max(joined_total / card2, 1)
+            cost = NILJ_CONSTANT2*card2*ratio_mul
         elif len(node2) == 1:
-            cost = card1 + NILJ_CONSTANT2*card1
+            # using index on node2
+            ratio_mul = max(joined_total / card1, 1)
+            cost = NILJ_CONSTANT2*card1*ratio_mul
         else:
             cost = card1*card2
+    else:
+        assert False
     return cost
 
 def constructG(subsetg):

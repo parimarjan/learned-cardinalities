@@ -42,8 +42,8 @@ def load_qerrs(exp_dir):
         assert False
     return qerrs
 
-def load_jerrs(exp_dir):
-    jerrs = load_object(exp_dir + "/jerr.pkl")
+def load_jerrs(exp_dir, file_name, loss_key):
+    jerrs = load_object(exp_dir + "/" + file_name)
     if jerrs is None:
         print("jerr not found for: ", exp_dir)
         return None
@@ -52,11 +52,17 @@ def load_jerrs(exp_dir):
 
     for samples_type in set(jerrs["samples_type"]):
         cur_jerrs = jerrs[jerrs["samples_type"] == samples_type]
-        add_row(cur_jerrs["cost"].values, "jcost", -1, "all", "all", samples_type,
+        # add_row(cur_jerrs["cost"].values, "jcost", -1, "all", "all", samples_type,
+                # stats)
+        add_row(cur_jerrs["loss"].values, loss_key, -1, "all", "all", samples_type,
                 stats)
+
+
         for template in set(cur_jerrs["template"]):
             tmp_jerrs = cur_jerrs[cur_jerrs["template"] == template]
-            add_row(tmp_jerrs["cost"].values, "jcost", -1, template, "all",
+            # add_row(tmp_jerrs["cost"].values, "jcost", -1, template, "all",
+                    # samples_type, stats)
+            add_row(tmp_jerrs["loss"].values, loss_key, -1, template, "all",
                     samples_type, stats)
 
     return pd.DataFrame(stats)
@@ -206,7 +212,9 @@ def get_summary_df(results_dir):
 
         try:
             qerrs = load_qerrs(cur_dir)
-            jerrs = load_jerrs(cur_dir)
+            jerrs = load_jerrs(cur_dir, "jerr.pkl", "jerr")
+            perrs = load_jerrs(cur_dir, "plan_err.pkl", "plan_err")
+            ferrs = load_jerrs(cur_dir, "flow_err.pkl", "flow_err")
         except:
             print("skipping ", cur_dir)
             continue
@@ -216,9 +224,12 @@ def get_summary_df(results_dir):
         if jerrs is None:
             continue
         jerrs = jerrs[LOSS_COLUMNS]
+        perrs = perrs[LOSS_COLUMNS]
+        ferrs = ferrs[LOSS_COLUMNS]
+
         # TODO: add rts too, if it exists
 
-        cur_df = pd.concat([qerrs, jerrs], ignore_index=True)
+        cur_df = pd.concat([qerrs, jerrs, perrs, ferrs], ignore_index=True)
         assert "max_discrete_featurizing_buckets" in exp_args
         for exp_column in EXP_COLUMNS:
             cur_df[exp_column] = exp_args[exp_column]
