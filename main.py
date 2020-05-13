@@ -364,7 +364,7 @@ def main():
             max_discrete_featurizing_buckets =
             args.max_discrete_featurizing_buckets,
             heuristic_features = args.heuristic_features,
-            flow_features = args.flow_features)
+            flow_features = args.flow_features, cost_model = args.cost_model)
 
     if len(train_queries) == 0:
         # debugging, so doesn't crash

@@ -61,13 +61,15 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
 
 # once we have stored them in archive, parallel just slows down stuff
 UPDATE_TOLERANCES_PAR = True
+USE_TOLERANCES = False
+
 def update_samples(samples, flow_features, cost_model):
     # FIXME: need to use correct cost_model here
     start = time.time()
     new_seen = False
     for sample in samples:
         # if "subset_graph_paths" in sample:
-            # continue
+            # subsetg
         new_seen = True
         subsetg = copy.deepcopy(sample["subset_graph"])
         add_single_node_edges(subsetg)
@@ -75,65 +77,65 @@ def update_samples(samples, flow_features, cost_model):
                 cost_key="pg_cost", ests="expected")
         _ = compute_costs(subsetg, cost_model, cost_key="cost",
                 ests=None)
-        subsetg.graph["total_cost"] = pg_total_cost
+
+        subsetg.graph[cost_model + "total_cost"] = pg_total_cost
+
         sample["subset_graph_paths"] = subsetg
 
         final_node = [n for n,d in subsetg.in_degree() if d==0][0]
         pg_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
                 weight="pg_cost")
-
         for node in pg_path:
-            subsetg.nodes()[node]["pg_path"] = 1
-
-    print("updated samples with shortest path costs in ", time.time()-start)
+            subsetg.nodes()[node][cost_model + "pg_path"] = 1
 
     if not new_seen:
         print("not calculating tolerances, because no new seen")
         return
     num_proc = 16
 
-    if UPDATE_TOLERANCES_PAR:
-        par_args = []
+    if USE_TOLERANCES:
+        if UPDATE_TOLERANCES_PAR:
+            par_args = []
+            for i in range(len(samples)):
+                par_args.append((samples[i], "expected", "pg_cost"))
+
+            with Pool(processes = num_proc) as pool:
+                res = pool.starmap(get_subq_tolerances, par_args)
+        else:
+            res = []
+            tcache = klepto.archives.dir_archive("./tolerances_cache",
+                    cached=True, serialized=True)
+            new_seen = False
+            tcache.load()
+            print("loaded tcache: ", time.time()-start)
+            # key = deterministic_hash(card_key + cost_key + qrep["sql"])
+            for qrep in samples:
+                key = deterministic_hash("expected" + "pg_cost" + qrep["sql"])
+                if key in tcache:
+                    res.append(tcache[key])
+                else:
+                    print(qrep["template_name"])
+                    print("!!sample not found in tolerances cache!!")
+                    pdb.set_trace()
+                    new_seen = True
+                    res.append(get_subq_tolerances(qrep, "expected", "pg_cost"))
+                    tcache[key] = res[-1]
+            if new_seen:
+                tcache.dump()
+
         for i in range(len(samples)):
-            par_args.append((samples[i], "expected", "pg_cost"))
+            tolerances = res[i]
+            subsetg = samples[i]["subset_graph_paths"]
+            nodes = list(subsetg.nodes())
+            nodes.remove(SOURCE_NODE)
+            nodes.sort()
+            for j, node in enumerate(nodes):
+                subsetg.nodes()[node]["tolerance"] = tolerances[j]
 
-        with Pool(processes = num_proc) as pool:
-            res = pool.starmap(get_subq_tolerances, par_args)
-    else:
-        res = []
-        tcache = klepto.archives.dir_archive("./tolerances_cache",
-                cached=True, serialized=True)
-        new_seen = False
-        tcache.load()
-        print("loaded tcache: ", time.time()-start)
-        # key = deterministic_hash(card_key + cost_key + qrep["sql"])
-        for qrep in samples:
-            key = deterministic_hash("expected" + "pg_cost" + qrep["sql"])
-            if key in tcache:
-                res.append(tcache[key])
-            else:
-                print(qrep["template_name"])
-                print("!!sample not found in tolerances cache!!")
-                pdb.set_trace()
-                new_seen = True
-                res.append(get_subq_tolerances(qrep, "expected", "pg_cost"))
-                tcache[key] = res[-1]
-        if new_seen:
-            tcache.dump()
+    for sample in samples:
+        save_sql_rep(sample["name"], sample)
 
-    for i in range(len(samples)):
-        tolerances = res[i]
-        subsetg = samples[i]["subset_graph_paths"]
-        nodes = list(subsetg.nodes())
-        nodes.remove(SOURCE_NODE)
-        nodes.sort()
-        for j, node in enumerate(nodes):
-            subsetg.nodes()[node]["tolerance"] = tolerances[j]
-
-    # for sample in samples:
-        # save_sql_rep(sample["name"], sample)
-
-    print("updated samples with tolerances", time.time()-start)
+    print("updated samples in", time.time()-start)
 
 SUBQUERY_JERR_THRESHOLD = 100000
 # PERCENTILES_TO_SAVE = [1,5,10,25, 50, 75, 90, 95, 99]
@@ -779,15 +781,17 @@ class NN(CardinalityEstimationAlg):
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
-                subsetg_vectors = self.flow_training_info[qidx]
+                subsetg_vectors, trueC_vec, opt_loss = \
+                        self.flow_training_info[qidx]
 
-                assert len(subsetg_vectors) == 9
+                assert len(subsetg_vectors) == 7
 
                 losses = loss_fn(pred, ybatch.detach(),
                         normalization_type, min_val,
-                        max_val, [subsetg_vectors],
+                        max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
                         self.normalize_flow_loss,
                         self.join_loss_pool, self.cost_model)
+                assert len(subsetg_vectors) == 7
             else:
                 losses = loss_fn(pred, ybatch)
 
@@ -1254,13 +1258,8 @@ class NN(CardinalityEstimationAlg):
                         Y).detach().numpy()
             else:
                 losses = qloss_torch(pred, Y).detach().numpy()
-            # flow_losses = self.loss(pred, Y).detach().numpy()
-
-        # FIXME: self.loss could be various loss functions, like mse, but we care
-        # about observing how the q-error is evolving
 
         loss_avg = round(np.sum(losses) / len(losses), 6)
-        # TODO: better print, use self.cur_stats and print after evals
         print("""{}: {}, N: {}, qerr: {}""".format(
             samples_type, self.epoch, len(Y), loss_avg))
         if self.adaptive_lr and self.scheduler is not None:
@@ -1559,55 +1558,51 @@ class NN(CardinalityEstimationAlg):
             for sample in self.training_samples:
                 qkey = deterministic_hash(sample["sql"])
                 if qkey in farchive:
-                # if False:
                     subsetg_vectors = farchive[qkey]
-                    assert len(subsetg_vectors) == 9
+                    assert len(subsetg_vectors) == 7
                 else:
                     new_seen = True
                     subsetg_vectors = list(get_subsetg_vectors(sample))
-                    true_cards = np.zeros(len(subsetg_vectors[0]),
-                            dtype=np.float32)
-                    nodes = list(sample["subset_graph"].nodes())
-                    nodes.sort()
-                    for i, node in enumerate(nodes):
-                        true_cards[i] = \
-                            sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
-
-                    trueC_vec, dgdxT, G, Q = \
-                        get_optimization_variables(true_cards,
-                            subsetg_vectors[0], self.min_val,
-                                self.max_val, self.normalization_type,
-                                subsetg_vectors[4],
-                                subsetg_vectors[5],
-                                subsetg_vectors[3],
-                                subsetg_vectors[1],
-                                subsetg_vectors[2],
-                                self.cost_model)
-
-                    Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
-                    Gv[subsetg_vectors[-1]] = 1.0
-
-                    trueC_vec = to_variable(trueC_vec).float()
-                    dgdxT = to_variable(dgdxT).float()
-                    G = to_variable(G).float()
-                    Q = to_variable(Q).float()
-
-                    trueC = torch.eye(len(trueC_vec)).float().detach()
-                    for i, curC in enumerate(trueC_vec):
-                        trueC[i,i] = curC
-
-                    invG = torch.inverse(G)
-                    v = invG @ Gv
-                    left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
-                    right = Q @ (v)
-                    opt_flow_loss = left @ trueC @ right
-
-                    subsetg_vectors.append(trueC_vec)
-                    subsetg_vectors.append(opt_flow_loss)
-
                     farchive[qkey] = subsetg_vectors
 
-                self.flow_training_info.append(subsetg_vectors)
+                true_cards = np.zeros(len(subsetg_vectors[0]),
+                        dtype=np.float32)
+                nodes = list(sample["subset_graph"].nodes())
+                nodes.sort()
+                for i, node in enumerate(nodes):
+                    true_cards[i] = \
+                        sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+                trueC_vec, dgdxT, G, Q = \
+                    get_optimization_variables(true_cards,
+                        subsetg_vectors[0], self.min_val,
+                            self.max_val, self.normalization_type,
+                            subsetg_vectors[4],
+                            subsetg_vectors[5],
+                            subsetg_vectors[3],
+                            subsetg_vectors[1],
+                            subsetg_vectors[2],
+                            self.cost_model)
+
+                Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
+                Gv[subsetg_vectors[-1]] = 1.0
+                trueC_vec = to_variable(trueC_vec).float()
+                dgdxT = to_variable(dgdxT).float()
+                G = to_variable(G).float()
+                Q = to_variable(Q).float()
+
+                trueC = torch.eye(len(trueC_vec)).float().detach()
+                for i, curC in enumerate(trueC_vec):
+                    trueC[i,i] = curC
+
+                invG = torch.inverse(G)
+                v = invG @ Gv
+                left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
+                right = Q @ (v)
+                opt_flow_loss = left @ trueC @ right
+
+                self.flow_training_info.append((subsetg_vectors, trueC_vec,
+                        opt_flow_loss))
 
             print("precomputing flow info took: ", time.time()-fstart)
             if new_seen:
@@ -1798,7 +1793,6 @@ class NN(CardinalityEstimationAlg):
                     self.periodic_eval("test")
                 self.save_stats()
                 print("eval took: ", time.time()-eval_start)
-                # pdb.set_trace()
 
             elif self.epoch > self.start_validation and self.use_val_set:
                 if self.samples["test"] is not None:
@@ -1807,7 +1801,6 @@ class NN(CardinalityEstimationAlg):
             start = time.time()
             self.train_one_epoch()
             print("one epoch train took: ", time.time()-start)
-            # pdb.set_trace()
 
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \

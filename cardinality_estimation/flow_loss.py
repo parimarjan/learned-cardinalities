@@ -314,59 +314,32 @@ class FlowLoss(Function):
         ctx.pool = pool
         ctx.normalize_flow_loss = normalize_flow_loss
         ctx.subsetg_vectors = subsetg_vectors
-        assert len(subsetg_vectors[0]) == 9
+        assert len(subsetg_vectors[0][0]) == 7
         start = time.time()
         ctx.dgdxTs = []
         ctx.invGs = []
         ctx.Qs = []
         ctx.vs = []
 
-        if len(subsetg_vectors) > 1:
-            # FIXME: later
-            assert False
-            par_args = []
-            qidx = 0
-            for i, subsetg in enumerate(subsetgs):
-                # num nodes = num of yhat predictions
-                num_nodes = len(subsetg.nodes())-1
-                par_args.append((yhat[qidx:qidx+num_nodes],
-                                 normalization_type,
-                                 min_val,
-                                 max_val,
-                                 node_dicts[i],
-                                 edge_dicts[i],
-                                 subsetg,
-                                 # trueCs[i].detach(),
-                                 final_nodes[i]))
-                qidx += num_nodes
+        totals, edges_head, edges_tail, nilj, edges_cost_node1, \
+                edges_cost_node2, final_node = ctx.subsetg_vectors[0][0]
+        trueC_vec, opt_flow_loss = ctx.subsetg_vectors[0][1], \
+                        ctx.subsetg_vectors[0][2]
 
-            results = ctx.pool.starmap(single_forward, par_args)
-            loss = 0.0
-            for i, res in enumerate(results):
-                loss += res[0]
-                ctx.dgdxTs.append(res[1])
-                ctx.invGs.append(res[2])
-                ctx.Qs.append(res[3])
-                ctx.vs.append(res[4])
-        else:
-            totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                    edges_cost_node2, final_node, trueC_vec, opt_cost \
-                        = ctx.subsetg_vectors[0]
+        start = time.time()
+        res = single_forward2(yhat, totals,
+                edges_head, edges_tail, edges_cost_node1,
+                edges_cost_node2,
+                nilj,
+                normalization_type,
+                min_val, max_val,
+                trueC_vec, final_node, cost_model)
 
-            start = time.time()
-            res = single_forward2(yhat, totals,
-                    edges_head, edges_tail, edges_cost_node1,
-                    edges_cost_node2,
-                    nilj,
-                    normalization_type,
-                    min_val, max_val,
-                    trueC_vec, final_node, cost_model)
-
-            loss = res[0]
-            ctx.dgdxTs.append(res[1])
-            ctx.invGs.append(res[2])
-            ctx.Qs.append(res[3])
-            ctx.vs.append(res[4])
+        loss = res[0]
+        ctx.dgdxTs.append(res[1])
+        ctx.invGs.append(res[2])
+        ctx.Qs.append(res[3])
+        ctx.vs.append(res[4])
 
         # print("forward took: ", time.time()-start)
         return loss
@@ -383,31 +356,18 @@ class FlowLoss(Function):
         assert not ctx.needs_input_grad[1]
         assert not ctx.needs_input_grad[2]
 
-        if len(ctx.subsetg_vectors) > 1:
-            par_args = []
-            for i in range(len(ctx.subsetgs)):
-                par_args.append((ctx.edge_dicts[i],
-                                 ctx.node_dicts[i],
-                                 ctx.Qs[i], ctx.invGs[i],
-                                 ctx.vs[i], ctx.dgdxTs[i],
-                                 ctx.opt_flow_losses[i], ctx.trueCs[i]))
+        _, edges_head, edges_tail, _, _, \
+                _, _ = ctx.subsetg_vectors[0][0]
+        trueC_vec, opt_cost = ctx.subsetg_vectors[0][1], \
+                                ctx.subsetg_vectors[0][2]
 
-            results = ctx.pool.starmap(single_backward, par_args)
-            yhat_grad = np.concatenate(results)
-            yhat_grad /= len(ctx.subsetgs)
-            yhat_grad = torch.from_numpy(yhat_grad)
-        else:
-
-            _, edges_head, edges_tail, _, _, \
-                    _, _, trueC_vec, opt_cost \
-                        = ctx.subsetg_vectors[0]
-            yhat_grad = single_backward(
-                             ctx.Qs[0], ctx.invGs[0],
-                             ctx.vs[0], ctx.dgdxTs[0],
-                             opt_cost, trueC_vec,
-                             edges_head,
-                             edges_tail,
-                             ctx.normalize_flow_loss)
+        yhat_grad = single_backward(
+                         ctx.Qs[0], ctx.invGs[0],
+                         ctx.vs[0], ctx.dgdxTs[0],
+                         opt_cost, trueC_vec,
+                         edges_head,
+                         edges_tail,
+                         ctx.normalize_flow_loss)
 
         return yhat_grad,None,None,None,None,None,None,None,None,None
 

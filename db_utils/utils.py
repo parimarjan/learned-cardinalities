@@ -490,43 +490,6 @@ def pg_est_from_explain(output):
     pdb.set_trace()
     return 1.00
 
-# def extract_join_clause(query):
-    # '''
-    # FIXME: this can be optimized further / or made to handle more cases
-    # '''
-    # parsed = sqlparse.parse(query)[0]
-    # # let us go over all the where clauses
-    # start = time.time()
-    # where_clauses = None
-    # for token in parsed.tokens:
-        # if (type(token) == sqlparse.sql.Where):
-            # where_clauses = token
-    # if where_clauses is None:
-        # return []
-    # join_clauses = []
-
-    # froms, aliases, table_names = extract_from_clause(query)
-    # if len(aliases) > 0:
-        # tables = [k for k in aliases]
-    # else:
-        # tables = table_names
-    # matches = find_all_clauses(tables, where_clauses)
-    # for match in matches:
-        # if "=" not in match:
-            # continue
-        # if "<=" in match or ">=" in match:
-            # continue
-
-        # match = match.replace(";", "")
-        # left, right = match.split("=")
-        # # ugh dumb hack
-        # if "." in right:
-            # # must be a join, so add it.
-            # join_clauses.append(left.strip() + " = " + right.strip())
-
-    # # print("extract join clauses took ", time.time() - start)
-    # return join_clauses
-
 def get_all_wheres(parsed_query):
     pred_vals = []
     if "where" not in parsed_query:
@@ -1403,6 +1366,7 @@ def compute_costs(subset_graph, cost_model,
     @computes costs based on the MM1 cost model.
     '''
     total_cost = 0.0
+    cost_key = cost_model + cost_key
     for edge in subset_graph.edges():
         if len(edge[0]) == len(edge[1]):
             assert edge[1] == tuple("s")
@@ -1437,6 +1401,7 @@ def compute_costs(subset_graph, cost_model,
         cost = get_costs(subset_graph, card1, card2, node1, node2, edge[0],
                 cost_model)
         assert cost != 0.0
+
         subset_graph[edge[0]][edge[1]][cost_key] = cost
 
         total_cost += cost
@@ -1652,7 +1617,6 @@ def get_subsetg_vectors(sample):
         edges_cost_node2[edgei] = node_dict[node2]
 
         if len(node1) == 1:
-            # nilj_cost = card2 + NILJ_CONSTANT*card1
             nilj[edgei] = 1
         elif len(node2) == 1:
             nilj[edgei] = 2

@@ -162,9 +162,10 @@ class DB():
             max_discrete_featurizing_buckets=10,
             flow_features = True,
             feat_num_paths= False, feat_flows=False,
-            feat_pg_costs = True, feat_tolerance=True,
+            feat_pg_costs = True, feat_tolerance=False,
             feat_template=True, feat_pg_path=True,
-            feat_rel_pg_ests=True, feat_join_graph_neighbors=True):
+            feat_rel_pg_ests=True, feat_join_graph_neighbors=True,
+            cost_model=None):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -176,6 +177,7 @@ class DB():
         and num_vals refers to the number of values it will occupy.
         E.g. TODO.
         '''
+        self.cost_model = cost_model
         self.heuristic_features = heuristic_features
         self.flow_features = flow_features
         # let's figure out the feature len based on db.stats
@@ -327,9 +329,9 @@ class DB():
             in_edges = subsetg.in_edges(node)
             in_cost = 0.0
             for edge in in_edges:
-                in_cost += subsetg[edge[0]][edge[1]]["pg_cost"]
+                in_cost += subsetg[edge[0]][edge[1]][self.cost_model + "pg_cost"]
             # normalized pg cost
-            flow_features[cur_idx] = in_cost / subsetg.graph["total_cost"]
+            flow_features[cur_idx] = in_cost / subsetg.graph[self.cost_model + "total_cost"]
             cur_idx += 1
 
         if self.feat_tolerance:
@@ -368,7 +370,7 @@ class DB():
             cur_idx += len(self.table_featurizer)
 
         if self.feat_rel_pg_ests:
-            total_cost = subsetg.graph["total_cost"]
+            total_cost = subsetg.graph[self.cost_model+"total_cost"]
             pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
             flow_features[cur_idx] = pg_est / total_cost
             cur_idx += 1

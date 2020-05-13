@@ -316,6 +316,8 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         set_indexes(cursor, "on")
+    elif cost_model == "cm1":
+        pass
     else:
         assert False
 
@@ -497,65 +499,49 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
     costs = []
     farchive = klepto.archives.dir_archive("./flow_info_archive",
             cached=True, serialized=True)
-    seen_new = False
+    new_seen = False
     for i, sample in enumerate(samples):
         if known_costs and known_costs[i] is not None:
             costs.append(known_costs[i])
             continue
         qkey = deterministic_hash(sample["sql"])
         if qkey in farchive.archive:
-        # if False:
             subsetg_vectors = farchive.archive[qkey]
-            assert len(subsetg_vectors) == 9
+            assert len(subsetg_vectors) == 7
             totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                    edges_cost_node2, final_node, trueC_vec, opt_cost = subsetg_vectors
-            if all_ests is None:
-                costs.append(opt_cost)
-                continue
+                    edges_cost_node2, final_node = subsetg_vectors
+        else:
+            new_seen = True
+            # this must be for true cards
+            assert all_ests is None
+            subsetg_vectors = list(get_subsetg_vectors(sample))
+            assert len(subsetg_vectors) == 7
 
-            if isinstance(trueC_vec, torch.Tensor):
-                trueC_vec = trueC_vec.detach().numpy()
-            est_cards = np.zeros(len(subsetg_vectors[0]),
-                    dtype=np.float32)
-            nodes = list(sample["subset_graph"].nodes())
-            nodes.sort()
-            for ni, node in enumerate(nodes):
-                assert all_ests is not None
+        totals, edges_head, edges_tail, nilj, edges_cost_node1, \
+                edges_cost_node2, final_node = subsetg_vectors
+        true_cards = np.zeros(len(subsetg_vectors[0]),
+                dtype=np.float32)
+        est_cards = np.zeros(len(subsetg_vectors[0]),
+                dtype=np.float32)
+        nodes = list(sample["subset_graph"].nodes())
+        nodes.sort()
+        for ni, node in enumerate(nodes):
+            if all_ests is not None:
                 if node in all_ests[i]:
                     est_cards[ni] = all_ests[i][node]
                 else:
                     est_cards[ni] = all_ests[i][" ".join(node)]
-        else:
-            seen_new = True
-            # this must be for true cards
-            assert all_ests is None
-            subsetg_vectors = list(get_subsetg_vectors(sample))
-
-            totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                    edges_cost_node2, final_node = subsetg_vectors
-            true_cards = np.zeros(len(subsetg_vectors[0]),
-                    dtype=np.float32)
-            est_cards = np.zeros(len(subsetg_vectors[0]),
-                    dtype=np.float32)
-            nodes = list(sample["subset_graph"].nodes())
-            nodes.sort()
-            for ni, node in enumerate(nodes):
-                if all_ests is not None:
-                    if node in all_ests[i]:
-                        est_cards[ni] = all_ests[i][node]
-                    else:
-                        est_cards[ni] = all_ests[i][" ".join(node)]
-                else:
-                    # est_cards are also true cardinalities here
-                    est_cards[ni] = \
-                            sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
-
-                true_cards[ni] = \
+            else:
+                # est_cards are also true cardinalities here
+                est_cards[ni] = \
                         sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
 
-            trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
-                    0.0, 24.0, None, edges_cost_node1,
-                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+            true_cards[ni] = \
+                    sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+        trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
+                0.0, 24.0, None, edges_cost_node1,
+                edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
 
         predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
                 0.0, 24.0, None, edges_cost_node1,
@@ -589,10 +575,9 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
                 )
 
         costs.append(loss2[0])
-        if all_ests is None:
+
+        if new_seen:
             # was for true cards
-            subsetg_vectors.append(trueC_vec)
-            subsetg_vectors.append(loss2[0])
             farchive.archive[qkey] = subsetg_vectors
 
     return costs
@@ -620,10 +605,10 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         nodes.sort(key=lambda x: len(x))
         final_node = nodes[-1]
         path = nx.shortest_path(subsetg, final_node,
-                source_node, weight=cost_key)
+                source_node, weight=cost_model+cost_key)
         cost = 0.0
         for i in range(len(path)-1):
-            cost += subsetg[path[i]][path[i+1]]["cost"]
+            cost += subsetg[path[i]][path[i+1]][cost_model+"cost"]
         costs.append(cost)
 
     return costs
