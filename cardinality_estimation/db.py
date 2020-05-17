@@ -177,6 +177,7 @@ class DB():
         and num_vals refers to the number of values it will occupy.
         E.g. TODO.
         '''
+        indexes = self.execute(INDEX_LIST_CMD)
         self.cost_model = cost_model
         self.heuristic_features = heuristic_features
         self.flow_features = flow_features

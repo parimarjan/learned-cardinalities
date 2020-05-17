@@ -81,7 +81,6 @@ where
     and a.attrelid = t.oid
     and a.attnum = ANY(ix.indkey)
     and t.relkind = 'r'
-   -- and t.relname like 'mytable'
 order by
     t.relname,
     i.relname;"""
@@ -112,6 +111,8 @@ EDGE_COLORS["right"] = "r"
 
 NILJ_CONSTANT = 0.001
 NILJ_CONSTANT2 = 2.0
+RATIO_MUL_CONST = 1.0
+NILJ_MIN_CARD = 0.0
 
 def get_default_con_creds():
     if "user" in os.environ:
@@ -1381,25 +1382,35 @@ def compute_costs(subset_graph, cost_model,
         node2.sort()
         node2 = tuple(node2)
         assert node2 in subset_graph.nodes()
+        # joined node
+        node3 = edge[0]
         cards1 = subset_graph.nodes()[node1]["cardinality"]
         cards2 = subset_graph.nodes()[node2]["cardinality"]
+        cards3 = subset_graph.nodes()[edge[0]]["cardinality"]
+        total1 = cards1["total"]
+        total2 = cards2["total"]
+
         if isinstance(ests, str):
             card1 = cards1[ests]
             card2 = cards2[ests]
+            card3 = cards3[ests]
         elif ests is None:
             card1 = cards1["actual"]
             card2 = cards2["actual"]
+            card3 = cards3["actual"]
         else:
             assert isinstance(ests, dict)
             if node1 in ests:
                 card1 = ests[node1]
                 card2 = ests[node2]
+                card3 = ests[node3]
             else:
                 card1 = ests[" ".join(node1)]
                 card2 = ests[" ".join(node2)]
+                card3 = ests[" ".join(node3)]
 
-        cost = get_costs(subset_graph, card1, card2, node1, node2, edge[0],
-                cost_model)
+        cost = get_costs(subset_graph, card1, card2, card3, node1, node2,
+                cost_model, total1, total2)
         assert cost != 0.0
 
         subset_graph[edge[0]][edge[1]][cost_key] = cost
@@ -1407,8 +1418,8 @@ def compute_costs(subset_graph, cost_model,
         total_cost += cost
     return total_cost
 
-def get_costs(subset_graph, card1, card2, node1, node2, joined_node,
-        cost_model):
+def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
+        total1=None, total2=None):
     if cost_model == "cm1":
         hash_join_cost = card1 + card2
         if len(node1) == 1:
@@ -1418,19 +1429,120 @@ def get_costs(subset_graph, card1, card2, node1, node2, joined_node,
         else:
             nilj_cost = 10000000000
         cost = min(hash_join_cost, nilj_cost)
+        if cost != nilj_cost:
+            print("hash join cost selected!")
+            pdb.set_trace()
+    elif cost_model == "cm2":
+        cost = card1 + card2
     elif cost_model == "nested_loop_index":
         # TODO: calculate second multiple
-        joined_total = subset_graph.nodes()[joined_node]["cardinality"]["total"]
+        # joined_total = subset_graph.nodes()[joined_node]["cardinality"]["total"]
         if len(node1) == 1:
             # using index on node1
-            ratio_mul = max(joined_total / card2, 1)
+            ratio_mul = max(card3 / card2, 1.0)
             cost = NILJ_CONSTANT2*card2*ratio_mul
         elif len(node2) == 1:
             # using index on node2
-            ratio_mul = max(joined_total / card1, 1)
+            ratio_mul = max(card3 / card1, 1.0)
             cost = NILJ_CONSTANT2*card1*ratio_mul
         else:
-            cost = card1*card2
+            assert False
+            # cost = card1*card2
+        assert cost >= 1.0
+    elif cost_model == "nested_loop_index2":
+        if len(node1) == 1:
+            # using index on node1
+            cost = NILJ_CONSTANT2*card2
+        elif len(node2) == 1:
+            # using index on node2
+            cost = NILJ_CONSTANT2*card1
+        else:
+            assert False
+            # cost = card1*card2
+        assert cost >= 1.0
+    elif cost_model == "nested_loop_index3":
+        if len(node1) == 1:
+            nilj_cost = card2 + NILJ_CONSTANT*card1
+        elif len(node2) == 1:
+            nilj_cost = card1 + NILJ_CONSTANT*card2
+        else:
+            assert False
+        cost = nilj_cost
+    elif cost_model == "nested_loop_index4":
+        # same as nested_loop_index, but also considering just joining the two
+        # tables
+
+        # because card3 for ratio_mul should be calculated without applying the
+        # predicate on the table with the index, and we don't have that value,
+        # we replace it with a const
+        if len(node1) == 1:
+            # using index on node1
+            ratio_mul = max(card3 / card2, 1.0)
+            # ratio_mul = ratio_mul*(total1 / card1)
+            ratio_mul = ratio_mul*RATIO_MUL_CONST
+            cost = NILJ_CONSTANT2*card2*ratio_mul
+        elif len(node2) == 1:
+            # using index on node2
+            ratio_mul = max(card3 / card1, 1.0)
+            # ratio_mul = ratio_mul*(total2 / card2)
+            ratio_mul = ratio_mul*RATIO_MUL_CONST
+            cost = NILJ_CONSTANT2*card1*ratio_mul
+        else:
+            assert False
+            # cost = card1*card2
+        # w/o indexes
+        cost2 = card1*card2
+        if cost2 < cost:
+            cost = cost2
+
+        assert cost >= 1.0
+    elif cost_model == "nested_loop_index5":
+        # same as nested_index_loop4, BUT disallowing index joins if either of
+        # the nodes have cardinality less than NILJ_MIN_CARD
+
+        if card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD:
+            cost = 1e10
+        else:
+            if len(node1) == 1:
+                # using index on node1
+                ratio_mul = max(card3 / card2, 1.0)
+                # ratio_mul = ratio_mul*(total1 / card1)
+                ratio_mul = ratio_mul*RATIO_MUL_CONST
+                cost = NILJ_CONSTANT2*card2*ratio_mul
+            elif len(node2) == 1:
+                # using index on node2
+                ratio_mul = max(card3 / card1, 1.0)
+                # ratio_mul = ratio_mul*(total2 / card2)
+                ratio_mul = ratio_mul*RATIO_MUL_CONST
+                cost = NILJ_CONSTANT2*card1*ratio_mul
+            else:
+                assert False
+
+        # w/o indexes
+        cost2 = card1*card2
+        if cost2 < cost or (card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD):
+            cost = cost2
+
+    elif cost_model == "nested_loop_index6":
+        # want it like nested_loop5, BUT not depend on node3
+        if card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD:
+            cost = 1e10
+        else:
+            if card1 > card2:
+                cost = NILJ_CONSTANT2*card1*RATIO_MUL_CONST
+            else:
+                cost = NILJ_CONSTANT2*card2*RATIO_MUL_CONST
+
+        # w/o indexes
+        cost2 = card1*card2
+        if cost2 < cost or (card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD):
+            cost = cost2
+
+    elif cost_model == "nested_loop":
+        cost = card1*card2
+    elif cost_model == "hash_join":
+        # skip multiplying with constants
+        cost = card1 + card2
     else:
         assert False
     return cost
@@ -1580,6 +1692,7 @@ def get_subsetg_vectors(sample):
     edges_cost_node1 = [0]*len(edges)
     edges_cost_node2 = [0]*len(edges)
     nilj = [0]*len(edges)
+    nilj2 = [0]*len(edges)
     final_node = 0
     max_len_nodes = 0
 
@@ -1620,6 +1733,15 @@ def get_subsetg_vectors(sample):
             nilj[edgei] = 1
         elif len(node2) == 1:
             nilj[edgei] = 2
+
+        # nilj2 conditions
+        # In case both
+        # if len(node1) == 1 and len(node2) == 1:
+            # # which node to choose
+        # elif len(node1) == 1:
+            # nilj2[edgei] = 1
+        # elif len(node2) == 1:
+            # nilj2[edgei] = 2
 
     edges_head = np.array(edges_head, dtype=np.int32)
     edges_tail = np.array(edges_tail, dtype=np.int32)

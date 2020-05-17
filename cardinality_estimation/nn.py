@@ -68,28 +68,33 @@ def update_samples(samples, flow_features, cost_model):
     start = time.time()
     new_seen = False
     for sample in samples:
-        # if "subset_graph_paths" in sample:
-            # subsetg
-        new_seen = True
-        subsetg = copy.deepcopy(sample["subset_graph"])
-        add_single_node_edges(subsetg)
-        pg_total_cost = compute_costs(subsetg, cost_model,
-                cost_key="pg_cost", ests="expected")
-        _ = compute_costs(subsetg, cost_model, cost_key="cost",
-                ests=None)
+        if "subset_graph_paths" in sample:
+            subsetg = sample["subset_graph_paths"]
+        else:
+            subsetg = copy.deepcopy(sample["subset_graph"])
+            add_single_node_edges(subsetg)
 
-        subsetg.graph[cost_model + "total_cost"] = pg_total_cost
+        sample_edge = list(subsetg.edges())[0]
+        if cost_model + "cost" in subsetg.edges()[sample_edge].keys():
+            continue
+        else:
+            new_seen = True
+            pg_total_cost = compute_costs(subsetg, cost_model,
+                    cost_key="pg_cost", ests="expected")
+            _ = compute_costs(subsetg, cost_model, cost_key="cost",
+                    ests=None)
 
-        sample["subset_graph_paths"] = subsetg
+            subsetg.graph[cost_model + "total_cost"] = pg_total_cost
 
-        final_node = [n for n,d in subsetg.in_degree() if d==0][0]
-        pg_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
-                weight="pg_cost")
-        for node in pg_path:
-            subsetg.nodes()[node][cost_model + "pg_path"] = 1
+            sample["subset_graph_paths"] = subsetg
+
+            final_node = [n for n,d in subsetg.in_degree() if d==0][0]
+            pg_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
+                    weight="pg_cost")
+            for node in pg_path:
+                subsetg.nodes()[node][cost_model + "pg_path"] = 1
 
     if not new_seen:
-        print("not calculating tolerances, because no new seen")
         return
     num_proc = 16
 
@@ -1098,9 +1103,10 @@ class NN(CardinalityEstimationAlg):
         '''
         '''
         time_hash = str(deterministic_hash(self.start_time))[0:3]
-        name = "{PREFIX}{NN}-{PRIORITY}-{PR_NORM}-D{DECAY}-{HASH}".format(\
+        name = "{PREFIX}{CM}-{NN}-{PRIORITY}-{PR_NORM}-D{DECAY}-{HASH}".format(\
                     PREFIX = self.exp_prefix,
                     NN = self.__str__(),
+                    CM = self.cost_model,
                     PRIORITY = self.sampling_priority_alpha,
                     PR_NORM = self.priority_normalize_type,
                     DECAY = str(self.weight_decay),
@@ -1350,10 +1356,14 @@ class NN(CardinalityEstimationAlg):
                 join_loss_data_file = self.join_loss_data_file)
 
         join_losses = np.array(est_costs) - np.array(opt_costs)
+        join_losses_ratio = np.array(est_costs) / np.array(opt_costs)
+
         # join_losses = np.maximum(join_losses, 0.00)
 
         self.save_join_loss_stats(join_losses, est_plans, samples,
                 samples_type)
+        self.save_join_loss_stats(join_losses_ratio, est_plans, samples,
+                samples_type, loss_key="jerr_ratio")
 
         if np.mean(join_losses) < self.best_join_loss \
                 and self.epoch > self.start_validation \

@@ -12,6 +12,12 @@ from ctypes import *
 import os
 import copy
 import pkg_resources
+import jax
+
+# import jax.numpy as jp
+# from jax import grad, jit, vmap
+import jax.numpy as jp
+from jax import jacfwd, jacrev
 
 system = platform.system()
 if system == 'Linux':
@@ -22,8 +28,174 @@ else:
 lib_dir = "./flow_loss_cpp"
 lib_file = lib_dir + "/" + lib_file
 fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
+DEBUG_JAX = False
 
 DEBUG = False
+
+def get_costs_jax(card1, card2, card3, nilj, cost_model,
+        total1=None, total2=None):
+    if cost_model == "cm1":
+        # hash_join_cost = card1 + card2
+        if nilj == 1:
+            nilj_cost = card2 + NILJ_CONSTANT*card1
+        elif nilj == 2:
+            nilj_cost = card1 + NILJ_CONSTANT*card2
+        else:
+            assert False
+            # nilj_cost = 10000000000
+        # cost = jp.min(hash_join_cost, nilj_cost)
+        # if cost != nilj_cost:
+            # print("hash join cost selected!")
+            # pdb.set_trace()
+        cost = nilj_cost
+    elif cost_model == "cm2":
+        cost = card1 + card2
+    elif cost_model == "nested_loop_index":
+        if nilj == 1:
+            # using index on node1
+            ratio_mul = max(card3 / card2, 1.0)
+            cost = NILJ_CONSTANT2*card2*ratio_mul
+        elif nilj == 2:
+            # using index on node2
+            ratio_mul = max(card3 / card1, 1.0)
+            cost = NILJ_CONSTANT2*card1*ratio_mul
+        else:
+            assert False
+            # cost = card1*card2
+        assert cost >= 1.0
+    elif cost_model == "nested_loop_index2":
+        if nilj == 1:
+            # using index on node1
+            cost = NILJ_CONSTANT2*card2
+        elif nilj == 2:
+            # using index on node2
+            cost = NILJ_CONSTANT2*card1
+        else:
+            assert False
+        assert cost >= 1.0
+    elif cost_model == "nested_loop_index3":
+        if nilj == 1:
+            nilj_cost = card2 + NILJ_CONSTANT*card1
+        elif nilj == 2:
+            nilj_cost = card1 + NILJ_CONSTANT*card2
+        else:
+            assert False
+        cost = nilj_cost
+    elif cost_model == "nested_loop_index4":
+        # same as nested_loop_index, but also considering just joining the two
+        # tables
+
+        # because card3 for ratio_mul should be calculated without applying the
+        # predicate on the table with the index, and we don't have that value,
+        # we replace it with a const
+        if nilj == 1:
+            # using index on node1
+            ratio_mul = 1.0
+            if (card3 / card2) > 1.0:
+                ratio_mul = card3 / card2
+            ratio_mul = ratio_mul*RATIO_MUL_CONST
+            cost = NILJ_CONSTANT2*card2*ratio_mul
+        elif nilj == 2:
+            # using index on node2
+            ratio_mul = 1.0
+            if (card3 / card1) > 1.0:
+                ratio_mul = card3 / card1
+            ratio_mul = ratio_mul*RATIO_MUL_CONST
+            cost = NILJ_CONSTANT2*card1*ratio_mul
+        else:
+            assert False
+            # cost = card1*card2
+        # w/o indexes
+        cost2 = card1*card2
+        if cost2 < cost:
+            print("cost2 < cost!")
+            cost = cost2
+
+        assert cost >= 1.0
+    elif cost_model == "nested_loop_index5":
+        # same as nested_index_loop4, BUT disallowing index joins if either of
+        # the nodes have cardinality less than NILJ_MIN_CARD
+        if card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD:
+            cost = 1e10
+        else:
+            if nilj == 1:
+                # using index on node1
+                ratio_mul = 1.0
+                if (card3 / card2) > 1.0:
+                    ratio_mul = card3 / card2
+                ratio_mul = ratio_mul*RATIO_MUL_CONST
+                cost = NILJ_CONSTANT2*card2*ratio_mul
+            elif nilj == 2:
+                # using index on node2
+                ratio_mul = 1.0
+                if (card3 / card1) > 1.0:
+                    ratio_mul = card3 / card1
+                ratio_mul = ratio_mul*RATIO_MUL_CONST
+                cost = NILJ_CONSTANT2*card1*ratio_mul
+            else:
+                assert False
+
+        # w/o indexes
+        cost2 = card1*card2
+        if cost2 < cost or (card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD):
+            print("cost2 chosen! ", cost2)
+            cost = cost2
+    elif cost_model == "nested_loop_index6":
+        if card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD:
+            cost = 1e10
+        else:
+            if card1 > card2:
+                cost = NILJ_CONSTANT2*card1*RATIO_MUL_CONST
+            else:
+                cost = NILJ_CONSTANT2*card2*RATIO_MUL_CONST
+
+        # w/o indexes
+        cost2 = card1*card2
+        if cost2 < cost or (card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD):
+            print("cost2 chosen! ", cost2)
+            cost = cost2
+
+    elif cost_model == "nested_loop":
+        cost = card1*card2
+    elif cost_model == "hash_join":
+        cost = card1 + card2
+    else:
+        assert False
+    return cost
+
+def get_optimization_variables_jax(yhat, totals, min_val, max_val,
+        normalization_type, edges_cost_node1, edges_cost_node2, edges_head,
+        nilj, cost_model, G, Q):
+    '''
+    returns costs, and updates numpy arrays G, Q in place.
+    '''
+    ests = jp.exp((yhat+min_val)*(max_val-min_val))
+    costs = jp.zeros(len(edges_cost_node1))
+
+    for i in range(len(edges_cost_node1)):
+        if edges_cost_node1[i] == SOURCE_NODE_CONST:
+            costs = jax.ops.index_update(costs, jax.ops.index[i], 1.0)
+            continue
+
+        node1 = edges_cost_node1[i]
+        node2 = edges_cost_node2[i]
+        card1 = ests[node1]
+        card2 = ests[node2]
+        card3 = ests[edges_head[i]]
+        cost = get_costs_jax(card1, card2, card3, nilj[i], cost_model)
+        # if nilj[i] == 1:
+            # nilj_cost = card2 + NILJ_CONSTANT*card1
+        # elif nilj[i] == 2:
+            # nilj_cost = card1 + NILJ_CONSTANT*card2
+        # else:
+            # assert False
+        # cost = nilj_cost
+        assert cost != 0.0
+        costs = jax.ops.index_update(costs, jax.ops.index[i], cost)
+
+    costs = 1 / costs;
+    return costs
+
 
 def get_optimization_variables(ests, totals, min_val, max_val,
         normalization_type, edges_cost_node1, edges_cost_node2,
@@ -40,12 +212,30 @@ def get_optimization_variables(ests, totals, min_val, max_val,
     elif normalization_type == "mscn":
         norm_type = 2
     else:
+        # temporarily, screw this
+        assert False
         norm_type = 1
 
     if cost_model == "cm1":
         cost_model_num = 1
     elif cost_model == "nested_loop_index":
         cost_model_num = 2
+    elif cost_model == "nested_loop_index2":
+        cost_model_num = 3
+    elif cost_model == "nested_loop_index3":
+        cost_model_num = 4
+    elif cost_model == "nested_loop_index4":
+        cost_model_num = 5
+    elif cost_model == "nested_loop_index5":
+        cost_model_num = 6
+    elif cost_model == "nested_loop":
+        cost_model_num = 7
+    elif cost_model == "hash_join":
+        cost_model_num = 8
+    elif cost_model == "cm2":
+        cost_model_num = 9
+    elif cost_model == "nested_loop_index6":
+        cost_model_num = 10
     else:
         assert False
 
@@ -56,11 +246,6 @@ def get_optimization_variables(ests, totals, min_val, max_val,
 
     if not isinstance(ests, np.ndarray):
         ests = ests.detach().numpy()
-
-    # costs = np.zeros(len(edges_cost_node1), dtype=np.float32)
-    # dgdxT = np.zeros((len(ests), len(edges_cost_node1)), dtype=np.float32)
-    # G = np.zeros((len(ests),len(ests)), dtype=np.float32)
-    # Q = np.zeros((len(costs),len(ests)), dtype=np.float32)
 
     costs2 = np.zeros(len(edges_cost_node1), dtype=np.float32)
     dgdxT2 = np.zeros((len(ests), len(edges_cost_node1)), dtype=np.float32)
@@ -89,7 +274,35 @@ def get_optimization_variables(ests, totals, min_val, max_val,
     return costs2, dgdxT2, G2, Q2
 
 
-def get_edge_costs2(ests, totals, min_val, max_val,
+def get_edge_costs3(yhat, totals, min_val, max_val,
+        normalization_type, edges_cost_node1, edges_cost_node2,
+        nilj):
+    ests = jp.exp((yhat+min_val)*(max_val-min_val))
+    costs = jp.zeros(len(edges_cost_node1))
+
+    for i in range(len(edges_cost_node1)):
+        if edges_cost_node1[i] == SOURCE_NODE_CONST:
+            costs = jax.ops.index_update(costs, jax.ops.index[i], 1.0)
+            continue
+
+        node1 = edges_cost_node1[i]
+        node2 = edges_cost_node2[i]
+        card1 = ests[node1]
+        card2 = ests[node2]
+        if nilj[i] == 1:
+            nilj_cost = card2 + NILJ_CONSTANT*card1
+        elif nilj[i] == 2:
+            nilj_cost = card1 + NILJ_CONSTANT*card2
+        else:
+            assert False
+        cost = nilj_cost
+        assert cost != 0.0
+        costs = jax.ops.index_update(costs, jax.ops.index[i], cost)
+
+    costs = 1 / costs;
+    return costs
+
+def get_edge_costs2(yhat, totals, min_val, max_val,
         normalization_type, edges_cost_node1, edges_cost_node2,
         nilj):
     '''
@@ -101,8 +314,20 @@ def get_edge_costs2(ests, totals, min_val, max_val,
     @edges_cost_node2: these are single tables..
     '''
     start = time.time()
+    ests = to_variable(np.zeros(len(yhat), dtype=np.float32),
+            requires_grad=True).float()
+    ests.requires_grad = True
+    for i in range(len(yhat)):
+        if normalization_type == "mscn":
+            ests[i] = torch.exp(((yhat[i] + min_val)*(max_val-min_val)))
+        elif normalization_type == "pg_total_selectivity":
+            ests[i] = yhat[i]*totals[i]
+        else:
+            assert False
+
     dgdxT = torch.zeros(len(ests), len(edges_cost_node1))
-    costs = to_variable(np.zeros(len(edges_cost_node1))).float()
+    # costs = to_variable(np.zeros(len(edges_cost_node1)), requires_grad=True).float()
+    costs = torch.zeros(len(edges_cost_node1), requires_grad=True).float()
 
     for i in range(len(edges_cost_node1)):
         if edges_cost_node1[i] == SOURCE_NODE_CONST:
@@ -188,6 +413,26 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     @edges_cost_node1:
     @edges_cost_node2: these are single tables..
     '''
+    if DEBUG_JAX:
+        costs_grad_fn = jacfwd(get_optimization_variables_jax, argnums=0)
+        # costs_grad_fn = jacrev(get_optimization_variables_jax, argnums=0)
+        jax_start = time.time()
+        yhat = np.array(yhat)
+        G = np.zeros((len(yhat),len(yhat)), dtype=np.float32)
+        Q = np.zeros((len(edges_cost_node1),len(yhat)), dtype=np.float32)
+
+        costs = get_optimization_variables_jax(yhat, totals, min_val, max_val,
+                normalization_type, edges_cost_node1, edges_cost_node2, edges_head,
+                nilj, cost_model, G, Q)
+        print(costs.shape, np.max(costs))
+        costs_grad = jacfwd(get_optimization_variables_jax, argnums=0)(yhat, totals, min_val,
+                max_val, normalization_type, edges_cost_node1, edges_cost_node2,
+                edges_head, nilj, cost_model, G, Q)
+        print(costs_grad.shape, np.max(costs_grad))
+
+        print("jax stuff took: ", time.time()-jax_start)
+        yhat = torch.from_numpy(yhat)
+
     start = time.time()
     est_cards = to_variable(np.zeros(len(yhat), dtype=np.float32)).float()
     for i in range(len(yhat)):
@@ -202,7 +447,31 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     predC2, dgdxT2, G2, Q2 = get_optimization_variables(est_cards, totals,
             min_val, max_val, normalization_type, edges_cost_node1,
             edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
-    # print("get opt variables took: ", time.time()-start)
+
+    if DEBUG_JAX:
+        print("min max estimates: ", np.min(est_cards.detach().numpy()),
+                np.max(est_cards.detach().numpy()))
+        print("non jax stuff took: ", time.time()-start)
+        predC = 1.0 / predC2
+        print(np.allclose(predC, costs))
+        print(np.min(predC), np.max(predC))
+        print(np.min(costs), np.max(costs))
+
+        if not np.allclose(predC, costs):
+            print("costs not close!")
+            pdb.set_trace()
+
+        print(np.allclose(dgdxT2.T, costs_grad))
+        print(np.min(dgdxT2), np.max(dgdxT2))
+        print(np.min(costs_grad), np.max(costs_grad))
+
+        # pdb.set_trace()
+
+    # min_est = np.min(est_cards.detach().numpy())
+    # if min_est < 10.0:
+        # print(min_est)
+        # print("min est low!")
+        # pdb.set_trace()
 
     Gv2 = np.zeros(len(totals))
     Gv2[final_node] = 1.0

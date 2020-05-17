@@ -311,12 +311,19 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         set_indexes(cursor, "off")
-    elif cost_model == "nested_loop_index":
+    elif cost_model == "nested_loop_index" \
+            or cost_model == "nested_loop_index2" \
+            or cost_model == "nested_loop_index3" \
+            or cost_model == "nested_loop_index4" \
+            or cost_model == "nested_loop_index5" \
+            or cost_model == "nested_loop_index6":
         cursor.execute("SET enable_hashjoin = off")
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         set_indexes(cursor, "on")
-    elif cost_model == "cm1":
+
+    elif cost_model == "cm1" \
+            or cost_model == "cm2":
         pass
     else:
         assert False
@@ -489,12 +496,19 @@ class JoinLoss():
             # print("nl: {}, hj: {}, index: {}".format(nl_count, hj_count,
                 # ind_count))
 
+        loss = np.mean(np.array(est_costs) - np.array(opt_costs))
+
+        if loss < 0.0:
+            print("negative loss for postgres join loss")
+            print(loss)
+            pdb.set_trace()
+
         print("compute postgres join error took: ", time.time()-start)
         return np.array(est_costs), np.array(opt_costs), est_explains, \
     opt_explains, est_sqls, opt_sqls
 
 def fl_cpp_get_flow_loss(samples, source_node, cost_key,
-        all_ests, known_costs, cost_model):
+        all_ests, known_costs, cost_model, trueC_vecs):
     start = time.time()
     costs = []
     farchive = klepto.archives.dir_archive("./flow_info_archive",
@@ -519,38 +533,50 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
 
         totals, edges_head, edges_tail, nilj, edges_cost_node1, \
                 edges_cost_node2, final_node = subsetg_vectors
-        true_cards = np.zeros(len(subsetg_vectors[0]),
-                dtype=np.float32)
-        est_cards = np.zeros(len(subsetg_vectors[0]),
-                dtype=np.float32)
         nodes = list(sample["subset_graph"].nodes())
         nodes.sort()
-        for ni, node in enumerate(nodes):
-            if all_ests is not None:
-                if node in all_ests[i]:
-                    est_cards[ni] = all_ests[i][node]
-                else:
-                    est_cards[ni] = all_ests[i][" ".join(node)]
-            else:
-                # est_cards are also true cardinalities here
-                est_cards[ni] = \
+
+        if qkey in trueC_vecs:
+            # print("found trueC_vec!")
+            trueC_vec = trueC_vecs[qkey]
+            # calculate other variables needed for optimization
+            est_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+
+            for ni, node in enumerate(nodes):
+                if all_ests is not None:
+                    if node in all_ests[i]:
+                        est_cards[ni] = all_ests[i][node]
+                    else:
+                        est_cards[ni] = all_ests[i][" ".join(node)]
+                # else:
+                    # # est_cards are also true cardinalities here
+                    # est_cards[ni] = \
+                            # sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+            predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
+                    0.0, 24.0, None, edges_cost_node1,
+                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+        else:
+            # print("going to compute true card based flow cost")
+            # computing based on true cards
+            assert all_ests is None
+            true_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+
+            for ni, node in enumerate(nodes):
+                true_cards[ni] = \
                         sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
 
-            true_cards[ni] = \
-                    sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
-
-        trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
-                0.0, 24.0, None, edges_cost_node1,
-                edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
-
-        predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
-                0.0, 24.0, None, edges_cost_node1,
-                edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+            trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
+                    0.0, 24.0, None, edges_cost_node1,
+                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+            trueC_vecs[qkey] = trueC_vec
 
         Gv2 = np.zeros(len(totals), dtype=np.float32)
         Gv2[final_node] = 1.0
         Gv2 = to_variable(Gv2).float()
-        predC2 = to_variable(predC2).float()
+        # predC2 = to_variable(predC2).float()
         G2 = to_variable(G2).float()
         invG = torch.inverse(G2)
         v = invG @ Gv2 # vshape: Nx1
@@ -575,7 +601,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
                 )
 
         costs.append(loss2[0])
-
+        # print(loss2[0])
+        # pdb.set_trace()
         if new_seen:
             # was for true cards
             farchive.archive[qkey] = subsetg_vectors
@@ -606,9 +633,11 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         final_node = nodes[-1]
         path = nx.shortest_path(subsetg, final_node,
                 source_node, weight=cost_model+cost_key)
+
         cost = 0.0
         for i in range(len(path)-1):
             cost += subsetg[path[i]][path[i+1]][cost_model+"cost"]
+        assert cost >= 1
         costs.append(cost)
 
     return costs
@@ -633,6 +662,8 @@ class PlanError():
 
         self.subsetgs = {}
         self.opt_costs = {}
+        if self.loss_type == "flow-loss":
+            self.trueC_vecs = {}
 
     def compute_loss(self, qreps, ests, pool=None):
         '''
@@ -652,9 +683,13 @@ class PlanError():
 
         if pool is None or self.loss_type == "flow-loss":
             opt_costs = self.loss_func(qreps, self.source_node, "cost", None, opt_costs,
-                    self.cost_model)
+                    self.cost_model, self.trueC_vecs)
             all_costs = self.loss_func(qreps, self.source_node, "est_cost", ests, None,
-                    self.cost_model)
+                    self.cost_model, self.trueC_vecs)
+            if new_opt_cost:
+                for i, qrep in enumerate(qreps):
+                    qkey = deterministic_hash(qrep["sql"])
+                    self.opt_costs[qkey] = opt_costs[i]
         else:
             num_processes = pool._processes
             batch_size = max(1, math.ceil(len(qreps) / num_processes))
@@ -693,5 +728,10 @@ class PlanError():
             for c in all_costs_batched:
                 all_costs += c
 
+        loss = np.mean(np.array(all_costs) - np.array(opt_costs))
+        if loss < 0.0:
+            print("negative loss for ", self.loss_type)
+            print(loss)
+            # pdb.set_trace()
         print("compute {} took: {}".format(self.loss_type, time.time()-start))
         return np.array(opt_costs), np.array(all_costs)

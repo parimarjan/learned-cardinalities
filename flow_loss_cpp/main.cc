@@ -4,8 +4,10 @@
 #include "omp.h"
 
 #define NILJ_CONSTANT 0.001
-#define NILJ_CONSTANT2 0.1
+#define NILJ_CONSTANT2 2.0
+#define RATIO_MUL_CONSTANT 1.0
 #define SOURCE_NODE_CONST 100000
+#define NILJ_MIN_CARD 0.0
 
 void get_dfdg_par(int num_edges, int num_nodes,
     int *edges_head, int *edges_tail,
@@ -147,140 +149,295 @@ extern "C" void get_qinvg (int num_edges, int num_nodes,
   }
 }
 
-
-void get_opt_var_par(
-    float *ests, float *totals,
+void get_costs10(float *ests, float *totals,
     double min_val, double max_val, int normalization_type,
     int *edges_cost_node1, int *edges_cost_node2,
-    int *edges_head, int *edges_tail,
+    //int *edges_head, int *edges_tail,
     int *nilj, int num_nodes, int num_edges,
-    // return arguments below, will be edited in place
-    float *costs, float *dgdxT,
-    float *G, float *Q, int batch, int batch_size)
+    float *costs, float *dgdxT, int i)
 {
-  double card1, card2, hash_join_cost, nilj_cost;
-  int node1, node2, head_node, tail_node, start, end;
-  start = batch*batch_size;
-  end = start+batch_size;
-  if (end > num_edges) end = num_edges;
-  printf("start = %d, end = %d\n", start, end);
+  // head node is the joined node
+  double card1, card2, card3, nilj_cost, ratio_mul;
+  int node1, node2;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  float cost1, cost2;
 
-  for (int i = start; i < end; i++) {
-    head_node = edges_head[i];
-    tail_node = edges_tail[i];
-    if (edges_cost_node1[i] == SOURCE_NODE_CONST) {
-      costs[i] = 1.0;
-      // still need to construct the matrices stuff
-      // tail node was the final node, which we don't have in Q / G
-      Q[i*num_nodes + head_node] = 1 / costs[i];
-      G[head_node*num_nodes + head_node] += 1 / costs[i];
-      continue;
-    }
-    node1 = edges_cost_node1[i];
-    node2 = edges_cost_node2[i];
-    card1 = ests[node1] + 1.0;
-    card2 = ests[node2] + 1.0;
-    hash_join_cost = card1 + card2;
-    if (nilj[i] == 1) {
-      nilj_cost = card2 + NILJ_CONSTANT*card1;
-    } else if (nilj[i] == 2) {
-      nilj_cost = card1 + NILJ_CONSTANT*card2;
+  // FIXME: need to multiply card2 by another constant
+  if (card1 < NILJ_MIN_CARD || card2 < NILJ_MIN_CARD) {
+    cost1 = 100000000000.0;
+    cost2 = card1*card2;
+    costs[i] = card1*card2;
+  } else {
+    if (card1 > card2) {
+      cost1 = NILJ_CONSTANT2*card1*RATIO_MUL_CONSTANT;
     } else {
-      nilj_cost = 10000000000.0;
+      cost1 = NILJ_CONSTANT2*card2*RATIO_MUL_CONSTANT;
     }
-    if (hash_join_cost < nilj_cost) costs[i] = hash_join_cost;
-    else costs[i] = nilj_cost;
-    float cost = costs[i];
+    cost2 = card1*card2;
+    if (cost1 <= cost2) costs[i] = cost1;
+    else costs[i] = cost2;
+  }
 
-    /* time to update the derivatives */
-    //if (normalization_type == 0) continue;
+  if (normalization_type == 1) {
+    // FIXME:
+    printf("handle pg total selectivity case for nested loop index\n");
+    exit(-1);
+  } else if (normalization_type == 2) {
+      if (cost1 <= cost2) {
+        dgdxT[node1*num_edges + i] = 0.0;
+        dgdxT[node2*num_edges + i] = 0.0;
+        if (card1 < card2) dgdxT[node2*num_edges + i] = - max_val / costs[i];
+        else dgdxT[node1*num_edges + i] = - max_val / costs[i];
 
-    /* time to compute gradients */
-    if (normalization_type == 1) {
-      float total1 = totals[node1];
-      float total2 = totals[node2];
-      if (hash_join_cost < nilj_cost) {
-        //- (a / (ax_1 + bx_2)**2)
-        dgdxT[node1*num_edges + i] = - (total1 / (hash_join_cost*hash_join_cost));
-        dgdxT[node2*num_edges + i] = - (total2 / (hash_join_cost*hash_join_cost));
       } else {
-          if (nilj[i] == 1) {
-            float num1 = total1*NILJ_CONSTANT;
-            dgdxT[node1*num_edges + i] = - (num1 / (costs[i]*costs[i]));
-            dgdxT[node2*num_edges + i] = - (total2 / (costs[i]*costs[i]));
-          } else {
-            //# node 2
-            //# - (a / (ax_1 + bx_2)**2)
-            float num2 = total2*NILJ_CONSTANT;
-            dgdxT[node1*num_edges + i] = - (total1 / (costs[i]*costs[i]));
-            //# - (b / (ax_1 + bx_2)**2)
-            dgdxT[node2*num_edges + i] = - (num2 / (costs[i]*costs[i]));
-          }
+          // cost2 < cost1, implies cost = card1*card2
+          // derivative of 1 / (e^{ax}*e^{ay}), where y is the other nodes
+          // prediction (x = log(card1) / max_val, y = log(card2) / max_val)
+          dgdxT[node1*num_edges + i] = - max_val / costs[i];
+          dgdxT[node2*num_edges + i] = - max_val / costs[i];
       }
-    } else if (normalization_type == 2) {
-      // log normalization type
-      if (hash_join_cost <= nilj_cost) {
-          //- (ae^{ax} / (e^{ax} + e^{ax2})**2)
-           //e^{ax} is just card1
-          dgdxT[node1*num_edges + i] = - (max_val*card1) / (hash_join_cost*hash_join_cost);
-          dgdxT[node2*num_edges + i] = - (max_val*card2) / (hash_join_cost*hash_join_cost);
-      } else {
-          // index nested loop join
-          if (nilj[i]  == 1) {
-              dgdxT[node1*num_edges + i] = - (max_val*card1*NILJ_CONSTANT) / (cost*cost);
-              dgdxT[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
-          } else {
-              //float num2 = card2*NILJ_CONSTANT;
-              dgdxT[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
-              dgdxT[node2*num_edges + i] = - (max_val*card2*NILJ_CONSTANT) / (cost*cost);
-          }
-      }
-    }
-
-    cost = 1.0 / costs[i];
-
-    /* construct G, Q */
-    Q[i*num_nodes + head_node] = cost;
-    G[head_node*num_nodes + head_node] += cost;
-
-    if (tail_node != SOURCE_NODE_CONST) {
-        Q[i*num_nodes + tail_node] = -cost;
-        G[tail_node*num_nodes + tail_node] += cost;
-        G[head_node*num_nodes + tail_node] -= cost;
-        G[tail_node*num_nodes + head_node] -= cost;
-    }
   }
 }
 
-/* Note: the values to be returned are passed in as well.
- */
-//extern "C" void get_optimization_variables_par(
-    //float *ests, float *totals,
-    //double min_val, double max_val, int normalization_type,
-    //int *edges_cost_node1, int *edges_cost_node2,
+void get_costs6(float *ests, float *totals,
+    double min_val, double max_val, int normalization_type,
+    int *edges_cost_node1, int *edges_cost_node2,
     //int *edges_head, int *edges_tail,
-    //int *nilj, int num_nodes, int num_edges,
-    //// return arguments below, will be edited in place
-    //float *costs, float *dgdxT,
-    //float *G, float *Q, int num_workers)
-//{
-  ////int num_workers = 1;
-  //int batch_size, num_batches;
-  //batch_size = num_edges / num_workers;
+    int *nilj, int num_nodes, int num_edges,
+    float *costs, float *dgdxT, int i, int head_node)
+{
+  // head node is the joined node
+  double card1, card2, card3, nilj_cost, ratio_mul;
+  int node1, node2;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  card3 = ests[head_node];
+  float cost1, cost2;
 
-  //int rem = num_edges % batch_size;
-  //num_batches = ceil(num_edges / batch_size);
-  //if (rem != 0) num_batches += 1;
+  // FIXME: need to multiply card2 by another constant
+  if (card1 < NILJ_MIN_CARD || card2 < NILJ_MIN_CARD) {
+    cost1 = 1000000000.0;
+    cost2 = card1*card2;
+    costs[i] = card1*card2;
+  } else {
+    if (nilj[i] == 1) {
+      ratio_mul = card3 / card2;
+      if (ratio_mul < 1.00) ratio_mul = 1.00;
+      ratio_mul *= RATIO_MUL_CONSTANT;
+      cost1 = NILJ_CONSTANT2*card2*ratio_mul;
+    } else if (nilj[i] == 2) {
+      ratio_mul = card3 / card1;
+      if (ratio_mul < 1.00) ratio_mul = 1.00;
+      ratio_mul *= RATIO_MUL_CONSTANT;
+      cost1 = NILJ_CONSTANT2*card1*ratio_mul;
+    } else {
+      // FIXME: for bushy plans, consider adding card1*card2 here
+      printf("THIS SHOULD NOT HAVE HAPPENED\n");
+      exit(-1);
+    }
+    cost2 = card1*card2;
+    if (cost1 <= cost2) costs[i] = cost1;
+    else costs[i] = cost2;
+  }
 
-  //#pragma omp parallel for num_threads(num_workers)
-  //for (int batch = 0; batch < num_batches; batch++) {
-    //get_opt_var_par(ests, totals, min_val, max_val, normalization_type,
-          //edges_cost_node1, edges_cost_node2, edges_head, edges_tail,
-        //nilj, num_nodes, num_edges, costs, dgdxT, G, Q, batch, batch_size);
-  //}
-//}
+
+  if (normalization_type == 1) {
+    // FIXME:
+    printf("handle pg total selectivity case for nested loop index\n");
+    exit(-1);
+  } else if (normalization_type == 2) {
+      if (cost1 <= cost2) {
+        // index nested loop join
+        // since ratio_mul*RATIO_MUL_CONSTANT always done
+        if (ratio_mul > RATIO_MUL_CONSTANT) {
+          // neither node1, or node2 play a role here
+          dgdxT[node1*num_edges + i] = 0.0;
+          dgdxT[node2*num_edges + i] = 0.0;
+          dgdxT[head_node*num_edges + i] = - max_val / costs[i];
+        } else {
+          // card3 does not play a role anymore
+          if (nilj[i]  == 1) {
+              // only depends on card2
+              dgdxT[node1*num_edges + i] = 0;
+              dgdxT[node2*num_edges + i] = - max_val / costs[i];
+          } else {
+              dgdxT[node1*num_edges + i] = - max_val / costs[i];
+              dgdxT[node2*num_edges + i] = 0;
+          }
+        }
+      } else {
+          // cost2 < cost1, implies cost = card1*card2
+          // derivative of 1 / (e^{ax}*e^{ay}), where y is the other nodes
+          // prediction (x = log(card1) / max_val, y = log(card2) / max_val)
+          dgdxT[node1*num_edges + i] = - max_val / costs[i];
+          dgdxT[node2*num_edges + i] = - max_val / costs[i];
+          //printf("going to set both derivatives to: %f\n", -max_val/costs[i]);
+          //dgdxT[node1*num_edges + i] = 0.0;
+          //dgdxT[node2*num_edges + i] = 0.0;
+      }
+  }
+}
+
+void get_costs5(float *ests, float *totals,
+    double min_val, double max_val, int normalization_type,
+    int *edges_cost_node1, int *edges_cost_node2,
+    //int *edges_head, int *edges_tail,
+    int *nilj, int num_nodes, int num_edges,
+    float *costs, float *dgdxT, int i, int head_node)
+{
+  // head node is the joined node
+  double card1, card2, card3, nilj_cost, ratio_mul;
+  int node1, node2;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  card3 = ests[head_node];
+  float cost1, cost2;
+
+  // FIXME: need to multiply card2 by another constant
+  if (nilj[i] == 1) {
+    ratio_mul = card3 / card2;
+    if (ratio_mul < 1.00) ratio_mul = 1.00;
+    ratio_mul *= RATIO_MUL_CONSTANT;
+    cost1 = NILJ_CONSTANT2*card2*ratio_mul;
+  } else if (nilj[i] == 2) {
+    ratio_mul = card3 / card1;
+    if (ratio_mul < 1.00) ratio_mul = 1.00;
+    ratio_mul *= RATIO_MUL_CONSTANT;
+    cost1 = NILJ_CONSTANT2*card1*ratio_mul;
+  } else {
+    // FIXME: for bushy plans, consider adding card1*card2 here
+    printf("THIS SHOULD NOT HAVE HAPPENED\n");
+    exit(-1);
+  }
+  cost2 = card1*card2;
+  if (cost1 <= cost2) costs[i] = cost1;
+  else costs[i] = cost2;
+
+  if (normalization_type == 1) {
+    // FIXME:
+    printf("handle pg total selectivity case for nested loop index\n");
+    exit(-1);
+  } else if (normalization_type == 2) {
+      if (cost1 <= cost2) {
+        // index nested loop join
+        if (ratio_mul > RATIO_MUL_CONSTANT) {
+          // neither node1, or node2 play a role here
+          dgdxT[node1*num_edges + i] = 0.0;
+          dgdxT[node2*num_edges + i] = 0.0;
+          dgdxT[head_node*num_edges + i] = - max_val / costs[i];
+        } else {
+          // card3 does not play a role anymore
+          if (nilj[i]  == 1) {
+              // only depends on card2
+              dgdxT[node1*num_edges + i] = 0;
+              dgdxT[node2*num_edges + i] = - max_val / costs[i];
+          } else {
+              dgdxT[node1*num_edges + i] = - max_val / costs[i];
+              dgdxT[node2*num_edges + i] = 0;
+          }
+        }
+      } else {
+          // cost2 < cost1, implies cost = card1*card2
+          // derivative of 1 / (e^{ax}*e^{ay}), where y is the other nodes
+          // prediction (x = log(card1) / max_val, y = log(card2) / max_val)
+          dgdxT[node1*num_edges + i] = - max_val / costs[i];
+          dgdxT[node2*num_edges + i] = - max_val / costs[i];
+      }
+  }
+}
+
+void get_costs7(float *ests, float *totals,
+    double min_val, double max_val, int normalization_type,
+    int *edges_cost_node1, int *edges_cost_node2,
+    //int *edges_head, int *edges_tail,
+    int *nilj, int num_nodes, int num_edges,
+    float *costs, float *dgdxT, int i)
+{
+  // head node is the joined node
+  double card1, card2, card3, nilj_cost, ratio_mul;
+  int node1, node2;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  float cost1, cost2;
+
+  float cost = card1*card2;
+  costs[i] = cost;
+
+  if (normalization_type == 1) {
+    // FIXME:
+    printf("handle pg total selectivity case for nested loop index\n");
+    exit(-1);
+  } else if (normalization_type == 2) {
+    dgdxT[node1*num_edges + i] = - max_val / costs[i];
+    dgdxT[node2*num_edges + i] = - max_val / costs[i];
+  }
+}
 
 void get_costs2(float *ests, float *totals,
+    double min_val, double max_val, int normalization_type,
+    int *edges_cost_node1, int *edges_cost_node2,
+    //int *edges_head, int *edges_tail,
+    int *nilj, int num_nodes, int num_edges,
+    float *costs, float *dgdxT, int i, int head_node)
+{
+  // head node is the joined node
+  double card1, card2, card3, nilj_cost, ratio_mul;
+  int node1, node2;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  card3 = ests[head_node];
+
+  // FIXME: need to multiply card2 by another constant
+  if (nilj[i] == 1) {
+    ratio_mul = card3 / card2;
+    if (ratio_mul < 1.00) ratio_mul = 1.00;
+    costs[i] = NILJ_CONSTANT2*card2*ratio_mul;
+  } else if (nilj[i] == 2) {
+    ratio_mul = card3 / card1;
+    if (ratio_mul < 1.00) ratio_mul = 1.00;
+    costs[i] = NILJ_CONSTANT2*card1*ratio_mul;
+  } else {
+    // FIXME: for bushy plans, consider adding card1*card2 here
+    printf("THIS SHOULD NOT HAVE HAPPENED\n");
+    exit(-1);
+  }
+
+  if (normalization_type == 1) {
+    // FIXME:
+    printf("handle pg total selectivity case for nested loop index\n");
+  } else if (normalization_type == 2) {
+      // index nested loop join
+      if (ratio_mul > 1.0) {
+        // neither node1, or node2 play a role here
+        dgdxT[node1*num_edges + i] = 0;
+        dgdxT[node2*num_edges + i] = 0;
+        dgdxT[head_node*num_edges + i] = - max_val / costs[i];
+      } else {
+        // card3 does not play a role anymore
+        if (nilj[i]  == 1) {
+            // only depends on card2
+            dgdxT[node1*num_edges + i] = 0;
+            dgdxT[node2*num_edges + i] = - max_val / costs[i];
+        } else {
+            dgdxT[node1*num_edges + i] = - max_val / costs[i];
+            dgdxT[node2*num_edges + i] = 0;
+        }
+      }
+  }
+}
+
+void get_costs3(float *ests, float *totals,
     double min_val, double max_val, int normalization_type,
     int *edges_cost_node1, int *edges_cost_node2,
     //int *edges_head, int *edges_tail,
@@ -292,8 +449,8 @@ void get_costs2(float *ests, float *totals,
   int node1, node2, head_node, tail_node;
   node1 = edges_cost_node1[i];
   node2 = edges_cost_node2[i];
-  card1 = ests[node1] + 1.0;
-  card2 = ests[node2] + 1.0;
+  card1 = ests[node1];
+  card2 = ests[node2];
 
   // FIXME: need to multiply card2 by another constant
   if (nilj[i] == 1) {
@@ -314,13 +471,86 @@ void get_costs2(float *ests, float *totals,
       if (nilj[i]  == 1) {
           // only depends on card2
           dgdxT[node1*num_edges + i] = 0;
-          dgdxT[node2*num_edges + i] = - (max_val) / (costs[i]);
+          dgdxT[node2*num_edges + i] = - max_val / costs[i];
       } else {
-          dgdxT[node1*num_edges + i] = - (max_val) / costs[i];
+          dgdxT[node1*num_edges + i] = - max_val / costs[i];
           dgdxT[node2*num_edges + i] = 0;
       }
   }
+}
 
+void get_costs4(float *ests, float *totals,
+    double min_val, double max_val, int normalization_type,
+    int *edges_cost_node1, int *edges_cost_node2,
+    //int *edges_head, int *edges_tail,
+    int *nilj, int num_nodes, int num_edges,
+    // return arguments below, will be edited in place
+    float *costs, float *dgdxT, int i)
+{
+  double card1, card2, hash_join_cost, nilj_cost;
+  int node1, node2, head_node, tail_node;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  if (nilj[i] == 1) {
+    nilj_cost = card2 + NILJ_CONSTANT*card1;
+  } else if (nilj[i] == 2) {
+    nilj_cost = card1 + NILJ_CONSTANT*card2;
+  } else {
+    printf("should not have happened!\n");
+    exit(-1);
+  }
+  costs[i] = nilj_cost;
+  float cost = costs[i];
+
+  /* time to compute gradients */
+  if (normalization_type == 2) {
+    // log normalization type
+      // index nested loop join
+      if (nilj[i]  == 1) {
+          dgdxT[node1*num_edges + i] = - (max_val*card1*NILJ_CONSTANT) / (cost*cost);
+          dgdxT[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
+      } else {
+          //float num2 = card2*NILJ_CONSTANT;
+          dgdxT[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
+          dgdxT[node2*num_edges + i] = - (max_val*card2*NILJ_CONSTANT) / (cost*cost);
+      }
+  }
+}
+
+void get_costs8(float *ests, float *totals,
+    double min_val, double max_val, int normalization_type,
+    int *edges_cost_node1, int *edges_cost_node2,
+    //int *edges_head, int *edges_tail,
+    int *nilj, int num_nodes, int num_edges,
+    // return arguments below, will be edited in place
+    float *costs, float *dgdxT, int i)
+{
+  double card1, card2, hash_join_cost, nilj_cost;
+  int node1, node2, head_node, tail_node;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  float cost = card1 + card2;
+  costs[i] = cost;
+
+  /* time to update the derivatives */
+  //if (normalization_type == 0) continue;
+
+  /* time to compute gradients */
+  if (normalization_type == 1) {
+    float total1 = totals[node1];
+    float total2 = totals[node2];
+    //- (a / (ax_1 + bx_2)**2)
+    dgdxT[node1*num_edges + i] = - (total1 / (cost*cost));
+    dgdxT[node2*num_edges + i] = - (total2 / (cost*cost));
+  } else if (normalization_type == 2) {
+    // log normalization type
+    dgdxT[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
+    dgdxT[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
+  }
 }
 
 void get_costs1(float *ests, float *totals,
@@ -335,8 +565,8 @@ void get_costs1(float *ests, float *totals,
   int node1, node2, head_node, tail_node;
   node1 = edges_cost_node1[i];
   node2 = edges_cost_node2[i];
-  card1 = ests[node1] + 1.0;
-  card2 = ests[node2] + 1.0;
+  card1 = ests[node1];
+  card2 = ests[node2];
   hash_join_cost = card1 + card2;
   if (nilj[i] == 1) {
     nilj_cost = card2 + NILJ_CONSTANT*card1;
@@ -425,8 +655,45 @@ extern "C" void get_optimization_variables(
           edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
           costs, dgdxT, i);
     } else if (cost_model == 2) {
-      // nested_loop_index
+      // nested_loop_index, considering the size of the joined node
       get_costs2(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i, head_node);
+    } else if (cost_model == 3) {
+      // nested_loop_index
+      get_costs3(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i);
+    } else if (cost_model == 4) {
+      get_costs4(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i);
+    } else if (cost_model == 5) {
+      // nested loop index considering nested loop join w/o indexes too
+      get_costs5(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i, head_node);
+    } else if (cost_model == 6) {
+      // nested_loop_index5
+      get_costs6(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i, head_node);
+    } else if (cost_model == 7) {
+      get_costs7(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i);
+    } else if (cost_model == 8) {
+      get_costs8(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i);
+    } else if (cost_model == 9) {
+      // this is exactly the same calculation as cost_model8 -- hash join
+      // costs, without any constants
+      get_costs8(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i);
+    } else if (cost_model == 10) {
+      get_costs10(ests, totals, min_val, max_val, normalization_type,
           edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
           costs, dgdxT, i);
     }
