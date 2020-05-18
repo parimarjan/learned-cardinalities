@@ -49,7 +49,7 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
             # pdb.set_trace()
         cost = nilj_cost
     elif cost_model == "cm2":
-        cost = card1 + card2
+        cost = CARD_DIVIDER*card1 + CARD_DIVIDER*card2
     elif cost_model == "nested_loop_index":
         if nilj == 1:
             # using index on node1
@@ -158,7 +158,7 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
     elif cost_model == "nested_loop":
         cost = card1*card2
     elif cost_model == "hash_join":
-        cost = card1 + card2
+        cost = CARD_DIVIDER*card1 + CARD_DIVIDER*card2
     else:
         assert False
     return cost
@@ -171,6 +171,7 @@ def get_optimization_variables_jax(yhat, totals, min_val, max_val,
     '''
     ests = jp.exp((yhat+min_val)*(max_val-min_val))
     costs = jp.zeros(len(edges_cost_node1))
+    ests = jp.maximum(ests, 1.0)
 
     for i in range(len(edges_cost_node1)):
         if edges_cost_node1[i] == SOURCE_NODE_CONST:
@@ -195,7 +196,6 @@ def get_optimization_variables_jax(yhat, totals, min_val, max_val,
 
     costs = 1 / costs;
     return costs
-
 
 def get_optimization_variables(ests, totals, min_val, max_val,
         normalization_type, edges_cost_node1, edges_cost_node2,
@@ -251,6 +251,11 @@ def get_optimization_variables(ests, totals, min_val, max_val,
     dgdxT2 = np.zeros((len(ests), len(edges_cost_node1)), dtype=np.float32)
     G2 = np.zeros((len(ests),len(ests)), dtype=np.float32)
     Q2 = np.zeros((len(edges_cost_node1),len(ests)), dtype=np.float32)
+
+    assert ests.dtype == np.float32
+    # if np.min(ests) < 1.0:
+        # print("ests was < 1")
+    ests = np.maximum(ests, 1.0)
 
     start = time.time()
     fl_cpp.get_optimization_variables(ests.ctypes.data_as(c_void_p),
@@ -484,6 +489,11 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     invG = torch.inverse(G2)
     v = invG @ Gv2 # vshape: Nx1
     v = v.detach().numpy()
+
+    # flows = Q2 @ v
+    # if np.min(flows) < 0.0:
+        # print(np.min(flows))
+        # pdb.set_trace()
 
     # TODO: we don't even need to compute the loss here if we don't want to
     loss2 = np.zeros(1, dtype=np.float32)

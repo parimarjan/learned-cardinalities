@@ -5,6 +5,7 @@ from sql_rep.utils import extract_aliases
 import multiprocessing as mp
 import math
 from cardinality_estimation.flow_loss import *
+# from cardinality_estimation.nn import get_subq_flows
 
 import pdb
 import klepto
@@ -514,10 +515,18 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
     farchive = klepto.archives.dir_archive("./flow_info_archive",
             cached=True, serialized=True)
     new_seen = False
+    debug_sql = False
     for i, sample in enumerate(samples):
         if known_costs and known_costs[i] is not None:
             costs.append(known_costs[i])
             continue
+
+        # if "1a1010" in sample["name"]:
+            # print("debug sql!")
+            # debug_sql = True
+        # else:
+            # debug_sql = False
+
         qkey = deterministic_hash(sample["sql"])
         if qkey in farchive.archive:
             subsetg_vectors = farchive.archive[qkey]
@@ -537,7 +546,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         nodes.sort()
 
         if qkey in trueC_vecs:
-            # print("found trueC_vec!")
+            if debug_sql:
+                print("found trueC_vec!")
             trueC_vec = trueC_vecs[qkey]
             # calculate other variables needed for optimization
             est_cards = np.zeros(len(subsetg_vectors[0]),
@@ -557,6 +567,10 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
             predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
                     0.0, 24.0, None, edges_cost_node1,
                     edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+
+            if debug_sql:
+                print(predC2)
+                pdb.set_trace()
         else:
             # print("going to compute true card based flow cost")
             # computing based on true cards
@@ -573,14 +587,31 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
                     edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
             trueC_vecs[qkey] = trueC_vec
 
+        if debug_sql:
+            pdb.set_trace()
+
         Gv2 = np.zeros(len(totals), dtype=np.float32)
         Gv2[final_node] = 1.0
         Gv2 = to_variable(Gv2).float()
         # predC2 = to_variable(predC2).float()
         G2 = to_variable(G2).float()
         invG = torch.inverse(G2)
+        # invG = torch.pinverse(G2)
         v = invG @ Gv2 # vshape: Nx1
         v = v.detach().numpy()
+        if debug_sql:
+            print("before calling fl_cpp.get_qvtqv")
+            pdb.set_trace()
+
+        # if debug_sql:
+            # f = Q2 @ v
+            # print(f)
+            # pdb.set_trace()
+
+        # flows = Q2 @ v
+        # if np.min(flows) < 0.0:
+            # print("negative flows!")
+            # pdb.set_trace()
 
         # TODO: we don't even need to compute the loss here if we don't want to
         loss2 = np.zeros(1, dtype=np.float32)
@@ -728,10 +759,30 @@ class PlanError():
             for c in all_costs_batched:
                 all_costs += c
 
-        loss = np.mean(np.array(all_costs) - np.array(opt_costs))
+        all_costs = np.array(all_costs)
+        opt_costs = np.array(opt_costs)
+        loss = np.mean(all_costs - opt_costs)
         if loss < 0.0:
-            print("negative loss for ", self.loss_type)
-            print(loss)
             # pdb.set_trace()
+            pass
+            # print("negative loss for ", self.loss_type)
+            # print(loss)
+            # for i,c in enumerate(all_costs):
+                # if c < opt_costs[i]:
+                    # idx = i
+                    # break
+            # print(idx)
+            # est_cards = ests[idx]
+            # # qreps[idx]
+            # cur_ests = []
+            # trues = []
+            # nodes = []
+            # subsetg = qreps[idx]["subset_graph"]
+            # for node, info in subsetg.nodes().items():
+                # cur_ests.append(est_cards[" ".join(node)])
+                # trues.append(info["cardinality"]["actual"])
+                # nodes.append(node)
+            # pdb.set_trace()
+
         print("compute {} took: {}".format(self.loss_type, time.time()-start))
         return np.array(opt_costs), np.array(all_costs)

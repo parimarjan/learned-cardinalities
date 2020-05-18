@@ -113,6 +113,7 @@ NILJ_CONSTANT = 0.001
 NILJ_CONSTANT2 = 2.0
 RATIO_MUL_CONST = 1.0
 NILJ_MIN_CARD = 0.0
+CARD_DIVIDER = 0.001
 
 def get_default_con_creds():
     if "user" in os.environ:
@@ -1433,7 +1434,7 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
             print("hash join cost selected!")
             pdb.set_trace()
     elif cost_model == "cm2":
-        cost = card1 + card2
+        cost = CARD_DIVIDER*card1 + CARD_DIVIDER*card2
     elif cost_model == "nested_loop_index":
         # TODO: calculate second multiple
         # joined_total = subset_graph.nodes()[joined_node]["cardinality"]["total"]
@@ -1542,7 +1543,7 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         cost = card1*card2
     elif cost_model == "hash_join":
         # skip multiplying with constants
-        cost = card1 + card2
+        cost = CARD_DIVIDER*card1 + CARD_DIVIDER*card2
     else:
         assert False
     return cost
@@ -1752,3 +1753,39 @@ def get_subsetg_vectors(sample):
     # print("get subsetg vectors took: ", time.time()-start)
     return totals, edges_head, edges_tail, nilj, \
             edges_cost_node1, edges_cost_node2, final_node
+
+def get_subq_flows(qrep, cost_key):
+    # TODO: save or not?
+    start = time.time()
+    flow_cache = klepto.archives.dir_archive("./flow_cache",
+            cached=True, serialized=True)
+    if cost_key != "cost":
+        key = deterministic_hash(cost_key + qrep["sql"])
+    else:
+        key = deterministic_hash(qrep["sql"])
+
+    if key in flow_cache.archive:
+        return flow_cache.archive[key]
+
+    subsetg = qrep["subset_graph_paths"]
+    edges, c, A, b, G, h = construct_lp(subsetg, cost_key)
+
+    n = len(edges)
+    P = np.zeros((len(edges),len(edges)))
+    for i,c in enumerate(c):
+        P[i,i] = c
+
+    q = np.zeros(len(edges))
+    x = cp.Variable(n)
+    prob = cp.Problem(cp.Minimize((1/2)*cp.quad_form(x, P) + q.T @ x),
+                     [G @ x <= h,
+                      A @ x == b])
+    prob.solve()
+    qsolx = np.array(x.value)
+
+    edge_dict = {}
+    for i, e in enumerate(edges):
+        edge_dict[e] = i
+
+    flow_cache.archive[key] = (qsolx, edge_dict)
+    return qsolx, edge_dict

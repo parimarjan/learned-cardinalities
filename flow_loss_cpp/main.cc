@@ -8,6 +8,7 @@
 #define RATIO_MUL_CONSTANT 1.0
 #define SOURCE_NODE_CONST 100000
 #define NILJ_MIN_CARD 0.0
+#define CARD_DIVIDER 0.001
 
 void get_dfdg_par(int num_edges, int num_nodes,
     int *edges_head, int *edges_tail,
@@ -533,7 +534,7 @@ void get_costs8(float *ests, float *totals,
   node2 = edges_cost_node2[i];
   card1 = ests[node1];
   card2 = ests[node2];
-  float cost = card1 + card2;
+  float cost = CARD_DIVIDER*card1 + CARD_DIVIDER*card2;
   costs[i] = cost;
 
   /* time to update the derivatives */
@@ -548,8 +549,8 @@ void get_costs8(float *ests, float *totals,
     dgdxT[node2*num_edges + i] = - (total2 / (cost*cost));
   } else if (normalization_type == 2) {
     // log normalization type
-    dgdxT[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
-    dgdxT[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
+    dgdxT[node1*num_edges + i] = - (max_val*card1*CARD_DIVIDER) / (cost*cost);
+    dgdxT[node2*num_edges + i] = - (max_val*card2*CARD_DIVIDER) / (cost*cost);
   }
 }
 

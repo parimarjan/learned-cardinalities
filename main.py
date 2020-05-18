@@ -224,9 +224,9 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-        if "7a" in template_name:
-            print("skipping template 7a")
-            continue
+        # if "7a" in template_name:
+            # print("skipping template 7a")
+            # continue
 
         start = time.time()
         # loading, or generating samples

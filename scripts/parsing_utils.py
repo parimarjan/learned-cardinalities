@@ -123,65 +123,72 @@ def get_all_training_df(results_dir):
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
-        # convert to same format as qerrs
-        cur_dir = results_dir + "/" + fn
-        exp_args = load_object(cur_dir + "/args.pkl")
-        if exp_args is None:
-            print("exp args None!")
-            continue
-        exp_args = vars(exp_args)
-        if skip_exp(exp_args):
-            print("skip exp!")
-            continue
-        alg = get_alg_name(exp_args)
-        nns = load_object(cur_dir + "/nn.pkl")
-        args_hash = str(deterministic_hash(str(exp_args)))[0:5]
+        try:
+            # convert to same format as qerrs
+            cur_dir = results_dir + "/" + fn
+            exp_args = load_object(cur_dir + "/args.pkl")
+            if exp_args is None:
+                print("exp args None!")
+                continue
+            exp_args = vars(exp_args)
+            if skip_exp(exp_args):
+                print("skip exp!")
+                continue
 
-        df = nns["stats"]
-        df["alg"] = alg
-        df["hls"] = exp_args["hidden_layer_size"]
-        df["exp_name"] = fn
-        df["lr"] = exp_args["lr"]
-        df["clip_gradient"] = exp_args["clip_gradient"]
-        df["loss_func"] = exp_args["loss_func"]
-        # print(cur_dir)
-        if exp_args["weight_decay"] == 4.0 and "138" in cur_dir:
-            # print("resetting buggy weight decay to 10")
-            df["weight_decay"] = 10.0
-        else:
-            df["weight_decay"] = exp_args["weight_decay"]
-        df["weighted_mse"] = exp_args["weighted_mse"]
-        df["exp_hash"] = args_hash
+            alg = get_alg_name(exp_args)
+            nns = load_object(cur_dir + "/nn.pkl")
+            args_hash = str(deterministic_hash(str(exp_args)))[0:5]
 
-        if exp_args["sampling_priority_alpha"] > 0:
-            df["priority"] = True
-        else:
-            df["priority"] = False
+            df = nns["stats"]
+            df["alg"] = alg
+            df["hls"] = exp_args["hidden_layer_size"]
+            df["exp_name"] = fn
+            df["lr"] = exp_args["lr"]
+            df["clip_gradient"] = exp_args["clip_gradient"]
+            df["loss_func"] = exp_args["loss_func"]
+            df["cost_model"] = exp_args["cost_model"]
 
-        if "normalize_flow_loss" in exp_args:
-            df["normalize_flow_loss"] = exp_args["normalize_flow_loss"]
-        else:
-            df["normalize_flow_loss"] = 1
-
-        if "flow_features" in exp_args:
-            # print("flow f: ", exp_args["flow_features"])
-            if "343" in fn:
-                df["flow_features"] = ""
-            elif "flow" not in exp_args["loss_func"]:
-                df["flow_features"] = ""
-            elif exp_args["flow_features"] and "flow" in exp_args["loss_func"]:
-                df["flow_features"] = "flow_features"
+            # print(cur_dir)
+            if exp_args["weight_decay"] == 4.0 and "138" in cur_dir:
+                # print("resetting buggy weight decay to 10")
+                df["weight_decay"] = 10.0
             else:
+                df["weight_decay"] = exp_args["weight_decay"]
+            df["weighted_mse"] = exp_args["weighted_mse"]
+            df["exp_hash"] = args_hash
+
+            if exp_args["sampling_priority_alpha"] > 0:
+                df["priority"] = True
+            else:
+                df["priority"] = False
+
+            if "normalize_flow_loss" in exp_args:
+                df["normalize_flow_loss"] = exp_args["normalize_flow_loss"]
+            else:
+                df["normalize_flow_loss"] = 1
+
+            if "flow_features" in exp_args:
+                # print("flow f: ", exp_args["flow_features"])
+                if "343" in fn:
+                    df["flow_features"] = ""
+                elif "flow" not in exp_args["loss_func"]:
+                    df["flow_features"] = ""
+                elif exp_args["flow_features"] and "flow" in exp_args["loss_func"]:
+                    df["flow_features"] = "flow_features"
+                else:
+                    df["flow_features"] = ""
+            else:
+                print("flow features was not in df!")
                 df["flow_features"] = ""
-        else:
-            print("flow features was not in df!")
-            df["flow_features"] = ""
 
-        # # TODO: add training / test detail
-        # # TODO: add template detail
-        # # TODO: need map from query_name : test/train + template etc.
+            # # TODO: add training / test detail
+            # # TODO: add template detail
+            # # TODO: need map from query_name : test/train + template etc.
 
-        all_dfs.append(df)
+            all_dfs.append(df)
+        except Exception as e:
+            print(e)
+            continue
 
     return pd.concat(all_dfs)
 

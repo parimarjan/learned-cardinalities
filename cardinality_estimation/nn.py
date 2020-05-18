@@ -324,42 +324,6 @@ def get_subq_tolerances(qrep, card_key, cost_key):
     tcache.archive[key] = tolerances
     return tolerances
 
-def get_subq_flows(qrep, cost_key):
-    # TODO: save or not?
-    start = time.time()
-    flow_cache = klepto.archives.dir_archive("./flow_cache",
-            cached=True, serialized=True)
-    if cost_key != "cost":
-        key = deterministic_hash(cost_key + qrep["sql"])
-    else:
-        key = deterministic_hash(qrep["sql"])
-
-    if key in flow_cache.archive:
-        return flow_cache.archive[key]
-
-    subsetg = qrep["subset_graph_paths"]
-    edges, c, A, b, G, h = construct_lp(subsetg, cost_key)
-
-    n = len(edges)
-    P = np.zeros((len(edges),len(edges)))
-    for i,c in enumerate(c):
-        P[i,i] = c
-
-    q = np.zeros(len(edges))
-    x = cp.Variable(n)
-    prob = cp.Problem(cp.Minimize((1/2)*cp.quad_form(x, P) + q.T @ x),
-                     [G @ x <= h,
-                      A @ x == b])
-    prob.solve()
-    qsolx = np.array(x.value)
-
-    edge_dict = {}
-    for i, e in enumerate(edges):
-        edge_dict[e] = i
-
-    flow_cache.archive[key] = (qsolx, edge_dict)
-    return qsolx, edge_dict
-
 EMBEDDING_OUTPUT = None
 def embedding_hook(module, input_, output):
     global EMBEDDING_OUTPUT
@@ -1613,6 +1577,11 @@ class NN(CardinalityEstimationAlg):
 
                 self.flow_training_info.append((subsetg_vectors, trueC_vec,
                         opt_flow_loss))
+
+                # if "1a1010" in sample["name"]:
+                    # print(trueC)
+                    # print("opt_flow_loss: ", opt_flow_loss)
+                    # pdb.set_trace()
 
             print("precomputing flow info took: ", time.time()-fstart)
             if new_seen:
