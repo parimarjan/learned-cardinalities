@@ -33,6 +33,17 @@ from sql_rep.utils import extract_from_clause, extract_join_clause, \
 
 # FIXME: shouldn't need these...
 from sql_rep.utils import join_types
+import platform
+from ctypes import *
+system = platform.system()
+if system == 'Linux':
+    lib_file = "libflowloss.so"
+else:
+    lib_file = "libflowloss.dylib"
+
+lib_dir = "./flow_loss_cpp"
+lib_file = lib_dir + "/" + lib_file
+fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
 
 # TIMEOUT_COUNT_CONSTANT = 150001001
 # TIMEOUT_COUNT_CONSTANT = 15000100001
@@ -1548,7 +1559,7 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         assert False
     return cost
 
-def constructG(subsetg):
+def constructG(subsetg, cost_key="cost"):
     '''
     @ret:
         G:
@@ -1587,7 +1598,7 @@ def constructG(subsetg):
         out_edges = subsetg.out_edges(node)
         for edge in in_edges:
             assert edge[1] == node
-            cost = subsetg[edge[0]][edge[1]]["cost"] / 10000.0
+            cost = subsetg[edge[0]][edge[1]][cost_key] / 10000.0
             # cost = subsetg[edge[0]][edge[1]]["cost"]
             cost = 1 / cost
             cur_node_idx = node_dict[edge[1]]
@@ -1597,7 +1608,7 @@ def constructG(subsetg):
 
         for edge in out_edges:
             assert edge[0] == node
-            cost = subsetg[edge[0]][edge[1]]["cost"] / 10000.0
+            cost = subsetg[edge[0]][edge[1]][cost_key] / 10000.0
             # cost = subsetg[edge[0]][edge[1]]["cost"]
             cost = 1 / cost
             cur_node_idx = node_dict[edge[0]]
@@ -1610,7 +1621,7 @@ def constructG(subsetg):
         tail_node = edge[1]
         hidx = node_dict[head_node]
         tidx = node_dict[tail_node]
-        cost = subsetg[edge[0]][edge[1]]["cost"] / 10000.0
+        cost = subsetg[edge[0]][edge[1]][cost_key] / 10000.0
         cost = 1 / cost
         Q[i,hidx] = cost
         Q[i,tidx] = -cost
@@ -1669,7 +1680,7 @@ def construct_lp(subsetg, cost_key="cost"):
     c = np.zeros(len(edges))
     # find cost of each edge
     for i, edge in enumerate(edges):
-        c[i] = subsetg[edge[0]][edge[1]][cost_key] / 10000.0
+        c[i] = subsetg[edge[0]][edge[1]][cost_key]
 
     return edges, c, A, b, G, h
 
@@ -1789,3 +1800,137 @@ def get_subq_flows(qrep, cost_key):
 
     flow_cache.archive[key] = (qsolx, edge_dict)
     return qsolx, edge_dict
+
+def debug_flow_loss(sample, source_node, cost_key,
+        cost_model, all_ests=None):
+    start = time.time()
+    subsetg_vectors = list(get_subsetg_vectors(sample))
+    assert len(subsetg_vectors) == 7
+
+    totals, edges_head, edges_tail, nilj, edges_cost_node1, \
+            edges_cost_node2, final_node = subsetg_vectors
+    nodes = list(sample["subset_graph"].nodes())
+    nodes.sort()
+
+    assert all_ests is None
+    true_cards = np.zeros(len(subsetg_vectors[0]),
+            dtype=np.float32)
+
+    for ni, node in enumerate(nodes):
+        true_cards[ni] = \
+                sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+    trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
+            0.0, 24.0, None, edges_cost_node1,
+            edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+
+    Gv2 = np.zeros(len(totals), dtype=np.float32)
+    Gv2[final_node] = 1.0
+    Gv2 = to_variable(Gv2).float()
+    G2 = to_variable(G2).float()
+    invG = torch.inverse(G2)
+    v = invG @ Gv2 # vshape: Nx1
+    v = v.detach().numpy()
+    invG = invG.detach().numpy()
+    Gv2 = Gv2.detach().numpy()
+    G2 = G2.detach().numpy()
+    loss2 = np.zeros(1, dtype=np.float32)
+    assert Q2.dtype == np.float32
+    assert v.dtype == np.float32
+    if isinstance(trueC_vec, torch.Tensor):
+        trueC_vec = trueC_vec.detach().numpy()
+    assert trueC_vec.dtype == np.float32
+    fl_cpp.get_qvtqv(
+            c_int(len(edges_head)),
+            c_int(len(v)),
+            edges_head.ctypes.data_as(c_void_p),
+            edges_tail.ctypes.data_as(c_void_p),
+            Q2.ctypes.data_as(c_void_p),
+            v.ctypes.data_as(c_void_p),
+            trueC_vec.ctypes.data_as(c_void_p),
+            loss2.ctypes.data_as(c_void_p)
+            )
+
+    return loss2[0], trueC_vec, Q2, G2, Gv2, v, invG
+
+def get_optimization_variables(ests, totals, min_val, max_val,
+        normalization_type, edges_cost_node1, edges_cost_node2,
+        nilj, edges_head, edges_tail, cost_model):
+    '''
+    @ests: these are actual values for each estimate. totals,min_val,max_val
+    are only required for the derivatives.
+    '''
+    start = time.time()
+
+    # TODO: speed up this init stuff?
+    if normalization_type is None:
+        norm_type = 0
+    elif normalization_type == "mscn":
+        norm_type = 2
+    else:
+        # temporarily, screw this
+        assert False
+        norm_type = 1
+
+    if cost_model == "cm1":
+        cost_model_num = 1
+    elif cost_model == "nested_loop_index":
+        cost_model_num = 2
+    elif cost_model == "nested_loop_index2":
+        cost_model_num = 3
+    elif cost_model == "nested_loop_index3":
+        cost_model_num = 4
+    elif cost_model == "nested_loop_index4":
+        cost_model_num = 5
+    elif cost_model == "nested_loop_index5":
+        cost_model_num = 6
+    elif cost_model == "nested_loop":
+        cost_model_num = 7
+    elif cost_model == "hash_join":
+        cost_model_num = 8
+    elif cost_model == "cm2":
+        cost_model_num = 9
+    elif cost_model == "nested_loop_index6":
+        cost_model_num = 10
+    else:
+        assert False
+
+    # TODO: make sure everything is the correct type beforehand
+    if min_val is None:
+        min_val = 0.0
+        max_val = 0.0
+
+    if not isinstance(ests, np.ndarray):
+        ests = ests.detach().numpy()
+
+    costs2 = np.zeros(len(edges_cost_node1), dtype=np.float32)
+    dgdxT2 = np.zeros((len(ests), len(edges_cost_node1)), dtype=np.float32)
+    G2 = np.zeros((len(ests),len(ests)), dtype=np.float32)
+    Q2 = np.zeros((len(edges_cost_node1),len(ests)), dtype=np.float32)
+
+    assert ests.dtype == np.float32
+    # if np.min(ests) < 1.0:
+        # print("ests was < 1")
+    ests = np.maximum(ests, 1.0)
+
+    start = time.time()
+    fl_cpp.get_optimization_variables(ests.ctypes.data_as(c_void_p),
+            totals.ctypes.data_as(c_void_p),
+            c_double(min_val),
+            c_double(max_val),
+            c_int(norm_type),
+            edges_cost_node1.ctypes.data_as(c_void_p),
+            edges_cost_node2.ctypes.data_as(c_void_p),
+            edges_head.ctypes.data_as(c_void_p),
+            edges_tail.ctypes.data_as(c_void_p),
+            nilj.ctypes.data_as(c_void_p),
+            c_int(len(ests)),
+            c_int(len(costs2)),
+            costs2.ctypes.data_as(c_void_p),
+            dgdxT2.ctypes.data_as(c_void_p),
+            G2.ctypes.data_as(c_void_p),
+            Q2.ctypes.data_as(c_void_p),
+            c_int(cost_model_num))
+
+    return costs2, dgdxT2, G2, Q2
+

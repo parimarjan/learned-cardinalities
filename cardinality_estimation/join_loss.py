@@ -39,7 +39,14 @@ PG_HINT_SCANS["Tid Scan"] = "TidScan"
 
 MAX_JOINS = 16
 
-def _get_cost(sql, cur):
+def set_indexes(cursor, val):
+    cursor.execute("SET enable_indexscan = {}".format(val))
+    cursor.execute("SET enable_indexonlyscan = {}".format(val))
+    cursor.execute("SET enable_bitmapscan = {}".format(val))
+    cursor.execute("SET enable_tidscan = {}".format(val))
+
+
+def get_pg_cost_from_sql(sql, cur):
     assert "explain" in sql
     # cur = con.cursor()
     cur.execute(sql)
@@ -50,8 +57,9 @@ def _get_cost(sql, cur):
     # cost = all_costs[-1]
     # pdb.set_trace()
     cost = explain[0][0][0]["Plan"]["Total Cost"]
-    # if cost != mcost:
-        # print(cost, mcost)
+    if cost != mcost:
+        print("cost != mcost!")
+        print(cost, mcost)
         # pdb.set_trace()
     return cost, explain
 
@@ -119,7 +127,7 @@ def get_leading_hint(join_graph, explain):
     jo = "(" + jo + ")"
     return PG_HINT_LEADING_TMP.format(JOIN_ORDER = jo)
 
-def _get_modified_sql(sql, cardinalities, join_ops,
+def get_pghint_modified_sql(sql, cardinalities, join_ops,
         leading_hint, scan_ops):
     '''
     @cardinalities: dict
@@ -158,6 +166,8 @@ def get_join_cost_sql(sql_order, true_cardinalities,
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd, host=db_host)
 
+    # TODO: set cost model based stuff
+
     cursor = con.cursor()
     cursor.execute("SET join_collapse_limit = {}".format(1))
     cursor.execute("SET from_collapse_limit = {}".format(1))
@@ -175,23 +185,21 @@ def get_join_cost_sql(sql_order, true_cardinalities,
     # cursor.execute("SET join_collapse_limit = {}".format(MAX_JOINS))
     # cursor.execute("SET from_collapse_limit = {}".format(MAX_JOINS))
     if not use_indexes:
-        cursor.execute("SET enable_indexscan = off")
-        cursor.execute("SET enable_indexonlyscan = off")
+        set_indexes(cursor, "off")
     else:
-        cursor.execute("SET enable_indexscan = on")
-        cursor.execute("SET enable_indexonlyscan = on")
+        set_indexes(cursor, "on")
 
     est_opt_sql = nx_graph_to_query(join_graph,
             from_clause=est_join_order_sql)
 
     # add the join ops etc. information
-    cost_sql = _get_modified_sql(est_opt_sql, true_cardinalities,
+    cost_sql = get_pghint_modified_sql(est_opt_sql, true_cardinalities,
             None, leading_hint, None)
 
-    # exec_sql = _get_modified_sql(est_opt_sql, est_cardinalities,
+    # exec_sql = get_pghint_modified_sql(est_opt_sql, est_cardinalities,
             # None, None, None)
 
-    est_cost, est_explain = _get_cost(cost_sql, cursor)
+    est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
     # debug_leading = get_leading_hint(join_graph, est_explain)
 
     cursor.close()
@@ -201,7 +209,7 @@ def get_join_cost_sql(sql_order, true_cardinalities,
 def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
         join_graph, cursor, sql_costs):
 
-    est_card_sql = _get_modified_sql(query, est_cardinalities, None,
+    est_card_sql = get_pghint_modified_sql(query, est_cardinalities, None,
             None, None)
     # assert "explain" in est_card_sql.lower()
     cursor.execute(est_card_sql)
@@ -215,13 +223,13 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
             from_clause=est_join_order_sql)
 
     # add the join ops etc. information
-    cost_sql = _get_modified_sql(est_opt_sql, true_cardinalities,
+    cost_sql = get_pghint_modified_sql(est_opt_sql, true_cardinalities,
             est_join_ops, leading_hint, scan_ops)
 
     # set this to sql to be executed, as pg_hint will enforce the estimated
     # cardinalities, and let postgres make decisions for join order and
     # everything about operators based on the estimated cardinalities
-    exec_sql = _get_modified_sql(est_opt_sql, est_cardinalities,
+    exec_sql = get_pghint_modified_sql(est_opt_sql, est_cardinalities,
             None, None, None)
 
     # cost_sql will be seen often, as true_cardinalities remain fixed. so we
@@ -233,13 +241,13 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
             try:
                 est_cost, est_explain = sql_costs.archive[cost_sql_key]
             except:
-                est_cost, est_explain = _get_cost(cost_sql, cursor)
+                est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
                 sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
         else:
-            est_cost, est_explain = _get_cost(cost_sql, cursor)
+            est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
             sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
     else:
-        est_cost, est_explain = _get_cost(cost_sql, cursor)
+        est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
 
     debug_leading = get_leading_hint(join_graph, est_explain)
     if debug_leading != leading_hint:
@@ -269,12 +277,6 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         val:
             float
     '''
-    def set_indexes(cursor, val):
-        cursor.execute("SET enable_indexscan = {}".format(val))
-        cursor.execute("SET enable_indexonlyscan = {}".format(val))
-        cursor.execute("SET enable_bitmapscan = {}".format(val))
-        cursor.execute("SET enable_tidscan = {}".format(val))
-
     try:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd)
