@@ -321,6 +321,7 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
 
     cursor = con.cursor()
     cursor.execute("LOAD 'pg_hint_plan';")
+    set_cost_model(cursor, cost_model)
     cursor.execute("SET geqo_threshold = {}".format(MAX_JOINS))
     cursor.execute("SET join_collapse_limit = {}".format(MAX_JOINS))
     cursor.execute("SET from_collapse_limit = {}".format(MAX_JOINS))
