@@ -257,11 +257,14 @@ ERROR_NAMES["flow_ratio"] = "Flow Ratio"
 ERROR_NAMES["mm1_plan_err"] = "Simple Plan Error"
 ERROR_NAMES["mm1_plan_ratio"] = "Simple Plan Ratio"
 
+ERROR_NAMES["mm1_plan_pg_err"] = "Simple Plan Postgres Error"
+ERROR_NAMES["mm1_plan_pg_ratio"] = "Simple Plan Postgres Ratio"
+
 ERROR_NAMES["plan_err"] = "Simple Plan Error"
 ERROR_NAMES["plan_ratio"] = "Simple Plan Ratio"
 
 ERROR_NAMES["jerr"] = "Postgres Plan Error"
-ERROR_NAMES["jerr_ratio"] = "Postgres Plan Error"
+ERROR_NAMES["jerr_ratio"] = "Postgres Plan Ratio"
 title_fmt = "{}"
 
 def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
@@ -300,7 +303,9 @@ def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
     #plt.show()
 
 def construct_summary(df, samples_type, title, HUE_COLORS=None):
-    fig, axs = plt.subplots(1, 4, figsize=(40,10))
+    # if 'mm1_plan_pg_ratio' in df.keys()
+
+    fig, axs = plt.subplots(1, 5, figsize=(40,10))
     fig.suptitle(title, fontsize=50)
     # if samples_type == "train":
         # plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
@@ -313,8 +318,12 @@ def construct_summary(df, samples_type, title, HUE_COLORS=None):
                 HUE_COLORS=HUE_COLORS, miny=1.0)
     plot_loss_summary(df, "mm1_plan_ratio", samples_type, "linear", axs[2],
             HUE_COLORS=HUE_COLORS, miny=1.0)
-    plot_loss_summary(df, "jerr", samples_type, "linear", axs[3],
-            HUE_COLORS=HUE_COLORS, miny = 0, maxy=2e6)
+
+    plot_loss_summary(df, "mm1_plan_pg_ratio", samples_type, "linear", axs[3],
+            HUE_COLORS=HUE_COLORS, miny = 1.0)
+    plot_loss_summary(df, "jerr_ratio", samples_type, "linear", axs[4],
+            HUE_COLORS=HUE_COLORS, miny = 1.0)
+
 
     if samples_type == "train":
         plt.tight_layout(rect=[0, 0, 1, 0.70])

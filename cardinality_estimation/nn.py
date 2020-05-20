@@ -1277,7 +1277,7 @@ class NN(CardinalityEstimationAlg):
 
         if self.eval_flow_loss and \
                 self.epoch % self.eval_epoch_flow_err == 0:
-            opt_flow_costs, est_flow_costs  = \
+            opt_flow_costs, est_flow_costs, _,_ = \
                     self.flow_loss_env.compute_loss(samples,
                             est_cardinalities, pool = self.join_loss_pool)
             opt_flow_losses = est_flow_costs - opt_flow_costs
@@ -1289,9 +1289,13 @@ class NN(CardinalityEstimationAlg):
 
         if self.cost_model_plan_err and \
                 self.epoch % self.eval_epoch_plan_err == 0:
-            opt_plan_costs, est_plan_costs  = \
+            opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
+                    est_plan_pg_costs = \
                     self.plan_err.compute_loss(samples,
-                            est_cardinalities, pool = self.join_loss_pool)
+                            est_cardinalities, pool = self.join_loss_pool,
+                            true_cardinalities=true_cardinalities,
+                            join_graphs=jgs)
+
             cm_plan_losses = est_plan_costs - opt_plan_costs
             cm_plan_losses_ratio = est_plan_costs / opt_plan_costs
             self.save_join_loss_stats(cm_plan_losses, None, samples,
@@ -1299,7 +1303,15 @@ class NN(CardinalityEstimationAlg):
             self.save_join_loss_stats(cm_plan_losses_ratio, None, samples,
                     samples_type, loss_key="mm1_plan_ratio")
 
-            # pdb.set_trace()
+            if opt_plan_pg_costs is not None:
+                cm_plan_pg_losses = est_plan_pg_costs - opt_plan_pg_costs
+                cm_plan_pg_ratio = est_plan_pg_costs / opt_plan_pg_costs
+
+                self.save_join_loss_stats(cm_plan_pg_losses, None, samples,
+                        samples_type, loss_key="mm1_plan_pg_err")
+                self.save_join_loss_stats(cm_plan_pg_ratio, None, samples,
+                        samples_type, loss_key="mm1_plan_pg_ratio")
+
 
         if not self.epoch % self.eval_epoch_jerr == 0:
             return
@@ -1492,8 +1504,11 @@ class NN(CardinalityEstimationAlg):
         # create a new park env, and close at the end.
         self.env = JoinLoss(self.cost_model, self.db.user, self.db.pwd,
                 self.db.db_host, self.db.port, self.db.db_name)
-        self.plan_err = PlanError(self.cost_model, "plan-loss")
-        self.flow_loss_env = PlanError(self.cost_model, "flow-loss")
+        self.plan_err = PlanError(self.cost_model, "plan-loss", self.db.user,
+                self.db.pwd, self.db.db_host, self.db.port, self.db.db_name,
+                compute_pg_costs=True)
+        self.flow_loss_env = PlanError(self.cost_model, "flow-loss",
+                compute_pg_costs=False)
 
         self.training_samples = training_samples
         if self.sampling_priority_alpha > 0.00:

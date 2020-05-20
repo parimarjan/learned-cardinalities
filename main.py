@@ -224,9 +224,10 @@ def main():
                 print("skipping template ", template_name)
                 continue
 
-        # if "7a" in template_name:
-            # print("skipping template 7a")
-            # continue
+        if args.no7a:
+            if "7a" in template_name:
+                print("skipping template 7a")
+                continue
 
         start = time.time()
         # loading, or generating samples
@@ -445,7 +446,7 @@ def read_flags():
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
     parser.add_argument("--cost_model", type=str, required=False,
-            default="nested_loop_index")
+            default="nested_loop_index4")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
             default=None)
     parser.add_argument("--exp_prefix", type=str, required=False,
@@ -453,6 +454,8 @@ def read_flags():
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
+            default=0)
+    parser.add_argument("--no7a", type=int, required=False,
             default=0)
     parser.add_argument("--cost_model_plan_err", type=int, required=False,
             default=1)

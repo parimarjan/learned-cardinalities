@@ -1,7 +1,8 @@
 import psycopg2 as pg
 import getpass
 from db_utils.utils import *
-from sql_rep.utils import extract_aliases
+from sql_rep.utils import extract_aliases, nodes_to_sql, path_to_join_order
+
 import multiprocessing as mp
 import math
 from cardinality_estimation.flow_loss import *
@@ -44,6 +45,35 @@ def set_indexes(cursor, val):
     cursor.execute("SET enable_indexonlyscan = {}".format(val))
     cursor.execute("SET enable_bitmapscan = {}".format(val))
     cursor.execute("SET enable_tidscan = {}".format(val))
+
+def set_cost_model(cursor, cost_model):
+    if cost_model == "hash_join":
+        cursor.execute("SET enable_hashjoin = on")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = off")
+        set_indexes(cursor, "off")
+    elif cost_model == "nested_loop":
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        set_indexes(cursor, "off")
+    elif cost_model == "nested_loop_index" \
+            or cost_model == "nested_loop_index2" \
+            or cost_model == "nested_loop_index3" \
+            or cost_model == "nested_loop_index4" \
+            or cost_model == "nested_loop_index5" \
+            or cost_model == "nested_loop_index6":
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        set_indexes(cursor, "on")
+
+    elif cost_model == "cm1" \
+            or cost_model == "cm2":
+        pass
+    else:
+        assert False
+
 
 
 def get_pg_cost_from_sql(sql, cur):
@@ -158,7 +188,8 @@ def get_pghint_modified_sql(sql, cardinalities, join_ops,
     return sql
 
 def get_join_cost_sql(sql_order, true_cardinalities,
-        join_graph, use_indexes, user, pwd, db_host, port, db_name):
+        join_graph, user, pwd, db_host, port, db_name,
+        cost_model):
     try:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd)
@@ -169,42 +200,36 @@ def get_join_cost_sql(sql_order, true_cardinalities,
     # TODO: set cost model based stuff
 
     cursor = con.cursor()
+    cursor.execute("LOAD 'pg_hint_plan';")
+    set_cost_model(cursor, cost_model)
+    cursor.execute("SET geqo_threshold = {}".format(MAX_JOINS))
+
+    # ALL this drama just so we can get leading_order... uglyugh
     cursor.execute("SET join_collapse_limit = {}".format(1))
     cursor.execute("SET from_collapse_limit = {}".format(1))
-    # sql_order = "EXPLAIN " + sql_order
-    sql_order = " explain (format json) " + sql_order
-
-    cursor.execute(sql_order)
+    sql_to_exec = " explain (format json) " + sql_order
+    cursor.execute(sql_to_exec)
     explain = cursor.fetchall()
     est_join_order_sql, est_join_ops, scan_ops = get_pg_join_order(join_graph,
             explain)
     leading_hint = get_leading_hint(join_graph, explain)
-
-    cursor.execute("LOAD 'pg_hint_plan';")
-    cursor.execute("SET geqo_threshold = {}".format(MAX_JOINS))
-    # cursor.execute("SET join_collapse_limit = {}".format(MAX_JOINS))
-    # cursor.execute("SET from_collapse_limit = {}".format(MAX_JOINS))
-    if not use_indexes:
-        set_indexes(cursor, "off")
-    else:
-        set_indexes(cursor, "on")
-
     est_opt_sql = nx_graph_to_query(join_graph,
             from_clause=est_join_order_sql)
 
     # add the join ops etc. information
     cost_sql = get_pghint_modified_sql(est_opt_sql, true_cardinalities,
             None, leading_hint, None)
+    est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
 
+    # FIXME: need to do this
     # exec_sql = get_pghint_modified_sql(est_opt_sql, est_cardinalities,
             # None, None, None)
 
-    est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
     # debug_leading = get_leading_hint(join_graph, est_explain)
 
     cursor.close()
     con.close()
-    return cost_sql, est_cost, est_explain
+    return None, est_cost, est_explain
 
 def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
         join_graph, cursor, sql_costs):
@@ -299,37 +324,11 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
     cursor.execute("SET geqo_threshold = {}".format(MAX_JOINS))
     cursor.execute("SET join_collapse_limit = {}".format(MAX_JOINS))
     cursor.execute("SET from_collapse_limit = {}".format(MAX_JOINS))
+
     if not use_indexes:
         set_indexes(cursor, "off")
     else:
         set_indexes(cursor, "on")
-
-    if cost_model == "hash_join":
-        cursor.execute("SET enable_hashjoin = on")
-        cursor.execute("SET enable_mergejoin = off")
-        cursor.execute("SET enable_nestloop = off")
-        set_indexes(cursor, "off")
-    elif cost_model == "nested_loop":
-        cursor.execute("SET enable_hashjoin = off")
-        cursor.execute("SET enable_mergejoin = off")
-        cursor.execute("SET enable_nestloop = on")
-        set_indexes(cursor, "off")
-    elif cost_model == "nested_loop_index" \
-            or cost_model == "nested_loop_index2" \
-            or cost_model == "nested_loop_index3" \
-            or cost_model == "nested_loop_index4" \
-            or cost_model == "nested_loop_index5" \
-            or cost_model == "nested_loop_index6":
-        cursor.execute("SET enable_hashjoin = off")
-        cursor.execute("SET enable_mergejoin = off")
-        cursor.execute("SET enable_nestloop = on")
-        set_indexes(cursor, "on")
-
-    elif cost_model == "cm1" \
-            or cost_model == "cm2":
-        pass
-    else:
-        assert False
 
     ret = []
     for i, query in enumerate(queries):
@@ -643,11 +642,17 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
     return costs
 
 def get_shortest_path_costs(samples, source_node, cost_key,
-        all_ests, known_costs, cost_model):
+        all_ests, known_costs, cost_model, compute_pg_costs,
+        user=None, pwd=None, db_host=None, port=None, db_name=None,
+        true_cardinalities=None, join_graphs=None):
     '''
     @ret: cost of the given path in subsetg.
     '''
     costs = []
+    pg_costs = []
+    paths = []
+    pg_sqls = []
+
     for i in range(len(samples)):
         if known_costs and known_costs[i] is not None:
             costs.append(known_costs[i])
@@ -666,30 +671,46 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         final_node = nodes[-1]
         path = nx.shortest_path(subsetg, final_node,
                 source_node, weight=cost_model+cost_key)
+        path = path[0:-1]
+        paths.append(path)
 
         cost = 0.0
-        for i in range(len(path)-1):
-            cost += subsetg[path[i]][path[i+1]][cost_model+"cost"]
+        for pi in range(len(path)-1):
+            cost += subsetg[path[pi]][path[pi+1]][cost_model+"cost"]
         assert cost >= 1
         costs.append(cost)
 
-    return costs
+        join_order = [tuple(sorted(x)) for x in path_to_join_order(path)]
+        join_order.reverse()
+        sql_to_exec = nodes_to_sql(join_order, join_graphs[i])
+
+        cost_sql, est_cost, est_explain = get_join_cost_sql(sql_to_exec,
+                true_cardinalities[i],
+                join_graphs[i], user, pwd, db_host, port, db_name,
+                cost_model)
+        pg_costs.append(est_cost)
+        pg_sqls.append(cost_sql)
+
+    return costs, pg_costs, paths, pg_sqls
 
 class PlanError():
 
     def __init__(self, cost_model, loss_type,
-            user=None, pwd=None, db_host=None, port=None, db_name=None):
+            user=None, pwd=None, db_host=None, port=None, db_name=None,
+            compute_pg_costs=False):
         self.user = user
         self.pwd = pwd
         self.db_host = db_host
         self.port = port
         self.db_name = db_name
+        self.compute_pg_costs = compute_pg_costs
 
         self.cost_model = cost_model
         self.source_node = SOURCE_NODE
         self.loss_type = loss_type
         if loss_type == "plan-loss":
             self.loss_func = get_shortest_path_costs
+            self.opt_pg_costs = {}
         elif loss_type == "flow-loss":
             self.loss_func = fl_cpp_get_flow_loss
 
@@ -698,18 +719,32 @@ class PlanError():
         if self.loss_type == "flow-loss":
             self.trueC_vecs = {}
 
-    def compute_loss(self, qreps, ests, pool=None):
+    def get_path_pg_costs(self, paths, true_cardinalities, join_graphs, pool):
+        print("get path pg costs!")
+
+        pdb.set_trace()
+
+    def compute_loss(self, qreps, ests, pool=None, true_cardinalities=None,
+            join_graphs=None):
         '''
         @ests: [dicts] of estimates
         '''
         start = time.time()
         subsetgs = []
         opt_costs = []
+        if self.loss_type == "plan-loss":
+            opt_pg_costs = []
+        else:
+            opt_pg_costs = None
+            all_pg_costs = None
+
         new_opt_cost = False
         for qrep in qreps:
             qkey = deterministic_hash(qrep["sql"])
             if qkey in self.opt_costs:
                 opt_costs.append(self.opt_costs[qkey])
+                if self.loss_type == "plan-loss":
+                    opt_pg_costs.append(self.opt_pg_costs[qkey])
             else:
                 opt_costs.append(None)
                 new_opt_cost = True
@@ -739,36 +774,53 @@ class PlanError():
                 if new_opt_cost:
                     opt_par_args.append((qreps[start_idx:end_idx],
                         self.source_node, "cost", None,
-                        opt_costs[start_idx:end_idx], self.cost_model))
+                        # opt_costs[start_idx:end_idx], self.cost_model,
+                        None, self.cost_model,
+                        self.compute_pg_costs,
+                        self.user, self.pwd, self.db_host, self.port,
+                        self.db_name, true_cardinalities[start_idx:end_idx],
+                        join_graphs[start_idx:end_idx]))
                 par_args.append((qreps[start_idx:end_idx],
                     self.source_node, "est_cost", ests[start_idx:end_idx],
-                    None, self.cost_model))
+                    None, self.cost_model, self.compute_pg_costs,
+                    self.user, self.pwd, self.db_host, self.port, self.db_name,
+                    true_cardinalities[start_idx:end_idx],
+                    join_graphs[start_idx:end_idx]))
 
             if new_opt_cost:
                 opt_costs = []
+                opt_pg_costs = []
                 opt_costs_batched = pool.starmap(self.loss_func,
                         opt_par_args)
                 for c in opt_costs_batched:
-                    opt_costs += c
+                    opt_costs += c[0]
+                    if self.compute_pg_costs:
+                        opt_pg_costs += c[1]
 
                 for i, qrep in enumerate(qreps):
                     qkey = deterministic_hash(qrep["sql"])
                     self.opt_costs[qkey] = opt_costs[i]
+                    if self.compute_pg_costs:
+                        self.opt_pg_costs[qkey] = opt_pg_costs[i]
+
+                # let's get the opt costs for each path
 
             all_costs = []
+            all_pg_costs = []
             all_costs_batched = pool.starmap(self.loss_func,
                     par_args)
             for c in all_costs_batched:
-                all_costs += c
+                all_costs += c[0]
+                if self.compute_pg_costs:
+                    all_pg_costs += c[1]
 
         all_costs = np.array(all_costs)
         opt_costs = np.array(opt_costs)
         loss = np.mean(all_costs - opt_costs)
+
         if loss < 0.0:
-            # pdb.set_trace()
-            pass
-            # print("negative loss for ", self.loss_type)
-            # print(loss)
+            print("negative loss for ", self.loss_type)
+            pdb.set_trace()
             # for i,c in enumerate(all_costs):
                 # if c < opt_costs[i]:
                     # idx = i
@@ -787,4 +839,6 @@ class PlanError():
             # pdb.set_trace()
 
         print("compute {} took: {}".format(self.loss_type, time.time()-start))
-        return np.array(opt_costs), np.array(all_costs)
+
+        return np.array(opt_costs), np.array(all_costs), \
+                np.array(opt_pg_costs), np.array(all_pg_costs)

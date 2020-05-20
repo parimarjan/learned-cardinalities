@@ -484,7 +484,7 @@ def compute_flow_loss(queries, preds, **kwargs):
     cur_costs = defaultdict(list)
     assert isinstance(costs, pd.DataFrame)
 
-    opt_costs, est_costs = env.compute_loss(queries, preds, pool=pool)
+    opt_costs, est_costs,_,_ = env.compute_loss(queries, preds, pool=pool)
     losses = est_costs - opt_costs
     for i, qrep in enumerate(queries):
         sql_key = str(deterministic_hash(qrep["sql"]))
@@ -504,7 +504,8 @@ def compute_plan_loss(queries, preds, **kwargs):
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
     args = kwargs["args"]
-    env = PlanError(args.cost_model, "plan-loss")
+    env = PlanError(args.cost_model, "plan-loss", args.user, args.pwd,
+            args.db_host, args.port, args.db_name, compute_pg_costs=True)
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
     pool = kwargs["pool"]
@@ -524,7 +525,31 @@ def compute_plan_loss(queries, preds, **kwargs):
     cur_costs = defaultdict(list)
     assert isinstance(costs, pd.DataFrame)
 
-    opt_costs, est_costs = env.compute_loss(queries, preds, pool=pool)
+    # for pg_costs
+    true_cardinalities = []
+    est_cardinalities = []
+    join_graphs = []
+    for i, qrep in enumerate(queries):
+        # sqls.append(qrep["sql"])
+        join_graphs.append(qrep["join_graph"])
+        ests = {}
+        trues = {}
+        predq = preds[i]
+        for node, node_info in qrep["subset_graph"].nodes().items():
+            est_card = predq[node]
+            alias_key = ' '.join(node)
+            trues[alias_key] = node_info["cardinality"]["actual"]
+            # ests[alias_key] = int(est_card)
+            if est_card == 0:
+                print("bad est card")
+                est_card += 1
+            ests[alias_key] = est_card
+        est_cardinalities.append(ests)
+        true_cardinalities.append(trues)
+
+    opt_costs, est_costs,pg_opt_costs,pg_est_costs = env.compute_loss(queries,
+            preds, pool=pool,
+            true_cardinalities=true_cardinalities, join_graphs=join_graphs)
     losses = est_costs - opt_costs
     for i, qrep in enumerate(queries):
         sql_key = str(deterministic_hash(qrep["sql"]))
