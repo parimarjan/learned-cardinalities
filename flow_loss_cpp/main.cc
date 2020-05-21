@@ -7,7 +7,7 @@
 #define NILJ_CONSTANT2 2.0
 #define RATIO_MUL_CONSTANT 1.0
 #define SOURCE_NODE_CONST 100000
-#define NILJ_MIN_CARD 0.0
+#define NILJ_MIN_CARD 5.0
 #define CARD_DIVIDER 0.001
 
 void get_dfdg_par(int num_edges, int num_nodes,

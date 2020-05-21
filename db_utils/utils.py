@@ -123,7 +123,7 @@ EDGE_COLORS["right"] = "r"
 NILJ_CONSTANT = 0.001
 NILJ_CONSTANT2 = 2.0
 RATIO_MUL_CONST = 1.0
-NILJ_MIN_CARD = 0.0
+NILJ_MIN_CARD = 5.0
 CARD_DIVIDER = 0.001
 
 def get_default_con_creds():
@@ -1474,9 +1474,9 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         assert cost >= 1.0
     elif cost_model == "nested_loop_index3":
         if len(node1) == 1:
-            nilj_cost = card2 + NILJ_CONSTANT*card1
+            nilj_cost = card2 + NILJ_CONSTANT*card1 + card3
         elif len(node2) == 1:
-            nilj_cost = card1 + NILJ_CONSTANT*card2
+            nilj_cost = card1 + NILJ_CONSTANT*card2 + card3
         else:
             assert False
         cost = nilj_cost

@@ -303,6 +303,7 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         val:
             float
     '''
+    print("pg single!, cm: ", cost_model)
     try:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd)
