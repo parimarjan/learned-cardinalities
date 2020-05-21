@@ -1312,6 +1312,12 @@ class NN(CardinalityEstimationAlg):
                 self.save_join_loss_stats(cm_plan_pg_ratio, None, samples,
                         samples_type, loss_key="mm1_plan_pg_ratio")
 
+                min_idx = np.argmin(cm_plan_pg_losses)
+                print(min_idx, cm_plan_pg_losses[min_idx],
+                    samples[min_idx]["name"])
+
+                pdb.set_trace()
+
 
         if not self.epoch % self.eval_epoch_jerr == 0:
             return

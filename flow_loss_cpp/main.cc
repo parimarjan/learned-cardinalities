@@ -203,6 +203,55 @@ void get_costs10(float *ests, float *totals,
   }
 }
 
+void get_costs11(float *ests, float *totals,
+    double min_val, double max_val, int normalization_type,
+    int *edges_cost_node1, int *edges_cost_node2,
+    //int *edges_head, int *edges_tail,
+    int *nilj, int num_nodes, int num_edges,
+    float *costs, float *dgdxT, int i, int head_node)
+{
+  // head node is the joined node
+  double card1, card2, card3, nilj_cost, ratio_mul;
+  int node1, node2;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  card3 = ests[head_node];
+  float cost1, cost2;
+
+  if (nilj[i] == 1) {
+    nilj_cost = card2 + NILJ_CONSTANT*card1 + card3;
+  } else if (nilj[i] == 2) {
+    nilj_cost = card1 + NILJ_CONSTANT*card2 + card3;
+  } else {
+    printf("should not have happened!\n");
+    exit(-1);
+  }
+  cost2 = card1*card2;
+  if (cost2 < nilj_cost) {
+    costs[i] = cost2;
+  } else costs[i] = nilj_cost;
+  float cost = costs[i];
+
+  /* time to compute gradients */
+  if (normalization_type == 2) {
+    // log normalization type
+      // index nested loop join
+      if (nilj[i]  == 1) {
+          dgdxT[node1*num_edges + i] = - (max_val*card1*NILJ_CONSTANT) / (cost*cost);
+          dgdxT[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
+          dgdxT[head_node*num_edges + i] = - (max_val*card3) / (cost*cost);
+      } else {
+          //float num2 = card2*NILJ_CONSTANT;
+          dgdxT[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
+          dgdxT[node2*num_edges + i] = - (max_val*card2*NILJ_CONSTANT) / (cost*cost);
+          dgdxT[head_node*num_edges + i] = - (max_val*card3) / (cost*cost);
+      }
+  }
+
+}
+
 void get_costs6(float *ests, float *totals,
     double min_val, double max_val, int normalization_type,
     int *edges_cost_node1, int *edges_cost_node2,
@@ -697,6 +746,10 @@ extern "C" void get_optimization_variables(
       get_costs10(ests, totals, min_val, max_val, normalization_type,
           edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
           costs, dgdxT, i);
+    } else if (cost_model == 11) {
+      get_costs11(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i, head_node);
     }
 
     float cost = 1.0 / costs[i];

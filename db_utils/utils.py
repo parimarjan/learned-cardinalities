@@ -1480,6 +1480,19 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         else:
             assert False
         cost = nilj_cost
+    elif cost_model == "nested_loop_index7":
+        if len(node1) == 1:
+            nilj_cost = card2 + NILJ_CONSTANT*card1 + card3
+        elif len(node2) == 1:
+            nilj_cost = card1 + NILJ_CONSTANT*card2 + card3
+        else:
+            assert False
+        cost2 = card1*card2
+        if cost2 < nilj_cost:
+            cost = cost2
+        else:
+            cost = nilj_cost
+
     elif cost_model == "nested_loop_index4":
         # same as nested_loop_index, but also considering just joining the two
         # tables
@@ -1892,6 +1905,8 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         cost_model_num = 9
     elif cost_model == "nested_loop_index6":
         cost_model_num = 10
+    elif cost_model == "nested_loop_index7":
+        cost_model_num = 11
     else:
         assert False
 
