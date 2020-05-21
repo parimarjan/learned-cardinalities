@@ -28,12 +28,12 @@ else:
 lib_dir = "./flow_loss_cpp"
 lib_file = lib_dir + "/" + lib_file
 fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
-DEBUG_JAX = False
+DEBUG_JAX = True
 
 DEBUG = False
 
 def get_costs_jax(card1, card2, card3, nilj, cost_model,
-        total1=None, total2=None):
+        total1, total2):
     if cost_model == "cm1":
         # hash_join_cost = card1 + card2
         if nilj == 1:
@@ -167,6 +167,36 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
         if cost2 < cost or (card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD):
             print("cost2 chosen! ", cost2)
             cost = cost2
+    elif cost_model == "nested_loop_index8":
+        # same as nli7 --> but consider the fact the right side of an index
+        # nested loop join WILL not have predicates pushed down
+        # also, remove the term for index entirely
+        if len(node1) == 1:
+            # using index on node1
+            # nilj_cost = card2 + NILJ_CONSTANT*card1
+            nilj_cost = card2
+            # expected output size, if node 1 did not have predicate pushed
+            # down
+            node1_selectivity = total1 / card1
+            joined_node_est = card3 * node1_selectivity
+            nilj_cost += joined_node_est
+
+        elif len(node2) == 1:
+            # using index on node2
+            # nilj_cost = card1 + NILJ_CONSTANT*card2
+            nilj_cost = card1
+            node2_selectivity = total2 / card2
+            joined_node_est = card3 * node2_selectivity
+            nilj_cost += joined_node_est
+        else:
+            assert False
+
+        # TODO: we may be doing fine without this one
+        cost2 = card1*card2
+        if cost2 < nilj_cost:
+            cost = cost2
+        else:
+            cost = nilj_cost
 
     elif cost_model == "nested_loop":
         cost = card1*card2
@@ -196,20 +226,15 @@ def get_optimization_variables_jax(yhat, totals, min_val, max_val,
         card1 = ests[node1]
         card2 = ests[node2]
         card3 = ests[edges_head[i]]
-        cost = get_costs_jax(card1, card2, card3, nilj[i], cost_model)
-        # if nilj[i] == 1:
-            # nilj_cost = card2 + NILJ_CONSTANT*card1
-        # elif nilj[i] == 2:
-            # nilj_cost = card1 + NILJ_CONSTANT*card2
-        # else:
-            # assert False
-        # cost = nilj_cost
+        total1 = totals[node1]
+        total2 = totals[node2]
+        cost = get_costs_jax(card1, card2, card3, nilj[i], cost_model, total1,
+                total2)
         assert cost != 0.0
         costs = jax.ops.index_update(costs, jax.ops.index[i], cost)
 
-    costs = 1 / costs;
+    costs = 1 / costs
     return costs
-
 
 def get_edge_costs3(yhat, totals, min_val, max_val,
         normalization_type, edges_cost_node1, edges_cost_node2,

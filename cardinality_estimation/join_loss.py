@@ -63,7 +63,8 @@ def set_cost_model(cursor, cost_model):
             or cost_model == "nested_loop_index4" \
             or cost_model == "nested_loop_index5" \
             or cost_model == "nested_loop_index6" \
-            or cost_model == "nested_loop_index7":
+            or cost_model == "nested_loop_index7" \
+            or cost_model == "nested_loop_index8":
         cursor.execute("SET enable_hashjoin = off")
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")

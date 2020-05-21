@@ -1480,18 +1480,6 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         else:
             assert False
         cost = nilj_cost
-    elif cost_model == "nested_loop_index7":
-        if len(node1) == 1:
-            nilj_cost = card2 + NILJ_CONSTANT*card1 + card3
-        elif len(node2) == 1:
-            nilj_cost = card1 + NILJ_CONSTANT*card2 + card3
-        else:
-            assert False
-        cost2 = card1*card2
-        if cost2 < nilj_cost:
-            cost = cost2
-        else:
-            cost = nilj_cost
 
     elif cost_model == "nested_loop_index4":
         # same as nested_loop_index, but also considering just joining the two
@@ -1562,6 +1550,50 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         cost2 = card1*card2
         if cost2 < cost or (card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD):
             cost = cost2
+
+    elif cost_model == "nested_loop_index7":
+        if len(node1) == 1:
+            nilj_cost = card2 + NILJ_CONSTANT*card1 + card3
+        elif len(node2) == 1:
+            nilj_cost = card1 + NILJ_CONSTANT*card2 + card3
+        else:
+            assert False
+        cost2 = card1*card2
+        if cost2 < nilj_cost:
+            cost = cost2
+        else:
+            cost = nilj_cost
+
+    elif cost_model == "nested_loop_index8":
+        # same as nli7 --> but consider the fact the right side of an index
+        # nested loop join WILL not have predicates pushed down
+        # also, remove the term for index entirely
+        if len(node1) == 1:
+            # using index on node1
+            # nilj_cost = card2 + NILJ_CONSTANT*card1
+            nilj_cost = card2
+            # expected output size, if node 1 did not have predicate pushed
+            # down
+            node1_selectivity = total1 / card1
+            joined_node_est = card3 * node1_selectivity
+            nilj_cost += joined_node_est
+
+        elif len(node2) == 1:
+            # using index on node2
+            # nilj_cost = card1 + NILJ_CONSTANT*card2
+            nilj_cost = card1
+            node2_selectivity = total2 / card2
+            joined_node_est = card3 * node2_selectivity
+            nilj_cost += joined_node_est
+        else:
+            assert False
+
+        # TODO: we may be doing fine without this one
+        cost2 = card1*card2
+        if cost2 < nilj_cost:
+            cost = cost2
+        else:
+            cost = nilj_cost
 
     elif cost_model == "nested_loop":
         cost = card1*card2
@@ -1907,6 +1939,8 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         cost_model_num = 10
     elif cost_model == "nested_loop_index7":
         cost_model_num = 11
+    elif cost_model == "nested_loop_index8":
+        cost_model_num = 12
     else:
         assert False
 
