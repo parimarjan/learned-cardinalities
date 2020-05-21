@@ -1510,7 +1510,7 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
 
         assert cost >= 1.0
     elif cost_model == "nested_loop_index5":
-        # same as nested_index_loop4, BUT disallowing index joins if either of
+        # same as nested_li4, BUT disallowing index joins if either of
         # the nodes have cardinality less than NILJ_MIN_CARD
 
         if card1 < NILJ_MIN_CARD or card2 < NILJ_MIN_CARD:

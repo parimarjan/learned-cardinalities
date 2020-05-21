@@ -47,6 +47,8 @@ def set_indexes(cursor, val):
     cursor.execute("SET enable_tidscan = {}".format(val))
 
 def set_cost_model(cursor, cost_model):
+    # makes things easier to understand
+    cursor.execute("SET enable_material = off")
     if cost_model == "hash_join":
         cursor.execute("SET enable_hashjoin = on")
         cursor.execute("SET enable_mergejoin = off")
@@ -304,7 +306,6 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
         val:
             float
     '''
-    print("pg single!, cm: ", cost_model)
     try:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd)

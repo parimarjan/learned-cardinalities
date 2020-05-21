@@ -252,13 +252,15 @@ void get_costs12(float *ests, float *totals,
     } else {
         // index nested loop join
         if (nilj[i]  == 1) {
-            dgdxT[node1*num_edges + i] = - (max_val*card3*total1) / card1*(cost*cost);
+            // used index on node1.
+            // derivative of: 1 / (c3*e^{-ax}*total + c2)
+            dgdxT[node1*num_edges + i] = (max_val*card3*total1) / (card1*cost*cost);
             dgdxT[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
-            dgdxT[head_node*num_edges + i] = - (max_val*card3*total1) / card1*(cost*cost);
+            dgdxT[head_node*num_edges + i] = - (max_val*card3*total1) / (card1*cost*cost);
         } else {
-            dgdxT[node1*num_edges + i] = - (max_val*card3*total2) / card2*(cost*cost);
-            dgdxT[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
-            dgdxT[head_node*num_edges + i] = - (max_val*card3*total2) / card2*(cost*cost);
+            dgdxT[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
+            dgdxT[node2*num_edges + i] = (max_val*card3*total2) / (card2*cost*cost);
+            dgdxT[head_node*num_edges + i] = - (max_val*card3*total2) / (card2*cost*cost);
         }
     }
   }
