@@ -28,8 +28,7 @@ else:
 lib_dir = "./flow_loss_cpp"
 lib_file = lib_dir + "/" + lib_file
 fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
-DEBUG_JAX = True
-
+DEBUG_JAX = False
 DEBUG = False
 
 def get_costs_jax(card1, card2, card3, nilj, cost_model,
@@ -197,6 +196,29 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
             cost = cost2
         else:
             cost = nilj_cost
+
+    elif cost_model == "nested_loop_index9":
+        if nilj == 1:
+            # using index on node1
+            # nilj_cost = card2 + NILJ_CONSTANT*card1
+            nilj_cost = card2
+            # expected output size, if node 1 did not have predicate pushed
+            # down
+            node1_selectivity = total1 / card1
+            joined_node_est = card3 * node1_selectivity
+            nilj_cost += joined_node_est
+
+        elif nilj == 2:
+            # using index on node2
+            # nilj_cost = card1 + NILJ_CONSTANT*card2
+            nilj_cost = card1
+            node2_selectivity = total2 / card2
+            joined_node_est = card3 * node2_selectivity
+            nilj_cost += joined_node_est
+        else:
+            assert False
+
+        cost = nilj_cost
 
     elif cost_model == "nested_loop":
         cost = card1*card2

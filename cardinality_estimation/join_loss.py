@@ -59,14 +59,7 @@ def set_cost_model(cursor, cost_model):
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         set_indexes(cursor, "off")
-    elif cost_model == "nested_loop_index" \
-            or cost_model == "nested_loop_index2" \
-            or cost_model == "nested_loop_index3" \
-            or cost_model == "nested_loop_index4" \
-            or cost_model == "nested_loop_index5" \
-            or cost_model == "nested_loop_index6" \
-            or cost_model == "nested_loop_index7" \
-            or cost_model == "nested_loop_index8":
+    elif "nested_loop_index" in cost_model:
         cursor.execute("SET enable_hashjoin = off")
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
@@ -825,7 +818,8 @@ class PlanError():
 
         if loss < 0.0:
             print("negative loss for ", self.loss_type)
-            pdb.set_trace()
+            print(loss)
+            # pdb.set_trace()
             # for i,c in enumerate(all_costs):
                 # if c < opt_costs[i]:
                     # idx = i

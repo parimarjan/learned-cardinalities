@@ -1313,11 +1313,9 @@ class NN(CardinalityEstimationAlg):
                         samples_type, loss_key="mm1_plan_pg_ratio")
 
                 min_idx = np.argmin(cm_plan_pg_losses)
-                print(min_idx, cm_plan_pg_losses[min_idx],
-                    samples[min_idx]["name"])
-
-                pdb.set_trace()
-
+                print("min plan pg loss: {}, name: {}".format(
+                    cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
+                # pdb.set_trace()
 
         if not self.epoch % self.eval_epoch_jerr == 0:
             return
@@ -1346,6 +1344,13 @@ class NN(CardinalityEstimationAlg):
                 samples_type)
         self.save_join_loss_stats(join_losses_ratio, est_plans, samples,
                 samples_type, loss_key="jerr_ratio")
+
+        if opt_plan_pg_costs is not None:
+            cost_model_losses = opt_plan_pg_costs - opt_costs
+            cost_model_ratio = opt_plan_pg_costs / opt_costs
+            print("cost model losses: ")
+            print(np.mean(cost_model_losses), np.mean(cost_model_ratio))
+            pdb.set_trace()
 
         if np.mean(join_losses) < self.best_join_loss \
                 and self.epoch > self.start_validation \
