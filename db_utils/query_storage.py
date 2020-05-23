@@ -101,8 +101,12 @@ def gen_queries(query_template, num_samples, args):
 
 def load_sql_rep(fn):
     assert ".pkl" in fn
-    with open(fn, "rb") as f:
-        query = pickle.load(f)
+    try:
+        with open(fn, "rb") as f:
+            query = pickle.load(f)
+    except:
+        print(fn + " failed to load...")
+        exit(-1)
 
     query["subset_graph"] = \
             nx.OrderedDiGraph(json_graph.adjacency_graph(query["subset_graph"]))

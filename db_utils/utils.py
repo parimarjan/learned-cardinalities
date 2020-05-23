@@ -126,6 +126,7 @@ RATIO_MUL_CONST = 1.0
 NILJ_MIN_CARD = 5.0
 CARD_DIVIDER = 0.001
 INDEX_COST_CONSTANT = 10000
+INDEX_PENALTY_MULTIPLE = 10.0
 
 def get_default_con_creds():
     if "user" in os.environ:
@@ -1693,6 +1694,7 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
 
     elif cost_model == "nested_loop_index13":
         # same as nli8, but additional conditions
+
         if len(node1) == 1:
             # using index on node1
             # nilj_cost = card2 + NILJ_CONSTANT*card1
@@ -1703,11 +1705,20 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
             # expected output size, if node 1 did not have predicate pushed
             # down
             if "ci" in node1:
-                # if not ("t" in node2 or "mc" in node2 or "mi1" in node2 \
-                        # or "mi2" in node2 or "mii1" in node2):
-                if not ("mc" in node2):
-                    # expensive index, bad bad
-                    nilj_cost *= 10
+                if not ("t" in node2 or "mc" in node2 or "mi1" in node2 \
+                        or "mi2" in node2 or "mii1" in node2):
+                    nilj_cost *= INDEX_PENALTY_MULTIPLE
+
+            # Non-primary key penalty
+            if not ("t" in node1 \
+                    or "n" in node1 \
+                    or "k" in node1):
+                nilj_cost *= INDEX_PENALTY_MULTIPLE
+
+            # if "it" in node1[0] \
+                # or "rt" in node1 \
+                # or "kt" in node1:
+                    # nilj_cost *= 10.0
 
         elif len(node2) == 1:
             # using index on node2
@@ -1717,21 +1728,54 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
             joined_node_est = card3 * node2_selectivity
             nilj_cost += joined_node_est
             if "ci" in node2:
-                # if not ("t" in node1 or "mc" in node1 or "mi1" in node1 \
-                        # or "mi2" in node1 or "mii1" in node1):
-                if not ("mc" in node2):
-                    # expensive index, bad bad
-                    nilj_cost *= 10
+                if not ("t" in node1 or "mc" in node1 or "mi1" in node1 \
+                        or "mi2" in node1 or "mii1" in node1):
+                    nilj_cost *= INDEX_PENALTY_MULTIPLE
+
+            if not ("t" in node2 \
+                    or "n" in node2 \
+                    or "k" in node2):
+                nilj_cost *= INDEX_PENALTY_MULTIPLE
+
+        else:
+            assert False
+
+        cost2 = card1*card2
+        if cost2 < nilj_cost:
+            cost = cost2
+        else:
+            cost = nilj_cost
+        # cost = nilj_cost
+
+    elif cost_model == "nested_loop_index14":
+        # same as nli7 --> but added term for index node as well
+        cost2 = 0.0
+        if len(node1) == 1:
+            # using index on node1
+            nilj_cost = card2 + NILJ_CONSTANT*card1
+            cost2 += NILJ_CONSTANT*card1
+            # expected output size, if node 1 did not have predicate pushed
+            # down
+            node1_selectivity = total1 / card1
+            joined_node_est = card3 * node1_selectivity
+            nilj_cost += joined_node_est
+
+        elif len(node2) == 1:
+            # using index on node2
+            nilj_cost = card1 + NILJ_CONSTANT*card2
+            cost2 += NILJ_CONSTANT*card1
+            node2_selectivity = total2 / card2
+            joined_node_est = card3 * node2_selectivity
+            nilj_cost += joined_node_est
         else:
             assert False
 
         # TODO: we may be doing fine without this one
-        # cost2 = card1*card2
-        # if cost2 < nilj_cost:
-            # cost = cost2
-        # else:
-            # cost = nilj_cost
-        cost = nilj_cost
+        cost2 += card1*card2
+        if cost2 < nilj_cost:
+            cost = cost2
+        else:
+            cost = nilj_cost
 
     elif cost_model == "nested_loop":
         cost = card1*card2
@@ -2085,19 +2129,20 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         # debug cost model to calculate cost model loss
         # 1.9, 1.6; 1.14M, 0.96M
         cost_model_num = 14
-        print("C nested loop index 10 not implemented yet!")
+        # print("C nested loop index 10 not implemented yet!")
     elif cost_model == "nested_loop_index11":
         # 2.3, 2.8; 2M, 4M;
         cost_model_num = 14
-        print("C nested loop index 10 not implemented yet!")
+        # print("C nested loop index 10 not implemented yet!")
     elif cost_model == "nested_loop_index12":
         # 1.5, ; 0.86M, ;
         cost_model_num = 14
-        print("C nested loop index 10 not implemented yet!")
+        # print("C nested loop index 10 not implemented yet!")
     elif cost_model == "nested_loop_index13":
-        # 1.5, ; 0.86M, ;
-        cost_model_num = 14
-        print("C nested loop index 10 not implemented yet!")
+        cost_model_num = 15
+        # print("c nested loop index 10 not implemented yet!")
+    elif cost_model == "nested_loop_index14":
+        cost_model_num = 16
     else:
         assert False
 

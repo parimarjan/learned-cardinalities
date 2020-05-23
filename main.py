@@ -368,6 +368,7 @@ def main():
             flow_features = args.flow_features,
             feat_pg_costs = args.feat_pg_costs,
             feat_pg_path = args.feat_pg_path,
+            feat_rel_pg_ests = args.feat_rel_pg_ests,
             cost_model = args.cost_model)
 
     if len(train_queries) == 0:
@@ -464,6 +465,9 @@ def read_flags():
             default=1)
     parser.add_argument("--feat_pg_path", type=int, required=False,
             default=1)
+    parser.add_argument("--feat_rel_pg_ests", type=int, required=False,
+            default=1)
+
     parser.add_argument("--cost_model_plan_err", type=int, required=False,
             default=1)
     parser.add_argument("--eval_flow_loss", type=int, required=False,

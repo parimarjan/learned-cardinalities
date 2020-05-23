@@ -423,11 +423,11 @@ class JoinLoss():
         else:
             use_indexes = 0
 
-        for i, sql in enumerate(sqls):
-            sql_key = deterministic_hash(sql)
-            if sql_key in self.opt_archive.archive:
-                (opt_costs[i], opt_explains[i], opt_sqls[i]) = \
-                        self.opt_archive.archive[sql_key]
+        # for i, sql in enumerate(sqls):
+            # sql_key = deterministic_hash(sql)
+            # if sql_key in self.opt_archive.archive:
+                # (opt_costs[i], opt_explains[i], opt_sqls[i]) = \
+                        # self.opt_archive.archive[sql_key]
 
         if pool is None:
             # single threaded case, useful for debugging

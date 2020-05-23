@@ -63,7 +63,8 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
 UPDATE_TOLERANCES_PAR = True
 USE_TOLERANCES = False
 
-def update_samples(samples, flow_features, cost_model):
+def update_samples(samples, flow_features, cost_model,
+        debug_set):
     # FIXME: need to use correct cost_model here
     start = time.time()
     new_seen = False
@@ -75,7 +76,8 @@ def update_samples(samples, flow_features, cost_model):
             add_single_node_edges(subsetg)
 
         sample_edge = list(subsetg.edges())[0]
-        if cost_model + "cost" in subsetg.edges()[sample_edge].keys():
+        if cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
+                and not debug_set:
             continue
         else:
             new_seen = True
@@ -137,8 +139,9 @@ def update_samples(samples, flow_features, cost_model):
             for j, node in enumerate(nodes):
                 subsetg.nodes()[node]["tolerance"] = tolerances[j]
 
-    for sample in samples:
-        save_sql_rep(sample["name"], sample)
+    if not debug_set:
+        for sample in samples:
+            save_sql_rep(sample["name"], sample)
 
     print("updated samples in", time.time()-start)
 
@@ -1313,9 +1316,11 @@ class NN(CardinalityEstimationAlg):
                         samples_type, loss_key="mm1_plan_pg_ratio")
 
                 min_idx = np.argmin(cm_plan_pg_losses)
+                min_idx2 = np.argmin(cm_plan_pg_ratio)
                 print("min plan pg loss: {}, name: {}".format(
                     cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
-                # pdb.set_trace()
+                print("min plan pg ratio: {}, name: {}".format(
+                    cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
 
         if not self.epoch % self.eval_epoch_jerr == 0:
             return
@@ -1350,7 +1355,7 @@ class NN(CardinalityEstimationAlg):
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
             print(np.mean(cost_model_losses), np.mean(cost_model_ratio))
-            pdb.set_trace()
+            # pdb.set_trace()
 
         if np.mean(join_losses) < self.best_join_loss \
                 and self.epoch > self.start_validation \
@@ -1497,9 +1502,10 @@ class NN(CardinalityEstimationAlg):
         if self.cost_model_plan_err or self.eval_flow_loss or \
                 self.flow_features:
             update_samples(training_samples, self.flow_features,
-                    self.cost_model)
+                    self.cost_model, self.debug_set)
             if val_samples:
-                update_samples(val_samples, self.flow_features, self.cost_model)
+                update_samples(val_samples, self.flow_features,
+                        self.cost_model, self.debug_set)
 
         if self.normalization_type == "mscn":
             y = np.array(get_all_cardinalities(training_samples))
@@ -1603,11 +1609,6 @@ class NN(CardinalityEstimationAlg):
 
                 self.flow_training_info.append((subsetg_vectors, trueC_vec,
                         opt_flow_loss))
-
-                # if "1a1010" in sample["name"]:
-                    # print(trueC)
-                    # print("opt_flow_loss: ", opt_flow_loss)
-                    # pdb.set_trace()
 
             print("precomputing flow info took: ", time.time()-fstart)
             if new_seen:
