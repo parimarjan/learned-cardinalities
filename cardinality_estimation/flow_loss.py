@@ -547,6 +547,7 @@ def single_backward(Q, invG,
     dfdg_start = time.time()
     num_threads = int(len(edges_head) / 400)
     num_threads = max(1, num_threads)
+    num_threads = min(10, num_threads)
     fl_cpp.get_dfdg(
             c_int(len(edges_head)),
             c_int(len(v)),
@@ -558,7 +559,8 @@ def single_backward(Q, invG,
             c_int(num_threads))
     # print("dfdg took: ", time.time()-dfdg_start)
 
-    dfdg = to_variable(dfdg).float()
+    # dfdg = to_variable(dfdg).float()
+    # dfdg = to_variable(dfdg).float()
     if isinstance(trueC_vec, torch.Tensor):
         trueC_vec = trueC_vec.detach().numpy()
 
@@ -581,7 +583,7 @@ def single_backward(Q, invG,
 
     dCdg = dfdg @ tQv
 
-    yhat_grad = dgdxT @ dCdg
+    yhat_grad = dgdxT @ to_variable(dCdg).float()
     if normalize_flow_loss:
         yhat_grad /= opt_flow_loss
 

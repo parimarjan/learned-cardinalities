@@ -69,6 +69,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                eval_parallel = args.eval_parallel,
                 min_hid = args.min_hid,
                 cost_model = args.cost_model,
                 query_batch_size = args.query_batch_size,
@@ -451,7 +452,7 @@ def read_flags():
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
     parser.add_argument("--cost_model", type=str, required=False,
-            default="nested_loop_index4")
+            default="nested_loop_index8")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
             default=None)
     parser.add_argument("--exp_prefix", type=str, required=False,
@@ -459,6 +460,8 @@ def read_flags():
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
+            default=0)
+    parser.add_argument("--eval_parallel", type=int, required=False,
             default=0)
     parser.add_argument("--min_hid", type=int, required=False,
             default=256)

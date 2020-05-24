@@ -660,9 +660,7 @@ class NN(CardinalityEstimationAlg):
         elif self.loss_func == "flow_loss":
             self.loss = flow_loss
         elif self.loss_func == "flow_loss2":
-            # self.loss = FlowLoss()
             self.loss = FlowLoss.apply
-            # linear = LinearFunction.apply
 
         elif self.loss_func == "rel":
             self.loss = rel_loss_torch
@@ -716,6 +714,10 @@ class NN(CardinalityEstimationAlg):
 
         self.query_stats = defaultdict(list)
         self.query_qerr_stats = defaultdict(list)
+
+        if self.eval_parallel:
+            self.eval_sync = None
+            self.eval_pool = ThreadPool(1)
 
     def train_mscn(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
@@ -805,7 +807,8 @@ class NN(CardinalityEstimationAlg):
             if idx_time > 10:
                 print("train idx took: ", idx_time)
 
-        if self.save_gradients and len(grad_samples) > 0:
+        if self.save_gradients and len(grad_samples) > 0 \
+                and self.epoch % self.eval_epoch == 0:
             self.save_join_loss_stats(grads, None, grad_samples,
                     "train", loss_key="gradients")
             for k,v in par_grads.items():
@@ -1216,6 +1219,17 @@ class NN(CardinalityEstimationAlg):
                 self.query_stats[loss_key].append(join_losses[i])
                 self.query_stats["plan"].append(get_leading_hint(est_plans[i]))
                 self.query_stats["explain"].append(est_plans[i])
+
+    def _eval_wrapper(self, samples_type):
+        if self.eval_parallel:
+            if self.eval_sync is not None and \
+                    samples_type == "train":
+                self.eval_sync.wait()
+            self.eval_sync = \
+                    self.eval_pool.apply_async(self.periodic_eval,
+                            args=(samples_type,))
+        else:
+            self.periodic_eval(samples_type)
 
     def periodic_eval(self, samples_type):
         '''
@@ -1792,13 +1806,14 @@ class NN(CardinalityEstimationAlg):
                     self.hidden_layer_size))
 
         for self.epoch in range(0,self.max_epochs):
+            # if self.epoch % self.eval_epoch == 0:
             if self.epoch % self.eval_epoch == 0 and \
                     self.epoch != 0:
-            # if self.epoch % self.eval_epoch == 0:
                 eval_start = time.time()
-                self.periodic_eval("train")
+                self._eval_wrapper("train")
                 if self.samples["test"] is not None:
-                    self.periodic_eval("test")
+                    self._eval_wrapper("test")
+
                 self.save_stats()
                 print("eval took: ", time.time()-eval_start)
 
@@ -1809,6 +1824,8 @@ class NN(CardinalityEstimationAlg):
             start = time.time()
             self.train_one_epoch()
             print("one epoch train took: ", time.time()-start)
+            if "epoch" in self.cur_stats:
+                print("last epoch: ", self.cur_stats["epoch"][-1])
 
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \
