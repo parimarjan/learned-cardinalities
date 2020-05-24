@@ -69,6 +69,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                min_hid = args.min_hid,
                 cost_model = args.cost_model,
                 query_batch_size = args.query_batch_size,
                 flow_features = args.flow_features,
@@ -459,6 +460,8 @@ def read_flags():
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
+    parser.add_argument("--min_hid", type=int, required=False,
+            default=256)
     parser.add_argument("--no7a", type=int, required=False,
             default=0)
     parser.add_argument("--feat_pg_costs", type=int, required=False,

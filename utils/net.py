@@ -96,14 +96,16 @@ class SimpleRegression(torch.nn.Module):
 # MSCN model, kipf et al.
 class SetConv(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
-            hid_units, dropout=0.0):
+            hid_units, dropout=0.0, min_hid=None):
         super(SetConv, self).__init__()
         self.dropout = dropout
         print("flow feats: ", flow_feats)
         self.flow_feats = flow_feats
         # doesn't really make sense to have this be bigger...
-        # sample_hid = min(hid_units, 128)
         sample_hid = hid_units
+        if min_hid is not None:
+            sample_hid = min(hid_units, min_hid)
+
         self.sample_mlp1 = nn.Sequential(
             nn.Linear(sample_feats, sample_hid),
             nn.ReLU()
@@ -124,8 +126,11 @@ class SetConv(nn.Module):
             nn.ReLU()
         ).to(device)
 
-        # join_hid = min(hid_units, 128)
-        join_hid = hid_units
+        if min_hid is not None:
+            join_hid = min(hid_units, 128)
+        else:
+            join_hid = hid_units
+
         self.join_mlp1 = nn.Sequential(
             nn.Linear(join_feats, join_hid),
             nn.ReLU()

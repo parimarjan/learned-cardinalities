@@ -136,17 +136,23 @@ def get_all_training_df(results_dir):
                 continue
 
             alg = get_alg_name(exp_args)
+            start = time.time()
             nns = load_object(cur_dir + "/nn.pkl")
+            # print("loading object took: ", time.time()-start)
             args_hash = str(deterministic_hash(str(exp_args)))[0:5]
-
             df = nns["stats"]
-            df["alg"] = alg
-            df["hls"] = exp_args["hidden_layer_size"]
-            df["exp_name"] = fn
-            df["lr"] = exp_args["lr"]
-            df["clip_gradient"] = exp_args["clip_gradient"]
-            df["loss_func"] = exp_args["loss_func"]
-            df["cost_model"] = exp_args["cost_model"]
+            df = df.assign(**exp_args)
+            df["exp_hash"] = args_hash
+
+            # df["alg"] = alg
+            # df["hls"] = exp_args["hidden_layer_size"]
+            # df["exp_name"] = fn
+            # df["lr"] = exp_args["lr"]
+            # df["clip_gradient"] = exp_args["clip_gradient"]
+            # df["loss_func"] = exp_args["loss_func"]
+            # df["cost_model"] = exp_args["cost_model"]
+            # df["weighted_mse"] = exp_args["weighted_mse"]
+            # df["flow_features"] = exp_args["flow_features"]
 
             # print(cur_dir)
             if exp_args["weight_decay"] == 4.0 and "138" in cur_dir:
@@ -154,8 +160,6 @@ def get_all_training_df(results_dir):
                 df["weight_decay"] = 10.0
             else:
                 df["weight_decay"] = exp_args["weight_decay"]
-            df["weighted_mse"] = exp_args["weighted_mse"]
-            df["exp_hash"] = args_hash
 
             if exp_args["sampling_priority_alpha"] > 0:
                 df["priority"] = True
@@ -167,19 +171,19 @@ def get_all_training_df(results_dir):
             else:
                 df["normalize_flow_loss"] = 1
 
-            if "flow_features" in exp_args:
-                # print("flow f: ", exp_args["flow_features"])
-                if "343" in fn:
-                    df["flow_features"] = ""
-                elif "flow" not in exp_args["loss_func"]:
-                    df["flow_features"] = ""
-                elif exp_args["flow_features"] and "flow" in exp_args["loss_func"]:
-                    df["flow_features"] = "flow_features"
-                else:
-                    df["flow_features"] = ""
-            else:
-                print("flow features was not in df!")
-                df["flow_features"] = ""
+            # if "flow_features" in exp_args:
+                # # print("flow f: ", exp_args["flow_features"])
+                # if "343" in fn:
+                    # df["flow_features"] = ""
+                # elif "flow" not in exp_args["loss_func"]:
+                    # df["flow_features"] = ""
+                # elif exp_args["flow_features"] and "flow" in exp_args["loss_func"]:
+                    # df["flow_features"] = "flow_features"
+                # else:
+                    # df["flow_features"] = ""
+            # else:
+                # print("flow features was not in df!")
+                # df["flow_features"] = ""
 
             # # TODO: add training / test detail
             # # TODO: add template detail
@@ -265,11 +269,20 @@ ERROR_NAMES["plan_ratio"] = "Simple Plan Ratio"
 
 ERROR_NAMES["jerr"] = "Postgres Plan Error"
 ERROR_NAMES["jerr_ratio"] = "Postgres Plan Ratio"
-title_fmt = "{}"
+
+COST_MODEL_NAMES = {}
+COST_MODEL_NAMES["nested_loop_index3"] = "cm1"
+COST_MODEL_NAMES["nested_loop_index2"] = "cm2"
+COST_MODEL_NAMES["nested_loop_index"] = "cm3a"
+COST_MODEL_NAMES["nested_loop_index4"] = "cm3b"
+COST_MODEL_NAMES["nested_loop_index8"] = "cm4b"
+COST_MODEL_NAMES["nested_loop_index9"] = "cm4a"
+COST_MODEL_NAMES["nested_loop_index14"] = "cm4c"
+COST_MODEL_NAMES["nested_loop_index13"] = "cm5"
 
 def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
         HUE_COLORS=None, miny=None, maxy=None):
-    #fig=plt.figure(figsize=(10, 10), dpi= 80, facecolor='w', edgecolor='k')
+    title_fmt = "{}"
     loss_title = ERROR_NAMES[loss_type]
     title = title_fmt.format(loss_title)
 
@@ -277,12 +290,16 @@ def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
     cur_df = df[df["samples_type"] == samples_type]
     cur_df = cur_df[cur_df["loss_type"] == loss_type]
 
-    scale_df = df[df["epoch"] >= 4]
-    scale_df = scale_df[scale_df["loss_type"] == loss_type]
-    if miny is None:
-        miny = min(scale_df["loss"])
+    # scale_df = df[df["epoch"] >= 4]
+    # scale_df = scale_df[scale_df["loss_type"] == loss_type]
+
+    # if miny is None:
+    # miny = min(cur_df["loss"])
+    miny = min(cur_df["loss"])
+
     if maxy is None:
-        maxy = max(scale_df["loss"])
+        # maxy = max(scale_df["loss"])
+        maxy = cur_df["loss"].quantile(0.95)
 
     sns.lineplot(x="epoch", y="loss", hue="alg_name", data=cur_df, palette=HUE_COLORS, ci=None,
                  ax=ax, legend="full", linewidth=10)
@@ -291,38 +308,41 @@ def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
     # ax.set_linewidth(10)
     # ax.spines[0].set_linewidth(0.5)
 
-    #plt.ylim((0,10000))
     ax.set_yscale(yscale)
     ax.get_legend().remove()
-    # plt.rc('ticklabel', fontsize=10)
     ax.tick_params(labelsize=20)
-    # ax.label(labelsize=20)
     ax.xaxis.label.set_size(20)
-    # ax.xaxis.label.set_size(20)
 
     #plt.show()
 
-def construct_summary(df, samples_type, title, HUE_COLORS=None):
-    # if 'mm1_plan_pg_ratio' in df.keys()
-
+def construct_summary(df, samples_type, title, summary_type, HUE_COLORS=None):
     fig, axs = plt.subplots(1, 5, figsize=(40,10))
     fig.suptitle(title, fontsize=50)
-    # if samples_type == "train":
-        # plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
-                        # legend="brief", HUE_COLORS=HUE_COLORS, miny=0.0)
-    # else:
-    plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
-                 HUE_COLORS=HUE_COLORS, miny=0.0)
+    if summary_type == "ratio":
+        plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
+                     HUE_COLORS=HUE_COLORS, miny=0.0)
 
-    plot_loss_summary(df, "flow_ratio", samples_type, "linear", axs[1],
+        plot_loss_summary(df, "flow_ratio", samples_type, "linear", axs[1],
+                    HUE_COLORS=HUE_COLORS, miny=1.0)
+        plot_loss_summary(df, "mm1_plan_ratio", samples_type, "linear", axs[2],
                 HUE_COLORS=HUE_COLORS, miny=1.0)
-    plot_loss_summary(df, "mm1_plan_ratio", samples_type, "linear", axs[2],
-            HUE_COLORS=HUE_COLORS, miny=1.0)
 
-    plot_loss_summary(df, "mm1_plan_pg_ratio", samples_type, "linear", axs[3],
-            HUE_COLORS=HUE_COLORS, miny = 1.0)
-    plot_loss_summary(df, "jerr_ratio", samples_type, "linear", axs[4],
-            HUE_COLORS=HUE_COLORS, miny = 1.0)
+        plot_loss_summary(df, "mm1_plan_pg_ratio", samples_type, "linear", axs[3],
+                HUE_COLORS=HUE_COLORS, miny = 1.0)
+        plot_loss_summary(df, "jerr_ratio", samples_type, "linear", axs[4],
+                HUE_COLORS=HUE_COLORS, miny = 1.0)
+    else:
+        plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
+                     HUE_COLORS=HUE_COLORS, miny=0.0)
+        plot_loss_summary(df, "flow_err", samples_type, "linear", axs[1],
+                    HUE_COLORS=HUE_COLORS, miny=0.0)
+        plot_loss_summary(df, "mm1_plan_err", samples_type, "linear", axs[2],
+                HUE_COLORS=HUE_COLORS, miny=0.0)
+
+        plot_loss_summary(df, "mm1_plan_pg_err", samples_type, "linear", axs[3],
+                HUE_COLORS=HUE_COLORS, miny = 0.0)
+        plot_loss_summary(df, "jerr", samples_type, "linear", axs[4],
+                HUE_COLORS=HUE_COLORS, miny = 0.0)
 
 
     if samples_type == "train":
@@ -363,6 +383,62 @@ def plot_tmp_grad(par_grad_df, alg_name, HUE_COLORS=None):
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
 
+title_fmt = "Mean-{}-{}"
+def plot_loss(df, loss_type, samples_type, yscale):
+
+    fig=plt.figure(figsize=(10, 10), dpi= 80, facecolor='w', edgecolor='k')
+    if loss_type == "qerr":
+        title = title_fmt.format("MSE", samples_type)
+    else:
+        title = title_fmt.format(loss_type, samples_type)
+    plt.title(title, fontsize=50)
+    cur_df = df[df["samples_type"] == samples_type]
+    cur_df = cur_df[cur_df["loss_type"] == loss_type]
+
+    scale_df = df[df["epoch"] == 4]
+    scale_df = scale_df[scale_df["loss_type"] == loss_type]
+    maxy = max(scale_df["loss"])
+    miny = min(cur_df["loss"])
+    #print(cur_df)
+    sns.lineplot(x="epoch", y="loss", hue="alg_name", data=cur_df, palette=HUE_COLORS, ci=None)
+    plt.ylim((miny,maxy))
+    #plt.ylim((0,10000))
+    plt.yscale(yscale)
+    plt.rc('legend', fontsize=10, loc="lower left")    # legend fontsize
+    plt.show()
+
+
+template_title_fmt = "All-Templates-{}-{}"
+def plot_loss_template(df, loss_type, samples_type, yscale,
+        HUE_COLORS):
+    #if loss_type == "qerr":
+        #title = template_title_fmt.format("MSE", samples_type)
+    #else:
+
+    title_name = ERROR_NAMES[loss_type]
+    title = title_fmt.format(title_name, samples_type)
+
+    loss_df = df[df["loss_type"] == loss_type]
+    loss_df = loss_df[loss_df["samples_type"] == samples_type]
+    scale_df = df[df["epoch"] == 4]
+    scale_df = scale_df[scale_df["loss_type"] == loss_type]
+    #maxy = max(scale_df["loss"])
+    #miny = min(loss_df["loss"])
+    #fig = plt.figure(figsize=(50, 50), dpi= 80, facecolor='w', edgecolor='k')
+    fg = sns.relplot(x = "epoch", y = "loss", data=loss_df, col="template", col_wrap=3,
+                 facet_kws={'sharex':True, 'sharey':False},
+                 hue="alg_name", palette=HUE_COLORS, linewidth=10.0, kind="line")
+    #fg.set(ylim=(miny,maxy))
+    fg.set(yscale=yscale)
+       # fg.fig.suptitle(title, fontsize=50)
+    fg.fig.suptitle(title,
+                x=0.5, y=.99, horizontalalignment='center',
+                verticalalignment='top', fontsize = 40)
+    fg.despine(left=True)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+
 def main():
     query_dir = "./our_dataset/queries/"
     qkey_mapping = qkey_map(args.query_dir)
@@ -373,4 +449,5 @@ def main():
 if __name__ == "__main__":
     args = read_flags()
     main()
+
 

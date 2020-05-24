@@ -221,9 +221,11 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
         cost = nilj_cost
 
     elif cost_model == "nested_loop_index14":
+        cost2 = 0.0
         if nilj == 1:
             # using index on node1
             nilj_cost = card2 + NILJ_CONSTANT*card1
+            cost2 += NILJ_CONSTANT*card1
             # expected output size, if node 1 did not have predicate pushed
             # down
             node1_selectivity = total1 / card1
@@ -233,6 +235,7 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
         elif nilj == 2:
             # using index on node2
             nilj_cost = card1 + NILJ_CONSTANT*card2
+            cost2 += NILJ_CONSTANT*card2
             node2_selectivity = total2 / card2
             joined_node_est = card3 * node2_selectivity
             nilj_cost += joined_node_est
@@ -240,7 +243,7 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
             assert False
 
         # TODO: we may be doing fine without this one
-        cost2 = card1*card2
+        cost2 += card1*card2
         if cost2 < nilj_cost:
             cost = cost2
         else:

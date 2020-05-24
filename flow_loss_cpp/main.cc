@@ -346,11 +346,13 @@ void get_costs16(float *ests, float *totals,
   if (nilj[i] == 1) {
     // using index on 1
     cost1 = card2 + NILJ_CONSTANT*card1;
+    cost2 = NILJ_CONSTANT*card1;
     node_selectivity = total1 / card1;
     joined_node_est = card3*node_selectivity;
     cost1 += joined_node_est;
   } else if (nilj[i] == 2) {
     cost1 = card1 + NILJ_CONSTANT*card2;
+    cost2 = NILJ_CONSTANT*card2;
     node_selectivity = total2 / card2;
     joined_node_est = card3*node_selectivity;
     cost1 += joined_node_est;
@@ -358,7 +360,7 @@ void get_costs16(float *ests, float *totals,
     printf("should not have happened!\n");
     exit(-1);
   }
-  cost2 = card1*card2;
+  cost2 += card1*card2;
   if (cost2 < cost1) {
     costs[i] = cost2;
   } else costs[i] = cost1;
@@ -368,8 +370,17 @@ void get_costs16(float *ests, float *totals,
   if (normalization_type == 2) {
     // log normalization type
     if (cost2 < cost1) {
-          dgdxT[node1*num_edges + i] = - max_val / costs[i];
-          dgdxT[node2*num_edges + i] = - max_val / costs[i];
+        if (nilj[i] == 1) {
+          //dgdxT[node1*num_edges + i] = - max_val / costs[i];
+          //dgdxT[node2*num_edges + i] = - max_val / costs[i];
+          dgdxT[node1*num_edges + i] = -(max_val*card1*NILJ_CONSTANT + \
+              max_val*card2*card1) / (costs[i]*costs[i]);
+          dgdxT[node2*num_edges + i] = -max_val*card2*card1 / (costs[i]*costs[i]);
+        } else {
+          dgdxT[node2*num_edges + i] = -(max_val*card2*NILJ_CONSTANT + \
+              max_val*card2*card1) / (costs[i]*costs[i]);
+          dgdxT[node1*num_edges + i] = - max_val*card2*card1 / (costs[i]*costs[i]);
+        }
     } else {
         // index nested loop join
         if (nilj[i]  == 1) {

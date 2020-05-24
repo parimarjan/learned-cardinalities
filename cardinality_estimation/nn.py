@@ -862,11 +862,13 @@ class NN(CardinalityEstimationAlg):
             if self.load_query_together:
                 net = SetConv(len(sample[0][0]), len(sample[1][0]),
                         len(sample[2][0]), len(sample[3][0]),
-                        self.hidden_layer_size, dropout= self.dropout)
+                        self.hidden_layer_size, dropout= self.dropout,
+                        min_hid = self.min_hid)
             else:
                 net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
                         len(sample[3]),
-                        self.hidden_layer_size, dropout= self.dropout)
+                        self.hidden_layer_size, dropout=self.dropout,
+                        min_hid = self.min_hid)
         else:
             assert False
 
