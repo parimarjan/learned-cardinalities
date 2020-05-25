@@ -33,8 +33,11 @@ class QueryDataset(data.Dataset):
         self.min_val = min_val
         self.max_val = max_val
         self.card_key = card_key
-        self.group = group
+        self.group = None
         self.flow_features = flow_features
+
+        total_nodes = [len(s["subset_graph"].nodes()) for s in samples]
+        total_expected_samples = sum(total_nodes)
 
         if self.card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
             self.wj_times = get_wj_times_dict(self.card_key)
@@ -51,6 +54,7 @@ class QueryDataset(data.Dataset):
         # some indexing information around.
         if self.preload_features:
             self.X, self.Y, self.info = self._get_feature_vectors(samples)
+            assert len(self.Y) == total_expected_samples
             if load_query_together:
                 self.start_idxs, self.idx_lens = self._update_idxs(samples)
                 self.num_samples = len(samples)
@@ -147,6 +151,7 @@ class QueryDataset(data.Dataset):
             node_names.sort()
             for node_idx, nodes in enumerate(node_names):
                 if self.group is not None:
+                    assert False
                     if len(nodes) not in self.group:
                         continue
 

@@ -219,7 +219,7 @@ def main():
     else:
         wj_times = get_wj_times_dict("wanderjoin")
 
-    for qdir in fns:
+    for qi,qdir in enumerate(fns):
         template_name = os.path.basename(qdir)
         if args.query_templates != "all":
             if template_name not in query_templates:
@@ -337,6 +337,16 @@ def main():
                     test_size=args.test_size, random_state=args.random_seed)
             cur_val_queries, cur_test_queries = train_test_split(cur_test_queries,
                     test_size=0.6, random_state=args.random_seed)
+
+        elif args.test_diff_templates:
+            # train template, else test
+            if qi % 2 == 0:
+                cur_test_queries = samples
+                cur_train_queries = []
+            else:
+                cur_train_queries = samples
+                cur_test_queries = []
+
         elif args.test:
             cur_train_queries, cur_test_queries = train_test_split(samples,
                     test_size=args.test_size, random_state=args.random_seed)
@@ -460,6 +470,8 @@ def read_flags():
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
+            default=0)
+    parser.add_argument("--test_diff_templates", type=int, required=False,
             default=0)
     parser.add_argument("--eval_parallel", type=int, required=False,
             default=0)

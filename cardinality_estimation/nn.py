@@ -1199,6 +1199,11 @@ class NN(CardinalityEstimationAlg):
         samples = self.samples[samples_type]
         summary_data = defaultdict(list)
         query_idx = 0
+        # print(samples_type)
+        # totals_test = [len(s["subset_graph"].nodes()) for s in samples]
+        # print("total samples: ", sum(totals_test))
+        # pdb.set_trace()
+
         for sample in samples:
             template = sample["template_name"]
             sample_losses = []
@@ -1488,13 +1493,13 @@ class NN(CardinalityEstimationAlg):
             trueC = torch.eye(len(trueC_vec)).float().detach()
             for i, curC in enumerate(trueC_vec):
                 trueC[i,i] = curC
-            del trueC
 
             invG = torch.inverse(G)
             v = invG @ Gv
             left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
             right = Q @ (v)
             opt_flow_loss = left @ trueC @ right
+            del trueC
 
             self.flow_training_info.append((subsetg_vectors, trueC_vec,
                     opt_flow_loss))
@@ -1738,8 +1743,14 @@ class NN(CardinalityEstimationAlg):
         # TODO: add separate dataset, dataloaders for evaluation
         if val_samples is not None and len(val_samples) > 0 \
                 and not self.no_eval:
-            val_samples = random.sample(val_samples, int(len(val_samples) /
-                    eval_samples_size_divider))
+            # val_samples = random.sample(val_samples, int(len(val_samples) /
+                    # eval_samples_size_divider))
+            assert eval_samples_size_divider == 1
+            val_samples = val_samples
+            # totals_test = [len(s["subset_graph"].nodes()) for s in val_samples]
+            # print("total test samples: ", sum(totals_test))
+            # pdb.set_trace()
+
             self.samples["test"] = val_samples
             eval_test_sets, eval_test_loaders = \
                     self.init_dataset(val_samples, False, self.eval_batch_size,
