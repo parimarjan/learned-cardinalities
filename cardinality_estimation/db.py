@@ -165,6 +165,7 @@ class DB():
             feat_pg_costs = True, feat_tolerance=False,
             feat_template=True, feat_pg_path=True,
             feat_rel_pg_ests=True, feat_join_graph_neighbors=True,
+            feat_pg_est_one_hot=True,
             cost_model=None):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
@@ -252,6 +253,7 @@ class DB():
         self.feat_pg_path = feat_pg_path
         self.feat_rel_pg_ests = feat_rel_pg_ests
         self.feat_join_graph_neighbors = feat_join_graph_neighbors
+        self.feat_pg_est_one_hot = feat_pg_est_one_hot
 
         if flow_features:
             self.flow_features = flow_features
@@ -292,6 +294,11 @@ class DB():
 
             if self.feat_join_graph_neighbors:
                 self.num_flow_features += len(self.table_featurizer)
+
+            if self.feat_pg_est_one_hot:
+                # upto 10^7
+                self.PG_EST_BUCKETS = 7
+                self.num_flow_features += self.PG_EST_BUCKETS
 
             # pg est for the node
             self.num_flow_features += 1
@@ -388,6 +395,18 @@ class DB():
                 flow_features[cur_idx + tidx] /= 1e5
 
             cur_idx += len(self.table_featurizer)
+
+        if self.feat_pg_est_one_hot:
+            pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
+
+            for i in range(self.PG_EST_BUCKETS):
+                if pg_est > 10**i and pg_est < 10**(i+1):
+                    flow_features[cur_idx+i] = 1.0
+                    break
+
+            if pg_est > 10**self.PG_EST_BUCKETS:
+                flow_features[cur_idx+self.PG_EST_BUCKETS] = 1.0
+            cur_idx += self.PG_EST_BUCKETS
 
         # pg_est for node will be added in query_dataset..
 

@@ -183,72 +183,6 @@ def add_single_node_edges(subset_graph):
             if node[0] in node2:
                 subset_graph.add_edge(node2, node)
 
-def flow_loss(yhat, y, sample, normalization_type,
-        min_val, max_val):
-    '''
-    @yhat: cardinality predictions for each subquery selectivity in sample.
-    Ordered by node_names.sort(). Will need to multiply each by a total
-    constant to get to the real value.
-    @y: true selectivity values for each y.
-
-    What we want to do: compute the cost vector from yhat and y based on a cost
-    model.
-    '''
-    start = time.time()
-    subsetg = copy.deepcopy(sample["subset_graph"])
-    if DEBUG:
-        print("deep copy took: ", time.time()-start)
-    nodes = list(subsetg.nodes())
-    nodes.sort()
-    est_cards = to_variable(np.zeros(len(subsetg.nodes())))
-    true_cards = to_variable(np.zeros(len(subsetg.nodes())))
-
-    node_dict = {}
-    for i,node in enumerate(nodes):
-        if normalization_type == "mscn":
-            # total = subsetg.nodes()[node]["cardinality"]["total"]
-            true_cards[i] = (torch.exp((y[i] + min_val)*(max_val-min_val)))
-            est_cards[i] = (torch.exp((yhat[i] + min_val)*(max_val-min_val)))
-        elif normalization_type == "pg_total_selectivity":
-            true_cards[i] = y[i]*subsetg.nodes()[node]["cardinality"]["total"]
-            est_cards[i] = yhat[i]*subsetg.nodes()[node]["cardinality"]["total"]
-        else:
-            assert False
-        node_dict[node] = i
-
-    add_single_node_edges(subsetg)
-    trueC_vec = get_edge_costs(subsetg, true_cards, node_dict)
-    predC = get_edge_costs(subsetg, est_cards, node_dict)
-    predC = 1.00 / predC
-    # print("flow loss predC: ", predC)
-
-    assert len(trueC_vec) == len(subsetg.edges())
-
-    _,G,Gv,Q = constructG(subsetg, predC)
-
-    trueC = torch.eye(len(trueC_vec))
-    for i, curC in enumerate(trueC_vec):
-        trueC[i,i] = curC
-
-    invG = torch.inverse(G)
-    left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
-    right = Q @ (invG @ Gv)
-    loss = left @ trueC @ right
-    if loss.item() == 0.0:
-        print("flow loss was zero!")
-        print(true_vals)
-        print(preds)
-        pdb.set_trace()
-
-    # print(loss)
-    # print(G.shape, Gv.shape, Q.shape)
-    # pdb.set_trace()
-    loss = loss.reshape(1,1)
-
-    if DEBUG:
-        print("flow loss took: ", time.time()-start)
-    return loss, predC
-
 def get_subq_tolerances(qrep, card_key, cost_key):
     '''
     For each subquery, multiply cardinality by x, and see if shortest path
@@ -638,6 +572,28 @@ class NN(CardinalityEstimationAlg):
         days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
         weekno = datetime.datetime.today().weekday()
         self.start_day = days[weekno]
+        if self.loss_func == "qloss":
+            self.loss = qloss_torch
+        elif self.loss_func == "flow_loss":
+            self.loss = flow_loss
+            self.load_query_together = True
+        elif self.loss_func == "flow_loss2":
+            self.loss = FlowLoss.apply
+            self.load_query_together = True
+
+        elif self.loss_func == "rel":
+            self.loss = rel_loss_torch
+        elif self.loss_func == "weighted":
+            self.loss = weighted_loss
+        elif self.loss_func == "abs":
+            self.loss = abs_loss_torch
+        elif self.loss_func == "mse":
+            self.loss = torch.nn.MSELoss(reduction="none")
+        elif self.loss_func == "cm_fcnn":
+            self.loss = qloss_torch
+        else:
+            assert False
+
 
         if self.load_query_together:
             self.mb_size = 1
@@ -652,26 +608,6 @@ class NN(CardinalityEstimationAlg):
             self.featurization_scheme = "combined"
         elif self.nn_type == "mscn":
             self.featurization_scheme = "mscn"
-        else:
-            assert False
-
-        if self.loss_func == "qloss":
-            self.loss = qloss_torch
-        elif self.loss_func == "flow_loss":
-            self.loss = flow_loss
-        elif self.loss_func == "flow_loss2":
-            self.loss = FlowLoss.apply
-
-        elif self.loss_func == "rel":
-            self.loss = rel_loss_torch
-        elif self.loss_func == "weighted":
-            self.loss = weighted_loss
-        elif self.loss_func == "abs":
-            self.loss = abs_loss_torch
-        elif self.loss_func == "mse":
-            self.loss = torch.nn.MSELoss(reduction="none")
-        elif self.loss_func == "cm_fcnn":
-            self.loss = qloss_torch
         else:
             assert False
 
@@ -717,7 +653,7 @@ class NN(CardinalityEstimationAlg):
 
         if self.eval_parallel:
             self.eval_sync = None
-            self.eval_pool = ThreadPool(1)
+            self.eval_pool = ThreadPool(2)
 
     def train_mscn(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
@@ -1189,8 +1125,10 @@ class NN(CardinalityEstimationAlg):
                 assert False
 
     def save_join_loss_stats(self, join_losses, est_plans, samples,
-            samples_type, loss_key="jerr"):
-        self.add_row(join_losses, loss_key, self.epoch, "all",
+            samples_type, loss_key="jerr", epoch=None):
+        if epoch == None:
+            epoch = self.epoch
+        self.add_row(join_losses, loss_key, epoch, "all",
                 "all", samples_type)
         if "grad" not in loss_key:
             print("{}, {} mean: {}".format(samples_type, loss_key,
@@ -1207,12 +1145,12 @@ class NN(CardinalityEstimationAlg):
         df = pd.DataFrame(summary_data)
         for template in set(df["template"]):
             tvals = df[df["template"] == template]
-            self.add_row(tvals["loss"].values, loss_key, self.epoch,
+            self.add_row(tvals["loss"].values, loss_key, epoch,
                     template, "all", samples_type)
 
         if loss_key == "jerr":
             for i, sample in enumerate(samples):
-                self.query_stats["epoch"].append(self.epoch)
+                self.query_stats["epoch"].append(epoch)
                 self.query_stats["query_name"].append(sample["name"])
                 # this is also equivalent to the priority, we can normalize it
                 # later
@@ -1227,16 +1165,18 @@ class NN(CardinalityEstimationAlg):
                 self.eval_sync.wait()
             self.eval_sync = \
                     self.eval_pool.apply_async(self.periodic_eval,
-                            args=(samples_type,))
+                            args=(samples_type,self.epoch))
         else:
-            self.periodic_eval(samples_type)
+            self.periodic_eval(samples_type, self.epoch)
 
-    def periodic_eval(self, samples_type):
+    def periodic_eval(self, samples_type, epoch):
         '''
         FIXME: samples type is really train and validation and not test
         '''
+        start = time.time()
         self.nets[0].eval()
         pred, Y = self.eval_samples(samples_type)
+        print("eval samples done at epoch: ", self.epoch)
         self.nets[0].train()
         if "flow_loss" not in self.loss_func:
             losses = self.loss(pred, Y).detach().numpy()
@@ -1250,11 +1190,11 @@ class NN(CardinalityEstimationAlg):
 
         loss_avg = round(np.sum(losses) / len(losses), 6)
         print("""{}: {}, N: {}, qerr: {}""".format(
-            samples_type, self.epoch, len(Y), loss_avg))
+            samples_type, epoch, len(Y), loss_avg))
         if self.adaptive_lr and self.scheduler is not None:
             self.scheduler.step(loss_avg)
 
-        self.add_row(losses, "qerr", self.epoch, "all",
+        self.add_row(losses, "qerr", epoch, "all",
                 "all", samples_type)
         samples = self.samples[samples_type]
         summary_data = defaultdict(list)
@@ -1273,19 +1213,19 @@ class NN(CardinalityEstimationAlg):
                 summary_data["num_tables"].append(num_tables)
                 summary_data["template"].append(template)
             query_idx += len(sample["subset_graph"].nodes())
-            self.query_qerr_stats["epoch"].append(self.epoch)
+            self.query_qerr_stats["epoch"].append(epoch)
             self.query_qerr_stats["query_name"].append(sample["name"])
             self.query_qerr_stats["qerr"].append(sum(sample_losses) / len(sample_losses))
 
         df = pd.DataFrame(summary_data)
         for template in set(df["template"]):
             tvals = df[df["template"] == template]
-            self.add_row(tvals["loss"].values, "qerr", self.epoch,
+            self.add_row(tvals["loss"].values, "qerr", epoch,
                     template, "all", samples_type)
 
         for nt in set(df["num_tables"]):
             nt_losses = df[df["num_tables"] == nt]
-            self.add_row(nt_losses["loss"].values, "qerr", self.epoch, "all",
+            self.add_row(nt_losses["loss"].values, "qerr", epoch, "all",
                     str(nt), samples_type)
 
         jl_eval_start = time.time()
@@ -1295,7 +1235,7 @@ class NN(CardinalityEstimationAlg):
                 self.get_query_estimates(pred, samples)
 
         if self.eval_flow_loss and \
-                self.epoch % self.eval_epoch_flow_err == 0:
+                epoch % self.eval_epoch_flow_err == 0:
             opt_flow_costs, est_flow_costs, _,_ = \
                     self.flow_loss_env.compute_loss(samples,
                             est_cardinalities, pool = self.join_loss_pool)
@@ -1307,7 +1247,7 @@ class NN(CardinalityEstimationAlg):
                     samples_type, loss_key="flow_ratio")
 
         if self.cost_model_plan_err and \
-                self.epoch % self.eval_epoch_plan_err == 0:
+                epoch % self.eval_epoch_plan_err == 0:
             opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
                     est_plan_pg_costs = \
                     self.plan_err.compute_loss(samples,
@@ -1331,19 +1271,20 @@ class NN(CardinalityEstimationAlg):
                 self.save_join_loss_stats(cm_plan_pg_ratio, None, samples,
                         samples_type, loss_key="mm1_plan_pg_ratio")
 
-                min_idx = np.argmin(cm_plan_pg_losses)
-                min_idx2 = np.argmin(cm_plan_pg_ratio)
-                print("min plan pg loss: {}, name: {}".format(
-                    cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
-                print("min plan pg ratio: {}, name: {}".format(
-                    cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
+                if self.debug_set:
+                    min_idx = np.argmin(cm_plan_pg_losses)
+                    min_idx2 = np.argmin(cm_plan_pg_ratio)
+                    print("min plan pg loss: {}, name: {}".format(
+                        cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
+                    print("min plan pg ratio: {}, name: {}".format(
+                        cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
 
-        if not self.epoch % self.eval_epoch_jerr == 0:
+        if not epoch % self.eval_epoch_jerr == 0:
             return
 
         if (samples_type == "train" and \
                 self.sampling_priority_alpha > 0 and \
-                self.epoch % self.reprioritize_epoch == 0):
+                epoch % self.reprioritize_epoch == 0):
             if self.train_card_key == "actual":
                 return
         # if priority on, then stats will be saved when calculating
@@ -1362,11 +1303,12 @@ class NN(CardinalityEstimationAlg):
         # join_losses = np.maximum(join_losses, 0.00)
 
         self.save_join_loss_stats(join_losses, est_plans, samples,
-                samples_type)
+                samples_type, epoch=epoch)
         self.save_join_loss_stats(join_losses_ratio, est_plans, samples,
-                samples_type, loss_key="jerr_ratio")
+                samples_type, loss_key="jerr_ratio", epoch=epoch)
 
-        if opt_plan_pg_costs is not None:
+        print("periodic eval took: ", time.time()-start)
+        if opt_plan_pg_costs is not None and self.debug_set:
             cost_model_losses = opt_plan_pg_costs - opt_costs
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
@@ -1374,11 +1316,11 @@ class NN(CardinalityEstimationAlg):
             # pdb.set_trace()
 
         if np.mean(join_losses) < self.best_join_loss \
-                and self.epoch > self.start_validation \
+                and epoch > self.start_validation \
                 and self.use_val_set:
             self.best_join_loss = np.mean(join_losses)
             self.best_model_dict = copy.deepcopy(self.nets[0].state_dict())
-            print("going to save best join error at epoch: ", self.epoch)
+            print("going to save best join error at epoch: ", epoch)
             self.save_model_dict()
 
     def _normalize_priorities(self, priorities):
@@ -1498,6 +1440,70 @@ class NN(CardinalityEstimationAlg):
         assert len(training_sets) == len(self.groups) == len(training_loaders)
         return training_sets, training_loaders
 
+    def update_flow_training_info(self):
+        print("precomputing flow loss info")
+        fstart = time.time()
+        # precompute a whole bunch of training things
+        self.flow_training_info = []
+        farchive = klepto.archives.dir_archive("./flow_info_archive",
+                cached=True, serialized=True)
+        farchive.load()
+        new_seen = False
+        for sample in self.training_samples:
+            qkey = deterministic_hash(sample["sql"])
+            if qkey in farchive:
+                subsetg_vectors = farchive[qkey]
+                assert len(subsetg_vectors) == 7
+            else:
+                new_seen = True
+                subsetg_vectors = list(get_subsetg_vectors(sample))
+                farchive[qkey] = subsetg_vectors
+
+            true_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+            nodes = list(sample["subset_graph"].nodes())
+            nodes.sort()
+            for i, node in enumerate(nodes):
+                true_cards[i] = \
+                    sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+            trueC_vec, dgdxT, G, Q = \
+                get_optimization_variables(true_cards,
+                    subsetg_vectors[0], self.min_val,
+                        self.max_val, self.normalization_type,
+                        subsetg_vectors[4],
+                        subsetg_vectors[5],
+                        subsetg_vectors[3],
+                        subsetg_vectors[1],
+                        subsetg_vectors[2],
+                        self.cost_model)
+
+            Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
+            Gv[subsetg_vectors[-1]] = 1.0
+            trueC_vec = to_variable(trueC_vec).float()
+            dgdxT = to_variable(dgdxT).float()
+            G = to_variable(G).float()
+            Q = to_variable(Q).float()
+
+            trueC = torch.eye(len(trueC_vec)).float().detach()
+            for i, curC in enumerate(trueC_vec):
+                trueC[i,i] = curC
+            del trueC
+
+            invG = torch.inverse(G)
+            v = invG @ Gv
+            left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
+            right = Q @ (v)
+            opt_flow_loss = left @ trueC @ right
+
+            self.flow_training_info.append((subsetg_vectors, trueC_vec,
+                    opt_flow_loss))
+
+        print("precomputing flow info took: ", time.time()-fstart)
+        if new_seen:
+            farchive.dump()
+        del farchive
+
     def train(self, db, training_samples, use_subqueries=False,
             val_samples=None, join_loss_pool = None):
         assert isinstance(training_samples[0], dict)
@@ -1511,6 +1517,10 @@ class NN(CardinalityEstimationAlg):
         # model is always small enough that it runs fast w/o using many cores
         # torch.set_num_threads(2)
         self.db = db
+        if self.eval_epoch > self.max_epochs:
+            self.no_eval = True
+        else:
+            self.no_eval = False
 
         self.training_samples = training_samples
         self.init_stats(training_samples)
@@ -1519,7 +1529,7 @@ class NN(CardinalityEstimationAlg):
                 self.flow_features:
             update_samples(training_samples, self.flow_features,
                     self.cost_model, self.debug_set)
-            if val_samples:
+            if val_samples and not self.no_eval:
                 update_samples(val_samples, self.flow_features,
                         self.cost_model, self.debug_set)
 
@@ -1569,66 +1579,7 @@ class NN(CardinalityEstimationAlg):
                     len(training_sets[0][0][1]) + len(training_sets[0][0][2])
 
         if "flow" in self.loss_func:
-            print("precomputing flow loss info")
-            fstart = time.time()
-            # precompute a whole bunch of training things
-            self.flow_training_info = []
-            farchive = klepto.archives.dir_archive("./flow_info_archive",
-                    cached=True, serialized=True)
-            farchive.load()
-            new_seen = False
-            for sample in self.training_samples:
-                qkey = deterministic_hash(sample["sql"])
-                if qkey in farchive:
-                    subsetg_vectors = farchive[qkey]
-                    assert len(subsetg_vectors) == 7
-                else:
-                    new_seen = True
-                    subsetg_vectors = list(get_subsetg_vectors(sample))
-                    farchive[qkey] = subsetg_vectors
-
-                true_cards = np.zeros(len(subsetg_vectors[0]),
-                        dtype=np.float32)
-                nodes = list(sample["subset_graph"].nodes())
-                nodes.sort()
-                for i, node in enumerate(nodes):
-                    true_cards[i] = \
-                        sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
-
-                trueC_vec, dgdxT, G, Q = \
-                    get_optimization_variables(true_cards,
-                        subsetg_vectors[0], self.min_val,
-                            self.max_val, self.normalization_type,
-                            subsetg_vectors[4],
-                            subsetg_vectors[5],
-                            subsetg_vectors[3],
-                            subsetg_vectors[1],
-                            subsetg_vectors[2],
-                            self.cost_model)
-
-                Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
-                Gv[subsetg_vectors[-1]] = 1.0
-                trueC_vec = to_variable(trueC_vec).float()
-                dgdxT = to_variable(dgdxT).float()
-                G = to_variable(G).float()
-                Q = to_variable(Q).float()
-
-                trueC = torch.eye(len(trueC_vec)).float().detach()
-                for i, curC in enumerate(trueC_vec):
-                    trueC[i,i] = curC
-
-                invG = torch.inverse(G)
-                v = invG @ Gv
-                left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
-                right = Q @ (v)
-                opt_flow_loss = left @ trueC @ right
-
-                self.flow_training_info.append((subsetg_vectors, trueC_vec,
-                        opt_flow_loss))
-
-            print("precomputing flow info took: ", time.time()-fstart)
-            if new_seen:
-                farchive.dump()
+            self.update_flow_training_info()
 
         subquery_rel_weights = None
         if self.priority_normalize_type == "paths1":
@@ -1740,13 +1691,6 @@ class NN(CardinalityEstimationAlg):
                         level_num_nodes = counts[len(node)]
                         cur_weights[i] = node_pr * level_num_nodes
 
-                # do we need this? not sure
-                # if self.priority_normalize_type == "flow1":
-                    # cur_weights = cur_weights / sum(cur_weights)
-                # elif self.priority_normalize_type == "flow4":
-                    # cur_weights = cur_weights / sum(cur_weights)
-                    # assert np.abs(sum(cur_weights) - 1.0) < 0.001
-
                 cur_weights = cur_weights / sum(cur_weights)
                 assert np.abs(sum(cur_weights) - 1.0) < 0.001
 
@@ -1754,7 +1698,6 @@ class NN(CardinalityEstimationAlg):
                 qidx += len(node_list)
 
             print("generating flow values took: ", time.time()-fl_start)
-            # pdb.set_trace()
 
         if self.loss_func == "cm_fcnn":
             inp_len = len(training_samples[0]["subset_graph"].nodes())
@@ -1767,24 +1710,34 @@ class NN(CardinalityEstimationAlg):
         self.samples = {}
         self.eval_loaders = {}
         random.seed(2112)
+
+        ## training_set already loaded
         if self.debug_set:
             eval_samples_size_divider = 1
         else:
             # eval_samples_size_divider = 10
             eval_samples_size_divider = 1
 
-        eval_training_samples = random.sample(training_samples,
-                int(len(training_samples) / eval_samples_size_divider))
+        if eval_samples_size_divider != 1:
+            eval_training_samples = random.sample(training_samples,
+                    int(len(training_samples) / eval_samples_size_divider))
+            eval_train_sets, eval_train_loaders = \
+                    self.init_dataset(eval_training_samples, False,
+                            self.eval_batch_size, weighted=False)
+            self.eval_loaders["train"] = eval_train_loaders
+        else:
+            eval_training_samples = training_samples
+            assert len(training_sets) == 1
+            # eval loader should maintain order of samples for periodic_eval to
+            # collect stats correctly
+            self.eval_loaders["train"] = [data.DataLoader(training_sets[0],
+                    batch_size=self.eval_batch_size, shuffle=False,
+                    num_workers=0)]
         self.samples["train"] = eval_training_samples
 
-        eval_train_sets, eval_train_loaders = \
-                self.init_dataset(eval_training_samples, False,
-                        self.eval_batch_size, weighted=False)
-
-        self.eval_loaders["train"] = eval_train_loaders
-
         # TODO: add separate dataset, dataloaders for evaluation
-        if val_samples is not None and len(val_samples) > 0:
+        if val_samples is not None and len(val_samples) > 0 \
+                and not self.no_eval:
             val_samples = random.sample(val_samples, int(len(val_samples) /
                     eval_samples_size_divider))
             self.samples["test"] = val_samples
@@ -1815,7 +1768,6 @@ class NN(CardinalityEstimationAlg):
                     self._eval_wrapper("test")
 
                 self.save_stats()
-                print("eval took: ", time.time()-eval_start)
 
             elif self.epoch > self.start_validation and self.use_val_set:
                 if self.samples["test"] is not None:
@@ -1824,8 +1776,6 @@ class NN(CardinalityEstimationAlg):
             start = time.time()
             self.train_one_epoch()
             print("one epoch train took: ", time.time()-start)
-            if "epoch" in self.cur_stats:
-                print("last epoch: ", self.cur_stats["epoch"][-1])
 
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \
