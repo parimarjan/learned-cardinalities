@@ -128,6 +128,34 @@ CARD_DIVIDER = 0.001
 INDEX_COST_CONSTANT = 10000
 INDEX_PENALTY_MULTIPLE = 10.0
 
+def add_single_node_edges(subset_graph):
+    source = SOURCE_NODE
+    subset_graph.add_node(source)
+    subset_graph.nodes()[source]["cardinality"] = {}
+    subset_graph.nodes()[source]["cardinality"]["actual"] = 1.0
+    subset_graph.nodes()[source]["cardinality"]["total"] = 1.0
+
+    for node in subset_graph.nodes():
+        if len(node) != 1:
+            continue
+        if node[0] == source[0]:
+            continue
+
+        # print("going to add edge from source to node: ", node)
+        # subset_graph.add_edge(node, source, cost=0.0)
+        subset_graph.add_edge(node, source)
+        in_edges = subset_graph.in_edges(node)
+        out_edges = subset_graph.out_edges(node)
+        # print("in edges: ", in_edges)
+        # print("out edges: ", out_edges)
+
+        # if we need to add edges between single table nodes and rest
+        for node2 in subset_graph.nodes():
+            if len(node2) != 2:
+                continue
+            if node[0] in node2:
+                subset_graph.add_edge(node2, node)
+
 def get_default_con_creds():
     if "user" in os.environ:
         user = os.environ["LC_PG_USER"]
@@ -1916,14 +1944,15 @@ def get_subsetg_vectors(sample):
     node_dict = {}
     # edge_dict = {}
     nodes = list(sample["subset_graph"].nodes())
+    if SOURCE_NODE in nodes:
+        nodes.remove(SOURCE_NODE)
     nodes.sort()
 
     subsetg = sample["subset_graph"]
-    edges = list(sample["subset_graph_paths"].edges())
-    edges.sort()
+    # edges = list(sample["subset_graph_paths"].edges())
+    edges = list(sample["subset_graph"].edges())
 
-    # for i, edge in enumerate(edges):
-        # edge_dict[edge] = i
+    edges.sort()
 
     totals = np.zeros(len(nodes), dtype=np.float32)
     edges_head = [0]*len(edges)
@@ -1972,15 +2001,6 @@ def get_subsetg_vectors(sample):
             nilj[edgei] = 1
         elif len(node2) == 1:
             nilj[edgei] = 2
-
-        # nilj2 conditions
-        # In case both
-        # if len(node1) == 1 and len(node2) == 1:
-            # # which node to choose
-        # elif len(node1) == 1:
-            # nilj2[edgei] = 1
-        # elif len(node2) == 1:
-            # nilj2[edgei] = 2
 
     edges_head = np.array(edges_head, dtype=np.int32)
     edges_tail = np.array(edges_tail, dtype=np.int32)
@@ -2037,6 +2057,8 @@ def debug_flow_loss(sample, source_node, cost_key,
     totals, edges_head, edges_tail, nilj, edges_cost_node1, \
             edges_cost_node2, final_node = subsetg_vectors
     nodes = list(sample["subset_graph"].nodes())
+    if SOURCE_NODE_CONST in nodes:
+        nodes.remove(SOURCE_NODE)
     nodes.sort()
 
     assert all_ests is None

@@ -255,7 +255,10 @@ def main():
                 continue
             qrep = load_sql_rep(qfn)
             zero_query = False
-            for _,info in qrep["subset_graph"].nodes().items():
+            nodes = list(qrep["subset_graph"].nodes())
+            nodes.remove(SOURCE_NODE)
+            for node in nodes:
+                info = qrep["subset_graph"].nodes()[node]
 
                 if args.train_card_key not in info["cardinality"]:
                     zero_query = True

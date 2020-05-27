@@ -321,6 +321,7 @@ class DB():
 
     def get_flow_features(self, node, subsetg,
             template_name, join_graph):
+        assert node != SOURCE_NODE
         flow_features = np.zeros(self.num_flow_features)
         cur_idx = 0
         # incoming edges

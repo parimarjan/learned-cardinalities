@@ -542,6 +542,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         totals, edges_head, edges_tail, nilj, edges_cost_node1, \
                 edges_cost_node2, final_node = subsetg_vectors
         nodes = list(sample["subset_graph"].nodes())
+        if SOURCE_NODE in nodes:
+            nodes.remove(SOURCE_NODE)
         nodes.sort()
 
         if qkey in trueC_vecs:
@@ -655,7 +657,12 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         if known_costs and known_costs[i] is not None:
             costs.append(known_costs[i])
             continue
-        subsetg = samples[i]["subset_graph_paths"]
+        # subsetg = samples[i]["subset_graph_paths"]
+        ## TODO: we should not need to recompute the costs here
+        subsetg = samples[i]["subset_graph"]
+        assert SOURCE_NODE in subsetg.nodes()
+        # if SOURCE_NODE not in subsetg.nodes():
+            # add_single_node_edges(subsetg)
 
         # this should already be pre-computed
         if cost_key != "cost":

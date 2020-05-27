@@ -104,14 +104,17 @@ def qerr_loss_stats(samples, losses, samples_type,
     query_idx = 0
     for sample in samples:
         template = sample["template_name"]
-        for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+        nodes = list(sample["subset_graph"].nodes())
+        if SOURCE_NODE in nodes:
+            nodes.remove(SOURCE_NODE)
+        for subq_idx, node in enumerate(nodes):
             num_tables = len(node)
             idx = query_idx + subq_idx
             loss = losses[idx]
             summary_data["loss"].append(loss)
             summary_data["num_tables"].append(num_tables)
             summary_data["template"].append(template)
-        query_idx += len(sample["subset_graph"].nodes())
+        query_idx += len(nodes)
 
     df = pd.DataFrame(summary_data)
 
@@ -421,7 +424,10 @@ def compute_join_order_loss(queries, preds, **kwargs):
         ests = {}
         trues = {}
         predq = preds[i]
+
         for node, node_info in qrep["subset_graph"].nodes().items():
+            if node == SOURCE_NODE:
+                continue
             est_card = predq[node]
             alias_key = ' '.join(node)
             trues[alias_key] = node_info["cardinality"]["actual"]
@@ -536,6 +542,8 @@ def compute_plan_loss(queries, preds, **kwargs):
         trues = {}
         predq = preds[i]
         for node, node_info in qrep["subset_graph"].nodes().items():
+            if node == SOURCE_NODE:
+                continue
             est_card = predq[node]
             alias_key = ' '.join(node)
             trues[alias_key] = node_info["cardinality"]["actual"]
