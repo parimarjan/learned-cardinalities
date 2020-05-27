@@ -162,9 +162,10 @@ class DB():
             max_discrete_featurizing_buckets=10,
             flow_features = True,
             feat_num_paths= False, feat_flows=False,
-            feat_pg_costs = True, feat_tolerance=False,
+            feat_pg_costs = True, feat_tolerance=True,
             feat_template=True, feat_pg_path=True,
             feat_rel_pg_ests=True, feat_join_graph_neighbors=True,
+            feat_rel_pg_ests_onehot=True,
             feat_pg_est_one_hot=True,
             cost_model=None):
         '''
@@ -252,9 +253,11 @@ class DB():
         self.feat_template = feat_template
         self.feat_pg_path = feat_pg_path
         self.feat_rel_pg_ests = feat_rel_pg_ests
+        self.feat_rel_pg_ests_onehot = feat_rel_pg_ests_onehot
         self.feat_join_graph_neighbors = feat_join_graph_neighbors
         self.feat_pg_est_one_hot = feat_pg_est_one_hot
 
+        self.PG_EST_BUCKETS = 7
         if flow_features:
             self.flow_features = flow_features
             # num flow features: concat of 1-hot vectors
@@ -273,8 +276,8 @@ class DB():
             if self.feat_pg_costs:
                 self.num_flow_features += 1
             if self.feat_tolerance:
-                # 1-hot vector of 2...2^10
-                self.num_flow_features += 10
+                # 1-hot vector based on dividing/multiplying value by 10...10^4
+                self.num_flow_features += 4
             if self.feat_flows:
                 self.num_flow_features += 1
 
@@ -289,19 +292,32 @@ class DB():
                 self.num_flow_features += 1
 
                 # current node est, relative to all neighbors in the join graph
-                ## we will hard code the neighbor into a 1-hot vector
+                # we will hard code the neighbor into a 1-hot vector
                 self.num_flow_features += len(self.table_featurizer)
+
+            if self.feat_rel_pg_ests_onehot:
+                self.num_flow_features += self.PG_EST_BUCKETS
+                # 2x because it can be smaller or larger
+                self.num_flow_features += \
+                    2*len(self.table_featurizer)*self.PG_EST_BUCKETS
 
             if self.feat_join_graph_neighbors:
                 self.num_flow_features += len(self.table_featurizer)
 
             if self.feat_pg_est_one_hot:
                 # upto 10^7
-                self.PG_EST_BUCKETS = 7
                 self.num_flow_features += self.PG_EST_BUCKETS
 
             # pg est for the node
             self.num_flow_features += 1
+
+    def get_onehot_bucket(self, num_buckets, base, val):
+        assert val >= 1.0
+        for i in range(num_buckets):
+            if val > base**i and val < base**(i+1):
+                return i
+
+        return num_buckets
 
     def get_flow_features(self, node, subsetg,
             template_name, join_graph):
@@ -344,9 +360,10 @@ class DB():
 
         if self.feat_tolerance:
             tol = subsetg.nodes()[node]["tolerance"]
-            tol_idx = int(np.log2(tol))
-            flow_features[cur_idx + tol_idx] = 1.0
-            cur_idx += 10
+            tol_idx = int(np.log10(tol))
+            assert tol_idx <= 4
+            flow_features[cur_idx + tol_idx-1] = 1.0
+            cur_idx += 4
 
         if self.feat_flows:
             in_edges = subsetg.in_edges(node)
@@ -395,6 +412,39 @@ class DB():
                 flow_features[cur_idx + tidx] /= 1e5
 
             cur_idx += len(self.table_featurizer)
+
+        if self.feat_rel_pg_ests_onehot:
+            total_cost = subsetg.graph[self.cost_model+"total_cost"]
+            pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
+            # flow_features[cur_idx] = pg_est / total_cost
+            pg_ratio = total_cost / float(pg_est)
+
+            bucket = self.get_onehot_bucket(self.PG_EST_BUCKETS, 10, pg_ratio)
+            flow_features[cur_idx+bucket] = 1.0
+            cur_idx += self.PG_EST_BUCKETS
+
+            neighbors = nx.node_boundary(join_graph, node)
+
+            # neighbors in join graph
+            for al in neighbors:
+                # aidx = self.aliases[al]
+                table = self.aliases[al]
+                tidx = self.table_featurizer[table]
+                ncard = subsetg.nodes()[tuple([al])]["cardinality"]["expected"]
+                # TODO: should this be normalized? how?
+                # flow_features[cur_idx + tidx] = pg_est / ncard
+                # flow_features[cur_idx + tidx] /= 1e5
+                if pg_est > ncard:
+                    # first self.PG_EST_BUCKETS
+                    bucket = self.get_onehot_bucket(self.PG_EST_BUCKETS, 10,
+                            pg_est / float(ncard))
+                    flow_features[cur_idx+bucket] = 1.0
+                else:
+                    bucket = self.get_onehot_bucket(self.PG_EST_BUCKETS, 10,
+                            float(ncard) / pg_est)
+                    flow_features[cur_idx+self.PG_EST_BUCKETS+bucket] = 1.0
+
+                cur_idx += 2*self.PG_EST_BUCKETS
 
         if self.feat_pg_est_one_hot:
             pg_est = subsetg.nodes()[node]["cardinality"]["expected"]

@@ -135,6 +135,12 @@ def get_all_training_df(results_dir):
                 print("skip exp!")
                 continue
 
+            if "feat_tolerance" not in exp_args:
+                if "675" in fn:
+                    exp_args["feat_tolerance"] = 1
+                else:
+                    exp_args["feat_tolerance"] = 0
+
             alg = get_alg_name(exp_args)
             start = time.time()
             nns = load_object(cur_dir + "/nn.pkl")

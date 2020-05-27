@@ -381,6 +381,9 @@ def main():
             feat_pg_costs = args.feat_pg_costs,
             feat_pg_path = args.feat_pg_path,
             feat_rel_pg_ests = args.feat_rel_pg_ests,
+            feat_rel_pg_ests_onehot = args.feat_rel_pg_ests_onehot,
+            feat_pg_est_one_hot = args.feat_pg_est_one_hot,
+            feat_tolerance = args.feat_tolerance,
             cost_model = args.cost_model)
 
     if len(train_queries) == 0:
@@ -485,6 +488,12 @@ def read_flags():
             default=1)
     parser.add_argument("--feat_rel_pg_ests", type=int, required=False,
             default=1)
+    parser.add_argument("--feat_tolerance", type=int, required=False,
+            default=1)
+    parser.add_argument("--feat_pg_est_one_hot", type=int, required=False,
+            default=1)
+    parser.add_argument("--feat_rel_pg_ests_onehot", type=int, required=False,
+            default=1)
 
     parser.add_argument("--cost_model_plan_err", type=int, required=False,
             default=1)
@@ -515,14 +524,14 @@ def read_flags():
             default=1)
 
     parser.add_argument("--weight_decay", type=float, required=False,
-            default=0.0)
+            default=0.1)
 
     parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
             default=10)
     parser.add_argument("--heuristic_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_loss_pool_num", type=int, required=False,
-            default=60)
+            default=40)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
     parser.add_argument("--priority_normalize_type", type=str, required=False,
@@ -626,7 +635,7 @@ def read_flags():
     parser.add_argument("--hidden_layer_multiple", type=float,
             required=False, default=None)
     parser.add_argument("--hidden_layer_size", type=int,
-            required=False, default=256)
+            required=False, default=128)
 
     # synthetic data flags
     parser.add_argument("--gen_synth_data", type=int, required=False,

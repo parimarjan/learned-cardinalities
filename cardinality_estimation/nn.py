@@ -61,7 +61,7 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
 
 # once we have stored them in archive, parallel just slows down stuff
 UPDATE_TOLERANCES_PAR = True
-USE_TOLERANCES = False
+USE_TOLERANCES = True
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
@@ -96,15 +96,15 @@ def update_samples(samples, flow_features, cost_model,
             for node in pg_path:
                 subsetg.nodes()[node][cost_model + "pg_path"] = 1
 
-    if not new_seen:
-        return
+    # if not new_seen:
+        # return
     num_proc = 16
 
     if USE_TOLERANCES:
         if UPDATE_TOLERANCES_PAR:
             par_args = []
             for i in range(len(samples)):
-                par_args.append((samples[i], "expected", "pg_cost"))
+                par_args.append((samples[i], "expected", cost_model+"pg_cost"))
 
             with Pool(processes = num_proc) as pool:
                 res = pool.starmap(get_subq_tolerances, par_args)
@@ -231,8 +231,8 @@ def get_subq_tolerances(qrep, card_key, cost_key):
     for i, node in enumerate(nodes):
         in_edges = subsetg.in_edges(node)
         actual = subsetg.nodes()[node]["cardinality"][card_key]
-        for j in range(1, 11):
-            err = 2**j
+        for j in range(1, 5):
+            err = 10**j
             updated_card = actual / err
 
             # updated_card can only change costs on the in_edges. So update
@@ -254,7 +254,7 @@ def get_subq_tolerances(qrep, card_key, cost_key):
                 break
 
         # reset to original cardinality, and change costs for in edges back
-        tolerances[i] = 2**j
+        tolerances[i] = 10**j
         set_costs(in_edges, node, actual, subsetg)
 
     # if time.time() - tstart > 5:
