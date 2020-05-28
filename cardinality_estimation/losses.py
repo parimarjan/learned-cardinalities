@@ -170,6 +170,7 @@ def _get_all_cardinalities(queries, preds):
     yhat = []
     totals = []
     for i, pred_subsets in enumerate(preds):
+        assert pred_subsets != SOURCE_NODE
         qrep = queries[i]["subset_graph"].nodes()
         for alias, pred in pred_subsets.items():
             actual = qrep[alias]["cardinality"]["actual"]
@@ -364,25 +365,6 @@ def compute_join_order_loss(queries, preds, **kwargs):
 
     @output: updates ./results/join_order_loss.pkl file
     '''
-    # FIXME: remove this
-    def add_joinresult_row(sql_key, samples_type, exec_sql, cost,
-            loss, plan, template, cur_costs, costs, qfn):
-        '''
-        '''
-        # TODO: add postgresql conf details too in check?
-        if sql_key in costs["sql_key"].values:
-            return
-
-        cur_costs["sql_key"].append(sql_key)
-        cur_costs["plan"].append(plan)
-        cur_costs["exec_sql"].append(exec_sql)
-        cur_costs["cost"].append(cost)
-        cur_costs["loss"].append(loss)
-        cur_costs["postgresql_conf"].append(None)
-        cur_costs["samples_type"].append(samples_type)
-        cur_costs["template"].append(template)
-        cur_costs["qfn"].append(qfn)
-
     assert isinstance(queries, list)
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
@@ -490,13 +472,13 @@ def compute_flow_loss(queries, preds, **kwargs):
     cur_costs = defaultdict(list)
     assert isinstance(costs, pd.DataFrame)
 
-    opt_costs, est_costs,_,_ = env.compute_loss(queries, preds, pool=pool)
+    opt_costs, est_costs,_,_,_,_ = env.compute_loss(queries, preds, pool=pool)
     losses = est_costs - opt_costs
     for i, qrep in enumerate(queries):
         sql_key = str(deterministic_hash(qrep["sql"]))
         assert qrep["name"] is not None
-        add_query_result_row(sql_key, samples_type, None, est_costs[i], losses[i],
-                None, qrep["template_name"], cur_costs, costs,
+        add_query_result_row(sql_key, samples_type, None, est_costs[i],
+                losses[i], None, qrep["template_name"], cur_costs, costs,
                 qrep["name"])
 
     cur_df = pd.DataFrame(cur_costs)
@@ -506,6 +488,9 @@ def compute_flow_loss(queries, preds, **kwargs):
     return np.array(est_costs) - np.array(opt_costs)
 
 def compute_plan_loss(queries, preds, **kwargs):
+    '''
+    FIXME: a lot of code repetition w flow_loss, join order loss etc.
+    '''
     assert isinstance(queries, list)
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
@@ -522,16 +507,24 @@ def compute_plan_loss(queries, preds, **kwargs):
                                    ALG = exp_name)
     make_dir(rdir)
     costs_fn = rdir + "plan_err.pkl"
+    costs_fn_pg = rdir + "plan_pg_err.pkl"
     costs = load_object(costs_fn)
+    costs_pg = load_object(costs_fn_pg)
+
     if costs is None:
         columns = ["sql_key", "plan","cost", "loss","samples_type", "template",
                 "qfn"]
         costs = pd.DataFrame(columns=columns)
+    if costs_pg is None:
+        columns2 = ["sql_key", "explain","plan","exec_sql","cost", "loss",
+                "postgresql_conf", "samples_type", "template", "qfn"]
+        costs_pg = pd.DataFrame(columns=columns2)
 
     cur_costs = defaultdict(list)
+    cur_costs_pg = defaultdict(list)
     assert isinstance(costs, pd.DataFrame)
+    assert isinstance(costs_pg, pd.DataFrame)
 
-    # for pg_costs
     true_cardinalities = []
     est_cardinalities = []
     join_graphs = []
@@ -555,19 +548,32 @@ def compute_plan_loss(queries, preds, **kwargs):
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)
 
-    opt_costs, est_costs,pg_opt_costs,pg_est_costs = env.compute_loss(queries,
-            preds, pool=pool,
-            true_cardinalities=true_cardinalities, join_graphs=join_graphs)
+    opt_costs, est_costs,opt_costs_pg,est_costs_pg, exec_sqls_pg, explains_pg = \
+                env.compute_loss(queries, preds, pool=pool,
+                        true_cardinalities=true_cardinalities,
+                        join_graphs=join_graphs)
+
+    # save plan_pg_err results
+
     losses = est_costs - opt_costs
+    losses_pg = est_costs_pg - opt_costs_pg
     for i, qrep in enumerate(queries):
         sql_key = str(deterministic_hash(qrep["sql"]))
         assert qrep["name"] is not None
         add_query_result_row(sql_key, samples_type, None, est_costs[i], losses[i],
                 None, qrep["template_name"], cur_costs, costs,
                 qrep["name"])
+        add_query_result_row(sql_key, samples_type, exec_sqls_pg,
+                est_costs_pg[i], losses_pg[i],
+                get_leading_hint(explains_pg[i]), qrep["template_name"],
+                cur_costs_pg, costs_pg, qrep["name"])
 
     cur_df = pd.DataFrame(cur_costs)
     combined_df = pd.concat([costs, cur_df], ignore_index=True)
     save_object(costs_fn, combined_df)
+
+    cur_df_pg = pd.DataFrame(cur_costs_pg)
+    combined_df_pg = pd.concat([costs_pg, cur_df_pg], ignore_index=True)
+    save_object(costs_fn_pg, combined_df_pg)
 
     return np.array(est_costs) - np.array(opt_costs)

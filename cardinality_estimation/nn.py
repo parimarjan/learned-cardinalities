@@ -1210,7 +1210,7 @@ class NN(CardinalityEstimationAlg):
 
         if self.eval_flow_loss and \
                 epoch % self.eval_epoch_flow_err == 0:
-            opt_flow_costs, est_flow_costs, _,_ = \
+            opt_flow_costs, est_flow_costs, _,_, _,_ = \
                     self.flow_loss_env.compute_loss(samples,
                             est_cardinalities, pool = self.join_loss_pool)
             opt_flow_losses = est_flow_costs - opt_flow_costs
@@ -1223,7 +1223,7 @@ class NN(CardinalityEstimationAlg):
         if self.cost_model_plan_err and \
                 epoch % self.eval_epoch_plan_err == 0:
             opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
-                    est_plan_pg_costs = \
+                    est_plan_pg_costs, _,_ = \
                     self.plan_err.compute_loss(samples,
                             est_cardinalities, pool = self.join_loss_pool,
                             true_cardinalities=true_cardinalities,

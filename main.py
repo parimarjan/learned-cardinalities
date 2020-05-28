@@ -256,7 +256,8 @@ def main():
             qrep = load_sql_rep(qfn)
             zero_query = False
             nodes = list(qrep["subset_graph"].nodes())
-            nodes.remove(SOURCE_NODE)
+            if SOURCE_NODE in nodes:
+                nodes.remove(SOURCE_NODE)
             for node in nodes:
                 info = qrep["subset_graph"].nodes()[node]
 

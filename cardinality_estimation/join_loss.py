@@ -184,9 +184,8 @@ def get_pghint_modified_sql(sql, cardinalities, join_ops,
     sql = pg_hint_str + sql
     return sql
 
-def get_join_cost_sql(sql_order, true_cardinalities,
-        join_graph, user, pwd, db_host, port, db_name,
-        cost_model):
+def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
+        join_graph, user, pwd, db_host, port, db_name, cost_model):
     try:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd)
@@ -219,14 +218,14 @@ def get_join_cost_sql(sql_order, true_cardinalities,
     est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
 
     # FIXME: need to do this
-    # exec_sql = get_pghint_modified_sql(est_opt_sql, est_cardinalities,
-            # None, None, None)
+    exec_sql = get_pghint_modified_sql(est_opt_sql, est_cardinalities,
+            None, None, None)
 
     # debug_leading = get_leading_hint(join_graph, est_explain)
 
     cursor.close()
     con.close()
-    return None, est_cost, est_explain
+    return exec_sql, est_cost, est_explain
 
 def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
         join_graph, cursor, sql_costs):
@@ -652,6 +651,10 @@ def get_shortest_path_costs(samples, source_node, cost_key,
     pg_costs = []
     paths = []
     pg_sqls = []
+    pg_explains = []
+
+    if true_cardinalities is not None and all_ests is not None:
+        assert len(true_cardinalities) == len(all_ests)
 
     for i in range(len(samples)):
         if known_costs and known_costs[i] is not None:
@@ -661,8 +664,6 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         ## TODO: we should not need to recompute the costs here
         subsetg = samples[i]["subset_graph"]
         assert SOURCE_NODE in subsetg.nodes()
-        # if SOURCE_NODE not in subsetg.nodes():
-            # add_single_node_edges(subsetg)
 
         # this should already be pre-computed
         if cost_key != "cost":
@@ -689,14 +690,20 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         join_order.reverse()
         sql_to_exec = nodes_to_sql(join_order, join_graphs[i])
 
-        cost_sql, est_cost, est_explain = get_join_cost_sql(sql_to_exec,
-                true_cardinalities[i],
+        if all_ests is not None:
+            cur_ests = all_ests[i]
+        else:
+            cur_ests = None
+        exec_sql, est_cost, est_explain = get_join_cost_sql(sql_to_exec,
+                cur_ests, true_cardinalities[i],
                 join_graphs[i], user, pwd, db_host, port, db_name,
                 cost_model)
-        pg_costs.append(est_cost)
-        pg_sqls.append(cost_sql)
 
-    return costs, pg_costs, paths, pg_sqls
+        pg_costs.append(est_cost)
+        pg_sqls.append(exec_sql)
+        pg_explains.append(est_explain)
+
+    return costs, pg_costs, paths, pg_sqls, pg_explains
 
 class PlanError():
 
@@ -724,11 +731,6 @@ class PlanError():
         if self.loss_type == "flow-loss":
             self.trueC_vecs = {}
 
-    def get_path_pg_costs(self, paths, true_cardinalities, join_graphs, pool):
-        print("get path pg costs!")
-
-        pdb.set_trace()
-
     def compute_loss(self, qreps, ests, pool=None, true_cardinalities=None,
             join_graphs=None):
         '''
@@ -742,6 +744,8 @@ class PlanError():
         else:
             opt_pg_costs = None
             all_pg_costs = None
+            all_pg_exec_sqls = None
+            all_pg_explains = None
 
         new_opt_cost = False
         for qrep in qreps:
@@ -779,7 +783,6 @@ class PlanError():
                 if new_opt_cost:
                     opt_par_args.append((qreps[start_idx:end_idx],
                         self.source_node, "cost", None,
-                        # opt_costs[start_idx:end_idx], self.cost_model,
                         None, self.cost_model,
                         self.compute_pg_costs,
                         self.user, self.pwd, self.db_host, self.port,
@@ -812,12 +815,16 @@ class PlanError():
 
             all_costs = []
             all_pg_costs = []
+            all_pg_exec_sqls = []
+            all_pg_explains = []
             all_costs_batched = pool.starmap(self.loss_func,
                     par_args)
             for c in all_costs_batched:
                 all_costs += c[0]
                 if self.compute_pg_costs:
                     all_pg_costs += c[1]
+                    all_pg_exec_sqls += c[3]
+                    all_pg_explains += c[4]
 
         all_costs = np.array(all_costs)
         opt_costs = np.array(opt_costs)
@@ -847,4 +854,5 @@ class PlanError():
         print("compute {} took: {}".format(self.loss_type, time.time()-start))
 
         return np.array(opt_costs), np.array(all_costs), \
-                np.array(opt_pg_costs), np.array(all_pg_costs)
+                np.array(opt_pg_costs), np.array(all_pg_costs), \
+                all_pg_exec_sqls, all_pg_explains
