@@ -255,7 +255,9 @@ def main():
                 continue
             qrep = load_sql_rep(qfn)
             zero_query = False
-            for _,info in qrep["subset_graph"].nodes().items():
+            for node,info in qrep["subset_graph"].nodes().items():
+                if node == SOURCE_NODE:
+                    continue
 
                 if args.train_card_key not in info["cardinality"]:
                     zero_query = True
@@ -537,7 +539,7 @@ def read_flags():
     parser.add_argument("--priority_normalize_type", type=str, required=False,
             default="")
     parser.add_argument("--normalize_flow_loss", type=int, required=False,
-            default=1)
+            default=0)
 
     # parser.add_argument("--priority_err_divide_len", type=int, required=False,
             # default=0)
