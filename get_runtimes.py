@@ -10,6 +10,7 @@ import pandas as pd
 from collections import defaultdict
 # from utils.utils import *
 import sys
+from cardinality_estimation.join_loss import set_cost_model
 
 TIMEOUT_CONSTANT = 909
 
@@ -28,9 +29,11 @@ def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results_dir", type=str, required=False,
             default="./results")
+    parser.add_argument("--result_fn", type=str, required=False,
+            default="plan_pg_err.pkl")
     return parser.parse_args()
 
-def execute_sql(sql, template="sql"):
+def execute_sql(sql, template="sql", cost_model="cm1"):
     '''
     '''
     drop_cache_cmd = "./drop_cache.sh > /dev/null"
@@ -48,9 +51,10 @@ def execute_sql(sql, template="sql"):
     cursor = con.cursor()
     cursor.execute("LOAD 'pg_hint_plan';")
     cursor.execute("SET geqo_threshold = {}".format(20))
-    cursor.execute("SET join_collapse_limit = {}".format(16))
-    cursor.execute("SET from_collapse_limit = {}".format(16))
-    # cursor.execute("SET statement_timeout = {}".format(900000))
+    set_cost_model(cursor, cost_model)
+    cursor.execute("SET join_collapse_limit = {}".format(1))
+    cursor.execute("SET from_collapse_limit = {}".format(1))
+    cursor.execute("SET statement_timeout = {}".format(900000))
 
     start = time.time()
 
@@ -87,7 +91,13 @@ def main():
     for alg_dir in os.listdir(args.results_dir):
         # if alg_dir not in ["true", "postgres"]:
             # continue
-        costs_fn = args.results_dir + "/" + alg_dir + "/" + "jerr.pkl"
+        args_fn = args.results_dir + "/" + alg_dir + "/" + "args.pkl"
+        exp_args = load_object(args_fn)
+        exp_args = vars(exp_args)
+        cost_model = exp_args["cost_model"]
+        print("cost model: ", cost_model)
+
+        costs_fn = args.results_dir + "/" + alg_dir + "/" + args.results_fn
         costs = load_object(costs_fn)
         assert isinstance(costs, pd.DataFrame)
         rt_fn = args.results_dir + "/" + alg_dir + "/" + "runtimes.pkl"
@@ -106,9 +116,10 @@ def main():
                 print("should never have repeated for execution")
                 continue
             if "template" in row:
-                exp_analyze, rt = execute_sql(row["exec_sql"], row["template"])
+                exp_analyze, rt = execute_sql(row["exec_sql"], row["template"],
+                        cost_model)
             else:
-                exp_analyze, rt = execute_sql(row["exec_sql"])
+                exp_analyze, rt = execute_sql(row["exec_sql"], cost_model)
             add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]

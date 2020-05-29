@@ -71,8 +71,6 @@ def set_cost_model(cursor, cost_model):
     else:
         assert False
 
-
-
 def get_pg_cost_from_sql(sql, cur):
     assert "explain" in sql
     # cur = con.cursor()
