@@ -10,9 +10,39 @@ import pandas as pd
 from collections import defaultdict
 # from utils.utils import *
 import sys
-from cardinality_estimation.join_loss import set_cost_model
+#import pdb
 
 TIMEOUT_CONSTANT = 909
+def set_indexes(cursor, val):
+    cursor.execute("SET enable_indexscan = {}".format(val))
+    cursor.execute("SET enable_indexonlyscan = {}".format(val))
+    cursor.execute("SET enable_bitmapscan = {}".format(val))
+    cursor.execute("SET enable_tidscan = {}".format(val))
+
+def set_cost_model(cursor, cost_model):
+    # makes things easier to understand
+    cursor.execute("SET enable_material = off")
+    if cost_model == "hash_join":
+        cursor.execute("SET enable_hashjoin = on")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = off")
+        set_indexes(cursor, "off")
+    elif cost_model == "nested_loop":
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        set_indexes(cursor, "off")
+    elif "nested_loop_index" in cost_model:
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        set_indexes(cursor, "on")
+
+    elif cost_model == "cm1" \
+            or cost_model == "cm2":
+        pass
+    else:
+        assert False
 
 def save_object(file_name, data):
     with open(file_name, "wb") as f:
@@ -29,7 +59,7 @@ def read_flags():
     parser = argparse.ArgumentParser()
     parser.add_argument("--results_dir", type=str, required=False,
             default="./results")
-    parser.add_argument("--result_fn", type=str, required=False,
+    parser.add_argument("--results_fn", type=str, required=False,
             default="plan_pg_err.pkl")
     return parser.parse_args()
 
