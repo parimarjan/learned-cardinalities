@@ -255,9 +255,11 @@ def main():
                 continue
             qrep = load_sql_rep(qfn)
             zero_query = False
-            for node,info in qrep["subset_graph"].nodes().items():
-                if node == SOURCE_NODE:
-                    continue
+            nodes = list(qrep["subset_graph"].nodes())
+            if SOURCE_NODE in nodes:
+                nodes.remove(SOURCE_NODE)
+            for node in nodes:
+                info = qrep["subset_graph"].nodes()[node]
 
                 if args.train_card_key not in info["cardinality"]:
                     zero_query = True
@@ -491,7 +493,7 @@ def read_flags():
     parser.add_argument("--feat_rel_pg_ests", type=int, required=False,
             default=1)
     parser.add_argument("--feat_tolerance", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--feat_pg_est_one_hot", type=int, required=False,
             default=1)
     parser.add_argument("--feat_rel_pg_ests_onehot", type=int, required=False,

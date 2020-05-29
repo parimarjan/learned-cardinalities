@@ -61,7 +61,7 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
 
 # once we have stored them in archive, parallel just slows down stuff
 UPDATE_TOLERANCES_PAR = True
-USE_TOLERANCES = True
+USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
@@ -69,15 +69,14 @@ def update_samples(samples, flow_features, cost_model,
     start = time.time()
     new_seen = False
     for sample in samples:
-        if "subset_graph_paths" in sample:
-            subsetg = sample["subset_graph_paths"]
-        else:
-            subsetg = copy.deepcopy(sample["subset_graph"])
+        subsetg = sample["subset_graph"]
+        if SOURCE_NODE not in subsetg.nodes():
             add_single_node_edges(subsetg)
 
         sample_edge = list(subsetg.edges())[0]
-        if cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
-                and not debug_set:
+        # if cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
+                # and not debug_set:
+        if False:
             continue
         else:
             new_seen = True
@@ -87,8 +86,6 @@ def update_samples(samples, flow_features, cost_model,
                     ests=None)
 
             subsetg.graph[cost_model + "total_cost"] = pg_total_cost
-
-            sample["subset_graph_paths"] = subsetg
 
             final_node = [n for n,d in subsetg.in_degree() if d==0][0]
             pg_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
@@ -132,7 +129,7 @@ def update_samples(samples, flow_features, cost_model,
 
         for i in range(len(samples)):
             tolerances = res[i]
-            subsetg = samples[i]["subset_graph_paths"]
+            subsetg = samples[i]["subset_graph"]
             nodes = list(subsetg.nodes())
             nodes.remove(SOURCE_NODE)
             nodes.sort()
@@ -155,33 +152,6 @@ def percentile_help(q):
 
 DEBUG = False
 SOURCE_NODE = tuple("s")
-def add_single_node_edges(subset_graph):
-    source = SOURCE_NODE
-    subset_graph.add_node(source)
-    subset_graph.nodes()[source]["cardinality"] = {}
-    subset_graph.nodes()[source]["cardinality"]["actual"] = 1.0
-    subset_graph.nodes()[source]["cardinality"]["total"] = 1.0
-
-    for node in subset_graph.nodes():
-        if len(node) != 1:
-            continue
-        if node[0] == source[0]:
-            continue
-
-        # print("going to add edge from source to node: ", node)
-        # subset_graph.add_edge(node, source, cost=0.0)
-        subset_graph.add_edge(node, source)
-        in_edges = subset_graph.in_edges(node)
-        out_edges = subset_graph.out_edges(node)
-        # print("in edges: ", in_edges)
-        # print("out edges: ", out_edges)
-
-        # if we need to add edges between single table nodes and rest
-        for node2 in subset_graph.nodes():
-            if len(node2) != 2:
-                continue
-            if node[0] in node2:
-                subset_graph.add_edge(node2, node)
 
 def get_subq_tolerances(qrep, card_key, cost_key):
     '''
@@ -219,9 +189,10 @@ def get_subq_tolerances(qrep, card_key, cost_key):
         return tcache.archive[key]
     tstart = time.time()
     nodes = list(qrep["subset_graph"].nodes())
+    nodes.remove(SOURCE_NODE)
     nodes.sort()
     tolerances = np.zeros(len(nodes))
-    subsetg = qrep["subset_graph_paths"]
+    subsetg = qrep["subset_graph"]
     final_node = [n for n,d in subsetg.in_degree() if d==0][0]
     source_node = tuple("s")
 
@@ -694,14 +665,13 @@ class NN(CardinalityEstimationAlg):
                 subsetg_vectors, trueC_vec, opt_loss = \
                         self.flow_training_info[qidx]
 
-                assert len(subsetg_vectors) == 7
+                assert len(subsetg_vectors) == 8
 
                 losses = loss_fn(pred, ybatch.detach(),
                         normalization_type, min_val,
                         max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
                         self.normalize_flow_loss,
                         self.join_loss_pool, self.cost_model)
-                assert len(subsetg_vectors) == 7
             else:
                 losses = loss_fn(pred, ybatch)
 
@@ -1199,15 +1169,13 @@ class NN(CardinalityEstimationAlg):
         samples = self.samples[samples_type]
         summary_data = defaultdict(list)
         query_idx = 0
-        # print(samples_type)
-        # totals_test = [len(s["subset_graph"].nodes()) for s in samples]
-        # print("total samples: ", sum(totals_test))
-        # pdb.set_trace()
 
         for sample in samples:
             template = sample["template_name"]
             sample_losses = []
             nodes = list(sample["subset_graph"].nodes())
+            if SOURCE_NODE in nodes:
+                nodes.remove(SOURCE_NODE)
             nodes.sort()
             for subq_idx, node in enumerate(nodes):
                 num_tables = len(node)
@@ -1217,7 +1185,7 @@ class NN(CardinalityEstimationAlg):
                 summary_data["loss"].append(loss)
                 summary_data["num_tables"].append(num_tables)
                 summary_data["template"].append(template)
-            query_idx += len(sample["subset_graph"].nodes())
+            query_idx += len(nodes)
             self.query_qerr_stats["epoch"].append(epoch)
             self.query_qerr_stats["query_name"].append(sample["name"])
             self.query_qerr_stats["qerr"].append(sum(sample_losses) / len(sample_losses))
@@ -1241,7 +1209,7 @@ class NN(CardinalityEstimationAlg):
 
         if self.eval_flow_loss and \
                 epoch % self.eval_epoch_flow_err == 0:
-            opt_flow_costs, est_flow_costs, _,_ = \
+            opt_flow_costs, est_flow_costs, _,_, _,_ = \
                     self.flow_loss_env.compute_loss(samples,
                             est_cardinalities, pool = self.join_loss_pool)
             opt_flow_losses = est_flow_costs - opt_flow_costs
@@ -1254,7 +1222,7 @@ class NN(CardinalityEstimationAlg):
         if self.cost_model_plan_err and \
                 epoch % self.eval_epoch_plan_err == 0:
             opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
-                    est_plan_pg_costs = \
+                    est_plan_pg_costs, _,_ = \
                     self.plan_err.compute_loss(samples,
                             est_cardinalities, pool = self.join_loss_pool,
                             true_cardinalities=true_cardinalities,
@@ -1318,7 +1286,7 @@ class NN(CardinalityEstimationAlg):
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
             print(np.mean(cost_model_losses), np.mean(cost_model_ratio))
-            # pdb.set_trace()
+            pdb.set_trace()
 
         if np.mean(join_losses) < self.best_join_loss \
                 and epoch > self.start_validation \
@@ -1379,6 +1347,8 @@ class NN(CardinalityEstimationAlg):
             # we don't need to sort these as we are returning a dict here...
 
             node_keys = list(sample["subset_graph"].nodes())
+            if SOURCE_NODE in node_keys:
+                node_keys.remove(SOURCE_NODE)
             node_keys.sort()
             for subq_idx, node in enumerate(node_keys):
                 cards = sample["subset_graph"].nodes()[node]["cardinality"]
@@ -1403,7 +1373,7 @@ class NN(CardinalityEstimationAlg):
 
             est_cardinalities.append(ests)
             true_cardinalities.append(trues)
-            query_idx += len(sample["subset_graph"].nodes())
+            query_idx += len(node_keys)
 
         return sqls, join_graphs, true_cardinalities, est_cardinalities
 
@@ -1458,15 +1428,17 @@ class NN(CardinalityEstimationAlg):
             qkey = deterministic_hash(sample["sql"])
             if qkey in farchive:
                 subsetg_vectors = farchive[qkey]
-                assert len(subsetg_vectors) == 7
+                assert len(subsetg_vectors) == 8
             else:
                 new_seen = True
-                subsetg_vectors = list(get_subsetg_vectors(sample))
+                subsetg_vectors = list(get_subsetg_vectors(sample,
+                    self.cost_model))
                 farchive[qkey] = subsetg_vectors
 
             true_cards = np.zeros(len(subsetg_vectors[0]),
                     dtype=np.float32)
             nodes = list(sample["subset_graph"].nodes())
+            nodes.remove(SOURCE_NODE)
             nodes.sort()
             for i, node in enumerate(nodes):
                 true_cards[i] = \
@@ -1481,10 +1453,10 @@ class NN(CardinalityEstimationAlg):
                         subsetg_vectors[3],
                         subsetg_vectors[1],
                         subsetg_vectors[2],
-                        self.cost_model)
+                        self.cost_model, subsetg_vectors[-1])
 
             Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
-            Gv[subsetg_vectors[-1]] = 1.0
+            Gv[subsetg_vectors[-2]] = 1.0
             trueC_vec = to_variable(trueC_vec).float()
             dgdxT = to_variable(dgdxT).float()
             G = to_variable(G).float()
@@ -1599,6 +1571,7 @@ class NN(CardinalityEstimationAlg):
                 node_list = list(subsetg.nodes())
                 node_list.sort(key = lambda v: len(v))
                 dest = node_list[-1]
+                node_list.remove(SOURCE_NODE)
                 node_list.sort()
                 cur_weights = np.zeros(len(node_list))
                 if sample["template_name"] in template_weights:
@@ -1666,6 +1639,8 @@ class NN(CardinalityEstimationAlg):
             for si, sample in enumerate(training_samples):
                 subsetg = sample["subset_graph"]
                 node_list = list(subsetg.nodes())
+                if SOURCE_NODE in node_list:
+                    node_list.remove(SOURCE_NODE)
                 node_list.sort()
                 cur_weights = np.zeros(len(node_list))
                 # will update the cur_weights for this sample now
@@ -1907,6 +1882,7 @@ class NN(CardinalityEstimationAlg):
                 query_idx = 0
                 for si, sample in enumerate(self.training_samples):
                     node_list = list(sample["subset_graph"].nodes())
+                    node_list.remove(SOURCE_NODE)
                     node_list.sort()
                     for subq_idx, nodes in enumerate(node_list):
                         num_nodes = len(nodes)
@@ -1970,6 +1946,8 @@ class NN(CardinalityEstimationAlg):
         for sample in test_samples:
             ests = {}
             node_keys = list(sample["subset_graph"].nodes())
+            if SOURCE_NODE in node_keys:
+                node_keys.remove(SOURCE_NODE)
             node_keys.sort()
             # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
             for subq_idx, node in enumerate(node_keys):
@@ -1986,7 +1964,7 @@ class NN(CardinalityEstimationAlg):
                     assert False
                 ests[alias_key] = est_card
             all_ests.append(ests)
-            query_idx += len(sample["subset_graph"].nodes())
+            query_idx += len(node_keys)
         # assert query_idx == len(dataset)
         return all_ests
 

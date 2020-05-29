@@ -124,17 +124,16 @@ class Postgres(CardinalityEstimationAlg):
         preds = []
         for sample in test_samples:
             pred_dict = {}
-            for alias_key, info in sample["subset_graph"].nodes().items():
-                # alias_key = ' '.join(alias)
+            nodes = list(sample["subset_graph"].nodes())
+            if SOURCE_NODE in nodes:
+                nodes.remove(SOURCE_NODE)
+            for alias_key in nodes:
+                info = sample["subset_graph"].nodes()[alias_key]
                 true_card = info["cardinality"]["actual"]
                 if true_card >= CROSS_JOIN_CONSTANT:
                     est = true_card
                 else:
                     est = info["cardinality"]["expected"]
-                    # if "expected" in info["cardinality"]:
-                        # est = info["cardinality"]["expected"]
-                    # else:
-                        # est = info["cardinality"]["actual"]
                 pred_dict[(alias_key)] = est
             preds.append(pred_dict)
         return preds
@@ -230,7 +229,11 @@ class TrueCardinalities(CardinalityEstimationAlg):
         preds = []
         for sample in test_samples:
             pred_dict = {}
-            for alias_key, info in sample["subset_graph"].nodes().items():
+            nodes = list(sample["subset_graph"].nodes())
+            if SOURCE_NODE in nodes:
+                nodes.remove(SOURCE_NODE)
+            for alias_key in nodes:
+                info = sample["subset_graph"].nodes()[alias_key]
                 pred_dict[(alias_key)] = info["cardinality"]["actual"]
             preds.append(pred_dict)
         return preds

@@ -36,7 +36,8 @@ class QueryDataset(data.Dataset):
         self.group = None
         self.flow_features = flow_features
 
-        total_nodes = [len(s["subset_graph"].nodes()) for s in samples]
+        # -1 to ignore SOURCE_NODE
+        total_nodes = [len(s["subset_graph"].nodes())-1 for s in samples]
         total_expected_samples = sum(total_nodes)
 
         if self.card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
@@ -72,8 +73,11 @@ class QueryDataset(data.Dataset):
             # TODO: can also save these values and generate features when
             # needed, without wasting memory
             idx_starts.append(qidx)
-            idx_lens.append(len(qrep["subset_graph"].nodes()))
-            qidx += len(qrep["subset_graph"].nodes())
+            nodes = list(qrep["subset_graph"].nodes())
+            if SOURCE_NODE in nodes:
+                nodes.remove(SOURCE_NODE)
+            idx_lens.append(len(nodes))
+            qidx += len(nodes)
         return idx_starts, idx_lens
 
     def _update_idxs2(self, samples):
@@ -119,6 +123,8 @@ class QueryDataset(data.Dataset):
             edge_feat_dict = {}
 
             for node, info in node_data:
+                if SOURCE_NODE in node_data:
+                    continue
                 table_features = self.db.get_table_features(info["real_name"])
                 table_feat_dict[node] = table_features
                 # TODO: pass in the cardinality as well.
@@ -148,6 +154,7 @@ class QueryDataset(data.Dataset):
             # now, we will generate the actual feature vectors over all the
             # subqueries
             node_names = list(qrep["subset_graph"].nodes())
+            node_names.remove(SOURCE_NODE)
             node_names.sort()
             for node_idx, nodes in enumerate(node_names):
                 if self.group is not None:
@@ -157,11 +164,6 @@ class QueryDataset(data.Dataset):
 
                 info = qrep["subset_graph"].nodes()[nodes]
                 pg_est = info["cardinality"]["expected"]
-                # true_val = info["cardinality"][self.card_key]
-                # if true_val == 0 or true_val == 1:
-                    # true_val = info["cardinality"]["actual"]
-                    # true_val = info["cardinality"]["expected"]
-                # pg_est = info["cardinality"]["actual"]
                 if self.wj_times is not None:
                     ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
                     true_val = info["cardinality"][ck]
@@ -196,10 +198,8 @@ class QueryDataset(data.Dataset):
                 if self.flow_features:
                     # use db to generate feature vec using nodes + qrep
                     flow_features = self.db.get_flow_features(nodes,
-                            qrep["subset_graph_paths"], qrep["template_name"],
+                            qrep["subset_graph"], qrep["template_name"],
                             qrep["join_graph"])
-                            # self.min_val, self.max_val,
-                            # self.normalization_type)
                     # heuristic estimate for the cardinality of this node
                     flow_features[-1] = pred_features[-1]
                 else:
