@@ -498,6 +498,7 @@ def compute_plan_loss(queries, preds, **kwargs):
     env = PlanError(args.cost_model, "plan-loss", args.user, args.pwd,
             args.db_host, args.port, args.db_name, compute_pg_costs=True)
     exp_name = kwargs["exp_name"]
+    alg_name = kwargs["name"]
     samples_type = kwargs["samples_type"]
     pool = kwargs["pool"]
 
@@ -552,10 +553,18 @@ def compute_plan_loss(queries, preds, **kwargs):
                 env.compute_loss(queries, preds, pool=pool,
                         true_cardinalities=true_cardinalities,
                         join_graphs=join_graphs)
-
     # save plan_pg_err results
     losses = est_costs - opt_costs
     losses_pg = est_costs_pg - opt_costs_pg
+
+    print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+            .format(args.db_name, alg_name, len(queries),
+                "plan_loss_pg",
+                np.round(np.mean(losses_pg),3),
+                np.round(np.median(losses_pg),3),
+                np.round(np.percentile(losses_pg,95),3),
+                np.round(np.percentile(losses_pg,99),3)))
+
     for i, qrep in enumerate(queries):
         sql_key = str(deterministic_hash(qrep["sql"]))
         assert qrep["name"] is not None

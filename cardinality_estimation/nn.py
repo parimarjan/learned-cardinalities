@@ -1552,6 +1552,7 @@ class NN(CardinalityEstimationAlg):
                 if len(self.groups) == 1:
                     assert self.total_training_samples == len(training_sets[0])
         else:
+            # FIXME: need tp get accurate number for load_query_together
             self.num_features = len(training_sets[0][0][0]) + \
                     len(training_sets[0][0][1]) + len(training_sets[0][0][2])
 

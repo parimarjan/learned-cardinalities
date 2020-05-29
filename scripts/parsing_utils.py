@@ -134,6 +134,11 @@ def get_all_training_df(results_dir):
             if skip_exp(exp_args):
                 print("skip exp!")
                 continue
+            print(fn)
+            if "feat_tolerance" in exp_args:
+                print(exp_args["feat_tolerance"])
+            print(exp_args["weight_decay"])
+            print(exp_args["normalize_flow_loss"])
 
             if "feat_tolerance" not in exp_args:
                 if "675" in fn:
@@ -197,6 +202,7 @@ def get_all_training_df(results_dir):
 
             all_dfs.append(df)
         except Exception as e:
+            print("exception caught!")
             print(e)
             continue
 
