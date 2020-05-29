@@ -825,6 +825,8 @@ class PlanError():
                     all_pg_costs += c[1]
                     all_pg_exec_sqls += c[3]
                     all_pg_explains += c[4]
+            assert len(all_pg_costs) == len(all_pg_exec_sqls) == \
+                len(all_pg_explains)
 
         all_costs = np.array(all_costs)
         opt_costs = np.array(opt_costs)

@@ -554,7 +554,6 @@ def compute_plan_loss(queries, preds, **kwargs):
                         join_graphs=join_graphs)
 
     # save plan_pg_err results
-
     losses = est_costs - opt_costs
     losses_pg = est_costs_pg - opt_costs_pg
     for i, qrep in enumerate(queries):
@@ -563,7 +562,7 @@ def compute_plan_loss(queries, preds, **kwargs):
         add_query_result_row(sql_key, samples_type, None, est_costs[i], losses[i],
                 None, qrep["template_name"], cur_costs, costs,
                 qrep["name"])
-        add_query_result_row(sql_key, samples_type, exec_sqls_pg,
+        add_query_result_row(sql_key, samples_type, exec_sqls_pg[i],
                 est_costs_pg[i], losses_pg[i],
                 get_leading_hint(explains_pg[i]), qrep["template_name"],
                 cur_costs_pg, costs_pg, qrep["name"])
