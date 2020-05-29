@@ -493,7 +493,7 @@ def read_flags():
     parser.add_argument("--feat_rel_pg_ests", type=int, required=False,
             default=1)
     parser.add_argument("--feat_tolerance", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--feat_pg_est_one_hot", type=int, required=False,
             default=1)
     parser.add_argument("--feat_rel_pg_ests_onehot", type=int, required=False,

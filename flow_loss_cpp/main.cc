@@ -261,6 +261,74 @@ void get_costs13(float *ests, float *totals,
   }
 }
 
+void get_costs15(float *ests, float *totals,
+    double min_val, double max_val, int normalization_type,
+    int *edges_cost_node1, int *edges_cost_node2,
+    //int *edges_head, int *edges_tail,
+    int *nilj, int num_nodes, int num_edges,
+    float *costs, float *dgdxT, int i, int head_node,
+    float *edges_penalties)
+{
+  // head node is the joined node
+  float card1, card2, card3, cost1, cost2, total1, total2, node_selectivity,
+      joined_node_est, penalty;
+  int node1, node2;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  card3 = ests[head_node];
+  total1 = totals[node1];
+  total2 = totals[node2];
+  penalty = edges_penalties[i];
+
+  if (nilj[i] == 1) {
+    // using index on 1
+    cost1 = card2;
+    node_selectivity = total1 / card1;
+    joined_node_est = card3*node_selectivity;
+    cost1 += joined_node_est;
+    cost1 *= penalty;
+  } else if (nilj[i] == 2) {
+    cost1 = card1;
+    node_selectivity = total2 / card2;
+    joined_node_est = card3*node_selectivity;
+    cost1 += joined_node_est;
+    cost1 *= penalty;
+  } else {
+    printf("should not have happened!\n");
+    exit(-1);
+  }
+
+  cost2 = card1*card2;
+  if (cost2 < cost1) {
+    costs[i] = cost2;
+  } else costs[i] = cost1;
+  float cost = costs[i];
+
+  /* time to compute gradients */
+  if (normalization_type == 2) {
+    // log normalization type
+    if (cost2 < cost1) {
+          dgdxT[node1*num_edges + i] = - max_val / costs[i];
+          dgdxT[node2*num_edges + i] = - max_val / costs[i];
+    } else {
+        // index nested loop join
+        if (nilj[i]  == 1) {
+            // used index on node1.
+            // derivative of: 1 / (c3*e^{-ax}*total + c2)
+            dgdxT[node1*num_edges + i] = (penalty*max_val*card3*total1) / (card1*cost*cost);
+            dgdxT[node2*num_edges + i] = - (penalty*max_val*card2) / (cost*cost);
+            dgdxT[head_node*num_edges + i] = - (penalty*max_val*card3*total1) / (card1*cost*cost);
+        } else {
+            dgdxT[node1*num_edges + i] = - (penalty*max_val*card1) / (cost*cost);
+            dgdxT[node2*num_edges + i] = (penalty*max_val*card3*total2) / (card2*cost*cost);
+            dgdxT[head_node*num_edges + i] = - (penalty*max_val*card3*total2) / (card2*cost*cost);
+        }
+    }
+  }
+}
+
 void get_costs12(float *ests, float *totals,
     double min_val, double max_val, int normalization_type,
     int *edges_cost_node1, int *edges_cost_node2,
@@ -877,12 +945,13 @@ extern "C" void get_optimization_variables(
     double min_val, double max_val, int normalization_type,
     int *edges_cost_node1, int *edges_cost_node2,
     int *edges_head, int *edges_tail,
-    int *nilj, int num_nodes, int num_edges,
+    int *nilj, float *edges_penalties,
+    int num_nodes, int num_edges,
     // return arguments below, will be edited in place
     float *costs, float *dgdxT,
     float *G, float *Q, int cost_model)
 {
-  double card1, card2, hash_join_cost, nilj_cost;
+  double card1, card2, hash_join_cost, nilj_cost, penalty;
   int node1, node2, head_node, tail_node;
 
   for (int i = 0; i < num_edges; i++) {
@@ -959,8 +1028,11 @@ extern "C" void get_optimization_variables(
       get_costs16(ests, totals, min_val, max_val, normalization_type,
           edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
           costs, dgdxT, i, head_node);
+    } else if (cost_model == 15) {
+      get_costs15(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i, head_node, edges_penalties);
     }
-
 
 
     float cost = 1.0 / costs[i];

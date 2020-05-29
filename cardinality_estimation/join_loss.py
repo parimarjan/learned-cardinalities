@@ -528,18 +528,18 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         qkey = deterministic_hash(sample["sql"])
         if qkey in farchive.archive:
             subsetg_vectors = farchive.archive[qkey]
-            assert len(subsetg_vectors) == 7
+            assert len(subsetg_vectors) == 8
             totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                    edges_cost_node2, final_node = subsetg_vectors
+                    edges_cost_node2, final_node, edges_penalties = subsetg_vectors
         else:
             new_seen = True
             # this must be for true cards
             assert all_ests is None
-            subsetg_vectors = list(get_subsetg_vectors(sample))
-            assert len(subsetg_vectors) == 7
+            subsetg_vectors = list(get_subsetg_vectors(sample, cost_model))
+            assert len(subsetg_vectors) == 8
 
         totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                edges_cost_node2, final_node = subsetg_vectors
+                edges_cost_node2, final_node, edges_penalties = subsetg_vectors
         nodes = list(sample["subset_graph"].nodes())
         if SOURCE_NODE in nodes:
             nodes.remove(SOURCE_NODE)
@@ -566,7 +566,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
 
             predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
                     0.0, 24.0, None, edges_cost_node1,
-                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model,
+                    edges_penalties)
 
             if debug_sql:
                 print(predC2)
@@ -584,7 +585,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
 
             trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
                     0.0, 24.0, None, edges_cost_node1,
-                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model,
+                    edges_penalties)
             trueC_vecs[qkey] = trueC_vec
 
         if debug_sql:

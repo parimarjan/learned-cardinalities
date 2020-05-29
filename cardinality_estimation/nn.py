@@ -61,7 +61,7 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
 
 # once we have stored them in archive, parallel just slows down stuff
 UPDATE_TOLERANCES_PAR = True
-USE_TOLERANCES = True
+USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
@@ -665,14 +665,13 @@ class NN(CardinalityEstimationAlg):
                 subsetg_vectors, trueC_vec, opt_loss = \
                         self.flow_training_info[qidx]
 
-                assert len(subsetg_vectors) == 7
+                assert len(subsetg_vectors) == 8
 
                 losses = loss_fn(pred, ybatch.detach(),
                         normalization_type, min_val,
                         max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
                         self.normalize_flow_loss,
                         self.join_loss_pool, self.cost_model)
-                assert len(subsetg_vectors) == 7
             else:
                 losses = loss_fn(pred, ybatch)
 
@@ -1287,7 +1286,7 @@ class NN(CardinalityEstimationAlg):
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
             print(np.mean(cost_model_losses), np.mean(cost_model_ratio))
-            # pdb.set_trace()
+            pdb.set_trace()
 
         if np.mean(join_losses) < self.best_join_loss \
                 and epoch > self.start_validation \
@@ -1429,10 +1428,11 @@ class NN(CardinalityEstimationAlg):
             qkey = deterministic_hash(sample["sql"])
             if qkey in farchive:
                 subsetg_vectors = farchive[qkey]
-                assert len(subsetg_vectors) == 7
+                assert len(subsetg_vectors) == 8
             else:
                 new_seen = True
-                subsetg_vectors = list(get_subsetg_vectors(sample))
+                subsetg_vectors = list(get_subsetg_vectors(sample,
+                    self.cost_model))
                 farchive[qkey] = subsetg_vectors
 
             true_cards = np.zeros(len(subsetg_vectors[0]),
@@ -1453,10 +1453,10 @@ class NN(CardinalityEstimationAlg):
                         subsetg_vectors[3],
                         subsetg_vectors[1],
                         subsetg_vectors[2],
-                        self.cost_model)
+                        self.cost_model, subsetg_vectors[-1])
 
             Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
-            Gv[subsetg_vectors[-1]] = 1.0
+            Gv[subsetg_vectors[-2]] = 1.0
             trueC_vec = to_variable(trueC_vec).float()
             dgdxT = to_variable(dgdxT).float()
             G = to_variable(G).float()

@@ -1939,7 +1939,7 @@ def construct_lp(subsetg, cost_key="cost"):
 
     return edges, c, A, b, G, h
 
-def get_subsetg_vectors(sample):
+def get_subsetg_vectors(sample, cost_model):
     start = time.time()
     node_dict = {}
     # edge_dict = {}
@@ -1959,6 +1959,8 @@ def get_subsetg_vectors(sample):
     edges_tail = [0]*len(edges)
     edges_cost_node1 = [0]*len(edges)
     edges_cost_node2 = [0]*len(edges)
+    edges_penalties = [1]*len(edges)
+
     nilj = [0]*len(edges)
     nilj2 = [0]*len(edges)
     final_node = 0
@@ -2002,15 +2004,44 @@ def get_subsetg_vectors(sample):
         elif len(node2) == 1:
             nilj[edgei] = 2
 
+        # penalties
+        if cost_model == "nested_loop_index13":
+            penalty = 1.0
+            if len(node1) == 1:
+                if "ci" in node1:
+                    if not ("t" in node2 or "mc" in node2 or "mi1" in node2 \
+                            or "mi2" in node2 or "mii1" in node2):
+                        penalty *= INDEX_PENALTY_MULTIPLE
+
+                # Non-primary key penalty
+                if not ("t" in node1 \
+                        or "n" in node1 \
+                        or "k" in node1):
+                    penalty *= INDEX_PENALTY_MULTIPLE
+
+            elif len(node2) == 1:
+                if "ci" in node2:
+                    if not ("t" in node1 or "mc" in node1 or "mi1" in node1 \
+                            or "mi2" in node1 or "mii1" in node1):
+                        penalty *= INDEX_PENALTY_MULTIPLE
+
+                if not ("t" in node2 \
+                        or "n" in node2 \
+                        or "k" in node2):
+                    penalty *= INDEX_PENALTY_MULTIPLE
+            edges_penalties[edgei] = penalty
+
     edges_head = np.array(edges_head, dtype=np.int32)
     edges_tail = np.array(edges_tail, dtype=np.int32)
     edges_cost_node1 = np.array(edges_cost_node1, dtype=np.int32)
     edges_cost_node2 = np.array(edges_cost_node2, dtype=np.int32)
     nilj = np.array(nilj, dtype=np.int32)
+    edges_penalties = np.array(edges_penalties, dtype=np.float32)
 
     # print("get subsetg vectors took: ", time.time()-start)
     return totals, edges_head, edges_tail, nilj, \
-            edges_cost_node1, edges_cost_node2, final_node
+            edges_cost_node1, edges_cost_node2, final_node, \
+            edges_penalties
 
 def get_subq_flows(qrep, cost_key):
     # TODO: save or not?
@@ -2055,7 +2086,7 @@ def debug_flow_loss(sample, source_node, cost_key,
     assert len(subsetg_vectors) == 7
 
     totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-            edges_cost_node2, final_node = subsetg_vectors
+            edges_cost_node2, final_node, edges_penalties = subsetg_vectors
     nodes = list(sample["subset_graph"].nodes())
     if SOURCE_NODE_CONST in nodes:
         nodes.remove(SOURCE_NODE)
@@ -2071,7 +2102,8 @@ def debug_flow_loss(sample, source_node, cost_key,
 
     trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
             0.0, 24.0, None, edges_cost_node1,
-            edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+            edges_cost_node2, nilj, edges_head, edges_tail, cost_model,
+            edges_penalties)
 
     Gv2 = np.zeros(len(totals), dtype=np.float32)
     Gv2[final_node] = 1.0
@@ -2104,7 +2136,7 @@ def debug_flow_loss(sample, source_node, cost_key,
 
 def get_optimization_variables(ests, totals, min_val, max_val,
         normalization_type, edges_cost_node1, edges_cost_node2,
-        nilj, edges_head, edges_tail, cost_model):
+        nilj, edges_head, edges_tail, cost_model, edges_penalties):
     '''
     @ests: these are actual values for each estimate. totals,min_val,max_val
     are only required for the derivatives.
@@ -2197,6 +2229,7 @@ def get_optimization_variables(ests, totals, min_val, max_val,
             edges_head.ctypes.data_as(c_void_p),
             edges_tail.ctypes.data_as(c_void_p),
             nilj.ctypes.data_as(c_void_p),
+            edges_penalties.ctypes.data_as(c_void_p),
             c_int(len(ests)),
             c_int(len(costs2)),
             costs2.ctypes.data_as(c_void_p),

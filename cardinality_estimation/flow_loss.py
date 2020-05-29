@@ -32,7 +32,7 @@ DEBUG_JAX = False
 DEBUG = False
 
 def get_costs_jax(card1, card2, card3, nilj, cost_model,
-        total1, total2):
+        total1, total2,penalty):
     if cost_model == "cm1":
         # hash_join_cost = card1 + card2
         if nilj == 1:
@@ -220,6 +220,39 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
 
         cost = nilj_cost
 
+    elif cost_model == "nested_loop_index13":
+        # same as nli7 --> but consider the fact the right side of an index
+        # nested loop join WILL not have predicates pushed down
+        # also, remove the term for index entirely
+        if nilj == 1:
+            # using index on node1
+            # nilj_cost = card2 + NILJ_CONSTANT*card1
+            nilj_cost = card2
+            # expected output size, if node 1 did not have predicate pushed
+            # down
+            node1_selectivity = total1 / card1
+            joined_node_est = card3 * node1_selectivity
+            nilj_cost += joined_node_est
+            nilj_cost *= penalty
+
+        elif nilj == 2:
+            # using index on node2
+            # nilj_cost = card1 + NILJ_CONSTANT*card2
+            nilj_cost = card1
+            node2_selectivity = total2 / card2
+            joined_node_est = card3 * node2_selectivity
+            nilj_cost += joined_node_est
+            nilj_cost *= penalty
+        else:
+            assert False
+
+        # TODO: we may be doing fine without this one
+        cost2 = card1*card2
+        if cost2 < nilj_cost:
+            cost = cost2
+        else:
+            cost = nilj_cost
+
     elif cost_model == "nested_loop_index14":
         cost2 = 0.0
         if nilj == 1:
@@ -259,7 +292,7 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
 
 def get_optimization_variables_jax(yhat, totals, min_val, max_val,
         normalization_type, edges_cost_node1, edges_cost_node2, edges_head,
-        nilj, cost_model, G, Q):
+        nilj, cost_model, G, Q, penalties):
     '''
     returns costs, and updates numpy arrays G, Q in place.
     '''
@@ -279,8 +312,9 @@ def get_optimization_variables_jax(yhat, totals, min_val, max_val,
         card3 = ests[edges_head[i]]
         total1 = totals[node1]
         total2 = totals[node2]
+        penalty = penalties[i]
         cost = get_costs_jax(card1, card2, card3, nilj[i], cost_model, total1,
-                total2)
+                total2, penalty)
         assert cost != 0.0
         costs = jax.ops.index_update(costs, jax.ops.index[i], cost)
 
@@ -415,7 +449,7 @@ def get_edge_costs2(yhat, totals, min_val, max_val,
 
 def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
         edges_cost_node2, nilj, normalization_type, min_val, max_val,
-        trueC_vec, final_node, cost_model):
+        trueC_vec, final_node, cost_model, penalties):
     '''
     @yhat: NN outputs for nodes (sorted by nodes.sort())
     @totals: Total estimates for each node (sorted ...)
@@ -436,11 +470,11 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
 
         costs = get_optimization_variables_jax(yhat, totals, min_val, max_val,
                 normalization_type, edges_cost_node1, edges_cost_node2, edges_head,
-                nilj, cost_model, G, Q)
+                nilj, cost_model, G, Q, penalties)
         print(costs.shape, np.max(costs))
         costs_grad = jacfwd(get_optimization_variables_jax, argnums=0)(yhat, totals, min_val,
                 max_val, normalization_type, edges_cost_node1, edges_cost_node2,
-                edges_head, nilj, cost_model, G, Q)
+                edges_head, nilj, cost_model, G, Q, penalties)
         costs_grad = costs_grad.T
         print(costs_grad.shape, np.max(costs_grad))
 
@@ -460,7 +494,8 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     start = time.time()
     predC2, dgdxT2, G2, Q2 = get_optimization_variables(est_cards, totals,
             min_val, max_val, normalization_type, edges_cost_node1,
-            edges_cost_node2, nilj, edges_head, edges_tail, cost_model)
+            edges_cost_node2, nilj, edges_head, edges_tail, cost_model,
+            penalties)
 
     if DEBUG_JAX:
         print("min max estimates: ", np.min(est_cards.detach().numpy()),
@@ -604,7 +639,7 @@ class FlowLoss(Function):
         ctx.pool = pool
         ctx.normalize_flow_loss = normalize_flow_loss
         ctx.subsetg_vectors = subsetg_vectors
-        assert len(subsetg_vectors[0][0]) == 7
+        assert len(subsetg_vectors[0][0]) == 8
         start = time.time()
         ctx.dgdxTs = []
         ctx.invGs = []
@@ -612,7 +647,7 @@ class FlowLoss(Function):
         ctx.vs = []
 
         totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                edges_cost_node2, final_node = ctx.subsetg_vectors[0][0]
+                edges_cost_node2, final_node, edge_penalties = ctx.subsetg_vectors[0][0]
         trueC_vec, opt_flow_loss = ctx.subsetg_vectors[0][1], \
                         ctx.subsetg_vectors[0][2]
 
@@ -623,7 +658,7 @@ class FlowLoss(Function):
                 nilj,
                 normalization_type,
                 min_val, max_val,
-                trueC_vec, final_node, cost_model)
+                trueC_vec, final_node, cost_model, edge_penalties)
 
         loss = res[0]
         ctx.dgdxTs.append(res[1])
@@ -647,7 +682,7 @@ class FlowLoss(Function):
         assert not ctx.needs_input_grad[2]
 
         _, edges_head, edges_tail, _, _, \
-                _, _ = ctx.subsetg_vectors[0][0]
+                _, _,_ = ctx.subsetg_vectors[0][0]
         trueC_vec, opt_cost = ctx.subsetg_vectors[0][1], \
                                 ctx.subsetg_vectors[0][2]
 
