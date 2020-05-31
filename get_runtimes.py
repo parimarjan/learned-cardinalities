@@ -146,7 +146,7 @@ def main():
                 print("skipping {} with stored runtime".format(row["sql_key"]))
                 # what is the stored value for this key?
                 rt_df = runtimes[runtimes["sql_key"] == row["sql_key"]]
-                stored_rt = rt_df["runtime"]
+                stored_rt = rt_df["runtime"].values[0]
                 if stored_rt == TIMEOUT_CONSTANT and RERUN_TIMEOUTS:
                     print("going to rerun timed out query")
                 else:
