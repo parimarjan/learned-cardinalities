@@ -508,8 +508,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         all_ests, known_costs, cost_model, trueC_vecs):
     start = time.time()
     costs = []
-    farchive = klepto.archives.dir_archive("./flow_info_archive",
-            cached=True, serialized=True)
+    # farchive = klepto.archives.dir_archive("./flow_info_archive",
+            # cached=True, serialized=True)
     new_seen = False
     debug_sql = False
     for i, sample in enumerate(samples):
@@ -517,22 +517,17 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
             costs.append(known_costs[i])
             continue
 
-        # if "1a1010" in sample["name"]:
-            # print("debug sql!")
-            # debug_sql = True
-        # else:
-            # debug_sql = False
-
         qkey = deterministic_hash(sample["sql"])
-        if qkey in farchive.archive:
+        # if qkey in farchive.archive:
+        if False:
             subsetg_vectors = farchive.archive[qkey]
             assert len(subsetg_vectors) == 8
-            totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                    edges_cost_node2, final_node, edges_penalties = subsetg_vectors
+            # totals, edges_head, edges_tail, nilj, edges_cost_node1, \
+                    # edges_cost_node2, final_node, edges_penalties = subsetg_vectors
         else:
             new_seen = True
             # this must be for true cards
-            assert all_ests is None
+            # assert all_ests is None
             subsetg_vectors = list(get_subsetg_vectors(sample, cost_model))
             assert len(subsetg_vectors) == 8
 
@@ -634,10 +629,9 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         costs.append(loss2[0])
         # print(loss2[0])
         # pdb.set_trace()
-        if new_seen:
+        # if new_seen:
             # was for true cards
-            farchive.archive[qkey] = subsetg_vectors
-
+            # farchive.archive[qkey] = subsetg_vectors
     return costs
 
 def get_shortest_path_costs(samples, source_node, cost_key,

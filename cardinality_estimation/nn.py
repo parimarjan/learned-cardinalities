@@ -1420,20 +1420,21 @@ class NN(CardinalityEstimationAlg):
         fstart = time.time()
         # precompute a whole bunch of training things
         self.flow_training_info = []
-        farchive = klepto.archives.dir_archive("./flow_info_archive",
-                cached=True, serialized=True)
-        farchive.load()
+        # farchive = klepto.archives.dir_archive("./flow_info_archive",
+                # cached=True, serialized=True)
+        # farchive.load()
         new_seen = False
         for sample in self.training_samples:
             qkey = deterministic_hash(sample["sql"])
-            if qkey in farchive:
+            # if qkey in farchive:
+            if False:
                 subsetg_vectors = farchive[qkey]
                 assert len(subsetg_vectors) == 8
             else:
                 new_seen = True
                 subsetg_vectors = list(get_subsetg_vectors(sample,
                     self.cost_model))
-                farchive[qkey] = subsetg_vectors
+                # farchive[qkey] = subsetg_vectors
 
             true_cards = np.zeros(len(subsetg_vectors[0]),
                     dtype=np.float32)
@@ -1477,9 +1478,9 @@ class NN(CardinalityEstimationAlg):
                     opt_flow_loss))
 
         print("precomputing flow info took: ", time.time()-fstart)
-        if new_seen:
-            farchive.dump()
-        del farchive
+        # if new_seen:
+            # farchive.dump()
+        # del farchive
 
     def train(self, db, training_samples, use_subqueries=False,
             val_samples=None, join_loss_pool = None):

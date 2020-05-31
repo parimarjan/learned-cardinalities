@@ -247,7 +247,11 @@ def compute_qerror(queries, preds, **kwargs):
         query_idx += len(sample["subset_graph"].nodes())
 
     qfn = rdir + "/" + "query_qerr.pkl"
-    save_object(qfn, query_losses)
+    old_results = load_object(qfn)
+    if old_results is not None:
+        df = pd.concat([old_results, query_losses], ignore_index=True)
+    save_object(qfn, df)
+
     return errors
 
 def fix_query(query):

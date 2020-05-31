@@ -128,17 +128,11 @@ def get_all_training_df(results_dir):
             cur_dir = results_dir + "/" + fn
             exp_args = load_object(cur_dir + "/args.pkl")
             if exp_args is None:
-                print("exp args None!")
                 continue
             exp_args = vars(exp_args)
             if skip_exp(exp_args):
                 print("skip exp!")
                 continue
-            print(fn)
-            if "feat_tolerance" in exp_args:
-                print(exp_args["feat_tolerance"])
-            print(exp_args["weight_decay"])
-            print(exp_args["normalize_flow_loss"])
 
             if "feat_tolerance" not in exp_args:
                 if "675" in fn:
@@ -149,23 +143,11 @@ def get_all_training_df(results_dir):
             alg = get_alg_name(exp_args)
             start = time.time()
             nns = load_object(cur_dir + "/nn.pkl")
-            # print("loading object took: ", time.time()-start)
             args_hash = str(deterministic_hash(str(exp_args)))[0:5]
             df = nns["stats"]
             df = df.assign(**exp_args)
             df["exp_hash"] = args_hash
 
-            # df["alg"] = alg
-            # df["hls"] = exp_args["hidden_layer_size"]
-            # df["exp_name"] = fn
-            # df["lr"] = exp_args["lr"]
-            # df["clip_gradient"] = exp_args["clip_gradient"]
-            # df["loss_func"] = exp_args["loss_func"]
-            # df["cost_model"] = exp_args["cost_model"]
-            # df["weighted_mse"] = exp_args["weighted_mse"]
-            # df["flow_features"] = exp_args["flow_features"]
-
-            # print(cur_dir)
             if exp_args["weight_decay"] == 4.0 and "138" in cur_dir:
                 # print("resetting buggy weight decay to 10")
                 df["weight_decay"] = 10.0
@@ -181,24 +163,6 @@ def get_all_training_df(results_dir):
                 df["normalize_flow_loss"] = exp_args["normalize_flow_loss"]
             else:
                 df["normalize_flow_loss"] = 1
-
-            # if "flow_features" in exp_args:
-                # # print("flow f: ", exp_args["flow_features"])
-                # if "343" in fn:
-                    # df["flow_features"] = ""
-                # elif "flow" not in exp_args["loss_func"]:
-                    # df["flow_features"] = ""
-                # elif exp_args["flow_features"] and "flow" in exp_args["loss_func"]:
-                    # df["flow_features"] = "flow_features"
-                # else:
-                    # df["flow_features"] = ""
-            # else:
-                # print("flow features was not in df!")
-                # df["flow_features"] = ""
-
-            # # TODO: add training / test detail
-            # # TODO: add template detail
-            # # TODO: need map from query_name : test/train + template etc.
 
             all_dfs.append(df)
         except Exception as e:
@@ -288,8 +252,9 @@ COST_MODEL_NAMES["nested_loop_index2"] = "cm2"
 COST_MODEL_NAMES["nested_loop_index"] = "cm3a"
 COST_MODEL_NAMES["nested_loop_index4"] = "cm3b"
 COST_MODEL_NAMES["nested_loop_index8"] = "cm4b"
+COST_MODEL_NAMES["nested_loop_index8b"] = "cm4c"
 COST_MODEL_NAMES["nested_loop_index9"] = "cm4a"
-COST_MODEL_NAMES["nested_loop_index14"] = "cm4c"
+COST_MODEL_NAMES["nested_loop_index14"] = "cm4d"
 COST_MODEL_NAMES["nested_loop_index13"] = "cm5"
 
 def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
@@ -313,7 +278,8 @@ def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
         # maxy = max(scale_df["loss"])
         maxy = cur_df["loss"].quantile(0.95)
 
-    sns.lineplot(x="epoch", y="loss", hue="alg_name", data=cur_df, palette=HUE_COLORS, ci=None,
+    sns.lineplot(x="epoch", y="loss", hue="alg_name", data=cur_df,
+            palette=HUE_COLORS, ci=95,
                  ax=ax, legend="full", linewidth=10)
     ax.set_ylim((miny,maxy))
     # plt.setp(g.ax.lines,linewidth=lw)  # set lw for all lines of g axes

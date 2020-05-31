@@ -1594,7 +1594,8 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         else:
             cost = nilj_cost
 
-    elif cost_model == "nested_loop_index8":
+    elif cost_model == "nested_loop_index8" \
+            or cost_model == "nested_loop_index8b":
         # same as nli7 --> but consider the fact the right side of an index
         # nested loop join WILL not have predicates pushed down
         # also, remove the term for index entirely
@@ -1949,24 +1950,28 @@ def get_subsetg_vectors(sample, cost_model):
     nodes.sort()
 
     subsetg = sample["subset_graph"]
-    # edges = list(sample["subset_graph_paths"].edges())
     edges = list(sample["subset_graph"].edges())
-
     edges.sort()
+    N = len(nodes)
+    num_edges = len(edges)
+    if cost_model == "nested_loop_index8b":
+        # separate edges for nested_loop v/s nested_loop_index
+        M = len(edges)*2
+    else:
+        M = len(edges)
 
-    totals = np.zeros(len(nodes), dtype=np.float32)
-    edges_head = [0]*len(edges)
-    edges_tail = [0]*len(edges)
-    edges_cost_node1 = [0]*len(edges)
-    edges_cost_node2 = [0]*len(edges)
-    edges_penalties = [1]*len(edges)
+    totals = np.zeros(N, dtype=np.float32)
+    edges_head = [0]*M
+    edges_tail = [0]*M
+    edges_cost_node1 = [0]*M
+    edges_cost_node2 = [0]*M
+    edges_penalties = [1]*M
 
-    nilj = [0]*len(edges)
-    nilj2 = [0]*len(edges)
+    nilj = [0]*M
+    nilj2 = [0]*M
     final_node = 0
     max_len_nodes = 0
 
-    # for node, nodei in node_dict.items():
     for nodei, node in enumerate(nodes):
         node_dict[node] = nodei
         totals[nodei] = subsetg.nodes()[node]["cardinality"]["total"]
@@ -1981,10 +1986,19 @@ def get_subsetg_vectors(sample, cost_model):
             edges_tail[edgei] = SOURCE_NODE_CONST
             edges_cost_node1[edgei] = SOURCE_NODE_CONST
             edges_cost_node2[edgei] = SOURCE_NODE_CONST
+            if cost_model == "nested_loop_index8b":
+                edges_head[edgei+num_edges] = node_dict[edge[0]]
+                edges_tail[edgei+num_edges] = SOURCE_NODE_CONST
+                edges_cost_node1[edgei+num_edges] = SOURCE_NODE_CONST
+                edges_cost_node2[edgei+num_edges] = SOURCE_NODE_CONST
             continue
 
         edges_head[edgei] = node_dict[edge[0]]
         edges_tail[edgei] = node_dict[edge[1]]
+
+        if cost_model == "nested_loop_index8b":
+            edges_head[edgei+num_edges] = node_dict[edge[0]]
+            edges_tail[edgei+num_edges] = node_dict[edge[1]]
 
         assert len(edge[1]) < len(edge[0])
         assert edge[1][0] in edge[0]
@@ -1998,11 +2012,17 @@ def get_subsetg_vectors(sample, cost_model):
 
         edges_cost_node1[edgei] = node_dict[node1]
         edges_cost_node2[edgei] = node_dict[node2]
+        if cost_model == "nested_loop_index8b":
+            edges_cost_node1[edgei+num_edges] = node_dict[node1]
+            edges_cost_node2[edgei+num_edges] = node_dict[node2]
 
         if len(node1) == 1:
             nilj[edgei] = 1
         elif len(node2) == 1:
             nilj[edgei] = 2
+
+        if cost_model == "nested_loop_index8b":
+            nilj[edgei+num_edges] = 3
 
         # penalties
         if cost_model == "nested_loop_index13":
@@ -2197,6 +2217,8 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         # print("c nested loop index 10 not implemented yet!")
     elif cost_model == "nested_loop_index14":
         cost_model_num = 16
+    elif cost_model == "nested_loop_index8b":
+        cost_model_num = 17
     else:
         assert False
 

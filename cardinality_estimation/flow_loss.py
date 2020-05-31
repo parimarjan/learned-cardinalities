@@ -197,6 +197,33 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
         else:
             cost = nilj_cost
 
+    elif cost_model == "nested_loop_index8b":
+        # same as nli7 --> but consider the fact the right side of an index
+        # nested loop join WILL not have predicates pushed down
+        # also, remove the term for index entirely
+        if nilj == 1:
+            # using index on node1
+            # nilj_cost = card2 + NILJ_CONSTANT*card1
+            nilj_cost = card2
+            # expected output size, if node 1 did not have predicate pushed
+            # down
+            node1_selectivity = total1 / card1
+            joined_node_est = card3 * node1_selectivity
+            nilj_cost += joined_node_est
+            cost = nilj_cost
+        elif nilj == 2:
+            # using index on node2
+            # nilj_cost = card1 + NILJ_CONSTANT*card2
+            nilj_cost = card1
+            node2_selectivity = total2 / card2
+            joined_node_est = card3 * node2_selectivity
+            nilj_cost += joined_node_est
+            cost = nilj_cost
+        elif nilj == 3:
+            cost = card1*card2
+        else:
+            assert False
+
     elif cost_model == "nested_loop_index9":
         if nilj == 1:
             # using index on node1
@@ -582,7 +609,7 @@ def single_backward(Q, invG,
     dfdg_start = time.time()
     num_threads = int(len(edges_head) / 400)
     num_threads = max(1, num_threads)
-    num_threads = min(10, num_threads)
+    num_threads = min(20, num_threads)
     fl_cpp.get_dfdg(
             c_int(len(edges_head)),
             c_int(len(v)),
@@ -592,7 +619,7 @@ def single_backward(Q, invG,
             v.ctypes.data_as(c_void_p),
             dfdg.ctypes.data_as(c_void_p),
             c_int(num_threads))
-    # print("dfdg took: ", time.time()-dfdg_start)
+    print("dfdg took: ", time.time()-dfdg_start)
 
     # dfdg = to_variable(dfdg).float()
     # dfdg = to_variable(dfdg).float()
@@ -603,6 +630,7 @@ def single_backward(Q, invG,
     assert Q.dtype == np.float32
     assert v.dtype == np.float32
 
+    tqv_start = time.time()
     tQv = np.zeros(len(edges_head), dtype=np.float32)
     fl_cpp.get_tqv(
             c_int(len(edges_head)),
@@ -615,10 +643,13 @@ def single_backward(Q, invG,
             c_int(2),
             tQv.ctypes.data_as(c_void_p)
             )
+    # print("tqv computations took: ", time.time()-tqv_start)
 
+    mat_start = time.time()
+    # slow matrix mul when we have too many edges
     dCdg = dfdg @ tQv
-
     yhat_grad = dgdxT @ to_variable(dCdg).float()
+
     if normalize_flow_loss:
         yhat_grad /= opt_flow_loss
 
@@ -666,7 +697,6 @@ class FlowLoss(Function):
         ctx.Qs.append(res[3])
         ctx.vs.append(res[4])
 
-        # print("forward took: ", time.time()-start)
         return loss
 
     @staticmethod
