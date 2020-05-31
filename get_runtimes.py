@@ -13,8 +13,8 @@ import sys
 #import pdb
 
 TIMEOUT_CONSTANT = 909
-RERUN_TIMEOUTS = True
-TIMEOUT_VAL = 3600000
+RERUN_TIMEOUTS = False
+TIMEOUT_VAL = 900000
 
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
@@ -147,7 +147,7 @@ def main():
                 # what is the stored value for this key?
                 rt_df = runtimes[runtimes["sql_key"] == row["sql_key"]]
                 stored_rt = rt_df["runtime"]
-                if stored_rt == TIMEOUT_CONSTANT:
+                if stored_rt == TIMEOUT_CONSTANT and RERUN_TIMEOUTS:
                     print("going to rerun timed out query")
                 else:
                     continue
