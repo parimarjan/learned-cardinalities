@@ -230,13 +230,8 @@ def get_summary_df(results_dir):
         # TODO: add rts too, if it exists
 
         cur_df = pd.concat([qerrs, jerrs, perrs, ferrs], ignore_index=True)
-        assert "max_discrete_featurizing_buckets" in exp_args
-        for exp_column in EXP_COLUMNS:
-            cur_df[exp_column] = exp_args[exp_column]
-            # if exp_column in exp_args:
-                # qerrs[exp_column] = exp_args[exp_column]
-            # else:
-                # qerrs[exp_column] = None
+        # for exp_column in EXP_COLUMNS:
+            # cur_df[exp_column] = exp_args[exp_column]
 
         args_hash = str(deterministic_hash(str(exp_args)))[0:5]
         cur_df["alg"] = exp_args["alg"]
@@ -249,31 +244,10 @@ def get_summary_df(results_dir):
         cur_df["weighted_mse"] = exp_args["weighted_mse"]
         cur_df["exp_hash"] = args_hash
 
-
         if exp_args["sampling_priority_alpha"] > 0:
             cur_df["priority"] = True
         else:
             cur_df["priority"] = False
-
-        if "normalize_flow_loss" in exp_args:
-            cur_df["normalize_flow_loss"] = exp_args["normalize_flow_loss"]
-        else:
-            cur_df["normalize_flow_loss"] = 1
-
-        if "flow_features" in exp_args:
-            print("flow f: ", exp_args["flow_features"])
-            print("special cases for flow features ")
-            if "343" in fn:
-                cur_df["flow_features"] = ""
-            elif "flow" not in exp_args["loss_func"]:
-                cur_df["flow_features"] = ""
-            elif exp_args["flow_features"] and "flow" in exp_args["loss_func"]:
-                cur_df["flow_features"] = "flow_features"
-            else:
-                cur_df["flow_features"] = ""
-        else:
-            print("flow features was not in df!")
-            df["flow_features"] = ""
 
         all_dfs.append(cur_df)
 

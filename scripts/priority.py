@@ -159,30 +159,6 @@ def get_all_jerrs(results_dir):
         print("len rts after dropna: ", len(rts))
         rts = rts[["query_name", "sql_key", "runtime", "priority"]]
 
-        # rts2 = pd.DataFrame(rts)
-        # prs = []
-        # for i, row in rts2.iterrows():
-            # try:
-                # pr = priorities[row["query_name"]]
-            # except:
-                # prs.append(0)
-                # continue
-            # prs.append(pr)
-            # try:
-                # int(pr)
-            # except:
-                # print(pr)
-                # pdb.set_trace()
-        # rts2["priority"] = prs
-
-
-        # print(rts["priority"].describe())
-        # pdb.set_trace()
-        # rts["priority"] /= float(1000000)
-        # total = np.sum(rts["priority"].data)
-        # print("total: ", total)
-        # rts["priority"] /= total
-
         all_dfs.append(rts)
 
     return pd.concat(all_dfs)

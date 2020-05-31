@@ -38,12 +38,13 @@ from ctypes import *
 system = platform.system()
 if system == 'Linux':
     lib_file = "libflowloss.so"
+    lib_dir = "./flow_loss_cpp"
+    lib_file = lib_dir + "/" + lib_file
+    fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
 else:
-    lib_file = "libflowloss.dylib"
+    print("flow loss C library not being used")
+    # lib_file = "libflowloss.dylib"
 
-lib_dir = "./flow_loss_cpp"
-lib_file = lib_dir + "/" + lib_file
-fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
 
 # TIMEOUT_COUNT_CONSTANT = 150001001
 # TIMEOUT_COUNT_CONSTANT = 15000100001

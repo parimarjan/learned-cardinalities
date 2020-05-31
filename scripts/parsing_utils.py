@@ -119,6 +119,62 @@ def get_all_qerrs():
         df = df[df["samples_type"] == "test"]
     return df
 
+def get_all_objects(results_dir, obj_name):
+    all_dfs = []
+    fns = os.listdir(results_dir)
+    for fn in fns:
+        cur_dir = results_dir + "/" + fn
+        if os.path.exists(cur_dir + "/" + obj_name):
+            df = load_object(cur_dir + "/" + obj_name)
+        else:
+            continue
+        exp_args = load_object(cur_dir + "/args.pkl")
+        exp_args = vars(exp_args)
+        if "nn" in exp_args["algs"]:
+            df["alg"] = exp_args["loss_func"]
+        else:
+            df["alg"] = exp_args["algs"]
+        all_dfs.append(df)
+    return pd.concat(all_dfs)
+
+def get_all_runtimes(results_dir):
+    all_dfs = []
+    fns = os.listdir(results_dir)
+    for fn in fns:
+        cur_dir = results_dir + "/" + fn
+        if os.path.exists(cur_dir + "/runtimes.pkl"):
+            runtimes = load_object(cur_dir + "/runtimes.pkl")
+        elif os.path.exists("runtimes_jerr.pkl"):
+            continue
+        else:
+            continue
+        exp_args = load_object(cur_dir + "/args.pkl")
+        exp_args = vars(exp_args)
+        perrs = load_object(cur_dir + "/plan_pg_err.pkl")
+        # ferrs = load_object(cur_dir + "/flow_err.pkl")
+        # qerrs = load_object(cur_dir + "/query_qerr.pkl")
+        runtimes = runtimes.drop_duplicates("sql_key")
+        rt_keys = set(runtimes["sql_key"])
+        assert len(rt_keys) == len(runtimes)
+        # combined_df = jerr_df.merge(true_rts, on="sql_key")
+        runtimes = runtimes.merge(perrs[["sql_key", "template"]], on="sql_key")
+        runtimes = runtimes.merge(perrs[["sql_key", "qfn"]], on="sql_key")
+        # runtimes["loss_type"] = "runtime"
+        # runtimes = runtimes.rename(columns={"runtime":"cost"})
+        # perrs = perrs[perrs["loss_type"] == "jcost"]
+        runtimes = runtimes.merge(perrs[["sql_key", "loss"]], on="sql_key")
+        runtimes = runtimes.merge(perrs[["sql_key", "cost"]], on="sql_key")
+
+        # df = pd.concat([runtimes, perrs])
+        df = runtimes
+        if "nn" in exp_args["algs"]:
+            df["alg"] = exp_args["loss_func"]
+        else:
+            df["alg"] = exp_args["algs"]
+        df = df.drop_duplicates(["alg", "sql_key"])
+        all_dfs.append(df)
+    return pd.concat(all_dfs)
+
 def get_all_training_df(results_dir):
     all_dfs = []
     fns = os.listdir(results_dir)

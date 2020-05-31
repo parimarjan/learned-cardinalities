@@ -14,12 +14,13 @@ import klepto
 system = platform.system()
 if system == 'Linux':
     lib_file = "libflowloss.so"
+    lib_dir = "./flow_loss_cpp"
+    lib_file = lib_dir + "/" + lib_file
+    fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
 else:
-    lib_file = "libflowloss.dylib"
+    print("flow loss C library not being used as we are not on linux")
+    # lib_file = "libflowloss.dylib"
 
-lib_dir = "./flow_loss_cpp"
-lib_file = lib_dir + "/" + lib_file
-fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
 
 PG_HINT_CMNT_TMP = '''/*+ {COMMENT} */'''
 PG_HINT_JOIN_TMP = "{JOIN_TYPE} ({TABLES}) "
