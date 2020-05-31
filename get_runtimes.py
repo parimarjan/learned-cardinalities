@@ -13,6 +13,9 @@ import sys
 #import pdb
 
 TIMEOUT_CONSTANT = 909
+RERUN_TIMEOUTS = True
+TIMEOUT_VAL = 3600000
+
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
     cursor.execute("SET enable_indexonlyscan = {}".format(val))
@@ -84,7 +87,7 @@ def execute_sql(sql, template="sql", cost_model="cm1"):
     set_cost_model(cursor, cost_model)
     cursor.execute("SET join_collapse_limit = {}".format(1))
     cursor.execute("SET from_collapse_limit = {}".format(1))
-    cursor.execute("SET statement_timeout = {}".format(900000))
+    cursor.execute("SET statement_timeout = {}".format(TIMEOUT_VAL))
 
     start = time.time()
 
@@ -141,7 +144,13 @@ def main():
         for i,row in costs.iterrows():
             if row["sql_key"] in runtimes["sql_key"].values:
                 print("skipping {} with stored runtime".format(row["sql_key"]))
-                continue
+                # what is the stored value for this key?
+                rt_df = runtimes[runtimes["sql_key"] == row["sql_key"]]
+                stored_rt = rt_df["runtime"]
+                if stored_rt == TIMEOUT_CONSTANT:
+                    print("going to rerun timed out query")
+                else:
+                    continue
             if row["sql_key"] in cur_runtimes["sql_key"]:
                 print("should never have repeated for execution")
                 continue
