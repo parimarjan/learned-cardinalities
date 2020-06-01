@@ -66,7 +66,8 @@ def read_flags():
             default="plan_pg_err.pkl")
     return parser.parse_args()
 
-def execute_sql(sql, template="sql", cost_model="cm1"):
+def execute_sql(sql, template="sql", cost_model="cm1",
+        results_fn="jerr.pkl"):
     '''
     '''
     drop_cache_cmd = "./drop_cache.sh > /dev/null"
@@ -85,8 +86,13 @@ def execute_sql(sql, template="sql", cost_model="cm1"):
     cursor.execute("LOAD 'pg_hint_plan';")
     cursor.execute("SET geqo_threshold = {}".format(20))
     set_cost_model(cursor, cost_model)
-    cursor.execute("SET join_collapse_limit = {}".format(1))
-    cursor.execute("SET from_collapse_limit = {}".format(1))
+    if "jerr.pkl" in results_fn:
+        cursor.execute("SET join_collapse_limit = {}".format(16))
+        cursor.execute("SET from_collapse_limit = {}".format(16))
+    else:
+        cursor.execute("SET join_collapse_limit = {}".format(1))
+        cursor.execute("SET from_collapse_limit = {}".format(1))
+
     cursor.execute("SET statement_timeout = {}".format(TIMEOUT_VAL))
 
     start = time.time()
@@ -158,10 +164,11 @@ def main():
                 print("should never have repeated for execution")
                 continue
             if "template" in row:
-                exp_analyze, rt = execute_sql(row["exec_sql"], row["template"],
-                        cost_model)
+                exp_analyze, rt = execute_sql(row["exec_sql"], template=row["template"],
+                        cost_model=cost_model, results_fn=args.results_fn)
             else:
-                exp_analyze, rt = execute_sql(row["exec_sql"], cost_model)
+                exp_analyze, rt = execute_sql(row["exec_sql"], cost_model=cost_model,
+                        results_fn=args.results_fn)
             add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]
