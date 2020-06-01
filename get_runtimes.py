@@ -136,7 +136,7 @@ def main():
         costs_fn = args.results_dir + "/" + alg_dir + "/" + args.results_fn
         costs = load_object(costs_fn)
         assert isinstance(costs, pd.DataFrame)
-        rt_fn = args.results_dir + "/" + alg_dir + "/" + "runtimes.pkl"
+        rt_fn = args.results_dir + "/" + alg_dir + "/" + "runtimes_" + args.results_fn
         # go in order and execute runtimes...
         runtimes = load_object(rt_fn)
         if runtimes is None:
