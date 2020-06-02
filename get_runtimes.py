@@ -64,6 +64,8 @@ def read_flags():
             default="./results")
     parser.add_argument("--results_fn", type=str, required=False,
             default="plan_pg_err.pkl")
+    parser.add_argument("--cost_model", type=str, required=False,
+            default=None)
     return parser.parse_args()
 
 def execute_sql(sql, template="sql", cost_model="cm1",
@@ -136,8 +138,13 @@ def main():
         args_fn = args.results_dir + "/" + alg_dir + "/" + "args.pkl"
         exp_args = load_object(args_fn)
         exp_args = vars(exp_args)
-        cost_model = exp_args["cost_model"]
-        print("cost model: ", cost_model)
+        # cost_model = exp_args["cost_model"]
+        print("exp args cost model: ", exp_args["cost_model"])
+        print("cur cost model: ", args.cost_model)
+        if args.cost_model is None or args.cost_model == "":
+            cost_model = exp_args["cost_model"]
+        else:
+            cost_model = args.cost_model
 
         costs_fn = args.results_dir + "/" + alg_dir + "/" + args.results_fn
         costs = load_object(costs_fn)
