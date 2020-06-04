@@ -19,8 +19,9 @@ TIMEOUT_VAL = 900000
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
     cursor.execute("SET enable_indexonlyscan = {}".format(val))
-    cursor.execute("SET enable_bitmapscan = {}".format(val))
-    cursor.execute("SET enable_tidscan = {}".format(val))
+    # just disabling bitmapscan, as it complicated cost model stuff a lot..
+    cursor.execute("SET enable_bitmapscan = {}".format("off"))
+    cursor.execute("SET enable_tidscan = {}".format("off"))
 
 def set_cost_model(cursor, cost_model):
     # makes things easier to understand
