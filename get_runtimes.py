@@ -119,14 +119,21 @@ def execute_sql(sql, template="sql", cost_model="cm1",
             return None, TIMEOUT_CONSTANT
         else:
             print("failed because of timeout!")
-            return None, TIMEOUT_CONSTANT
+            if explain:
+                sql = sql.replace("explain (analyze,costs, format json)",
+                "explain (format json)")
+            else:
+                sql = "explain (format json) " + sql
+            cursor.execute(sql)
+            explain_output = cursor.fetchall()
+            return explain_output, TIMEOUT_CONSTANT
 
-    explain = cursor.fetchall()
+    explain_output = cursor.fetchall()
     end = time.time()
     print("{} took {} seconds".format(template, end-start))
     sys.stdout.flush()
 
-    return explain, end-start
+    return explain_output, end-start
 
 def main():
 
