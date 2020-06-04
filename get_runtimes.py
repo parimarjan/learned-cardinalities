@@ -66,18 +66,23 @@ def read_flags():
             default="plan_pg_err.pkl")
     parser.add_argument("--cost_model", type=str, required=False,
             default=None)
+    parser.add_argument("--explain", type=int, required=False,
+            default=0)
     return parser.parse_args()
 
 def execute_sql(sql, template="sql", cost_model="cm1",
-        results_fn="jerr.pkl"):
+        results_fn="jerr.pkl", explain=False):
     '''
     '''
     drop_cache_cmd = "./drop_cache.sh > /dev/null"
     p = sp.Popen(drop_cache_cmd, shell=True)
     p.wait()
-    # time.sleep(2)
 
-    sql = sql.replace("explain (format json)", "explain (analyze,costs, format json)")
+    if explain:
+        sql = sql.replace("explain (format json)", "explain (analyze,costs, format json)")
+    else:
+        sql = sql.replace("explain (format json)", "")
+
     # FIXME: generalize
     con = pg.connect(port=5432,dbname="imdb",
             user="ubuntu",password="",host="localhost")
@@ -172,10 +177,11 @@ def main():
                 continue
             if "template" in row:
                 exp_analyze, rt = execute_sql(row["exec_sql"], template=row["template"],
-                        cost_model=cost_model, results_fn=args.results_fn)
+                        cost_model=cost_model, results_fn=args.results_fn,
+                        explain=args.explain)
             else:
                 exp_analyze, rt = execute_sql(row["exec_sql"], cost_model=cost_model,
-                        results_fn=args.results_fn)
+                        results_fn=args.results_fn, explain=args.explain)
             add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]
