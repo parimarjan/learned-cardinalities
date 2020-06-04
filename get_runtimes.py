@@ -19,8 +19,9 @@ TIMEOUT_VAL = 900000
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
     cursor.execute("SET enable_indexonlyscan = {}".format(val))
-    cursor.execute("SET enable_bitmapscan = {}".format(val))
-    cursor.execute("SET enable_tidscan = {}".format(val))
+    # just disabling bitmapscan, as it complicated cost model stuff a lot..
+    cursor.execute("SET enable_bitmapscan = {}".format("off"))
+    cursor.execute("SET enable_tidscan = {}".format("off"))
 
 def set_cost_model(cursor, cost_model):
     # makes things easier to understand
@@ -64,17 +65,25 @@ def read_flags():
             default="./results")
     parser.add_argument("--results_fn", type=str, required=False,
             default="plan_pg_err.pkl")
+    parser.add_argument("--cost_model", type=str, required=False,
+            default=None)
+    parser.add_argument("--explain", type=int, required=False,
+            default=1)
     return parser.parse_args()
 
-def execute_sql(sql, template="sql", cost_model="cm1"):
+def execute_sql(sql, template="sql", cost_model="cm1",
+        results_fn="jerr.pkl", explain=False):
     '''
     '''
     drop_cache_cmd = "./drop_cache.sh > /dev/null"
     p = sp.Popen(drop_cache_cmd, shell=True)
     p.wait()
-    # time.sleep(2)
 
-    sql = sql.replace("explain (format json)", "explain (analyze,costs, format json)")
+    if explain:
+        sql = sql.replace("explain (format json)", "explain (analyze,costs, format json)")
+    else:
+        sql = sql.replace("explain (format json)", "")
+
     # FIXME: generalize
     con = pg.connect(port=5432,dbname="imdb",
             user="ubuntu",password="",host="localhost")
@@ -85,8 +94,13 @@ def execute_sql(sql, template="sql", cost_model="cm1"):
     cursor.execute("LOAD 'pg_hint_plan';")
     cursor.execute("SET geqo_threshold = {}".format(20))
     set_cost_model(cursor, cost_model)
-    cursor.execute("SET join_collapse_limit = {}".format(1))
-    cursor.execute("SET from_collapse_limit = {}".format(1))
+    if "jerr.pkl" in results_fn:
+        cursor.execute("SET join_collapse_limit = {}".format(16))
+        cursor.execute("SET from_collapse_limit = {}".format(16))
+    else:
+        cursor.execute("SET join_collapse_limit = {}".format(1))
+        cursor.execute("SET from_collapse_limit = {}".format(1))
+
     cursor.execute("SET statement_timeout = {}".format(TIMEOUT_VAL))
 
     start = time.time()
@@ -96,23 +110,36 @@ def execute_sql(sql, template="sql", cost_model="cm1"):
     except Exception as e:
         cursor.execute("ROLLBACK")
         con.commit()
-        cursor.close()
-        con.close()
         if not "timeout" in str(e):
             print("failed to execute for reason other than timeout")
             print(e)
             print(sql)
+            cursor.close()
+            con.close()
             return None, TIMEOUT_CONSTANT
         else:
             print("failed because of timeout!")
-            return None, TIMEOUT_CONSTANT
+            if explain:
+                sql = sql.replace("explain (analyze,costs, format json)",
+                "explain (format json)")
+            else:
+                sql = "explain (format json) " + sql
 
-    explain = cursor.fetchall()
+            set_cost_model(cursor, cost_model)
+            cursor.execute("SET join_collapse_limit = {}".format(1))
+            cursor.execute("SET from_collapse_limit = {}".format(1))
+            cursor.execute(sql)
+            explain_output = cursor.fetchall()
+            cursor.close()
+            con.close()
+            return explain_output, TIMEOUT_CONSTANT
+
+    explain_output = cursor.fetchall()
     end = time.time()
     print("{} took {} seconds".format(template, end-start))
     sys.stdout.flush()
 
-    return explain, end-start
+    return explain_output, end-start
 
 def main():
 
@@ -130,8 +157,13 @@ def main():
         args_fn = args.results_dir + "/" + alg_dir + "/" + "args.pkl"
         exp_args = load_object(args_fn)
         exp_args = vars(exp_args)
-        cost_model = exp_args["cost_model"]
-        print("cost model: ", cost_model)
+        # cost_model = exp_args["cost_model"]
+        print("exp args cost model: ", exp_args["cost_model"])
+        print("cur cost model: ", args.cost_model)
+        if args.cost_model is None or args.cost_model == "":
+            cost_model = exp_args["cost_model"]
+        else:
+            cost_model = args.cost_model
 
         costs_fn = args.results_dir + "/" + alg_dir + "/" + args.results_fn
         costs = load_object(costs_fn)
@@ -158,10 +190,12 @@ def main():
                 print("should never have repeated for execution")
                 continue
             if "template" in row:
-                exp_analyze, rt = execute_sql(row["exec_sql"], row["template"],
-                        cost_model)
+                exp_analyze, rt = execute_sql(row["exec_sql"], template=row["template"],
+                        cost_model=cost_model, results_fn=args.results_fn,
+                        explain=args.explain)
             else:
-                exp_analyze, rt = execute_sql(row["exec_sql"], cost_model)
+                exp_analyze, rt = execute_sql(row["exec_sql"], cost_model=cost_model,
+                        results_fn=args.results_fn, explain=args.explain)
             add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]

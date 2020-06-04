@@ -137,15 +137,15 @@ def get_all_objects(results_dir, obj_name):
         all_dfs.append(df)
     return pd.concat(all_dfs)
 
-def get_all_runtimes(results_dir, rt_keys=None):
+def get_all_runtimes(results_dir, res_fn, rt_keys=None):
     all_dfs = []
     fns = os.listdir(results_dir)
+    rt_fn = "runtimes_" + res_fn
+    print(rt_fn)
     for fn in fns:
-        cur_dir = results_dir + "/" + fn
-        if os.path.exists(cur_dir + "/runtimes.pkl"):
-            runtimes = load_object(cur_dir + "/runtimes.pkl")
-        elif os.path.exists("runtimes_jerr.pkl"):
-            continue
+        cur_dir = results_dir + "/" + fn + "/"
+        if os.path.exists(cur_dir + rt_fn):
+            runtimes = load_object(cur_dir + rt_fn)
         else:
             continue
         exp_args = load_object(cur_dir + "/args.pkl")
@@ -162,17 +162,17 @@ def get_all_runtimes(results_dir, rt_keys=None):
         runtimes = runtimes.merge(perrs[["sql_key", "loss"]], on="sql_key")
         runtimes = runtimes.merge(perrs[["sql_key", "cost"]], on="sql_key")
 
-        # df = pd.concat([runtimes, perrs])
         df = runtimes
-        exp_hash = str(deterministic_hash(str(exp_args)))
+        exp_hash = str(deterministic_hash(str(exp_args)))[0:5]
         if "nn" in exp_args["algs"]:
-            df["alg"] = exp_args["loss_func"] + exp_hash[0:4]
+            df["alg"] = exp_args["loss_func"] + exp_hash
         else:
             df["alg"] = exp_args["algs"]
 
         df = df.drop_duplicates(["alg", "sql_key"])
         if rt_keys is not None:
             df = df[df["sql_key"].isin(rt_keys)]
+
         all_dfs.append(df)
     return pd.concat(all_dfs)
 

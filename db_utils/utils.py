@@ -45,7 +45,6 @@ else:
     print("flow loss C library not being used")
     # lib_file = "libflowloss.dylib"
 
-
 # TIMEOUT_COUNT_CONSTANT = 150001001
 # TIMEOUT_COUNT_CONSTANT = 15000100001
 # CROSS_JOIN_CONSTANT = 15000100000
@@ -322,7 +321,13 @@ def explain_to_nx(explain):
     def _add_node_stats(node, plan):
         # add stats for the join
         G.nodes[node]["Plan Rows"] = plan["Plan Rows"]
-        # G.nodes[node]["Node Type"] = plan["Node Type"]
+        if "Actual Rows" in plan:
+            G.nodes[node]["Actual Rows"] = plan["Actual Rows"]
+        else:
+            G.nodes[node]["Actual Rows"] = -1.0
+
+        if "Node Type" in plan:
+            G.nodes[node]["Node Type"] = plan["Node Type"]
         total_cost = plan["Total Cost"]
         G.nodes[node]["Total Cost"] = total_cost
         aliases = G.nodes[node]["aliases"]
@@ -425,7 +430,10 @@ def plot_explain_join_order(explain, true_cardinalities,
         aliases = G.nodes[node]["aliases"]
         aliases.sort()
         card_key = " ".join(aliases)
-        if card_key in true_cardinalities:
+        if true_cardinalities is None:
+            G.nodes[node]["est_card"] = G.nodes[node]["Plan Rows"]
+            G.nodes[node]["true_card"] = G.nodes[node]["Actual Rows"]
+        elif card_key in true_cardinalities:
             G.nodes[node]["est_card"] = est_cardinalities[card_key]
             G.nodes[node]["true_card"] = true_cardinalities[card_key]
         elif tuple(aliases) in true_cardinalities:
@@ -439,17 +447,14 @@ def plot_explain_join_order(explain, true_cardinalities,
             print(aliases)
             pdb.set_trace()
 
-        if G.nodes[node]["Plan Rows"] != G.nodes[node]["true_card"]:
+        # if G.nodes[node]["Plan Rows"] != G.nodes[node]["true_card"]:
             # if len(aliases) != 1 and \
                 # G.nodes[node]["true_card"] != TIMEOUT_COUNT_CONSTANT:
-            if len(aliases) != 1:
-                print("should run explain with true values")
-                print("aliases: {}, true: {}, est: {}, plan rows: {}".format(\
-                        aliases,
-                        G.nodes[node]["true_card"], G.nodes[node]["est_card"],
-                        G.nodes[node]["Plan Rows"]))
-                # pdb.set_trace()
-                # assert False
+            # if len(aliases) != 1:
+                # print("aliases: {}, true: {}, est: {}, plan rows: {}".format(\
+                        # aliases,
+                        # G.nodes[node]["true_card"], G.nodes[node]["est_card"],
+                        # G.nodes[node]["Plan Rows"]))
 
     _plot_join_order_graph(G, G.base_table_nodes, G.join_nodes, pdf, title)
     return G
