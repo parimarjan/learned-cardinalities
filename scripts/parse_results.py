@@ -196,10 +196,10 @@ def plot_join_summaries(pdf):
         plt.clf()
 
 def get_summary_df(results_dir):
-    print("get summary df!")
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
+        print(fn)
         # convert to same format as qerrs
         cur_dir = results_dir + "/" + fn
         exp_args = load_object(cur_dir + "/args.pkl")
@@ -208,6 +208,7 @@ def get_summary_df(results_dir):
         exp_args = vars(exp_args)
         exp_args["alg"] = get_alg_name(exp_args)
         if skip_exp(exp_args):
+            print("skip exp!")
             continue
 
         try:
@@ -218,6 +219,7 @@ def get_summary_df(results_dir):
         except:
             print("skipping ", cur_dir)
             continue
+
         qerrs = qerrs[qerrs["num_tables"] == "all"]
         qerrs = qerrs[LOSS_COLUMNS]
 

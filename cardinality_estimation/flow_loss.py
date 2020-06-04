@@ -544,12 +544,6 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
 
         pdb.set_trace()
 
-    # min_est = np.min(est_cards.detach().numpy())
-    # if min_est < 10.0:
-        # print(min_est)
-        # print("min est low!")
-        # pdb.set_trace()
-
     Gv2 = np.zeros(len(totals))
     Gv2[final_node] = 1.0
 
@@ -562,11 +556,6 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     v = invG @ Gv2 # vshape: Nx1
     v = v.detach().numpy()
 
-    # flows = Q2 @ v
-    # if np.min(flows) < 0.0:
-        # print(np.min(flows))
-        # pdb.set_trace()
-
     # TODO: we don't even need to compute the loss here if we don't want to
     loss2 = np.zeros(1, dtype=np.float32)
     assert Q2.dtype == np.float32
@@ -574,6 +563,7 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     if isinstance(trueC_vec, torch.Tensor):
         trueC_vec = trueC_vec.detach().numpy()
     assert trueC_vec.dtype == np.float32
+    # just computes the loss
     fl_cpp.get_qvtqv(
             c_int(len(edges_head)),
             c_int(len(v)),
@@ -606,24 +596,6 @@ def single_backward(Q, invG,
             invG.ctypes.data_as(c_void_p),
             QinvG2.ctypes.data_as(c_void_p))
 
-    dfdg = np.zeros((len(edges_head), len(edges_head)), dtype=np.float32)
-    dfdg_start = time.time()
-    num_threads = int(len(edges_head) / 400)
-    num_threads = max(1, num_threads)
-    num_threads = min(20, num_threads)
-    fl_cpp.get_dfdg(
-            c_int(len(edges_head)),
-            c_int(len(v)),
-            edges_head.ctypes.data_as(c_void_p),
-            edges_tail.ctypes.data_as(c_void_p),
-            QinvG2.ctypes.data_as(c_void_p),
-            v.ctypes.data_as(c_void_p),
-            dfdg.ctypes.data_as(c_void_p),
-            c_int(num_threads))
-    print("dfdg took: ", time.time()-dfdg_start)
-
-    # dfdg = to_variable(dfdg).float()
-    # dfdg = to_variable(dfdg).float()
     if isinstance(trueC_vec, torch.Tensor):
         trueC_vec = trueC_vec.detach().numpy()
 
@@ -645,11 +617,31 @@ def single_backward(Q, invG,
             tQv.ctypes.data_as(c_void_p)
             )
     # print("tqv computations took: ", time.time()-tqv_start)
+    dCdg2 = np.zeros(tQv.shape, dtype=np.float32)
 
-    mat_start = time.time()
+    dfdg = np.zeros((len(edges_head), len(edges_head)), dtype=np.float32)
+    dfdg_start = time.time()
+    num_threads = int(len(edges_head) / 400)
+    num_threads = max(1, num_threads)
+    num_threads = min(20, num_threads)
+    fl_cpp.get_dfdg(
+            c_int(len(edges_head)),
+            c_int(len(v)),
+            edges_head.ctypes.data_as(c_void_p),
+            edges_tail.ctypes.data_as(c_void_p),
+            QinvG2.ctypes.data_as(c_void_p),
+            tQv.ctypes.data_as(c_void_p),
+            v.ctypes.data_as(c_void_p),
+            dfdg.ctypes.data_as(c_void_p),
+            dCdg2.ctypes.data_as(c_void_p),
+            c_int(num_threads))
+
+    # mat_start = time.time()
     # slow matrix mul when we have too many edges
-    dCdg = dfdg @ tQv
-    yhat_grad = dgdxT @ to_variable(dCdg).float()
+    # dCdg = dfdg @ tQv
+    # print("mat took: ", time.time()-mat_start)
+
+    yhat_grad = dgdxT @ to_variable(dCdg2).float()
 
     if normalize_flow_loss:
         yhat_grad /= opt_flow_loss

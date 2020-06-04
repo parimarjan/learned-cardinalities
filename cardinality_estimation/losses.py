@@ -238,18 +238,22 @@ def compute_qerror(queries, preds, **kwargs):
 
     save_object(fn, df)
 
-    query_losses = {}
+    query_losses = defaultdict(list)
     query_idx = 0
     for sample in queries:
         template = sample["template_name"]
         cur_err = np.mean(errors[query_idx:query_idx+len(sample["subset_graph"].nodes())])
-        query_losses[sample["name"]] = cur_err
+        query_losses["name"].append(sample["name"])
+        query_losses["qerr"].append(cur_err)
         query_idx += len(sample["subset_graph"].nodes())
 
+    query_losses = pd.DataFrame(query_losses)
     qfn = rdir + "/" + "query_qerr.pkl"
     old_results = load_object(qfn)
     if old_results is not None:
         df = pd.concat([old_results, query_losses], ignore_index=True)
+    else:
+        df = query_losses
     save_object(qfn, df)
 
     return errors
@@ -369,34 +373,64 @@ def compute_join_order_loss(queries, preds, **kwargs):
 
     @output: updates ./results/join_order_loss.pkl file
     '''
+    def run_join_loss_exp(env, cost_model):
+        use_indexes = args.jl_indexes
+        exp_name = kwargs["exp_name"]
+        samples_type = kwargs["samples_type"]
+        pool = kwargs["pool"]
+
+        # here, we assume that the alg name is unique enough, for their results to
+        # be grouped together
+        rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
+                                       ALG = exp_name)
+        make_dir(rdir)
+        costs_fn = rdir + cost_model + "_jerr.pkl"
+        costs = load_object(costs_fn)
+        if costs is None:
+            columns = ["sql_key", "explain","plan","exec_sql","cost", "loss",
+                    "postgresql_conf", "samples_type", "template", "qfn"]
+            costs = pd.DataFrame(columns=columns)
+
+        cur_costs = defaultdict(list)
+        assert isinstance(costs, pd.DataFrame)
+
+        if args.jl_use_postgres:
+            est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
+                            join_loss_pg(sqls, join_graphs, true_cardinalities,
+                                    est_cardinalities, env, use_indexes, pdf=None,
+                                    pool = pool, join_loss_data_file =
+                                    args.join_loss_data_file)
+            losses = est_costs - opt_costs
+            for i, qrep in enumerate(queries):
+                sql_key = str(deterministic_hash(qrep["sql"]))
+                add_query_result_row(sql_key, samples_type,
+                        est_sqls[i], est_costs[i],
+                        losses[i],
+                        get_leading_hint(est_plans[i]),
+                        qrep["template_name"], cur_costs, costs,
+                        qrep["name"])
+        else:
+            print("TODO: add calcite based cost model")
+            assert False
+
+        cur_df = pd.DataFrame(cur_costs)
+        combined_df = pd.concat([costs, cur_df], ignore_index=True)
+        save_object(costs_fn, combined_df)
+
+        return est_costs, opt_costs
+
     assert isinstance(queries, list)
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
 
     # env = park.make('query_optimizer')
     args = kwargs["args"]
+    alg_name = kwargs["name"]
     env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
             args.port, args.db_name)
-    use_indexes = args.jl_indexes
-    exp_name = kwargs["exp_name"]
-    samples_type = kwargs["samples_type"]
-    pool = kwargs["pool"]
-
-    # here, we assume that the alg name is unique enough, for their results to
-    # be grouped together
-    rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
-                                   ALG = exp_name)
-    make_dir(rdir)
-    costs_fn = rdir + "jerr.pkl"
-    costs = load_object(costs_fn)
-    if costs is None:
-        columns = ["sql_key", "explain","plan","exec_sql","cost", "loss",
-                "postgresql_conf", "samples_type", "template", "qfn"]
-        costs = pd.DataFrame(columns=columns)
-
-    cur_costs = defaultdict(list)
-
-    assert isinstance(costs, pd.DataFrame)
+    if "nested" in args.cost_model:
+        env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
+                args.port, args.db_name)
 
     est_cardinalities = []
     true_cardinalities = []
@@ -425,30 +459,19 @@ def compute_join_order_loss(queries, preds, **kwargs):
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)
 
-    if args.jl_use_postgres:
-        est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
-                        join_loss_pg(sqls, join_graphs, true_cardinalities,
-                                est_cardinalities, env, use_indexes, pdf=None,
-                                pool = pool, join_loss_data_file =
-                                args.join_loss_data_file)
-        losses = est_costs - opt_costs
-        for i, qrep in enumerate(queries):
-            sql_key = str(deterministic_hash(qrep["sql"]))
-            add_query_result_row(sql_key, samples_type,
-                    est_sqls[i], est_costs[i],
-                    losses[i],
-                    get_leading_hint(est_plans[i]),
-                    qrep["template_name"], cur_costs, costs,
-                    qrep["name"])
-    else:
-        print("TODO: add calcite based cost model")
-        assert False
+    est_costs, opt_costs = run_join_loss_exp(env, args.cost_model)
+    if "nested" in args.cost_model:
+        est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
+        losses2 = est_costs2 - opt_costs2
+        print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+                .format(args.db_name, alg_name, len(queries),
+                    "join all",
+                    np.round(np.mean(losses2),3),
+                    np.round(np.median(losses2),3),
+                    np.round(np.percentile(losses2,95),3),
+                    np.round(np.percentile(losses2,99),3)))
 
-    cur_df = pd.DataFrame(cur_costs)
-    combined_df = pd.concat([costs, cur_df], ignore_index=True)
-    save_object(costs_fn, combined_df)
 
-    losses = np.array(est_costs) - np.array(opt_costs)
     return np.array(est_costs) - np.array(opt_costs)
 
 def compute_flow_loss(queries, preds, **kwargs):
@@ -557,6 +580,7 @@ def compute_plan_loss(queries, preds, **kwargs):
                 env.compute_loss(queries, preds, pool=pool,
                         true_cardinalities=true_cardinalities,
                         join_graphs=join_graphs)
+
     # save plan_pg_err results
     losses = est_costs - opt_costs
     losses_pg = est_costs_pg - opt_costs_pg

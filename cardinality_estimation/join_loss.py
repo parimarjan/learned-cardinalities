@@ -10,6 +10,7 @@ from cardinality_estimation.flow_loss import *
 
 import pdb
 import klepto
+import copy
 
 system = platform.system()
 if system == 'Linux':
@@ -26,7 +27,7 @@ PG_HINT_CMNT_TMP = '''/*+ {COMMENT} */'''
 PG_HINT_JOIN_TMP = "{JOIN_TYPE} ({TABLES}) "
 PG_HINT_CARD_TMP = "Rows ({TABLES} #{CARD}) "
 PG_HINT_SCAN_TMP = "{SCAN_TYPE}({TABLE}) "
-PG_HINT_LEADING_TMP = "Leading ({JOIN_ORDER})"
+PG_HINT_LEADING_TMP = "Leading({JOIN_ORDER})"
 PG_HINT_JOINS = {}
 PG_HINT_JOINS["Nested Loop"] = "NestLoop"
 PG_HINT_JOINS["Hash Join"] = "HashJoin"
@@ -43,9 +44,10 @@ MAX_JOINS = 16
 
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
-    cursor.execute("SET enable_indexonlyscan = {}".format(val))
-    cursor.execute("SET enable_bitmapscan = {}".format(val))
-    cursor.execute("SET enable_tidscan = {}".format(val))
+    cursor.execute("SET enable_seqscan = {}".format("off"))
+    cursor.execute("SET enable_indexonlyscan = {}".format("off"))
+    cursor.execute("SET enable_bitmapscan = {}".format("off"))
+    cursor.execute("SET enable_tidscan = {}".format("off"))
 
 def set_cost_model(cursor, cost_model):
     # makes things easier to understand
@@ -161,8 +163,8 @@ def get_pghint_modified_sql(sql, cardinalities, join_ops,
 
     @ret: sql, augmented with appropriate comments.
     '''
-    # if "explain" not in sql:
-    sql = " explain (format json) " + sql
+    if "explain" not in sql:
+        sql = " explain (format json) " + sql
 
     comment_str = ""
     if cardinalities is not None:
@@ -193,7 +195,6 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
                 user=user,password=pwd, host=db_host)
 
     # TODO: set cost model based stuff
-
     cursor = con.cursor()
     cursor.execute("LOAD 'pg_hint_plan';")
     set_cost_model(cursor, cost_model)
@@ -203,6 +204,8 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
     cursor.execute("SET join_collapse_limit = {}".format(1))
     cursor.execute("SET from_collapse_limit = {}".format(1))
     sql_to_exec = " explain (format json) " + sql_order
+    sql_to_exec = get_pghint_modified_sql(sql_to_exec, est_cardinalities,
+            None, None, None)
     cursor.execute(sql_to_exec)
     explain = cursor.fetchall()
     est_join_order_sql, est_join_ops, scan_ops = get_pg_join_order(join_graph,
@@ -213,14 +216,29 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
 
     # add the join ops etc. information
     cost_sql = get_pghint_modified_sql(est_opt_sql, true_cardinalities,
-            None, leading_hint, None)
+            est_join_ops, leading_hint, scan_ops)
+    # cost_sql = get_pghint_modified_sql(est_opt_sql, true_cardinalities,
+            # None, leading_hint, None)
+
     est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
+    debug_leading = get_leading_hint(join_graph, est_explain)
+    _, cost_join_ops, cost_scan_ops = get_pg_join_order(join_graph,
+            est_explain)
+
+    # print("do join orders match: ", debug_leading == leading_hint)
+    for k,v in cost_join_ops.items():
+        if (v != est_join_ops[k]):
+            print(k, v, est_join_ops[k])
+
+    # for k,v in cost_scan_ops.items():
+        # assert v == scan_ops[k]
+        # if (v != scan_ops[k]):
+            # print(k, v, scan_ops[k])
+    # pdb.set_trace()
 
     # FIXME: need to do this
     exec_sql = get_pghint_modified_sql(est_opt_sql, est_cardinalities,
-            None, None, None)
-
-    # debug_leading = get_leading_hint(join_graph, est_explain)
+            est_join_ops, leading_hint, scan_ops)
 
     cursor.close()
     con.close()
@@ -256,19 +274,21 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
     # can cache the results for it.
 
     cost_sql_key = deterministic_hash(cost_sql)
-    if sql_costs is not None:
-        if cost_sql_key in sql_costs.archive:
-            try:
-                est_cost, est_explain = sql_costs.archive[cost_sql_key]
-            except:
-                est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
-                sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
-        else:
-            est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
-            sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
-    else:
-        est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
+    ## archived version
+    # if sql_costs is not None:
+        # if cost_sql_key in sql_costs.archive:
+            # try:
+                # est_cost, est_explain = sql_costs.archive[cost_sql_key]
+            # except:
+                # est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
+                # sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
+        # else:
+            # est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
+            # sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
+    # else:
+        # est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
 
+    est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
     debug_leading = get_leading_hint(join_graph, est_explain)
     if debug_leading != leading_hint:
         pass
@@ -321,10 +341,10 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
     cursor.execute("SET join_collapse_limit = {}".format(MAX_JOINS))
     cursor.execute("SET from_collapse_limit = {}".format(MAX_JOINS))
 
-    if not use_indexes:
-        set_indexes(cursor, "off")
-    else:
-        set_indexes(cursor, "on")
+    # if not use_indexes:
+        # set_indexes(cursor, "off")
+    # else:
+        # set_indexes(cursor, "on")
 
     ret = []
     for i, query in enumerate(queries):
@@ -683,6 +703,9 @@ def get_shortest_path_costs(samples, source_node, cost_key,
 
         join_order = [tuple(sorted(x)) for x in path_to_join_order(path)]
         join_order.reverse()
+        # join_order2 = copy.deepcopy(join_order)
+        # join_order[0] = join_order2[1]
+        # join_order[1] = join_order2[0]
         sql_to_exec = nodes_to_sql(join_order, join_graphs[i])
 
         if all_ests is not None:
@@ -793,6 +816,15 @@ class PlanError():
             if new_opt_cost:
                 opt_costs = []
                 opt_pg_costs = []
+
+                # print("sequential opt costs!")
+                # opt_costs_batched = self.loss_func(qreps, self.source_node,
+                        # "cost", None, None,
+                        # self.cost_model, self.compute_pg_costs, self.user,
+                        # self.pwd, self.db_host, self.port, self.db_name,
+                        # true_cardinalities, join_graphs)
+                # opt_costs_batched = [opt_costs_batched]
+
                 opt_costs_batched = pool.starmap(self.loss_func,
                         opt_par_args)
                 for c in opt_costs_batched:
@@ -812,8 +844,16 @@ class PlanError():
             all_pg_costs = []
             all_pg_exec_sqls = []
             all_pg_explains = []
+            # print("debug run, no parallel!")
+            # all_costs_batched = [self.loss_func(qreps, self.source_node, "est_cost", ests, None,
+                    # self.cost_model, self.compute_pg_costs, self.user,
+                    # self.pwd, self.db_host, self.port, self.db_name,
+                    # true_cardinalities, join_graphs)]
+
+            # parallel version...
             all_costs_batched = pool.starmap(self.loss_func,
                     par_args)
+
             for c in all_costs_batched:
                 all_costs += c[0]
                 if self.compute_pg_costs:

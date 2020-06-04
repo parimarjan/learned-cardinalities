@@ -13,12 +13,11 @@
 void get_dfdg_par(int num_edges, int num_nodes,
     int *edges_head, int *edges_tail,
     float *QinvG, float *v, float *dfdg, int batch,
-    int batch_size)
+    int batch_size, float* tQv, float *dcdg)
 {
   //printf("thread %d\n", omp_get_thread_num());
-
   int hnode, tnode, start, end;
-  float vh, vt, qgh, qgt;
+  float vh, vt, qgh, qgt, cur_dfdg, cur_tqv;
   start = batch*batch_size;
   end = start+batch_size;
   if (end > num_edges) end = num_edges;
@@ -32,6 +31,8 @@ void get_dfdg_par(int num_edges, int num_nodes,
     } else vt = 0.0;
     //printf("edge: %d, hnode: %d, tnode: %d, vh: %f, vt: %f\n", i, hnode, tnode, vh, vt);
 
+    // going to calculate the value of dcdg[i] here
+    dcdg[i] = 0.0;
     for (int j = 0; j < num_edges; j++) {
       if (i == j) {
         qgh = 1.0;
@@ -47,13 +48,17 @@ void get_dfdg_par(int num_edges, int num_nodes,
         dfdg[i*num_edges + j] += vt*(qgt + QinvG[j*num_nodes + hnode] \
             - QinvG[j*num_nodes+tnode]);
       }
+      cur_dfdg = dfdg[i*num_edges + j];
+      cur_tqv = tQv[j];
+      dcdg[i] += cur_dfdg*cur_tqv;
     }
   }
 }
 
 extern "C" void get_dfdg (int num_edges, int num_nodes,
     int *edges_head, int *edges_tail,
-    float *QinvG, float *v, float *dfdg,
+    float *QinvG, float *tQv,
+    float *v, float *dfdg, float *dcdg,
     int num_workers)
 {
   //printf("get dfdg, %d, %d\n", num_edges, num_nodes);
@@ -70,7 +75,7 @@ extern "C" void get_dfdg (int num_edges, int num_nodes,
   #pragma omp parallel for num_threads(num_workers)
   for (int batch = 0; batch < num_batches; batch++) {
     get_dfdg_par(num_edges, num_nodes, edges_head,
-        edges_tail, QinvG, v, dfdg, batch, batch_size);
+        edges_tail, QinvG, v, dfdg, batch, batch_size, tQv, dcdg);
   }
 }
 

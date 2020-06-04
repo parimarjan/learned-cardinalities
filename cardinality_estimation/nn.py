@@ -1286,7 +1286,7 @@ class NN(CardinalityEstimationAlg):
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
             print(np.mean(cost_model_losses), np.mean(cost_model_ratio))
-            pdb.set_trace()
+            # pdb.set_trace()
 
         if np.mean(join_losses) < self.best_join_loss \
                 and epoch > self.start_validation \

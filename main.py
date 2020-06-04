@@ -469,7 +469,7 @@ def read_flags():
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
     parser.add_argument("--cost_model", type=str, required=False,
-            default="nested_loop_index8")
+            default="nested_loop_index9")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
             default=None)
     parser.add_argument("--exp_prefix", type=str, required=False,
@@ -495,9 +495,9 @@ def read_flags():
     parser.add_argument("--feat_tolerance", type=int, required=False,
             default=0)
     parser.add_argument("--feat_pg_est_one_hot", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--feat_rel_pg_ests_onehot", type=int, required=False,
-            default=1)
+            default=0)
 
     parser.add_argument("--cost_model_plan_err", type=int, required=False,
             default=1)

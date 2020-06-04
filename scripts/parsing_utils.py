@@ -137,12 +137,11 @@ def get_all_objects(results_dir, obj_name):
         all_dfs.append(df)
     return pd.concat(all_dfs)
 
-def get_all_runtimes(results_dir):
+def get_all_runtimes(results_dir, rt_keys=None):
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
         cur_dir = results_dir + "/" + fn
-        print(cur_dir)
         if os.path.exists(cur_dir + "/runtimes.pkl"):
             runtimes = load_object(cur_dir + "/runtimes.pkl")
         elif os.path.exists("runtimes_jerr.pkl"):
@@ -154,16 +153,11 @@ def get_all_runtimes(results_dir):
         perrs = load_object(cur_dir + "/plan_pg_err.pkl")
         perrs = perrs[perrs["samples_type"] == "test"]
         runtimes = runtimes.drop_duplicates("sql_key")
-        rt_keys = set(runtimes["sql_key"])
-        assert len(rt_keys) == len(runtimes)
+        all_rt_keys = set(runtimes["sql_key"])
+        assert len(all_rt_keys) == len(runtimes)
         # combined_df = jerr_df.merge(true_rts, on="sql_key")
         runtimes = runtimes.merge(perrs[["sql_key", "template"]], on="sql_key")
         runtimes = runtimes.merge(perrs[["sql_key", "qfn"]], on="sql_key")
-
-        # print("new len, old len")
-        # print(len(runtimes), len(rt_keys))
-        # assert len(runtimes) == len(rt_keys)
-        # runtimes["loss_type"] = "runtime"
 
         runtimes = runtimes.merge(perrs[["sql_key", "loss"]], on="sql_key")
         runtimes = runtimes.merge(perrs[["sql_key", "cost"]], on="sql_key")
@@ -172,13 +166,13 @@ def get_all_runtimes(results_dir):
         df = runtimes
         exp_hash = str(deterministic_hash(str(exp_args)))
         if "nn" in exp_args["algs"]:
-            print(fn)
-            print(exp_hash)
             df["alg"] = exp_args["loss_func"] + exp_hash[0:4]
         else:
             df["alg"] = exp_args["algs"]
 
         df = df.drop_duplicates(["alg", "sql_key"])
+        if rt_keys is not None:
+            df = df[df["sql_key"].isin(rt_keys)]
         all_dfs.append(df)
     return pd.concat(all_dfs)
 
@@ -191,6 +185,7 @@ def get_all_training_df(results_dir):
             cur_dir = results_dir + "/" + fn
             exp_args = load_object(cur_dir + "/args.pkl")
             if exp_args is None:
+                print("exp args is None!")
                 continue
             exp_args = vars(exp_args)
             if skip_exp(exp_args):
@@ -233,6 +228,8 @@ def get_all_training_df(results_dir):
             print(e)
             continue
 
+    if len(all_dfs) == 0:
+        return None
     return pd.concat(all_dfs)
 
 def get_all_plans(results_dir):
@@ -356,34 +353,40 @@ def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
 
     #plt.show()
 
-def construct_summary(df, samples_type, title, summary_type, HUE_COLORS=None):
-    fig, axs = plt.subplots(1, 5, figsize=(40,10))
+def construct_summary(df, samples_type, title, ERRORS,
+        HUE_COLORS=None, miny=0.0):
+    num_errs = len(ERRORS)
+    fig, axs = plt.subplots(1, num_errs, figsize=(40,10))
     fig.suptitle(title, fontsize=50)
-    if summary_type == "ratio":
-        plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
-                     HUE_COLORS=HUE_COLORS, miny=0.0)
+    for i, err in enumerate(ERRORS):
+        plot_loss_summary(df, err, samples_type, "linear", axs[i],
+                     HUE_COLORS=HUE_COLORS, miny=miny)
 
-        plot_loss_summary(df, "flow_ratio", samples_type, "linear", axs[1],
-                    HUE_COLORS=HUE_COLORS, miny=1.0)
-        plot_loss_summary(df, "mm1_plan_ratio", samples_type, "linear", axs[2],
-                HUE_COLORS=HUE_COLORS, miny=1.0)
+    # if summary_type == "ratio":
+        # plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
+                     # HUE_COLORS=HUE_COLORS, miny=0.0)
 
-        plot_loss_summary(df, "mm1_plan_pg_ratio", samples_type, "linear", axs[3],
-                HUE_COLORS=HUE_COLORS, miny = 1.0)
-        plot_loss_summary(df, "jerr_ratio", samples_type, "linear", axs[4],
-                HUE_COLORS=HUE_COLORS, miny = 1.0)
-    else:
-        plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
-                     HUE_COLORS=HUE_COLORS, miny=0.0)
-        plot_loss_summary(df, "flow_err", samples_type, "linear", axs[1],
-                    HUE_COLORS=HUE_COLORS, miny=0.0)
-        plot_loss_summary(df, "mm1_plan_err", samples_type, "linear", axs[2],
-                HUE_COLORS=HUE_COLORS, miny=0.0)
+        # plot_loss_summary(df, "flow_ratio", samples_type, "linear", axs[1],
+                    # HUE_COLORS=HUE_COLORS, miny=1.0)
+        # plot_loss_summary(df, "mm1_plan_ratio", samples_type, "linear", axs[2],
+                # HUE_COLORS=HUE_COLORS, miny=1.0)
 
-        plot_loss_summary(df, "mm1_plan_pg_err", samples_type, "linear", axs[3],
-                HUE_COLORS=HUE_COLORS, miny = 0.0)
-        plot_loss_summary(df, "jerr", samples_type, "linear", axs[4],
-                HUE_COLORS=HUE_COLORS, miny = 0.0)
+        # plot_loss_summary(df, "mm1_plan_pg_ratio", samples_type, "linear", axs[3],
+                # HUE_COLORS=HUE_COLORS, miny = 1.0)
+        # plot_loss_summary(df, "jerr_ratio", samples_type, "linear", axs[4],
+                # HUE_COLORS=HUE_COLORS, miny = 1.0)
+    # else:
+        # plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
+                     # HUE_COLORS=HUE_COLORS, miny=0.0)
+        # plot_loss_summary(df, "flow_err", samples_type, "linear", axs[1],
+                    # HUE_COLORS=HUE_COLORS, miny=0.0)
+        # plot_loss_summary(df, "mm1_plan_err", samples_type, "linear", axs[2],
+                # HUE_COLORS=HUE_COLORS, miny=0.0)
+
+        # plot_loss_summary(df, "mm1_plan_pg_err", samples_type, "linear", axs[3],
+                # HUE_COLORS=HUE_COLORS, miny = 0.0)
+        # plot_loss_summary(df, "jerr", samples_type, "linear", axs[4],
+                # HUE_COLORS=HUE_COLORS, miny = 0.0)
 
 
     if samples_type == "train":
