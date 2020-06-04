@@ -68,7 +68,7 @@ def read_flags():
     parser.add_argument("--cost_model", type=str, required=False,
             default=None)
     parser.add_argument("--explain", type=int, required=False,
-            default=0)
+            default=1)
     return parser.parse_args()
 
 def execute_sql(sql, template="sql", cost_model="cm1",
