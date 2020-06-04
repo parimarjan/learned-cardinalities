@@ -110,12 +110,12 @@ def execute_sql(sql, template="sql", cost_model="cm1",
     except Exception as e:
         cursor.execute("ROLLBACK")
         con.commit()
-        cursor.close()
-        con.close()
         if not "timeout" in str(e):
             print("failed to execute for reason other than timeout")
             print(e)
             print(sql)
+            cursor.close()
+            con.close()
             return None, TIMEOUT_CONSTANT
         else:
             print("failed because of timeout!")
@@ -126,6 +126,8 @@ def execute_sql(sql, template="sql", cost_model="cm1",
                 sql = "explain (format json) " + sql
             cursor.execute(sql)
             explain_output = cursor.fetchall()
+            cursor.close()
+            con.close()
             return explain_output, TIMEOUT_CONSTANT
 
     explain_output = cursor.fetchall()
