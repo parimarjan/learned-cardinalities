@@ -62,6 +62,22 @@ def set_cost_model(cursor, cost_model):
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         set_indexes(cursor, "off")
+    elif "nested_loop_index8" in cost_model:
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        cursor.execute("SET enable_indexscan = {}".format("on"))
+        cursor.execute("SET enable_seqscan = {}".format("off"))
+
+        # print("debug mode for nested loop index8")
+        # cursor.execute("SET random_page_cost = 1.0")
+        # cursor.execute("SET cpu_tuple_cost = 1.0")
+        # cursor.execute("SET cpu_index_tuple_cost = 1.0")
+
+        cursor.execute("SET enable_indexonlyscan = {}".format("off"))
+        cursor.execute("SET enable_bitmapscan = {}".format("off"))
+        cursor.execute("SET enable_tidscan = {}".format("off"))
+
     elif "nested_loop_index" in cost_model:
         cursor.execute("SET enable_hashjoin = off")
         cursor.execute("SET enable_mergejoin = off")
@@ -218,7 +234,7 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
     cost_sql = get_pghint_modified_sql(est_opt_sql, true_cardinalities,
             est_join_ops, leading_hint, scan_ops)
     # cost_sql = get_pghint_modified_sql(est_opt_sql, true_cardinalities,
-            # None, leading_hint, None)
+            # est_join_ops, leading_hint, None)
 
     est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
     debug_leading = get_leading_hint(join_graph, est_explain)
@@ -230,10 +246,10 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
         if (v != est_join_ops[k]):
             print(k, v, est_join_ops[k])
 
-    # for k,v in cost_scan_ops.items():
-        # assert v == scan_ops[k]
-        # if (v != scan_ops[k]):
-            # print(k, v, scan_ops[k])
+    for k,v in cost_scan_ops.items():
+        assert v == scan_ops[k]
+        if (v != scan_ops[k]):
+            print(k, v, scan_ops[k])
     # pdb.set_trace()
 
     # FIXME: need to do this
@@ -275,18 +291,18 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
 
     cost_sql_key = deterministic_hash(cost_sql)
     ## archived version
-    # if sql_costs is not None:
-        # if cost_sql_key in sql_costs.archive:
-            # try:
-                # est_cost, est_explain = sql_costs.archive[cost_sql_key]
-            # except:
-                # est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
-                # sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
-        # else:
-            # est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
-            # sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
-    # else:
-        # est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
+    if sql_costs is not None:
+        if cost_sql_key in sql_costs.archive:
+            try:
+                est_cost, est_explain = sql_costs.archive[cost_sql_key]
+            except:
+                est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
+                sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
+        else:
+            est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
+            sql_costs.archive[cost_sql_key] = (est_cost, est_explain)
+    else:
+        est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
 
     est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
     debug_leading = get_leading_hint(join_graph, est_explain)
@@ -668,8 +684,10 @@ def get_shortest_path_costs(samples, source_node, cost_key,
     pg_sqls = []
     pg_explains = []
 
-    if true_cardinalities is not None and all_ests is not None:
-        assert len(true_cardinalities) == len(all_ests)
+    assert true_cardinalities is not None
+    assert all_ests is not None
+
+    assert len(true_cardinalities) == len(all_ests)
 
     for i in range(len(samples)):
         if known_costs and known_costs[i] is not None:
@@ -708,10 +726,7 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         # join_order[1] = join_order2[0]
         sql_to_exec = nodes_to_sql(join_order, join_graphs[i])
 
-        if all_ests is not None:
-            cur_ests = all_ests[i]
-        else:
-            cur_ests = None
+        cur_ests = all_ests[i]
         exec_sql, est_cost, est_explain = get_join_cost_sql(sql_to_exec,
                 cur_ests, true_cardinalities[i],
                 join_graphs[i], user, pwd, db_host, port, db_name,
@@ -800,7 +815,8 @@ class PlanError():
 
                 if new_opt_cost:
                     opt_par_args.append((qreps[start_idx:end_idx],
-                        self.source_node, "cost", None,
+                        self.source_node, "cost",
+                        true_cardinalities[start_idx:end_idx],
                         None, self.cost_model,
                         self.compute_pg_costs,
                         self.user, self.pwd, self.db_host, self.port,

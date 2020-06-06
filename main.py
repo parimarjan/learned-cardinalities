@@ -469,7 +469,7 @@ def read_flags():
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
     parser.add_argument("--cost_model", type=str, required=False,
-            default="nested_loop_index9")
+            default="nested_loop_index8")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
             default=None)
     parser.add_argument("--exp_prefix", type=str, required=False,

@@ -1616,7 +1616,6 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
             node1_selectivity = total1 / card1
             joined_node_est = card3 * node1_selectivity
             nilj_cost += joined_node_est
-            # nilj_cost *= joined_node_est
             # nilj_cost = max(joined_node_est, nilj_cost)
         elif len(node2) == 1:
             # using index on node2
@@ -1625,16 +1624,12 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
             node2_selectivity = total2 / card2
             joined_node_est = card3 * node2_selectivity
             nilj_cost += joined_node_est
-            # nilj_cost *= joined_node_est
             # nilj_cost = max(joined_node_est, nilj_cost)
         else:
             assert False
 
         # TODO: we may be doing fine without this one
         cost2 = card1*card2
-        # if card1 < 2 or card2 < 2:
-            # cost = cost2
-        # elif cost2 < nilj_cost:
         if cost2 < nilj_cost:
             cost = cost2
         else:
