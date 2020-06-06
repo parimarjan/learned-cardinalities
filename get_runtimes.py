@@ -11,7 +11,7 @@ from collections import defaultdict
 # from utils.utils import *
 import sys
 #import pdb
-from cardinality_estimation.join_loss import set_cost_model
+# from cardinality_estimation.join_loss import set_cost_model
 
 TIMEOUT_CONSTANT = 909
 RERUN_TIMEOUTS = False
