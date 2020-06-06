@@ -67,7 +67,7 @@ def set_cost_model(cursor, cost_model):
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         cursor.execute("SET enable_indexscan = {}".format("on"))
-        cursor.execute("SET enable_seqscan = {}".format("off"))
+        cursor.execute("SET enable_seqscan = {}".format("on"))
 
         # print("debug mode for nested loop index8")
         # cursor.execute("SET random_page_cost = 1.0")
@@ -457,11 +457,11 @@ class JoinLoss():
         else:
             use_indexes = 0
 
-        # for i, sql in enumerate(sqls):
-            # sql_key = deterministic_hash(sql)
-            # if sql_key in self.opt_archive.archive:
-                # (opt_costs[i], opt_explains[i], opt_sqls[i]) = \
-                        # self.opt_archive.archive[sql_key]
+        for i, sql in enumerate(sqls):
+            sql_key = deterministic_hash(sql)
+            if sql_key in self.opt_archive.archive:
+                (opt_costs[i], opt_explains[i], opt_sqls[i]) = \
+                        self.opt_archive.archive[sql_key]
 
         if pool is None:
             # single threaded case, useful for debugging
@@ -545,8 +545,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         all_ests, known_costs, cost_model, trueC_vecs):
     start = time.time()
     costs = []
-    # farchive = klepto.archives.dir_archive("./flow_info_archive",
-            # cached=True, serialized=True)
+    farchive = klepto.archives.dir_archive("./flow_info_archive",
+            cached=True, serialized=True)
     new_seen = False
     debug_sql = False
     for i, sample in enumerate(samples):
@@ -555,8 +555,7 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
             continue
 
         qkey = deterministic_hash(sample["sql"])
-        # if qkey in farchive.archive:
-        if False:
+        if qkey in farchive.archive:
             subsetg_vectors = farchive.archive[qkey]
             assert len(subsetg_vectors) == 8
             # totals, edges_head, edges_tail, nilj, edges_cost_node1, \
@@ -666,9 +665,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         costs.append(loss2[0])
         # print(loss2[0])
         # pdb.set_trace()
-        # if new_seen:
-            # was for true cards
-            # farchive.archive[qkey] = subsetg_vectors
+        if new_seen:
+            farchive.archive[qkey] = subsetg_vectors
     return costs
 
 def get_shortest_path_costs(samples, source_node, cost_key,
