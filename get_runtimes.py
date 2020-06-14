@@ -24,9 +24,10 @@ def set_indexes(cursor, val):
     cursor.execute("SET enable_bitmapscan = {}".format("off"))
     cursor.execute("SET enable_tidscan = {}".format("off"))
 
-def set_cost_model(cursor, cost_model):
+def set_cost_model(cursor, cost_model, materialize):
     # makes things easier to understand
-    cursor.execute("SET enable_material = off")
+    if not materialize:
+        cursor.execute("SET enable_material = off")
     if cost_model == "hash_join":
         cursor.execute("SET enable_hashjoin = on")
         cursor.execute("SET enable_mergejoin = off")
@@ -96,10 +97,12 @@ def read_flags():
             default=None)
     parser.add_argument("--explain", type=int, required=False,
             default=1)
+    parser.add_argument("--materialize", type=int, required=False,
+            default=1)
     return parser.parse_args()
 
 def execute_sql(sql, template="sql", cost_model="cm1",
-        results_fn="jerr.pkl", explain=False):
+        results_fn="jerr.pkl", explain=False, materialize=True):
     '''
     '''
     drop_cache_cmd = "./drop_cache.sh > /dev/null"
@@ -120,7 +123,7 @@ def execute_sql(sql, template="sql", cost_model="cm1",
     cursor = con.cursor()
     cursor.execute("LOAD 'pg_hint_plan';")
     cursor.execute("SET geqo_threshold = {}".format(20))
-    set_cost_model(cursor, cost_model)
+    set_cost_model(cursor, cost_model, materialize)
     if "jerr.pkl" in results_fn:
         cursor.execute("SET join_collapse_limit = {}".format(16))
         cursor.execute("SET from_collapse_limit = {}".format(16))
@@ -219,10 +222,11 @@ def main():
             if "template" in row:
                 exp_analyze, rt = execute_sql(row["exec_sql"], template=row["template"],
                         cost_model=cost_model, results_fn=args.results_fn,
-                        explain=args.explain)
+                        explain=args.explain, materialize=args.materialize)
             else:
                 exp_analyze, rt = execute_sql(row["exec_sql"], cost_model=cost_model,
-                        results_fn=args.results_fn, explain=args.explain)
+                        results_fn=args.results_fn, explain=args.explain,
+                        materialize=args.materialize)
             add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]
