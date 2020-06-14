@@ -155,7 +155,7 @@ def execute_sql(sql, template="sql", cost_model="cm1",
             else:
                 sql = "explain (format json) " + sql
 
-            set_cost_model(cursor, cost_model)
+            set_cost_model(cursor, cost_model, materialize)
             cursor.execute("SET join_collapse_limit = {}".format(1))
             cursor.execute("SET from_collapse_limit = {}".format(1))
             cursor.execute(sql)
