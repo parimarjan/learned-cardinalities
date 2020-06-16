@@ -48,7 +48,8 @@ def set_cost_model(cursor, cost_model, materialize):
         cursor.execute("SET enable_indexonlyscan = {}".format("off"))
         cursor.execute("SET enable_bitmapscan = {}".format("off"))
         cursor.execute("SET enable_tidscan = {}".format("off"))
-    elif "nested_loop_index8" in cost_model:
+    elif "nested_loop_index8" in cost_model or \
+            "nested_loop_index7" in cost_model:
         cursor.execute("SET enable_hashjoin = off")
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
@@ -98,7 +99,7 @@ def read_flags():
     parser.add_argument("--explain", type=int, required=False,
             default=1)
     parser.add_argument("--materialize", type=int, required=False,
-            default=1)
+            default=0)
     return parser.parse_args()
 
 def execute_sql(sql, template="sql", cost_model="cm1",
