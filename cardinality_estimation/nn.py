@@ -65,6 +65,9 @@ USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
+    REGEN_COSTS = False
+    if REGEN_COSTS:
+        print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
     start = time.time()
     new_seen = False
@@ -74,9 +77,8 @@ def update_samples(samples, flow_features, cost_model,
             add_single_node_edges(subsetg)
 
         sample_edge = list(subsetg.edges())[0]
-        # if cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
-                # and not debug_set:
-        if False:
+        if (cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
+                and not debug_set) and not REGEN_COSTS:
             continue
         else:
             new_seen = True
@@ -136,7 +138,7 @@ def update_samples(samples, flow_features, cost_model,
             for j, node in enumerate(nodes):
                 subsetg.nodes()[node]["tolerance"] = tolerances[j]
 
-    if not debug_set:
+    if not debug_set and not REGEN_COSTS:
         for sample in samples:
             save_sql_rep(sample["name"], sample)
 
@@ -1244,13 +1246,13 @@ class NN(CardinalityEstimationAlg):
                 self.save_join_loss_stats(cm_plan_pg_ratio, None, samples,
                         samples_type, loss_key="mm1_plan_pg_ratio")
 
-                if self.debug_set:
-                    min_idx = np.argmin(cm_plan_pg_losses)
-                    min_idx2 = np.argmin(cm_plan_pg_ratio)
-                    print("min plan pg loss: {}, name: {}".format(
-                        cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
-                    print("min plan pg ratio: {}, name: {}".format(
-                        cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
+                # if self.debug_set:
+                min_idx = np.argmin(cm_plan_pg_losses)
+                min_idx2 = np.argmin(cm_plan_pg_ratio)
+                print("min plan pg loss: {}, name: {}".format(
+                    cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
+                print("min plan pg ratio: {}, name: {}".format(
+                    cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
 
         if not epoch % self.eval_epoch_jerr == 0:
             return
@@ -1281,12 +1283,13 @@ class NN(CardinalityEstimationAlg):
                 samples_type, loss_key="jerr_ratio", epoch=epoch)
 
         print("periodic eval took: ", time.time()-start)
-        if opt_plan_pg_costs is not None and self.debug_set:
+        # if opt_plan_pg_costs is not None and self.debug_set:
+        if opt_plan_pg_costs is not None:
             cost_model_losses = opt_plan_pg_costs - opt_costs
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
             print(np.mean(cost_model_losses), np.mean(cost_model_ratio))
-            pdb.set_trace()
+            # pdb.set_trace()
 
         if np.mean(join_losses) < self.best_join_loss \
                 and epoch > self.start_validation \

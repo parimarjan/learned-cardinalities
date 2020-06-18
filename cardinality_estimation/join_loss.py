@@ -62,7 +62,39 @@ def set_cost_model(cursor, cost_model):
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         set_indexes(cursor, "off")
+    elif "nested_loop_index8_debug" == cost_model:
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        cursor.execute("SET enable_indexscan = {}".format("on"))
+        cursor.execute("SET enable_seqscan = {}".format("on"))
+
+        # print("debug mode for nested loop index8")
+        # cursor.execute("SET random_page_cost = 1.0")
+        # cursor.execute("SET cpu_tuple_cost = 1.0")
+        # cursor.execute("SET cpu_index_tuple_cost = 1.0")
+
+        cursor.execute("SET enable_indexonlyscan = {}".format("off"))
+        cursor.execute("SET enable_bitmapscan = {}".format("off"))
+        cursor.execute("SET enable_tidscan = {}".format("off"))
+
     elif "nested_loop_index8" in cost_model:
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        cursor.execute("SET enable_indexscan = {}".format("on"))
+        cursor.execute("SET enable_seqscan = {}".format("on"))
+
+        # print("debug mode for nested loop index8")
+        # cursor.execute("SET random_page_cost = 1.0")
+        # cursor.execute("SET cpu_tuple_cost = 1.0")
+        # cursor.execute("SET cpu_index_tuple_cost = 1.0")
+
+        cursor.execute("SET enable_indexonlyscan = {}".format("off"))
+        cursor.execute("SET enable_bitmapscan = {}".format("off"))
+        cursor.execute("SET enable_tidscan = {}".format("off"))
+
+    elif "nested_loop_index7" in cost_model:
         cursor.execute("SET enable_hashjoin = off")
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
@@ -202,15 +234,17 @@ def get_pghint_modified_sql(sql, cardinalities, join_ops,
     return sql
 
 def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
-        join_graph, user, pwd, db_host, port, db_name, cost_model):
+        join_graph, user, pwd, db_host, port, db_name, cost_model,
+        scan_types):
     try:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd)
     except:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd, host=db_host)
+    if len(scan_types) < 0:
+        print(sql_order)
 
-    # TODO: set cost model based stuff
     cursor = con.cursor()
     cursor.execute("LOAD 'pg_hint_plan';")
     set_cost_model(cursor, cost_model)
@@ -224,17 +258,18 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
             None, None, None)
     cursor.execute(sql_to_exec)
     explain = cursor.fetchall()
+
+    # TODO: compare scan_ops w/ scan_types
     est_join_order_sql, est_join_ops, scan_ops = get_pg_join_order(join_graph,
             explain)
     leading_hint = get_leading_hint(join_graph, explain)
     est_opt_sql = nx_graph_to_query(join_graph,
             from_clause=est_join_order_sql)
+    # TODO: compare scan_types
 
     # add the join ops etc. information
     cost_sql = get_pghint_modified_sql(est_opt_sql, true_cardinalities,
-            est_join_ops, leading_hint, scan_ops)
-    # cost_sql = get_pghint_modified_sql(est_opt_sql, true_cardinalities,
-            # est_join_ops, leading_hint, None)
+            est_join_ops, leading_hint, scan_types)
 
     est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
     debug_leading = get_leading_hint(join_graph, est_explain)
@@ -247,14 +282,16 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
             print(k, v, est_join_ops[k])
 
     for k,v in cost_scan_ops.items():
-        assert v == scan_ops[k]
-        if (v != scan_ops[k]):
+        # assert v == scan_ops[k]
+        if k not in scan_types:
+            print("not in scan types: ", k, v, scan_ops[k])
+        elif (v != scan_types[k]):
             print(k, v, scan_ops[k])
     # pdb.set_trace()
 
     # FIXME: need to do this
     exec_sql = get_pghint_modified_sql(est_opt_sql, est_cardinalities,
-            est_join_ops, leading_hint, scan_ops)
+            est_join_ops, leading_hint, scan_types)
 
     cursor.close()
     con.close()
@@ -304,7 +341,9 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
     else:
         est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
 
-    est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
+    # FIXME: turned off archive above, use once cost model is finalized
+    # est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
+
     debug_leading = get_leading_hint(join_graph, est_explain)
     if debug_leading != leading_hint:
         pass
@@ -545,8 +584,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         all_ests, known_costs, cost_model, trueC_vecs):
     start = time.time()
     costs = []
-    farchive = klepto.archives.dir_archive("./flow_info_archive",
-            cached=True, serialized=True)
+    # farchive = klepto.archives.dir_archive("./flow_info_archive",
+            # cached=True, serialized=True)
     new_seen = False
     debug_sql = False
     for i, sample in enumerate(samples):
@@ -555,7 +594,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
             continue
 
         qkey = deterministic_hash(sample["sql"])
-        if qkey in farchive.archive:
+        # if qkey in farchive.archive:
+        if False:
             subsetg_vectors = farchive.archive[qkey]
             assert len(subsetg_vectors) == 8
             # totals, edges_head, edges_tail, nilj, edges_cost_node1, \
@@ -665,8 +705,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         costs.append(loss2[0])
         # print(loss2[0])
         # pdb.set_trace()
-        if new_seen:
-            farchive.archive[qkey] = subsetg_vectors
+        # if new_seen:
+            # farchive.archive[qkey] = subsetg_vectors
     return costs
 
 def get_shortest_path_costs(samples, source_node, cost_key,
@@ -712,8 +752,17 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         paths.append(path)
 
         cost = 0.0
+        scan_types = {}
         for pi in range(len(path)-1):
-            cost += subsetg[path[pi]][path[pi+1]][cost_model+"cost"]
+            cost_key = cost_model + "cost"
+            scan_key = cost_key + "scan_type"
+            cost += subsetg[path[pi]][path[pi+1]][cost_key]
+
+            if scan_key in subsetg[path[pi]][path[pi+1]]:
+                scan_types.update(subsetg[path[pi]][path[pi+1]][scan_key])
+
+        if len(scan_types) < 1:
+            print("scan types: ", scan_types)
         assert cost >= 1
         costs.append(cost)
 
@@ -728,7 +777,7 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         exec_sql, est_cost, est_explain = get_join_cost_sql(sql_to_exec,
                 cur_ests, true_cardinalities[i],
                 join_graphs[i], user, pwd, db_host, port, db_name,
-                cost_model)
+                cost_model, scan_types)
 
         pg_costs.append(est_cost)
         pg_sqls.append(exec_sql)

@@ -9,6 +9,7 @@
 #define SOURCE_NODE_CONST 100000
 #define NILJ_MIN_CARD 5.0
 #define CARD_DIVIDER 0.001
+#define SEQ_CONSTANT 5.0
 
 void get_dfdg_par(int num_edges, int num_nodes,
     int *edges_head, int *edges_tail,
@@ -365,7 +366,7 @@ void get_costs17(float *ests, float *totals,
     joined_node_est = card3*node_selectivity;
     cost1 += joined_node_est;
   } else if (nilj[i] == 3) {
-    cost1 = card1*card2;
+    cost1 = SEQ_CONSTANT*card1*card2;
   } else {
     printf("should not have happened!\n");
     exit(-1);
@@ -378,8 +379,8 @@ void get_costs17(float *ests, float *totals,
   if (normalization_type == 2) {
     // log normalization type
     if (nilj[i] == 3) {
-          dgdxT[node1*num_edges + i] = - max_val / costs[i];
-          dgdxT[node2*num_edges + i] = - max_val / costs[i];
+          dgdxT[node1*num_edges + i] = - SEQ_CONSTANT*max_val / costs[i];
+          dgdxT[node2*num_edges + i] = - SEQ_CONSTANT*max_val / costs[i];
     } else {
         // index nested loop join
         if (nilj[i]  == 1) {
@@ -431,7 +432,7 @@ void get_costs12(float *ests, float *totals,
     printf("should not have happened!\n");
     exit(-1);
   }
-  cost2 = card1*card2;
+  cost2 = SEQ_CONSTANT*card1*card2;
   if (cost2 < cost1) {
     costs[i] = cost2;
   } else costs[i] = cost1;
@@ -441,8 +442,8 @@ void get_costs12(float *ests, float *totals,
   if (normalization_type == 2) {
     // log normalization type
     if (cost2 < cost1) {
-          dgdxT[node1*num_edges + i] = - max_val / costs[i];
-          dgdxT[node2*num_edges + i] = - max_val / costs[i];
+          dgdxT[node1*num_edges + i] = - SEQ_CONSTANT*max_val / costs[i];
+          dgdxT[node2*num_edges + i] = - SEQ_CONSTANT*max_val / costs[i];
     } else {
         // index nested loop join
         if (nilj[i]  == 1) {
@@ -555,9 +556,13 @@ void get_costs11(float *ests, float *totals,
   float cost1, cost2;
 
   if (nilj[i] == 1) {
-    nilj_cost = card2 + NILJ_CONSTANT*card1 + card3;
+    //nilj_cost = card2 + NILJ_CONSTANT*card1 + card3;
+    //nilj_cost = card2 + card3;
+    nilj_cost = card2;
   } else if (nilj[i] == 2) {
-    nilj_cost = card1 + NILJ_CONSTANT*card2 + card3;
+    //nilj_cost = card1 + NILJ_CONSTANT*card2 + card3;
+    //nilj_cost = card1 + card3;
+    nilj_cost = card1;
   } else {
     printf("should not have happened!\n");
     exit(-1);
@@ -570,19 +575,24 @@ void get_costs11(float *ests, float *totals,
 
   /* time to compute gradients */
   if (normalization_type == 2) {
-    // log normalization type
-      // index nested loop join
-      if (nilj[i]  == 1) {
-          dgdxt[node1*num_edges + i] = - (max_val*card1*NILJ_CONSTANT) / (cost*cost);
-          dgdxt[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
-          dgdxt[head_node*num_edges + i] = - (max_val*card3) / (cost*cost);
+      if (cost2 < nilj_cost) {
+          dgdxt[node1*num_edges + i] = - max_val / costs[i];
+          dgdxt[node2*num_edges + i] = - max_val / costs[i];
       } else {
-          dgdxt[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
-          dgdxt[node2*num_edges + i] = - (max_val*card2*NILJ_CONSTANT) / (cost*cost);
-          dgdxt[head_node*num_edges + i] = - (max_val*card3) / (cost*cost);
+        // index nested loop join
+        if (nilj[i]  == 1) {
+            //dgdxt[node1*num_edges + i] = - (max_val) / (cost*cost);
+            dgdxt[node1*num_edges + i] = 0.0;
+            dgdxt[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
+            dgdxt[head_node*num_edges + i] = 0.0;
+        } else {
+            dgdxt[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
+            //dgdxt[node2*num_edges + i] = - (max_val*card2*NILJ_CONSTANT) / (cost*cost);
+            dgdxt[node2*num_edges + i] = 0.0;
+            dgdxt[head_node*num_edges + i] = 0.0;
+        }
       }
   }
-
 }
 
 void get_costs6(float *ests, float *totals,
