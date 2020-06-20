@@ -547,25 +547,34 @@ class DB():
             min_val = float(col_info["min_value"])
             max_val = float(col_info["max_value"])
             min_max = [min_val, max_val]
-            for vi, v in enumerate(val):
-                if "literal" == v:
-                    v = val["literal"]
-                # handling the case when one end of the range is
-                # missing
-                if v is None and vi == 0:
-                    v = min_val
-                elif v is None and vi == 1:
-                    v = max_val
-
-                if v == 'NULL' and vi == 0:
-                    v = min_val
-                elif v == 'NULL' and vi == 1:
-                    v = max_val
-                cur_val = float(v)
+            if isinstance(val, int):
+                cur_val = float(val)
                 norm_val = (cur_val - min_val) / (max_val - min_val)
                 norm_val = max(norm_val, 0.00)
                 norm_val = min(norm_val, 1.00)
-                preds_vector[pred_idx_start+vi] = norm_val
+                preds_vector[pred_idx_start+0] = norm_val
+                preds_vector[pred_idx_start+1] = norm_val
+            else:
+                for vi, v in enumerate(val):
+                    if "literal" == v:
+                        v = val["literal"]
+                    # handling the case when one end of the range is
+                    # missing
+                    if v is None and vi == 0:
+                        v = min_val
+                    elif v is None and vi == 1:
+                        v = max_val
+
+                    if v == 'NULL' and vi == 0:
+                        v = min_val
+                    elif v == 'NULL' and vi == 1:
+                        v = max_val
+
+                    cur_val = float(v)
+                    norm_val = (cur_val - min_val) / (max_val - min_val)
+                    norm_val = max(norm_val, 0.00)
+                    norm_val = min(norm_val, 1.00)
+                    preds_vector[pred_idx_start+vi] = norm_val
 
         return preds_vector
 

@@ -70,7 +70,7 @@ def get_alg(alg):
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 eval_parallel = args.eval_parallel,
-                min_hid = args.min_hid,
+                max_hid = args.max_hid,
                 cost_model = args.cost_model,
                 query_batch_size = args.query_batch_size,
                 flow_features = args.flow_features,
@@ -182,8 +182,8 @@ def eval_alg(alg, losses, queries, samples_type, join_loss_pool):
                 pool = join_loss_pool)
 
         # TODO: set global printoptions to round digits
-        print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-                .format(args.db_name, alg, len(queries),
+        print("db: {}, samples_type: {}, alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+                .format(args.db_name, samples_type, alg, len(queries),
                     get_loss_name(loss_func.__name__),
                     np.round(np.mean(losses),3),
                     np.round(np.median(losses),3),
@@ -192,13 +192,116 @@ def eval_alg(alg, losses, queries, samples_type, join_loss_pool):
 
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
+def load_samples(qdir, db, found_db, template_name):
+    start = time.time()
+    # loading, or generating samples
+    samples = []
+    qfns = list(glob.glob(qdir+"/*.pkl"))
+    qfns.sort()
+    if args.num_samples_per_template == -1:
+        qfns = qfns
+    elif args.num_samples_per_template < len(qfns):
+        qfns = qfns[0:args.num_samples_per_template]
+    else:
+        print("queries should be generated using appropriate script")
+        assert False
+
+    if args.debug_set:
+        random.seed(args.random_seed)
+        qfns = random.sample(qfns, int(len(qfns) / 10))
+
+    skipped = 0
+
+    for qfn in qfns:
+        if ".pkl" not in qfn:
+            print("skipping because qfn not .pkl file")
+            continue
+        qrep = load_sql_rep(qfn)
+        zero_query = False
+        nodes = list(qrep["subset_graph"].nodes())
+        if SOURCE_NODE in nodes:
+            nodes.remove(SOURCE_NODE)
+        for node in nodes:
+            info = qrep["subset_graph"].nodes()[node]
+
+            if "cardinality" not in info:
+                print("cardinality not in qrep")
+                zero_query = True
+                break
+
+            if args.train_card_key not in info["cardinality"]:
+                # print("train card key not in qrep")
+                zero_query = True
+                break
+
+
+            if "actual" not in info["cardinality"]:
+                print("actual not in card")
+                zero_query = True
+                break
+
+            if "expected" not in info["cardinality"]:
+                print("expected not in card")
+                zero_query = True
+                break
+
+            elif info["cardinality"]["actual"] == 0:
+                # print("zero query")
+                zero_query = True
+                break
+
+            if args.sampling_key is not None:
+                if wj_times is None:
+                    if not (args.sampling_key in info["cardinality"]):
+                        zero_query = True
+                        break
+                else:
+                    if not ("wanderjoin-" + str(wj_times[template_name])
+                                in info["cardinality"]):
+                        zero_query = True
+                        break
+
+            if args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+                if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
+                    zero_query = True
+                    break
+
+            # just so everyone is forced to use the wj template queries
+            # if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
+                # zero_query = True
+                # break
+
+        if zero_query:
+            skipped += 1
+            continue
+
+        qrep["name"] = qfn
+        qrep["template_name"] = template_name
+        samples.append(qrep)
+
+    print(("template: {}, zeros skipped: {}, edges: {}, subqueries: {}, queries: {}"
+            ", loading time: {}").format( template_name, skipped,
+                len(samples[0]["subset_graph"].edges()),
+                len(samples[0]["subset_graph"].nodes()), len(samples),
+                time.time()-start))
+
+    if not found_db:
+        for sample in samples:
+            # not all samples may share all predicates etc. so updating
+            # them all. stats will not be recomputed for repeated columns
+            # FIXME:
+            db.update_db_stats(sample, args.flow_features)
+
+    return samples
+
 def main():
     # TODO: stop using klepto
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
-    db_key = deterministic_hash("db-" + args.query_directory + args.query_templates)
+    db_key = deterministic_hash("db-" + args.query_directory + \
+                args.query_templates + str(args.eval_on_job))
+
     found_db = db_key in misc_cache.archive
-    # found_db = False
     if found_db:
         db = misc_cache.archive[db_key]
     else:
@@ -211,6 +314,14 @@ def main():
     query_templates = args.query_templates.split(",")
 
     fns = list(glob.glob(args.query_directory + "/*"))
+
+    if args.test_diff_templates:
+        # get a sorted version
+        if args.diff_templates_type == 3:
+            sorted_fns = copy.deepcopy(fns)
+            sorted_fns.sort()
+            train_tmps, test_tmps = train_test_split(sorted_fns,
+                    test_size=0.5, random_state=args.diff_templates_seed)
 
     if args.sampling_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
         wj_times = get_wj_times_dict(args.sampling_key)
@@ -231,112 +342,9 @@ def main():
                 print("skipping template 7a")
                 continue
 
-        start = time.time()
-        # loading, or generating samples
-        samples = []
-        qfns = list(glob.glob(qdir+"/*.pkl"))
-        qfns.sort()
-        if args.num_samples_per_template == -1:
-            qfns = qfns
-        elif args.num_samples_per_template < len(qfns):
-            qfns = qfns[0:args.num_samples_per_template]
-        else:
-            print("queries should be generated using appropriate script")
-            assert False
-
-        if args.debug_set:
-            random.seed(args.random_seed)
-            qfns = random.sample(qfns, int(len(qfns) / 10))
-
-        skipped = 0
-
-        for qfn in qfns:
-            if ".pkl" not in qfn:
-                continue
-            qrep = load_sql_rep(qfn)
-            zero_query = False
-            nodes = list(qrep["subset_graph"].nodes())
-            if SOURCE_NODE in nodes:
-                nodes.remove(SOURCE_NODE)
-            for node in nodes:
-                info = qrep["subset_graph"].nodes()[node]
-
-                if args.train_card_key not in info["cardinality"]:
-                    zero_query = True
-                    break
-
-                if "cardinality" not in info:
-                    zero_query = True
-                    break
-                # if args.train_card_key not in info["cardinality"]:
-                    # zero_query = True
-                    # break
-
-                if "actual" not in info["cardinality"]:
-                    zero_query = True
-                    break
-
-                if "expected" not in info["cardinality"]:
-                    zero_query = True
-                    break
-
-                elif info["cardinality"]["actual"] == 0:
-                    zero_query = True
-                    break
-
-                if args.sampling_key is not None:
-                    if wj_times is None:
-                        if not (args.sampling_key in info["cardinality"]):
-                            zero_query = True
-                            break
-                    else:
-                        if not ("wanderjoin-" + str(wj_times[template_name])
-                                    in info["cardinality"]):
-                            zero_query = True
-                            break
-
-                if args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
-                    if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
-                        zero_query = True
-                        break
-
-                # just so everyone is forced to use the wj template queries
-                # if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
-                    # zero_query = True
-                    # break
-
-            if zero_query:
-                skipped += 1
-                continue
-
-            qrep["name"] = qfn
-            qrep["template_name"] = template_name
-            samples.append(qrep)
-
-        # if len(samples) == 0:
-        # if len(samples) < 10:
-            # continue
-
-        print(("template: {}, zeros skipped: {}, edges: {}, subqueries: {}, queries: {}"
-                ", loading time: {}").format( template_name, skipped,
-                    len(samples[0]["subset_graph"].edges()),
-                    len(samples[0]["subset_graph"].nodes()), len(samples),
-                    time.time()-start))
-
-        if not found_db:
-            for sample in samples:
-                # not all samples may share all predicates etc. so updating
-                # them all. stats will not be recomputed for repeated columns
-                # FIXME:
-                db.update_db_stats(sample, args.flow_features)
+        samples = load_samples(qdir, db, found_db, template_name)
 
         if args.test and args.use_val_set:
-            # rem_queries, cur_val_queries = \
-                    # train_test_split(samples, test_size=0.2,
-                            # random_state=args.random_seed)
-            # cur_train_queries, cur_test_queries = train_test_split(rem_queries,
-                    # test_size=args.test_size, random_state=args.random_seed)
-
             cur_train_queries, cur_test_queries = train_test_split(samples,
                     test_size=args.test_size, random_state=args.random_seed)
             cur_val_queries, cur_test_queries = train_test_split(cur_test_queries,
@@ -344,12 +352,30 @@ def main():
 
         elif args.test_diff_templates:
             # train template, else test
-            if qi % 2 == 0:
-                cur_test_queries = samples
-                cur_train_queries = []
+            if args.diff_templates_type == 1:
+                if qi % 2 == 0:
+                    cur_test_queries = samples
+                    cur_train_queries = []
+                else:
+                    cur_train_queries = samples
+                    cur_test_queries = []
+            elif args.diff_templates_type == 2:
+                if not qi % 2 == 0:
+                    cur_test_queries = samples
+                    cur_train_queries = []
+                else:
+                    cur_train_queries = samples
+                    cur_test_queries = []
+            elif args.diff_templates_type == 3:
+                if qdir in train_tmps:
+                    cur_train_queries = samples
+                    cur_test_queries = []
+                else:
+                    assert qdir in test_tmps
+                    cur_test_queries = samples
+                    cur_train_queries = []
             else:
-                cur_train_queries = samples
-                cur_test_queries = []
+                assert False
 
         elif args.test:
             cur_train_queries, cur_test_queries = train_test_split(samples,
@@ -364,6 +390,14 @@ def main():
         test_queries += cur_test_queries
         if args.use_val_set:
             val_queries += cur_val_queries
+
+    job_queries = []
+    if args.eval_on_job:
+        job_fns = list(glob.glob(args.job_query_dir + "/*"))
+        for qi,qdir in enumerate(job_fns):
+            template_name = os.path.basename(qdir)
+            samples = load_samples(qdir, db, found_db, template_name)
+            job_queries += samples
 
     # shuffle train, test queries so join loss computation can be parallelized
     # better: otherwise all queries from templates that take a long time would
@@ -401,8 +435,10 @@ def main():
     for loss_name in args.losses.split(","):
         losses.append(get_loss(loss_name))
 
-    print("algs: {}, train queries: {}, val queries: {}, test queries: {}".format(\
-            args.algs, len(train_queries), len(val_queries), len(test_queries)))
+    print("""algs: {}, train queries: {}, val queries: {}, test queries: {},
+            job_queries: {}""".format(\
+            args.algs, len(train_queries), len(val_queries), len(test_queries),
+            len(job_queries)))
 
     # here, we assume that the alg name is unique enough, for their results to
     # be grouped together
@@ -447,6 +483,9 @@ def main():
         if args.test:
             eval_alg(alg, losses, test_queries, "test", join_loss_pool)
 
+        if args.eval_on_job:
+            eval_alg(alg, losses, job_queries, "job", join_loss_pool)
+
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
     if join_loss_pool is not None:
@@ -469,7 +508,7 @@ def read_flags():
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
     parser.add_argument("--cost_model", type=str, required=False,
-            default="nested_loop_index8")
+            default="nested_loop_index7")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
             default=None)
     parser.add_argument("--exp_prefix", type=str, required=False,
@@ -478,12 +517,20 @@ def read_flags():
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
+    parser.add_argument("--eval_on_job", type=int, required=False,
+            default=0)
+    parser.add_argument("--job_query_dir", type=str, required=False,
+            default="./job_queries/")
     parser.add_argument("--test_diff_templates", type=int, required=False,
             default=0)
+    parser.add_argument("--diff_templates_type", type=int, required=False,
+            default=1)
+    parser.add_argument("--diff_templates_seed", type=int, required=False,
+            default=1234)
     parser.add_argument("--eval_parallel", type=int, required=False,
             default=0)
-    parser.add_argument("--min_hid", type=int, required=False,
-            default=256)
+    parser.add_argument("--max_hid", type=int, required=False,
+            default=128)
     parser.add_argument("--no7a", type=int, required=False,
             default=0)
     parser.add_argument("--feat_pg_costs", type=int, required=False,

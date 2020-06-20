@@ -61,7 +61,7 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
 
 # once we have stored them in archive, parallel just slows down stuff
 UPDATE_TOLERANCES_PAR = True
-USE_TOLERANCES = False
+USE_TOLERANCES = True
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
@@ -774,12 +774,12 @@ class NN(CardinalityEstimationAlg):
                 net = SetConv(len(sample[0][0]), len(sample[1][0]),
                         len(sample[2][0]), len(sample[3][0]),
                         self.hidden_layer_size, dropout= self.dropout,
-                        min_hid = self.min_hid)
+                        max_hid = self.max_hid)
             else:
                 net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
                         len(sample[3]),
                         self.hidden_layer_size, dropout=self.dropout,
-                        min_hid = self.min_hid)
+                        max_hid = self.max_hid)
         else:
             assert False
 

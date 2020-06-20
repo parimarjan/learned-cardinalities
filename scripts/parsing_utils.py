@@ -205,6 +205,8 @@ def get_all_training_df(results_dir):
             df = nns["stats"]
             df = df.assign(**exp_args)
             df["exp_hash"] = args_hash
+            if "diff_templates_type" not in exp_args:
+                df["diff_templates_type"] = 1
 
             if exp_args["weight_decay"] == 4.0 and "138" in cur_dir:
                 # print("resetting buggy weight decay to 10")
@@ -319,6 +321,10 @@ COST_MODEL_NAMES["nested_loop_index13"] = "cm5"
 
 def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
         HUE_COLORS=None, miny=None, maxy=None):
+
+    if loss_type in ["mm1_plan_err", "mm1_plan_pg_err", "jerr"]:
+        maxy = 10e6
+
     title_fmt = "{}"
     loss_title = ERROR_NAMES[loss_type]
     title = title_fmt.format(loss_title)
@@ -333,6 +339,9 @@ def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
     # if miny is None:
     # miny = min(cur_df["loss"])
     miny = min(cur_df["loss"])
+    maxy_data = max(cur_df["loss"])
+    if maxy is not None:
+        maxy = min(maxy, maxy_data)
 
     if maxy is None:
         # maxy = max(scale_df["loss"])

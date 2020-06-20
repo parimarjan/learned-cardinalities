@@ -136,8 +136,7 @@ def get_pg_cost_from_sql(sql, cur):
     if cost != mcost:
         print("cost != mcost!")
         print(cost, mcost)
-        # pdb.set_trace()
-    return cost, explain
+    return mcost, explain
 
 def _gen_pg_hint_cards(cards):
     '''
