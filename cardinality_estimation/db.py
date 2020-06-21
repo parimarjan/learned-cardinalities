@@ -163,7 +163,7 @@ class DB():
             flow_features = True,
             feat_num_paths= False, feat_flows=False,
             feat_pg_costs = True, feat_tolerance=True,
-            feat_template=True, feat_pg_path=True,
+            feat_template=False, feat_pg_path=True,
             feat_rel_pg_ests=True, feat_join_graph_neighbors=True,
             feat_rel_pg_ests_onehot=True,
             feat_pg_est_one_hot=True,
@@ -309,6 +309,7 @@ class DB():
                 self.num_flow_features += self.PG_EST_BUCKETS
 
             # pg est for the node
+            self.num_flow_features += len(self.cmp_ops)
             self.num_flow_features += 1
 
     def get_onehot_bucket(self, num_buckets, base, val):
@@ -320,7 +321,7 @@ class DB():
         return num_buckets
 
     def get_flow_features(self, node, subsetg,
-            template_name, join_graph):
+            template_name, join_graph, cmp_op):
         assert node != SOURCE_NODE
         flow_features = np.zeros(self.num_flow_features)
         cur_idx = 0
@@ -460,6 +461,10 @@ class DB():
             cur_idx += self.PG_EST_BUCKETS
 
         # pg_est for node will be added in query_dataset..
+        if cmp_op is not None:
+            cmp_idx = self.cmp_ops_onehot[cmp_op]
+            flow_features[cur_idx + cmp_idx] = 1.0
+        cur_idx += len(self.cmp_ops)
 
         return flow_features
 
