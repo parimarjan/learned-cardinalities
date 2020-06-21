@@ -87,6 +87,17 @@ class SimpleRegression(torch.nn.Module):
         ).to(device)
         self.layers.append(self.final_layer)
 
+    def compute_grads(self):
+        wts = []
+        for layer in self.layers:
+            wts.append(layer[0].weight.grad)
+
+        mean_wts = []
+        for i,wt in enumerate(wts):
+            mean_wts.append(np.mean(np.abs(wt.detach().numpy())))
+
+        return mean_wts
+
     def forward(self, x):
         output = x
         for layer in self.layers:

@@ -74,6 +74,9 @@ def get_alg(alg):
                 cost_model = args.cost_model,
                 query_batch_size = args.query_batch_size,
                 flow_features = args.flow_features,
+                table_features = args.table_features,
+                join_features = args.join_features,
+                pred_features = args.pred_features,
                 normalize_flow_loss = args.normalize_flow_loss,
                 save_gradients = args.save_gradients,
                 weighted_mse = args.weighted_mse,
@@ -302,6 +305,7 @@ def main():
                 args.query_templates + str(args.eval_on_job))
 
     found_db = db_key in misc_cache.archive
+    # found_db = False
     if found_db:
         db = misc_cache.archive[db_key]
     else:
@@ -518,7 +522,7 @@ def read_flags():
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--job_query_dir", type=str, required=False,
             default="./job_queries/")
     parser.add_argument("--test_diff_templates", type=int, required=False,
@@ -573,7 +577,12 @@ def read_flags():
             default=1)
     parser.add_argument("--flow_features", type=int, required=False,
             default=1)
-
+    parser.add_argument("--table_features", type=int, required=False,
+            default=1)
+    parser.add_argument("--join_features", type=int, required=False,
+            default=1)
+    parser.add_argument("--pred_features", type=int, required=False,
+            default=1)
     parser.add_argument("--weight_decay", type=float, required=False,
             default=0.1)
 

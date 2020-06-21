@@ -11,7 +11,7 @@ class QueryDataset(data.Dataset):
     def __init__(self, samples, db, featurization_type,
             heuristic_features, preload_features,
             normalization_type, load_query_together,
-            flow_features,
+            flow_features, table_features, join_features, pred_features,
             min_val=None, max_val=None, card_key="actual",
             group=None):
         '''
@@ -35,6 +35,9 @@ class QueryDataset(data.Dataset):
         self.card_key = card_key
         self.group = None
         self.flow_features = flow_features
+        self.table_features = table_features
+        self.join_features = join_features
+        self.pred_features = pred_features
 
         # -1 to ignore SOURCE_NODE
         total_nodes = [len(s["subset_graph"].nodes())-1 for s in samples]
@@ -207,12 +210,24 @@ class QueryDataset(data.Dataset):
 
                 # now, store features
                 if self.featurization_type == "combined":
+                    comb_feats = []
+                    if self.table_features:
+                        comb_feats.append(table_features)
+                    if self.join_features:
+                        comb_feats.append(join_features)
+                    if self.pred_features:
+                        comb_feats.append(pred_features)
                     if self.flow_features:
-                        X.append(np.concatenate((table_features, join_features,
-                            pred_features, flow_features)))
-                    else:
-                        X.append(np.concatenate((table_features, join_features,
-                            pred_features)))
+                        comb_feats.append(flow_features)
+                    assert len(comb_feats) > 0
+                    X.append(np.concatenate(comb_feats))
+
+                    # if self.flow_features:
+                        # X.append(np.concatenate((table_features, join_features,
+                            # pred_features, flow_features)))
+                    # else:
+                        # X.append(np.concatenate((table_features, join_features,
+                            # pred_features)))
                 else:
                     X["table"].append(table_features)
                     X["join"].append(join_features)

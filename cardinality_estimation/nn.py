@@ -60,8 +60,8 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
     # return sample[0]
 
 # once we have stored them in archive, parallel just slows down stuff
-UPDATE_TOLERANCES_PAR = True
-USE_TOLERANCES = True
+UPDATE_TOLERANCES_PAR = False
+USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
@@ -95,8 +95,8 @@ def update_samples(samples, flow_features, cost_model,
             for node in pg_path:
                 subsetg.nodes()[node][cost_model + "pg_path"] = 1
 
-    # if not new_seen:
-        # return
+    if not new_seen:
+        return
     num_proc = 16
 
     if USE_TOLERANCES:
@@ -269,7 +269,11 @@ def single_train_combined_net(net, optimizer, loader, loss_fn, loss_fn_name,
         clip_gradient, samples, normalization_type, min_val, max_val,
         load_query_together=False):
     torch.set_num_threads(1)
-    # torch.set_num_threads(4)
+    # FIXME: requires that each sample seen in training set
+    if "flow_loss" in loss_fn_name:
+        opt_flow_costs = []
+        est_flow_costs = []
+
     for idx, (xbatch, ybatch,info) in enumerate(loader):
         start = time.time()
         # TODO: add handling for num_tables
@@ -628,6 +632,98 @@ class NN(CardinalityEstimationAlg):
             self.eval_sync = None
             self.eval_pool = ThreadPool(2)
 
+    def train_combined_net(self, net, optimizer, loader, loss_fn, loss_fn_name,
+            clip_gradient, samples, normalization_type, min_val, max_val,
+            load_query_together=False):
+
+        torch.set_num_threads(1)
+        if self.save_gradients:
+            grads = []
+            par_grads = defaultdict(list)
+            grad_samples = []
+
+        # FIXME: requires that each sample seen in training set
+        if "flow_loss" in loss_fn_name:
+            opt_flow_costs = []
+            est_flow_costs = []
+
+        for idx, (xbatch, ybatch,info) in enumerate(loader):
+            start = time.time()
+            # TODO: add handling for num_tables
+            if load_query_together:
+                # update the batches
+                xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
+                        xbatch.shape[2])
+                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+                qidx = info[0]["query_idx"]
+                assert qidx == info[1]["query_idx"]
+                sample = samples[qidx]
+            else:
+                sample = None
+
+            pred = net(xbatch).squeeze(1)
+
+            if "flow_loss" in loss_fn_name:
+                assert load_query_together
+                subsetg_vectors, trueC_vec, opt_loss = \
+                        self.flow_training_info[qidx]
+
+                assert len(subsetg_vectors) == 8
+
+                losses = loss_fn(pred, ybatch.detach(),
+                        normalization_type, min_val,
+                        max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
+                        self.normalize_flow_loss,
+                        self.join_loss_pool, self.cost_model)
+            else:
+                losses = loss_fn(pred, ybatch)
+
+            try:
+                loss = losses.sum() / len(losses)
+            except:
+                loss = losses
+
+            if self.weighted_qloss != 0.0:
+                qloss = qloss_torch(pred, ybatch)
+                loss += self.weighted_qloss* (sum(qloss) / len(qloss))
+
+            if self.weighted_mse != 0.0:
+                mse = torch.nn.MSELoss(reduction="mean")(pred,
+                        ybatch)
+                loss += self.weighted_mse * mse
+
+            if self.save_gradients and "flow_loss" in loss_fn_name:
+                optimizer.zero_grad()
+                pred.retain_grad()
+                loss.backward()
+                # grads
+                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                if sample is not None:
+                    grad_samples.append(sample)
+                wt_grads = net.compute_grads()
+                for wi, wt in enumerate(wt_grads):
+                    par_grads[wi].append(wt)
+            else:
+                optimizer.zero_grad()
+                loss.backward()
+
+            if clip_gradient is not None:
+                clip_grad_norm_(net.parameters(), clip_gradient)
+
+            optimizer.step()
+
+            idx_time = time.time() - start
+            if idx_time > 10:
+                print("train idx took: ", idx_time)
+
+        if self.save_gradients and len(grad_samples) > 0 \
+                and self.epoch % self.eval_epoch == 0:
+            self.save_join_loss_stats(grads, None, grad_samples,
+                    "train", loss_key="gradients")
+            for k,v in par_grads.items():
+                self.save_join_loss_stats(v, None, grad_samples,
+                        "train", loss_key="param_gradients" + str(k))
+
     def train_mscn(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
             load_query_together=False):
@@ -731,6 +827,8 @@ class NN(CardinalityEstimationAlg):
 
         for sample in samples:
             for node, info in sample["subset_graph"].nodes().items():
+                if node == SOURCE_NODE:
+                    continue
                 self.total_training_samples += 1
                 if len(node) > self.max_tables:
                     self.max_tables = len(node)
@@ -1066,11 +1164,17 @@ class NN(CardinalityEstimationAlg):
             assert len(self.nets) == 1
             self._single_train_combined_net_cm(self.nets[0], self.optimizers[0],
                     self.training_loaders[0])
+
         for i, net in enumerate(self.nets):
             opt = self.optimizers[i]
             loader = self.training_loaders[i]
             if self.featurization_scheme == "combined":
-                single_train_combined_net(net, opt, loader, self.loss,
+                # single_train_combined_net(net, opt, loader, self.loss,
+                        # self.loss_func, self.clip_gradient,
+                        # self.training_samples, self.normalization_type,
+                        # self.min_val, self.max_val,
+                        # self.load_query_together)
+                self.train_combined_net(net, opt, loader, self.loss,
                         self.loss_func, self.clip_gradient,
                         self.training_samples, self.normalization_type,
                         self.min_val, self.max_val,
@@ -1081,18 +1185,6 @@ class NN(CardinalityEstimationAlg):
                         self.training_samples, self.normalization_type,
                         self.min_val, self.max_val,
                         self.load_query_together)
-                # if self.load_query_together:
-                    # self.train_mscn_query(net, opt, loader, self.loss,
-                            # self.loss_func, self.clip_gradient,
-                            # self.training_samples, self.normalization_type,
-                            # self.min_val, self.max_val,
-                            # self.load_query_together)
-                # else:
-                    # self.train_mscn(net, opt, loader, self.loss,
-                            # self.loss_func, self.clip_gradient,
-                            # self.training_samples, self.normalization_type,
-                            # self.min_val, self.max_val,
-                            # self.load_query_together)
             else:
                 assert False
 
@@ -1396,6 +1488,8 @@ class NN(CardinalityEstimationAlg):
                     self.featurization_scheme, self.heuristic_features,
                     self.preload_features, self.normalization_type,
                     self.load_query_together, self.flow_features,
+                    self.table_features, self.join_features,
+                    self.pred_features,
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = self.train_card_key,
@@ -1554,6 +1648,7 @@ class NN(CardinalityEstimationAlg):
             else:
                 self.num_features = len(training_sets[0][0][0])
                 if len(self.groups) == 1:
+                    print(self.total_training_samples, len(training_sets[0]))
                     assert self.total_training_samples == len(training_sets[0])
         else:
             # FIXME: need tp get accurate number for load_query_together
