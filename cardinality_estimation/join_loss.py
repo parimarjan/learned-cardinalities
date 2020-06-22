@@ -101,11 +101,6 @@ def set_cost_model(cursor, cost_model):
         cursor.execute("SET enable_indexscan = {}".format("on"))
         cursor.execute("SET enable_seqscan = {}".format("on"))
 
-        # print("debug mode for nested loop index8")
-        # cursor.execute("SET random_page_cost = 1.0")
-        # cursor.execute("SET cpu_tuple_cost = 1.0")
-        # cursor.execute("SET cpu_index_tuple_cost = 1.0")
-
         cursor.execute("SET enable_indexonlyscan = {}".format("off"))
         cursor.execute("SET enable_bitmapscan = {}".format("off"))
         cursor.execute("SET enable_tidscan = {}".format("off"))

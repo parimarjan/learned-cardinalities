@@ -199,7 +199,7 @@ def get_summary_df(results_dir):
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
-        print(fn)
+        # print(fn)
         # convert to same format as qerrs
         cur_dir = results_dir + "/" + fn
         exp_args = load_object(cur_dir + "/args.pkl")
@@ -213,7 +213,8 @@ def get_summary_df(results_dir):
 
         try:
             qerrs = load_qerrs(cur_dir)
-            jerrs = load_jerrs(cur_dir, "jerr.pkl", "jerr")
+            jerrs = load_jerrs(cur_dir, "cm1_jerr.pkl", "cm1_jerr")
+            jerrs = load_jerrs(cur_dir, "nested_loop_index7_jerr.pkl", "inl_jerr")
             perrs = load_jerrs(cur_dir, "plan_err.pkl", "plan_err")
             perrs_pg = load_jerrs(cur_dir, "plan_pg_err.pkl", "plan_pg_err")
             ferrs = load_jerrs(cur_dir, "flow_err.pkl", "flow_err")

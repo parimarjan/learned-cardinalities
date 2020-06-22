@@ -1472,7 +1472,7 @@ def compute_costs(subset_graph, cost_model,
 def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         total1=None, total2=None):
     def update_edges_kind_with_seq(edges_kind, nilj_cost, cost2):
-        if cost2 < nilj_cost:
+        if cost2 is not None and cost2 < nilj_cost:
             cost = cost2
             if len(node1) == 1:
                 edges_kind["".join(node1)] = "Seq Scan"
@@ -1491,18 +1491,13 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
 
     edges_kind = {}
     if cost_model == "cm1":
-        hash_join_cost = card1 + card2
         if len(node1) == 1:
             nilj_cost = card2 + NILJ_CONSTANT*card1
         elif len(node2) == 1:
             nilj_cost = card1 + NILJ_CONSTANT*card2
-        else:
-            nilj_cost = 10000000000
-        cost = min(hash_join_cost, nilj_cost)
 
-        if cost != nilj_cost:
-            print("hash join cost selected!")
-            pdb.set_trace()
+        cost = nilj_cost
+
     elif cost_model == "cm2":
         cost = CARD_DIVIDER*card1 + CARD_DIVIDER*card2
     elif cost_model == "nested_loop_index":
@@ -1619,10 +1614,8 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
 
     elif cost_model == "nested_loop_index7":
         if len(node1) == 1:
-            # nilj_cost = card2 + NILJ_CONSTANT*card1 + card3
             nilj_cost = card2 + NILJ_CONSTANT*card1
         elif len(node2) == 1:
-            # nilj_cost = card1 + NILJ_CONSTANT*card2 + card3
             nilj_cost = card1 + NILJ_CONSTANT*card2
         else:
             assert False
@@ -1630,21 +1623,20 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         cost2 = card1*card2
         if cost2 < nilj_cost:
             cost = cost2
-            if len(node1) == 1:
-                edges_kind["".join(node1)] = "Seq Scan"
-            if len(node2) == 1:
-                edges_kind["".join(node2)] = "Seq Scan"
         else:
             cost = nilj_cost
-            if len(node1) == 1:
-                edges_kind["".join(node1)] = "Index Scan"
-                if len(node2) == 1:
-                    edges_kind["".join(node2)] = "Seq Scan"
-            elif len(node2) == 1:
-                edges_kind["".join(node2)] = "Index Scan"
-                if len(node1) == 1:
-                    edges_kind["".join(node1)] = "Seq Scan"
         update_edges_kind_with_seq(edges_kind, nilj_cost, cost2)
+
+    elif cost_model == "nested_loop_index7b":
+        if len(node1) == 1:
+            nilj_cost = card2 + NILJ_CONSTANT*card1
+        elif len(node2) == 1:
+            nilj_cost = card1 + NILJ_CONSTANT*card2
+        else:
+            assert False
+
+        cost = nilj_cost
+        update_edges_kind_with_seq(edges_kind, nilj_cost, None)
 
     elif cost_model == "nested_loop_index8" \
             or cost_model == "nested_loop_index8b":
@@ -2298,6 +2290,8 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         cost_model_num = 10
     elif cost_model == "nested_loop_index7":
         cost_model_num = 11
+    elif cost_model == "nested_loop_index7b":
+        cost_model_num = 1
     elif cost_model == "nested_loop_index8":
         cost_model_num = 12
     elif cost_model == "nested_loop_index8_debug":
