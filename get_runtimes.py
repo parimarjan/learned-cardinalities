@@ -11,6 +11,7 @@ from collections import defaultdict
 # from utils.utils import *
 import sys
 #import pdb
+# from cardinality_estimation.join_loss import set_cost_model
 
 TIMEOUT_CONSTANT = 909
 RERUN_TIMEOUTS = False
@@ -18,14 +19,15 @@ TIMEOUT_VAL = 900000
 
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
-    cursor.execute("SET enable_indexonlyscan = {}".format(val))
-    # just disabling bitmapscan, as it complicated cost model stuff a lot..
+    cursor.execute("SET enable_seqscan = {}".format("off"))
+    cursor.execute("SET enable_indexonlyscan = {}".format("off"))
     cursor.execute("SET enable_bitmapscan = {}".format("off"))
     cursor.execute("SET enable_tidscan = {}".format("off"))
 
-def set_cost_model(cursor, cost_model):
+def set_cost_model(cursor, cost_model, materialize):
     # makes things easier to understand
-    cursor.execute("SET enable_material = off")
+    if not materialize:
+        cursor.execute("SET enable_material = off")
     if cost_model == "hash_join":
         cursor.execute("SET enable_hashjoin = on")
         cursor.execute("SET enable_mergejoin = off")
@@ -36,6 +38,33 @@ def set_cost_model(cursor, cost_model):
         cursor.execute("SET enable_mergejoin = off")
         cursor.execute("SET enable_nestloop = on")
         set_indexes(cursor, "off")
+    elif "nested_loop_index9" == cost_model:
+        print("cost model: only index scan allowed")
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        cursor.execute("SET enable_indexscan = {}".format("on"))
+        cursor.execute("SET enable_seqscan = {}".format("off"))
+        cursor.execute("SET enable_indexonlyscan = {}".format("off"))
+        cursor.execute("SET enable_bitmapscan = {}".format("off"))
+        cursor.execute("SET enable_tidscan = {}".format("off"))
+    elif "nested_loop_index8" in cost_model or \
+            "nested_loop_index7" in cost_model:
+        cursor.execute("SET enable_hashjoin = off")
+        cursor.execute("SET enable_mergejoin = off")
+        cursor.execute("SET enable_nestloop = on")
+        cursor.execute("SET enable_indexscan = {}".format("on"))
+        cursor.execute("SET enable_seqscan = {}".format("on"))
+
+        # print("debug mode for nested loop index8")
+        # cursor.execute("SET random_page_cost = 1.0")
+        # cursor.execute("SET cpu_tuple_cost = 1.0")
+        # cursor.execute("SET cpu_index_tuple_cost = 1.0")
+
+        cursor.execute("SET enable_indexonlyscan = {}".format("off"))
+        cursor.execute("SET enable_bitmapscan = {}".format("off"))
+        cursor.execute("SET enable_tidscan = {}".format("off"))
+
     elif "nested_loop_index" in cost_model:
         cursor.execute("SET enable_hashjoin = off")
         cursor.execute("SET enable_mergejoin = off")
@@ -69,10 +98,12 @@ def read_flags():
             default=None)
     parser.add_argument("--explain", type=int, required=False,
             default=1)
+    parser.add_argument("--materialize", type=int, required=False,
+            default=0)
     return parser.parse_args()
 
 def execute_sql(sql, template="sql", cost_model="cm1",
-        results_fn="jerr.pkl", explain=False):
+        results_fn="jerr.pkl", explain=False, materialize=True):
     '''
     '''
     drop_cache_cmd = "./drop_cache.sh > /dev/null"
@@ -93,7 +124,7 @@ def execute_sql(sql, template="sql", cost_model="cm1",
     cursor = con.cursor()
     cursor.execute("LOAD 'pg_hint_plan';")
     cursor.execute("SET geqo_threshold = {}".format(20))
-    set_cost_model(cursor, cost_model)
+    set_cost_model(cursor, cost_model, materialize)
     if "jerr.pkl" in results_fn:
         cursor.execute("SET join_collapse_limit = {}".format(16))
         cursor.execute("SET from_collapse_limit = {}".format(16))
@@ -125,7 +156,7 @@ def execute_sql(sql, template="sql", cost_model="cm1",
             else:
                 sql = "explain (format json) " + sql
 
-            set_cost_model(cursor, cost_model)
+            set_cost_model(cursor, cost_model, materialize)
             cursor.execute("SET join_collapse_limit = {}".format(1))
             cursor.execute("SET from_collapse_limit = {}".format(1))
             cursor.execute(sql)
@@ -157,7 +188,6 @@ def main():
         args_fn = args.results_dir + "/" + alg_dir + "/" + "args.pkl"
         exp_args = load_object(args_fn)
         exp_args = vars(exp_args)
-        # cost_model = exp_args["cost_model"]
         print("exp args cost model: ", exp_args["cost_model"])
         print("cur cost model: ", args.cost_model)
         if args.cost_model is None or args.cost_model == "":
@@ -167,6 +197,8 @@ def main():
 
         costs_fn = args.results_dir + "/" + alg_dir + "/" + args.results_fn
         costs = load_object(costs_fn)
+        if costs is None:
+            continue
         assert isinstance(costs, pd.DataFrame)
         rt_fn = args.results_dir + "/" + alg_dir + "/" + "runtimes_" + args.results_fn
         # go in order and execute runtimes...
@@ -192,10 +224,11 @@ def main():
             if "template" in row:
                 exp_analyze, rt = execute_sql(row["exec_sql"], template=row["template"],
                         cost_model=cost_model, results_fn=args.results_fn,
-                        explain=args.explain)
+                        explain=args.explain, materialize=args.materialize)
             else:
                 exp_analyze, rt = execute_sql(row["exec_sql"], cost_model=cost_model,
-                        results_fn=args.results_fn, explain=args.explain)
+                        results_fn=args.results_fn, explain=args.explain,
+                        materialize=args.materialize)
             add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]

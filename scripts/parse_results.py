@@ -199,11 +199,11 @@ def get_summary_df(results_dir):
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
-        # print(fn)
         # convert to same format as qerrs
         cur_dir = results_dir + "/" + fn
         exp_args = load_object(cur_dir + "/args.pkl")
         if exp_args is None:
+            print("exp args None!")
             continue
         exp_args = vars(exp_args)
         exp_args["alg"] = get_alg_name(exp_args)
@@ -213,8 +213,8 @@ def get_summary_df(results_dir):
 
         try:
             qerrs = load_qerrs(cur_dir)
-            jerrs = load_jerrs(cur_dir, "cm1_jerr.pkl", "cm1_jerr")
-            jerrs = load_jerrs(cur_dir, "nested_loop_index7_jerr.pkl", "inl_jerr")
+            jerrs = load_jerrs(cur_dir, "nested_loop_index7_jerr.pkl", "jerr")
+            cm1_jerrs = load_jerrs(cur_dir, "cm1_jerr.pkl", "cm1_jerr")
             perrs = load_jerrs(cur_dir, "plan_err.pkl", "plan_err")
             perrs_pg = load_jerrs(cur_dir, "plan_pg_err.pkl", "plan_pg_err")
             ferrs = load_jerrs(cur_dir, "flow_err.pkl", "flow_err")
@@ -226,39 +226,43 @@ def get_summary_df(results_dir):
         qerrs = qerrs[LOSS_COLUMNS]
 
         if jerrs is None:
+            print("jerrs None")
             continue
+
         jerrs = jerrs[LOSS_COLUMNS]
+        cm1_jerrs = cm1_jerrs[LOSS_COLUMNS]
         perrs = perrs[LOSS_COLUMNS]
         perrs_pg = perrs_pg[LOSS_COLUMNS]
         ferrs = ferrs[LOSS_COLUMNS]
 
         # TODO: add rts too, if it exists
 
-        cur_df = pd.concat([qerrs, jerrs, perrs, perrs_pg, ferrs], ignore_index=True)
+        cur_df = pd.concat([qerrs, cm1_jerrs, jerrs, perrs, perrs_pg, ferrs], ignore_index=True)
         # for exp_column in EXP_COLUMNS:
             # cur_df[exp_column] = exp_args[exp_column]
 
         args_hash = str(deterministic_hash(str(exp_args)))[0:5]
-        # cur_df["alg"] = exp_args["alg"]
         exp_hash = str(deterministic_hash(str(exp_args)))[0:5]
         if "nn" in exp_args["algs"]:
-            cur_df["alg"] = exp_args["loss_func"] + exp_hash
+            # cur_df["alg"] = exp_args["loss_func"] + exp_hash
+            cur_df["alg"] = exp_args["loss_func"]
         else:
             cur_df["alg"] = exp_args["algs"]
 
-        cur_df["hls"] = exp_args["hidden_layer_size"]
-        cur_df["exp_name"] = fn
-        cur_df["lr"] = exp_args["lr"]
-        cur_df["clip_gradient"] = exp_args["clip_gradient"]
-        cur_df["loss_func"] = exp_args["loss_func"]
-        cur_df["weight_decay"] = exp_args["weight_decay"]
-        cur_df["weighted_mse"] = exp_args["weighted_mse"]
-        cur_df["exp_hash"] = args_hash
+        # cur_df["hls"] = exp_args["hidden_layer_size"]
+        # cur_df["exp_name"] = fn
+        # cur_df["lr"] = exp_args["lr"]
+        # cur_df["clip_gradient"] = exp_args["clip_gradient"]
+        # cur_df["loss_func"] = exp_args["loss_func"]
+        # cur_df["weight_decay"] = exp_args["weight_decay"]
+        # cur_df["weighted_mse"] = exp_args["weighted_mse"]
+        # cur_df["exp_hash"] = args_hash
+        # if exp_args["sampling_priority_alpha"] > 0:
+            # cur_df["priority"] = True
+        # else:
+            # cur_df["priority"] = False
+        cur_df = cur_df.assign(**exp_args)
 
-        if exp_args["sampling_priority_alpha"] > 0:
-            cur_df["priority"] = True
-        else:
-            cur_df["priority"] = False
 
         all_dfs.append(cur_df)
 
