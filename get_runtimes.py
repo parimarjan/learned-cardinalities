@@ -198,6 +198,9 @@ def main():
 
         costs_fn = args.results_dir + "/" + alg_dir + "/" + args.results_fn
         costs = load_object(costs_fn)
+        if costs is None:
+            print("None df for: ", alg_dir)
+            continue
         assert isinstance(costs, pd.DataFrame)
         rt_fn = args.results_dir + "/" + alg_dir + "/" + "runtimes_" + args.results_fn
         # go in order and execute runtimes...
