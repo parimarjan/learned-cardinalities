@@ -163,7 +163,9 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
         runtimes = runtimes.merge(perrs[["sql_key", "cost"]], on="sql_key")
 
         df = runtimes
-        exp_hash = str(deterministic_hash(str(exp_args)))[0:5]
+        # exp_hash = str(deterministic_hash(str(exp_args) + fn))[0:5]
+        exp_hash = fn[0:5]
+        # exp_hash = ""
         if "nn" in exp_args["algs"]:
             df["alg"] = exp_args["loss_func"] + exp_hash
         else:
