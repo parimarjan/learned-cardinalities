@@ -188,7 +188,6 @@ def main():
         args_fn = args.results_dir + "/" + alg_dir + "/" + "args.pkl"
         exp_args = load_object(args_fn)
         exp_args = vars(exp_args)
-        # cost_model = exp_args["cost_model"]
         print("exp args cost model: ", exp_args["cost_model"])
         print("cur cost model: ", args.cost_model)
         if args.cost_model is None or args.cost_model == "":
@@ -198,6 +197,8 @@ def main():
 
         costs_fn = args.results_dir + "/" + alg_dir + "/" + args.results_fn
         costs = load_object(costs_fn)
+        if costs is None:
+            continue
         assert isinstance(costs, pd.DataFrame)
         rt_fn = args.results_dir + "/" + alg_dir + "/" + "runtimes_" + args.results_fn
         # go in order and execute runtimes...
