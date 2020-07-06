@@ -925,6 +925,13 @@ class NN(CardinalityEstimationAlg):
             else:
                 net, optimizer, scheduler = \
                         self._init_net(self.net_name, self.optimizer_name, sample)
+                print(net)
+                print(len(list(net.parameters())))
+                pdb.set_trace()
+
+            # print(net)
+            # print(net.parameters())
+            # pdb.set_trace()
             self.nets.append(net)
             self.optimizers.append(optimizer)
             self.schedulers.append(scheduler)

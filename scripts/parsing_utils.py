@@ -307,8 +307,12 @@ ERROR_NAMES["mm1_plan_pg_ratio"] = "Simple Plan Postgres Ratio"
 ERROR_NAMES["plan_err"] = "Simple Plan Error"
 ERROR_NAMES["plan_ratio"] = "Simple Plan Ratio"
 
-ERROR_NAMES["jerr"] = "Postgres Plan Error"
+ERROR_NAMES["jerr"] = "Postgres INL Plan Error"
 ERROR_NAMES["jerr_ratio"] = "Postgres Plan Ratio"
+
+ERROR_NAMES["plan_pg_err"] = "Simple Plan Postgres Error"
+ERROR_NAMES["cm1_jerr"] = "Postgres Plan Error"
+
 
 COST_MODEL_NAMES = {}
 COST_MODEL_NAMES["nested_loop_index3"] = "cm1"
@@ -320,6 +324,33 @@ COST_MODEL_NAMES["nested_loop_index8b"] = "cm4c"
 COST_MODEL_NAMES["nested_loop_index9"] = "cm4a"
 COST_MODEL_NAMES["nested_loop_index14"] = "cm4d"
 COST_MODEL_NAMES["nested_loop_index13"] = "cm5"
+
+def plot_loss_summary_final(df, loss_type, samples_type, yscale, ax,
+        HUE_COLORS=None, miny=None, maxy=None, ORDER=None):
+
+    # if loss_type in ["mm1_plan_err", "mm1_plan_pg_err", "jerr"]:
+        # maxy = 10e6
+
+    title_fmt = "{}"
+    if loss_type == "qerr":
+        loss_title = "Q-Error"
+        yscale = "log"
+    else:
+        loss_title = ERROR_NAMES[loss_type]
+
+    title = title_fmt.format(loss_title)
+
+    ax.set_title(title, fontsize=40)
+    cur_df = df[df["samples_type"] == samples_type]
+    cur_df = cur_df[cur_df["loss_type"] == loss_type]
+    sns.barplot(x="alg_name", y="loss", hue="alg_name", data=cur_df,
+            palette=HUE_COLORS, ci=95,
+                 ax=ax, linewidth=10, order=ORDER)
+
+    ax.set_yscale(yscale)
+    ax.get_legend().remove()
+    ax.tick_params(labelsize=20)
+    ax.xaxis.label.set_size(20)
 
 def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
         HUE_COLORS=None, miny=None, maxy=None):
@@ -334,35 +365,44 @@ def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
     ax.set_title(title, fontsize=40)
     cur_df = df[df["samples_type"] == samples_type]
     cur_df = cur_df[cur_df["loss_type"] == loss_type]
-
-    # scale_df = df[df["epoch"] >= 4]
-    # scale_df = scale_df[scale_df["loss_type"] == loss_type]
-
-    # if miny is None:
-    # miny = min(cur_df["loss"])
     miny = min(cur_df["loss"])
     maxy_data = max(cur_df["loss"])
     if maxy is not None:
         maxy = min(maxy, maxy_data)
 
     if maxy is None:
-        # maxy = max(scale_df["loss"])
         maxy = cur_df["loss"].quantile(0.95)
 
     sns.lineplot(x="epoch", y="loss", hue="alg_name", data=cur_df,
             palette=HUE_COLORS, ci=95,
                  ax=ax, legend="full", linewidth=10)
     ax.set_ylim((miny,maxy))
-    # plt.setp(g.ax.lines,linewidth=lw)  # set lw for all lines of g axes
-    # ax.set_linewidth(10)
-    # ax.spines[0].set_linewidth(0.5)
 
     ax.set_yscale(yscale)
     ax.get_legend().remove()
     ax.tick_params(labelsize=20)
     ax.xaxis.label.set_size(20)
 
-    #plt.show()
+def construct_summary_final(df, samples_type, title, ERRORS,
+        HUE_COLORS=None, ORDER=None, miny=0.0):
+    num_errs = len(ERRORS)
+    fig, axs = plt.subplots(1, num_errs, figsize=(40,10))
+    fig.suptitle(title, fontsize=50)
+    for i, err in enumerate(ERRORS):
+        plot_loss_summary_final(df, err, samples_type, "linear", axs[i],
+                     HUE_COLORS=HUE_COLORS, miny=miny, ORDER=ORDER)
+
+    if samples_type == "train":
+        plt.tight_layout(rect=[0, 0, 1, 0.70])
+        handles, labels = axs[-1].get_legend_handles_labels()
+        leg = fig.legend(handles, labels, loc='upper left',
+                prop={'size': 30})
+        for line in leg.get_lines():
+            line.set_linewidth(10.0)
+    else:
+        plt.tight_layout(rect=[0, 0, 1, 0.90])
+
+    plt.show()
 
 def construct_summary(df, samples_type, title, ERRORS,
         HUE_COLORS=None, miny=0.0):
@@ -372,33 +412,6 @@ def construct_summary(df, samples_type, title, ERRORS,
     for i, err in enumerate(ERRORS):
         plot_loss_summary(df, err, samples_type, "linear", axs[i],
                      HUE_COLORS=HUE_COLORS, miny=miny)
-
-    # if summary_type == "ratio":
-        # plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
-                     # HUE_COLORS=HUE_COLORS, miny=0.0)
-
-        # plot_loss_summary(df, "flow_ratio", samples_type, "linear", axs[1],
-                    # HUE_COLORS=HUE_COLORS, miny=1.0)
-        # plot_loss_summary(df, "mm1_plan_ratio", samples_type, "linear", axs[2],
-                # HUE_COLORS=HUE_COLORS, miny=1.0)
-
-        # plot_loss_summary(df, "mm1_plan_pg_ratio", samples_type, "linear", axs[3],
-                # HUE_COLORS=HUE_COLORS, miny = 1.0)
-        # plot_loss_summary(df, "jerr_ratio", samples_type, "linear", axs[4],
-                # HUE_COLORS=HUE_COLORS, miny = 1.0)
-    # else:
-        # plot_loss_summary(df, "qerr", samples_type, "linear", axs[0],
-                     # HUE_COLORS=HUE_COLORS, miny=0.0)
-        # plot_loss_summary(df, "flow_err", samples_type, "linear", axs[1],
-                    # HUE_COLORS=HUE_COLORS, miny=0.0)
-        # plot_loss_summary(df, "mm1_plan_err", samples_type, "linear", axs[2],
-                # HUE_COLORS=HUE_COLORS, miny=0.0)
-
-        # plot_loss_summary(df, "mm1_plan_pg_err", samples_type, "linear", axs[3],
-                # HUE_COLORS=HUE_COLORS, miny = 0.0)
-        # plot_loss_summary(df, "jerr", samples_type, "linear", axs[4],
-                # HUE_COLORS=HUE_COLORS, miny = 0.0)
-
 
     if samples_type == "train":
         plt.tight_layout(rect=[0, 0, 1, 0.70])
