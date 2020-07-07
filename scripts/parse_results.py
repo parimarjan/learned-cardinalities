@@ -207,6 +207,10 @@ def get_summary_df(results_dir):
             continue
         exp_args = vars(exp_args)
         exp_args["alg"] = get_alg_name(exp_args)
+        print("partition: ")
+        print(exp_args["diff_templates_seed"])
+        print(fn)
+
         if skip_exp(exp_args):
             print("skip exp!")
             continue
@@ -242,26 +246,24 @@ def get_summary_df(results_dir):
             # cur_df[exp_column] = exp_args[exp_column]
 
         args_hash = str(deterministic_hash(str(exp_args)))[0:5]
-        # cur_df["alg"] = exp_args["alg"]
         exp_hash = str(deterministic_hash(str(exp_args)))[0:5]
+        cur_df = cur_df.assign(**exp_args)
         if "nn" in exp_args["algs"]:
-            cur_df["alg"] = exp_args["loss_func"] + exp_hash
+            cur_df["alg_name"] = exp_args["loss_func"]
         else:
-            cur_df["alg"] = exp_args["algs"]
+            cur_df["alg_name"] = exp_args["algs"]
 
-        cur_df["hls"] = exp_args["hidden_layer_size"]
-        cur_df["exp_name"] = fn
-        cur_df["lr"] = exp_args["lr"]
-        cur_df["clip_gradient"] = exp_args["clip_gradient"]
-        cur_df["loss_func"] = exp_args["loss_func"]
-        cur_df["weight_decay"] = exp_args["weight_decay"]
-        cur_df["weighted_mse"] = exp_args["weighted_mse"]
-        cur_df["exp_hash"] = args_hash
-
-        if exp_args["sampling_priority_alpha"] > 0:
-            cur_df["priority"] = True
+        # decide partition
+        if exp_args["test_diff_templates"]:
+            if exp_args["diff_templates_type"] == 1:
+                partition = "X"
+            elif exp_args["diff_templates_type"] == 2:
+                partition = "Y"
+            elif exp_args["diff_templates_type"] == 3:
+                partition = exp_args["diff_templates_seed"]
         else:
-            cur_df["priority"] = False
+            partition = "0"
+        cur_df["partition"] = partition
 
         all_dfs.append(cur_df)
 

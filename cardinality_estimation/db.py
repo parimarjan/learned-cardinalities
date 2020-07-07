@@ -12,6 +12,7 @@ from collections import OrderedDict, defaultdict
 from multiprocessing import Pool
 import concurrent.futures
 import re
+import pandas as pd
 
 SUBQUERY_TIMEOUT = 3*60000
 class DB():
@@ -163,7 +164,7 @@ class DB():
             flow_features = True,
             feat_num_paths= False, feat_flows=False,
             feat_pg_costs = True, feat_tolerance=True,
-            feat_template=True, feat_pg_path=True,
+            feat_template=False, feat_pg_path=True,
             feat_rel_pg_ests=True, feat_join_graph_neighbors=True,
             feat_rel_pg_ests_onehot=True,
             feat_pg_est_one_hot=True,
@@ -309,6 +310,7 @@ class DB():
                 self.num_flow_features += self.PG_EST_BUCKETS
 
             # pg est for the node
+            self.num_flow_features += len(self.cmp_ops)
             self.num_flow_features += 1
 
     def get_onehot_bucket(self, num_buckets, base, val):
@@ -320,7 +322,7 @@ class DB():
         return num_buckets
 
     def get_flow_features(self, node, subsetg,
-            template_name, join_graph):
+            template_name, join_graph, cmp_op):
         assert node != SOURCE_NODE
         flow_features = np.zeros(self.num_flow_features)
         cur_idx = 0
@@ -460,6 +462,10 @@ class DB():
             cur_idx += self.PG_EST_BUCKETS
 
         # pg_est for node will be added in query_dataset..
+        if cmp_op is not None:
+            cmp_idx = self.cmp_ops_onehot[cmp_op]
+            flow_features[cur_idx + cmp_idx] = 1.0
+        cur_idx += len(self.cmp_ops)
 
         return flow_features
 
@@ -478,6 +484,100 @@ class DB():
         joins_vector = np.zeros(len(self.join_featurizer))
         joins_vector[self.join_featurizer[keys]] = 1.00
         return joins_vector
+
+    def get_pred_features_map(self):
+        '''
+        @ret: df with columns:
+            idx, descr, pg_est, type=pred
+        '''
+        preds_vector = np.zeros(self.pred_features_len)
+        # self.featurizer keys are col names for predicate features
+        # each block of features start with one of the columns, and then:
+        #   continuous OR discrete?
+        #   we know how many values it covers, so we should be able to fill in
+        #   all those indices.
+        # Subparts:
+        #   First few for comparison op
+        #   Last one will be reserved for postgres estimate,
+        #   Middle ones for representing feature, which will vary from discrete
+        #   to continuous to regex
+        DESCR_TMP = "{COL}-{TYPE}"
+        maps = defaultdict(list)
+        for col in self.featurizer:
+            cmp_op_idx, num_vals, continuous = self.featurizer[col]
+
+            for i, cmp_op in enumerate(self.cmp_ops_onehot):
+                maps["idx"].append(cmp_op_idx+i)
+                maps["descr"].append(DESCR_TMP.format(COL = col, TYPE = cmp_op))
+                maps["continuous"].append(continuous)
+                maps["pg"].append(False)
+
+            ## pg est
+            maps["idx"].append(cmp_op_idx+num_vals)
+            maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="pg"))
+            maps["pg"].append(True)
+            maps["continuous"].append(continuous)
+
+            ## rest
+            num_pred_vals = num_vals - len(self.cmp_ops)
+            pred_idx_start = cmp_op_idx + len(self.cmp_ops)
+            info = self.column_stats[col]
+            if continuous:
+                for i in range(2):
+                    maps["idx"].append(pred_idx_start+i)
+                    maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="range"))
+                    maps["pg"].append(False)
+                    maps["continuous"].append(continuous)
+            else:
+                num_buckets = min(self.max_discrete_featurizing_buckets,
+                        info["num_values"])
+                for i in range(num_buckets):
+                    maps["idx"].append(pred_idx_start+i)
+                    maps["descr"].append(DESCR_TMP.format(COL=col,
+                        TYPE="feat_buckets"))
+                    maps["pg"].append(False)
+                    maps["continuous"].append(continuous)
+
+                if col in self.regex_cols:
+                    # give it more space...
+                    # pred_len += 2
+                    pred_idx_start += num_buckets
+                    for i in range(num_buckets):
+                        maps["idx"].append(pred_idx_start+i)
+                        maps["descr"].append(DESCR_TMP.format(COL=col,
+                            TYPE="regex"))
+                        maps["pg"].append(False)
+                        maps["continuous"].append(continuous)
+
+                    maps["idx"].append(pred_idx_start+i+1)
+                    maps["descr"].append(DESCR_TMP.format(COL=col,
+                        TYPE="regex_len"))
+                    maps["pg"].append(False)
+                    maps["continuous"].append(continuous)
+
+                    maps["idx"].append(pred_idx_start+i+2)
+                    maps["descr"].append(DESCR_TMP.format(COL=col,
+                        TYPE="regex_num"))
+                    maps["pg"].append(False)
+                    maps["continuous"].append(continuous)
+
+        # assert last idx should still not be accounted for
+        unaccounted_idxs = []
+        for i in range(self.pred_features_len):
+            if i not in maps["idx"]:
+                unaccounted_idxs.append(i)
+
+        assert self.pred_features_len not in maps["idx"]
+        print(unaccounted_idxs)
+        maps["idx"].append(self.pred_features_len)
+        maps["descr"].append(DESCR_TMP.format(COL="all",
+            TYPE="pg"))
+        maps["pg"].append(True)
+        maps["continuous"].append(False)
+        df = pd.DataFrame(maps)
+        df["feature_type"] = "pred"
+
+        return df
 
     def get_pred_features(self, col, val, cmp_op,
             pred_est=None):
@@ -547,25 +647,34 @@ class DB():
             min_val = float(col_info["min_value"])
             max_val = float(col_info["max_value"])
             min_max = [min_val, max_val]
-            for vi, v in enumerate(val):
-                if "literal" == v:
-                    v = val["literal"]
-                # handling the case when one end of the range is
-                # missing
-                if v is None and vi == 0:
-                    v = min_val
-                elif v is None and vi == 1:
-                    v = max_val
-
-                if v == 'NULL' and vi == 0:
-                    v = min_val
-                elif v == 'NULL' and vi == 1:
-                    v = max_val
-                cur_val = float(v)
+            if isinstance(val, int):
+                cur_val = float(val)
                 norm_val = (cur_val - min_val) / (max_val - min_val)
                 norm_val = max(norm_val, 0.00)
                 norm_val = min(norm_val, 1.00)
-                preds_vector[pred_idx_start+vi] = norm_val
+                preds_vector[pred_idx_start+0] = norm_val
+                preds_vector[pred_idx_start+1] = norm_val
+            else:
+                for vi, v in enumerate(val):
+                    if "literal" == v:
+                        v = val["literal"]
+                    # handling the case when one end of the range is
+                    # missing
+                    if v is None and vi == 0:
+                        v = min_val
+                    elif v is None and vi == 1:
+                        v = max_val
+
+                    if v == 'NULL' and vi == 0:
+                        v = min_val
+                    elif v == 'NULL' and vi == 1:
+                        v = max_val
+
+                    cur_val = float(v)
+                    norm_val = (cur_val - min_val) / (max_val - min_val)
+                    norm_val = max(norm_val, 0.00)
+                    norm_val = min(norm_val, 1.00)
+                    preds_vector[pred_idx_start+vi] = norm_val
 
         return preds_vector
 

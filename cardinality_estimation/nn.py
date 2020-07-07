@@ -60,11 +60,14 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
     # return sample[0]
 
 # once we have stored them in archive, parallel just slows down stuff
-UPDATE_TOLERANCES_PAR = True
+UPDATE_TOLERANCES_PAR = False
 USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
+    REGEN_COSTS = False
+    if REGEN_COSTS:
+        print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
     start = time.time()
     new_seen = False
@@ -74,9 +77,8 @@ def update_samples(samples, flow_features, cost_model,
             add_single_node_edges(subsetg)
 
         sample_edge = list(subsetg.edges())[0]
-        # if cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
-                # and not debug_set:
-        if False:
+        if (cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
+                and not debug_set) and not REGEN_COSTS:
             continue
         else:
             new_seen = True
@@ -93,8 +95,8 @@ def update_samples(samples, flow_features, cost_model,
             for node in pg_path:
                 subsetg.nodes()[node][cost_model + "pg_path"] = 1
 
-    # if not new_seen:
-        # return
+    if not new_seen:
+        return
     num_proc = 16
 
     if USE_TOLERANCES:
@@ -136,7 +138,7 @@ def update_samples(samples, flow_features, cost_model,
             for j, node in enumerate(nodes):
                 subsetg.nodes()[node]["tolerance"] = tolerances[j]
 
-    if not debug_set:
+    if not debug_set and not REGEN_COSTS:
         for sample in samples:
             save_sql_rep(sample["name"], sample)
 
@@ -267,7 +269,11 @@ def single_train_combined_net(net, optimizer, loader, loss_fn, loss_fn_name,
         clip_gradient, samples, normalization_type, min_val, max_val,
         load_query_together=False):
     torch.set_num_threads(1)
-    # torch.set_num_threads(4)
+    # FIXME: requires that each sample seen in training set
+    if "flow_loss" in loss_fn_name:
+        opt_flow_costs = []
+        est_flow_costs = []
+
     for idx, (xbatch, ybatch,info) in enumerate(loader):
         start = time.time()
         # TODO: add handling for num_tables
@@ -626,6 +632,98 @@ class NN(CardinalityEstimationAlg):
             self.eval_sync = None
             self.eval_pool = ThreadPool(2)
 
+    def train_combined_net(self, net, optimizer, loader, loss_fn, loss_fn_name,
+            clip_gradient, samples, normalization_type, min_val, max_val,
+            load_query_together=False):
+
+        torch.set_num_threads(1)
+        if self.save_gradients:
+            grads = []
+            par_grads = defaultdict(list)
+            grad_samples = []
+
+        # FIXME: requires that each sample seen in training set
+        if "flow_loss" in loss_fn_name:
+            opt_flow_costs = []
+            est_flow_costs = []
+
+        for idx, (xbatch, ybatch,info) in enumerate(loader):
+            start = time.time()
+            # TODO: add handling for num_tables
+            if load_query_together:
+                # update the batches
+                xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
+                        xbatch.shape[2])
+                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+                qidx = info[0]["query_idx"]
+                assert qidx == info[1]["query_idx"]
+                sample = samples[qidx]
+            else:
+                sample = None
+
+            pred = net(xbatch).squeeze(1)
+
+            if "flow_loss" in loss_fn_name:
+                assert load_query_together
+                subsetg_vectors, trueC_vec, opt_loss = \
+                        self.flow_training_info[qidx]
+
+                assert len(subsetg_vectors) == 8
+
+                losses = loss_fn(pred, ybatch.detach(),
+                        normalization_type, min_val,
+                        max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
+                        self.normalize_flow_loss,
+                        self.join_loss_pool, self.cost_model)
+            else:
+                losses = loss_fn(pred, ybatch)
+
+            try:
+                loss = losses.sum() / len(losses)
+            except:
+                loss = losses
+
+            if self.weighted_qloss != 0.0:
+                qloss = qloss_torch(pred, ybatch)
+                loss += self.weighted_qloss* (sum(qloss) / len(qloss))
+
+            if self.weighted_mse != 0.0:
+                mse = torch.nn.MSELoss(reduction="mean")(pred,
+                        ybatch)
+                loss += self.weighted_mse * mse
+
+            if self.save_gradients and "flow_loss" in loss_fn_name:
+                optimizer.zero_grad()
+                pred.retain_grad()
+                loss.backward()
+                # grads
+                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                if sample is not None:
+                    grad_samples.append(sample)
+                wt_grads = net.compute_grads()
+                for wi, wt in enumerate(wt_grads):
+                    par_grads[wi].append(wt)
+            else:
+                optimizer.zero_grad()
+                loss.backward()
+
+            if clip_gradient is not None:
+                clip_grad_norm_(net.parameters(), clip_gradient)
+
+            optimizer.step()
+
+            idx_time = time.time() - start
+            if idx_time > 10:
+                print("train idx took: ", idx_time)
+
+        if self.save_gradients and len(grad_samples) > 0 \
+                and self.epoch % self.eval_epoch == 0:
+            self.save_join_loss_stats(grads, None, grad_samples,
+                    "train", loss_key="gradients")
+            for k,v in par_grads.items():
+                self.save_join_loss_stats(v, None, grad_samples,
+                        "train", loss_key="param_gradients" + str(k))
+
     def train_mscn(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
             load_query_together=False):
@@ -729,6 +827,8 @@ class NN(CardinalityEstimationAlg):
 
         for sample in samples:
             for node, info in sample["subset_graph"].nodes().items():
+                if node == SOURCE_NODE:
+                    continue
                 self.total_training_samples += 1
                 if len(node) > self.max_tables:
                     self.max_tables = len(node)
@@ -772,12 +872,12 @@ class NN(CardinalityEstimationAlg):
                 net = SetConv(len(sample[0][0]), len(sample[1][0]),
                         len(sample[2][0]), len(sample[3][0]),
                         self.hidden_layer_size, dropout= self.dropout,
-                        min_hid = self.min_hid)
+                        max_hid = self.max_hid)
             else:
                 net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
                         len(sample[3]),
                         self.hidden_layer_size, dropout=self.dropout,
-                        min_hid = self.min_hid)
+                        max_hid = self.max_hid)
         else:
             assert False
 
@@ -825,6 +925,13 @@ class NN(CardinalityEstimationAlg):
             else:
                 net, optimizer, scheduler = \
                         self._init_net(self.net_name, self.optimizer_name, sample)
+                print(net)
+                print(len(list(net.parameters())))
+                pdb.set_trace()
+
+            # print(net)
+            # print(net.parameters())
+            # pdb.set_trace()
             self.nets.append(net)
             self.optimizers.append(optimizer)
             self.schedulers.append(scheduler)
@@ -1006,8 +1113,8 @@ class NN(CardinalityEstimationAlg):
         replaces the results file.
         '''
         # TODO: maybe reset cur_stats
-        if self.eval_epoch > 5:
-            return
+        # if self.eval_epoch > 5:
+            # return
 
         self.stats = pd.DataFrame(self.cur_stats)
         if not os.path.exists(self.result_dir):
@@ -1028,6 +1135,11 @@ class NN(CardinalityEstimationAlg):
 
         with open(fn, 'wb') as fp:
             pickle.dump(results, fp,
+                    protocol=pickle.HIGHEST_PROTOCOL)
+
+        sfn = exp_dir + "/" + "subq_summary.pkl"
+        with open(sfn, 'wb') as fp:
+            pickle.dump(self.subquery_summary_data, fp,
                     protocol=pickle.HIGHEST_PROTOCOL)
 
     def num_parameters(self):
@@ -1064,11 +1176,17 @@ class NN(CardinalityEstimationAlg):
             assert len(self.nets) == 1
             self._single_train_combined_net_cm(self.nets[0], self.optimizers[0],
                     self.training_loaders[0])
+
         for i, net in enumerate(self.nets):
             opt = self.optimizers[i]
             loader = self.training_loaders[i]
             if self.featurization_scheme == "combined":
-                single_train_combined_net(net, opt, loader, self.loss,
+                # single_train_combined_net(net, opt, loader, self.loss,
+                        # self.loss_func, self.clip_gradient,
+                        # self.training_samples, self.normalization_type,
+                        # self.min_val, self.max_val,
+                        # self.load_query_together)
+                self.train_combined_net(net, opt, loader, self.loss,
                         self.loss_func, self.clip_gradient,
                         self.training_samples, self.normalization_type,
                         self.min_val, self.max_val,
@@ -1079,18 +1197,6 @@ class NN(CardinalityEstimationAlg):
                         self.training_samples, self.normalization_type,
                         self.min_val, self.max_val,
                         self.load_query_together)
-                # if self.load_query_together:
-                    # self.train_mscn_query(net, opt, loader, self.loss,
-                            # self.loss_func, self.clip_gradient,
-                            # self.training_samples, self.normalization_type,
-                            # self.min_val, self.max_val,
-                            # self.load_query_together)
-                # else:
-                    # self.train_mscn(net, opt, loader, self.loss,
-                            # self.loss_func, self.clip_gradient,
-                            # self.training_samples, self.normalization_type,
-                            # self.min_val, self.max_val,
-                            # self.load_query_together)
             else:
                 assert False
 
@@ -1169,14 +1275,15 @@ class NN(CardinalityEstimationAlg):
         samples = self.samples[samples_type]
         summary_data = defaultdict(list)
         query_idx = 0
-
-        for sample in samples:
+        subq_imps = self.subq_imp[samples_type]
+        for samplei, sample in enumerate(samples):
             template = sample["template_name"]
             sample_losses = []
             nodes = list(sample["subset_graph"].nodes())
             if SOURCE_NODE in nodes:
                 nodes.remove(SOURCE_NODE)
             nodes.sort()
+            cur_subq_imps = subq_imps[samplei]
             for subq_idx, node in enumerate(nodes):
                 num_tables = len(node)
                 idx = query_idx + subq_idx
@@ -1185,12 +1292,21 @@ class NN(CardinalityEstimationAlg):
                 summary_data["loss"].append(loss)
                 summary_data["num_tables"].append(num_tables)
                 summary_data["template"].append(template)
+                summary_data["subq_imp"].append(cur_subq_imps[subq_idx])
+                sorted_node = list(node)
+                sorted_node.sort()
+                subq_id = deterministic_hash(str(sorted_node))
+                summary_data["subq_id"].append(subq_id)
+
             query_idx += len(nodes)
             self.query_qerr_stats["epoch"].append(epoch)
             self.query_qerr_stats["query_name"].append(sample["name"])
             self.query_qerr_stats["qerr"].append(sum(sample_losses) / len(sample_losses))
 
         df = pd.DataFrame(summary_data)
+        self.subquery_summary_data = df
+        df["samples_type"] = samples_type
+        df["epoch"] = self.epoch
         for template in set(df["template"]):
             tvals = df[df["template"] == template]
             self.add_row(tvals["loss"].values, "qerr", epoch,
@@ -1244,13 +1360,13 @@ class NN(CardinalityEstimationAlg):
                 self.save_join_loss_stats(cm_plan_pg_ratio, None, samples,
                         samples_type, loss_key="mm1_plan_pg_ratio")
 
-                if self.debug_set:
-                    min_idx = np.argmin(cm_plan_pg_losses)
-                    min_idx2 = np.argmin(cm_plan_pg_ratio)
-                    print("min plan pg loss: {}, name: {}".format(
-                        cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
-                    print("min plan pg ratio: {}, name: {}".format(
-                        cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
+                # if self.debug_set:
+                min_idx = np.argmin(cm_plan_pg_losses)
+                min_idx2 = np.argmin(cm_plan_pg_ratio)
+                print("min plan pg loss: {}, name: {}".format(
+                    cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
+                print("min plan pg ratio: {}, name: {}".format(
+                    cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
 
         if not epoch % self.eval_epoch_jerr == 0:
             return
@@ -1281,12 +1397,13 @@ class NN(CardinalityEstimationAlg):
                 samples_type, loss_key="jerr_ratio", epoch=epoch)
 
         print("periodic eval took: ", time.time()-start)
-        if opt_plan_pg_costs is not None and self.debug_set:
+        # if opt_plan_pg_costs is not None and self.debug_set:
+        if opt_plan_pg_costs is not None:
             cost_model_losses = opt_plan_pg_costs - opt_costs
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
             print(np.mean(cost_model_losses), np.mean(cost_model_ratio))
-            pdb.set_trace()
+            # pdb.set_trace()
 
         if np.mean(join_losses) < self.best_join_loss \
                 and epoch > self.start_validation \
@@ -1393,6 +1510,8 @@ class NN(CardinalityEstimationAlg):
                     self.featurization_scheme, self.heuristic_features,
                     self.preload_features, self.normalization_type,
                     self.load_query_together, self.flow_features,
+                    self.table_features, self.join_features,
+                    self.pred_features,
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = self.train_card_key,
@@ -1415,8 +1534,68 @@ class NN(CardinalityEstimationAlg):
         assert len(training_sets) == len(self.groups) == len(training_loaders)
         return training_sets, training_loaders
 
+    def get_subq_imp(self, samples):
+        # FIXME: avoid repetition
+        imps = []
+        for sample in samples:
+            subsetg_vectors = list(get_subsetg_vectors(sample,
+                self.cost_model))
+
+            true_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+            nodes = list(sample["subset_graph"].nodes())
+            nodes.remove(SOURCE_NODE)
+            nodes.sort()
+            for i, node in enumerate(nodes):
+                true_cards[i] = \
+                    sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+            # right is the flow for each edge
+            edge_dict = {}
+            edges = list(sample["subset_graph"].edges())
+            edges.sort()
+            for i, edge in enumerate(edges):
+                edge_dict[edge] = i
+
+            trueC_vec, dgdxT, G, Q = \
+                get_optimization_variables(true_cards,
+                    subsetg_vectors[0], self.min_val,
+                        self.max_val, self.normalization_type,
+                        subsetg_vectors[4],
+                        subsetg_vectors[5],
+                        subsetg_vectors[3],
+                        subsetg_vectors[1],
+                        subsetg_vectors[2],
+                        self.cost_model, subsetg_vectors[-1])
+
+            Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
+            Gv[subsetg_vectors[-2]] = 1.0
+            G = to_variable(G).float()
+            Q = to_variable(Q).float()
+
+            invG = torch.inverse(G)
+            v = invG @ Gv
+            flows = Q @ (v)
+            flows = flows.cpu().numpy()
+
+            # want to calculate the importance of each node in the subquery
+            # graph
+            node_importances = []
+            for i, node in enumerate(nodes):
+                in_edges = sample["subset_graph"].in_edges(node)
+                node_pr = 0.0
+                for edge in in_edges:
+                    node_pr += flows[edge_dict[edge]]
+                node_importances.append(node_pr)
+
+            imps.append(node_importances)
+
+        return imps
+
     def update_flow_training_info(self):
         print("precomputing flow loss info")
+        # self.true_flows["train"] = []
+
         fstart = time.time()
         # precompute a whole bunch of training things
         self.flow_training_info = []
@@ -1551,11 +1730,16 @@ class NN(CardinalityEstimationAlg):
             else:
                 self.num_features = len(training_sets[0][0][0])
                 if len(self.groups) == 1:
+                    print(self.total_training_samples, len(training_sets[0]))
                     assert self.total_training_samples == len(training_sets[0])
         else:
             # FIXME: need tp get accurate number for load_query_together
             self.num_features = len(training_sets[0][0][0]) + \
                     len(training_sets[0][0][1]) + len(training_sets[0][0][2])
+
+        self.subq_imp = {}
+        self.subq_imp["train"] = self.get_subq_imp(self.training_samples)
+        self.subq_imp["test"] = self.get_subq_imp(val_samples)
 
         if "flow" in self.loss_func:
             self.update_flow_training_info()

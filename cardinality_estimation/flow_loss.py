@@ -83,9 +83,9 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
         cost = nilj_cost
     elif cost_model == "nested_loop_index7":
         if nilj == 1:
-            nilj_cost = card2 + NILJ_CONSTANT*card1 + card3
+            nilj_cost = card2 + NILJ_CONSTANT*card1;
         elif nilj == 2:
-            nilj_cost = card1 + NILJ_CONSTANT*card2 + card3
+            nilj_cost = card1 + NILJ_CONSTANT*card2;
         else:
             assert False
         cost2 = card1*card2
@@ -93,6 +93,15 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
             cost = cost2
         else:
             cost = nilj_cost
+    elif cost_model == "nested_loop_index7b":
+        if nilj == 1:
+            nilj_cost = card2 + NILJ_CONSTANT*card1;
+        elif nilj == 2:
+            nilj_cost = card1 + NILJ_CONSTANT*card2;
+        else:
+            assert False
+
+        cost = nilj_cost
 
     elif cost_model == "nested_loop_index4":
         # same as nested_loop_index, but also considering just joining the two
@@ -192,7 +201,7 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
             assert False
 
         # TODO: we may be doing fine without this one
-        cost2 = card1*card2
+        cost2 = SEQ_CONST*card1*card2
         if cost2 < nilj_cost:
             cost = cost2
         else:

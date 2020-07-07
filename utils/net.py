@@ -87,6 +87,17 @@ class SimpleRegression(torch.nn.Module):
         ).to(device)
         self.layers.append(self.final_layer)
 
+    def compute_grads(self):
+        wts = []
+        for layer in self.layers:
+            wts.append(layer[0].weight.grad)
+
+        mean_wts = []
+        for i,wt in enumerate(wts):
+            mean_wts.append(np.mean(np.abs(wt.detach().numpy())))
+
+        return mean_wts
+
     def forward(self, x):
         output = x
         for layer in self.layers:
@@ -96,15 +107,15 @@ class SimpleRegression(torch.nn.Module):
 # MSCN model, kipf et al.
 class SetConv(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
-            hid_units, dropout=0.0, min_hid=None):
-        super(SetConv, self).__init__()
+            hid_units, dropout=0.0, max_hid=None):
+        # super(SetConv, self).__init__()
+        super().__init__()
         self.dropout = dropout
-        print("flow feats: ", flow_feats)
         self.flow_feats = flow_feats
         # doesn't really make sense to have this be bigger...
         sample_hid = hid_units
-        if min_hid is not None:
-            sample_hid = min(hid_units, min_hid)
+        if max_hid is not None:
+            sample_hid = min(hid_units, max_hid)
 
         self.sample_mlp1 = nn.Sequential(
             nn.Linear(sample_feats, sample_hid),
@@ -126,7 +137,7 @@ class SetConv(nn.Module):
             nn.ReLU()
         ).to(device)
 
-        if min_hid is not None:
+        if max_hid is not None:
             join_hid = min(hid_units, 128)
         else:
             join_hid = hid_units
