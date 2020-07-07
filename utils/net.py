@@ -108,7 +108,8 @@ class SimpleRegression(torch.nn.Module):
 class SetConv(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
             hid_units, dropout=0.0, max_hid=None):
-        super(SetConv, self).__init__()
+        # super(SetConv, self).__init__()
+        super().__init__()
         self.dropout = dropout
         self.flow_feats = flow_feats
         # doesn't really make sense to have this be bigger...

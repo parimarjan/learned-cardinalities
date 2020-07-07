@@ -12,6 +12,7 @@ from collections import OrderedDict, defaultdict
 from multiprocessing import Pool
 import concurrent.futures
 import re
+import pandas as pd
 
 SUBQUERY_TIMEOUT = 3*60000
 class DB():
@@ -483,6 +484,100 @@ class DB():
         joins_vector = np.zeros(len(self.join_featurizer))
         joins_vector[self.join_featurizer[keys]] = 1.00
         return joins_vector
+
+    def get_pred_features_map(self):
+        '''
+        @ret: df with columns:
+            idx, descr, pg_est, type=pred
+        '''
+        preds_vector = np.zeros(self.pred_features_len)
+        # self.featurizer keys are col names for predicate features
+        # each block of features start with one of the columns, and then:
+        #   continuous OR discrete?
+        #   we know how many values it covers, so we should be able to fill in
+        #   all those indices.
+        # Subparts:
+        #   First few for comparison op
+        #   Last one will be reserved for postgres estimate,
+        #   Middle ones for representing feature, which will vary from discrete
+        #   to continuous to regex
+        DESCR_TMP = "{COL}-{TYPE}"
+        maps = defaultdict(list)
+        for col in self.featurizer:
+            cmp_op_idx, num_vals, continuous = self.featurizer[col]
+
+            for i, cmp_op in enumerate(self.cmp_ops_onehot):
+                maps["idx"].append(cmp_op_idx+i)
+                maps["descr"].append(DESCR_TMP.format(COL = col, TYPE = cmp_op))
+                maps["continuous"].append(continuous)
+                maps["pg"].append(False)
+
+            ## pg est
+            maps["idx"].append(cmp_op_idx+num_vals)
+            maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="pg"))
+            maps["pg"].append(True)
+            maps["continuous"].append(continuous)
+
+            ## rest
+            num_pred_vals = num_vals - len(self.cmp_ops)
+            pred_idx_start = cmp_op_idx + len(self.cmp_ops)
+            info = self.column_stats[col]
+            if continuous:
+                for i in range(2):
+                    maps["idx"].append(pred_idx_start+i)
+                    maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="range"))
+                    maps["pg"].append(False)
+                    maps["continuous"].append(continuous)
+            else:
+                num_buckets = min(self.max_discrete_featurizing_buckets,
+                        info["num_values"])
+                for i in range(num_buckets):
+                    maps["idx"].append(pred_idx_start+i)
+                    maps["descr"].append(DESCR_TMP.format(COL=col,
+                        TYPE="feat_buckets"))
+                    maps["pg"].append(False)
+                    maps["continuous"].append(continuous)
+
+                if col in self.regex_cols:
+                    # give it more space...
+                    # pred_len += 2
+                    pred_idx_start += num_buckets
+                    for i in range(num_buckets):
+                        maps["idx"].append(pred_idx_start+i)
+                        maps["descr"].append(DESCR_TMP.format(COL=col,
+                            TYPE="regex"))
+                        maps["pg"].append(False)
+                        maps["continuous"].append(continuous)
+
+                    maps["idx"].append(pred_idx_start+i+1)
+                    maps["descr"].append(DESCR_TMP.format(COL=col,
+                        TYPE="regex_len"))
+                    maps["pg"].append(False)
+                    maps["continuous"].append(continuous)
+
+                    maps["idx"].append(pred_idx_start+i+2)
+                    maps["descr"].append(DESCR_TMP.format(COL=col,
+                        TYPE="regex_num"))
+                    maps["pg"].append(False)
+                    maps["continuous"].append(continuous)
+
+        # assert last idx should still not be accounted for
+        unaccounted_idxs = []
+        for i in range(self.pred_features_len):
+            if i not in maps["idx"]:
+                unaccounted_idxs.append(i)
+
+        assert self.pred_features_len not in maps["idx"]
+        print(unaccounted_idxs)
+        maps["idx"].append(self.pred_features_len)
+        maps["descr"].append(DESCR_TMP.format(COL="all",
+            TYPE="pg"))
+        maps["pg"].append(True)
+        maps["continuous"].append(False)
+        df = pd.DataFrame(maps)
+        df["feature_type"] = "pred"
+
+        return df
 
     def get_pred_features(self, col, val, cmp_op,
             pred_est=None):

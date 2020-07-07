@@ -126,6 +126,8 @@ def get_all_objects(results_dir, obj_name):
         cur_dir = results_dir + "/" + fn
         if os.path.exists(cur_dir + "/" + obj_name):
             df = load_object(cur_dir + "/" + obj_name)
+            if not isinstance(df, pd.DataFrame):
+                df = pd.DataFrame(df)
         else:
             continue
         exp_args = load_object(cur_dir + "/args.pkl")

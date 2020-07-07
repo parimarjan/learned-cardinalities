@@ -1113,8 +1113,8 @@ class NN(CardinalityEstimationAlg):
         replaces the results file.
         '''
         # TODO: maybe reset cur_stats
-        if self.eval_epoch > 5:
-            return
+        # if self.eval_epoch > 5:
+            # return
 
         self.stats = pd.DataFrame(self.cur_stats)
         if not os.path.exists(self.result_dir):
@@ -1135,6 +1135,11 @@ class NN(CardinalityEstimationAlg):
 
         with open(fn, 'wb') as fp:
             pickle.dump(results, fp,
+                    protocol=pickle.HIGHEST_PROTOCOL)
+
+        sfn = exp_dir + "/" + "subq_summary.pkl"
+        with open(sfn, 'wb') as fp:
+            pickle.dump(self.subquery_summary_data, fp,
                     protocol=pickle.HIGHEST_PROTOCOL)
 
     def num_parameters(self):
@@ -1270,14 +1275,15 @@ class NN(CardinalityEstimationAlg):
         samples = self.samples[samples_type]
         summary_data = defaultdict(list)
         query_idx = 0
-
-        for sample in samples:
+        subq_imps = self.subq_imp[samples_type]
+        for samplei, sample in enumerate(samples):
             template = sample["template_name"]
             sample_losses = []
             nodes = list(sample["subset_graph"].nodes())
             if SOURCE_NODE in nodes:
                 nodes.remove(SOURCE_NODE)
             nodes.sort()
+            cur_subq_imps = subq_imps[samplei]
             for subq_idx, node in enumerate(nodes):
                 num_tables = len(node)
                 idx = query_idx + subq_idx
@@ -1286,12 +1292,21 @@ class NN(CardinalityEstimationAlg):
                 summary_data["loss"].append(loss)
                 summary_data["num_tables"].append(num_tables)
                 summary_data["template"].append(template)
+                summary_data["subq_imp"].append(cur_subq_imps[subq_idx])
+                sorted_node = list(node)
+                sorted_node.sort()
+                subq_id = deterministic_hash(str(sorted_node))
+                summary_data["subq_id"].append(subq_id)
+
             query_idx += len(nodes)
             self.query_qerr_stats["epoch"].append(epoch)
             self.query_qerr_stats["query_name"].append(sample["name"])
             self.query_qerr_stats["qerr"].append(sum(sample_losses) / len(sample_losses))
 
         df = pd.DataFrame(summary_data)
+        self.subquery_summary_data = df
+        df["samples_type"] = samples_type
+        df["epoch"] = self.epoch
         for template in set(df["template"]):
             tvals = df[df["template"] == template]
             self.add_row(tvals["loss"].values, "qerr", epoch,
@@ -1519,8 +1534,68 @@ class NN(CardinalityEstimationAlg):
         assert len(training_sets) == len(self.groups) == len(training_loaders)
         return training_sets, training_loaders
 
+    def get_subq_imp(self, samples):
+        # FIXME: avoid repetition
+        imps = []
+        for sample in samples:
+            subsetg_vectors = list(get_subsetg_vectors(sample,
+                self.cost_model))
+
+            true_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+            nodes = list(sample["subset_graph"].nodes())
+            nodes.remove(SOURCE_NODE)
+            nodes.sort()
+            for i, node in enumerate(nodes):
+                true_cards[i] = \
+                    sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+            # right is the flow for each edge
+            edge_dict = {}
+            edges = list(sample["subset_graph"].edges())
+            edges.sort()
+            for i, edge in enumerate(edges):
+                edge_dict[edge] = i
+
+            trueC_vec, dgdxT, G, Q = \
+                get_optimization_variables(true_cards,
+                    subsetg_vectors[0], self.min_val,
+                        self.max_val, self.normalization_type,
+                        subsetg_vectors[4],
+                        subsetg_vectors[5],
+                        subsetg_vectors[3],
+                        subsetg_vectors[1],
+                        subsetg_vectors[2],
+                        self.cost_model, subsetg_vectors[-1])
+
+            Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()
+            Gv[subsetg_vectors[-2]] = 1.0
+            G = to_variable(G).float()
+            Q = to_variable(Q).float()
+
+            invG = torch.inverse(G)
+            v = invG @ Gv
+            flows = Q @ (v)
+            flows = flows.cpu().numpy()
+
+            # want to calculate the importance of each node in the subquery
+            # graph
+            node_importances = []
+            for i, node in enumerate(nodes):
+                in_edges = sample["subset_graph"].in_edges(node)
+                node_pr = 0.0
+                for edge in in_edges:
+                    node_pr += flows[edge_dict[edge]]
+                node_importances.append(node_pr)
+
+            imps.append(node_importances)
+
+        return imps
+
     def update_flow_training_info(self):
         print("precomputing flow loss info")
+        # self.true_flows["train"] = []
+
         fstart = time.time()
         # precompute a whole bunch of training things
         self.flow_training_info = []
@@ -1661,6 +1736,10 @@ class NN(CardinalityEstimationAlg):
             # FIXME: need tp get accurate number for load_query_together
             self.num_features = len(training_sets[0][0][0]) + \
                     len(training_sets[0][0][1]) + len(training_sets[0][0][2])
+
+        self.subq_imp = {}
+        self.subq_imp["train"] = self.get_subq_imp(self.training_samples)
+        self.subq_imp["test"] = self.get_subq_imp(val_samples)
 
         if "flow" in self.loss_func:
             self.update_flow_training_info()

@@ -428,6 +428,10 @@ def main():
             feat_tolerance = args.feat_tolerance,
             cost_model = args.cost_model)
 
+    df = db.get_pred_features_map()
+    print(df.head())
+    pdb.set_trace()
+
     if len(train_queries) == 0:
         # debugging, so doesn't crash
         train_queries = test_queries
