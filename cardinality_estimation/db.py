@@ -513,7 +513,7 @@ class DB():
                 maps["pg"].append(False)
 
             ## pg est
-            maps["idx"].append(cmp_op_idx+num_vals)
+            maps["idx"].append(cmp_op_idx+num_vals-1)
             maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="pg"))
             maps["pg"].append(True)
             maps["continuous"].append(continuous)
@@ -567,9 +567,11 @@ class DB():
             if i not in maps["idx"]:
                 unaccounted_idxs.append(i)
 
+        assert self.pred_features_len-1 not in maps["idx"]
         assert self.pred_features_len not in maps["idx"]
         print(unaccounted_idxs)
-        maps["idx"].append(self.pred_features_len)
+
+        maps["idx"].append(self.pred_features_len-1)
         maps["descr"].append(DESCR_TMP.format(COL="all",
             TYPE="pg"))
         maps["pg"].append(True)
@@ -599,6 +601,7 @@ class DB():
         # 1 additional value for pg_est feature
         # assert num_pred_vals <= col_info["num_values"] + 1
 
+        ## FIXME: we are overshooting by one here
         if pred_est:
             preds_vector[pred_idx_start + num_pred_vals] = pred_est
 
@@ -631,7 +634,7 @@ class DB():
                                     regex_val[i+2]) % num_buckets
                             preds_vector[pred_idx_start+pred_idx] = 1.00
 
-                preds_vector[pred_idx_start + num_buckets + 1] = len(regex_val)
+                preds_vector[pred_idx_start + num_buckets] = len(regex_val)
                 if bool(re.search(r'\d', regex_val)):
                     preds_vector[pred_idx_start + num_buckets + 1] = 1
 
