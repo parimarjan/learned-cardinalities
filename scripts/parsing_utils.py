@@ -148,30 +148,39 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
             runtimes = load_object(cur_dir + rt_fn)
         else:
             continue
+
         exp_args = load_object(cur_dir + "/args.pkl")
         exp_args = vars(exp_args)
         perrs = load_object(cur_dir + "/plan_pg_err.pkl")
-        perrs = perrs[perrs["samples_type"] == "test"]
+        # perrs = perrs[perrs["samples_type"].isin(["test", "job"])]
         runtimes = runtimes.drop_duplicates("sql_key")
         all_rt_keys = set(runtimes["sql_key"])
         assert len(all_rt_keys) == len(runtimes)
         # combined_df = jerr_df.merge(true_rts, on="sql_key")
+        print(fn)
+        print("runtimes len: ", len(runtimes))
         runtimes = runtimes.merge(perrs[["sql_key", "template"]], on="sql_key")
         runtimes = runtimes.merge(perrs[["sql_key", "qfn"]], on="sql_key")
 
         runtimes = runtimes.merge(perrs[["sql_key", "loss"]], on="sql_key")
         runtimes = runtimes.merge(perrs[["sql_key", "cost"]], on="sql_key")
+        runtimes = runtimes.merge(perrs[["sql_key", "samples_type"]], on="sql_key")
+        print("runtimes len: ", len(runtimes))
+
+        if "postgres" in fn or "true" in fn:
+            runtimes = runtimes[runtimes["samples_type"] != "job"]
 
         df = runtimes
         # exp_hash = str(deterministic_hash(str(exp_args) + fn))[0:5]
-        exp_hash = fn[0:5]
-        # exp_hash = ""
+        # exp_hash = fn[0:5]
+        # df = df.assign(**exp_args)
+        exp_hash = ""
         if "nn" in exp_args["algs"]:
             df["alg"] = exp_args["loss_func"] + exp_hash
         else:
             df["alg"] = exp_args["algs"]
-
         df = df.drop_duplicates(["alg", "sql_key"])
+        print("df len: ", len(df))
         if rt_keys is not None:
             df = df[df["sql_key"].isin(rt_keys)]
 
