@@ -207,9 +207,6 @@ def get_summary_df(results_dir):
             continue
         exp_args = vars(exp_args)
         exp_args["alg"] = get_alg_name(exp_args)
-        print("partition: ")
-        print(exp_args["diff_templates_seed"])
-        print(fn)
 
         if skip_exp(exp_args):
             print("skip exp!")
@@ -229,19 +226,37 @@ def get_summary_df(results_dir):
         qerrs = qerrs[qerrs["num_tables"] == "all"]
         qerrs = qerrs[LOSS_COLUMNS]
 
-        if jerrs is None:
-            print("jerrs None")
-            continue
+        # if jerrs is None:
+            # print("jerrs None")
+            # continue
 
-        jerrs = jerrs[LOSS_COLUMNS]
-        cm1_jerrs = cm1_jerrs[LOSS_COLUMNS]
-        perrs = perrs[LOSS_COLUMNS]
-        perrs_pg = perrs_pg[LOSS_COLUMNS]
-        ferrs = ferrs[LOSS_COLUMNS]
+        to_concat = []
+        to_concat.append(qerrs)
+
+        if jerrs is not None:
+            jerrs = jerrs[LOSS_COLUMNS]
+            to_concat.append(jerrs)
+
+        if cm1_jerrs is not None:
+            cm1_jerrs = cm1_jerrs[LOSS_COLUMNS]
+            to_concat.append(cm1_jerrs)
+
+        if perrs is not None:
+            perrs = perrs[LOSS_COLUMNS]
+            to_concat.append(perrs)
+
+        if perrs_pg is not None:
+            perrs_pg = perrs_pg[LOSS_COLUMNS]
+            to_concat.append(perrs_pg)
+
+        if ferrs is not None:
+            ferrs = ferrs[LOSS_COLUMNS]
+            to_concat.append(ferrs)
 
         # TODO: add rts too, if it exists
 
-        cur_df = pd.concat([qerrs, cm1_jerrs, jerrs, perrs, perrs_pg, ferrs], ignore_index=True)
+        cur_df = pd.concat(to_concat, ignore_index=True)
+
         # for exp_column in EXP_COLUMNS:
             # cur_df[exp_column] = exp_args[exp_column]
 

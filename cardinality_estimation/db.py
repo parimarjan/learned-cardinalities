@@ -506,7 +506,7 @@ class DB():
         for col in self.featurizer:
             cmp_op_idx, num_vals, continuous = self.featurizer[col]
 
-            for i, cmp_op in enumerate(self.cmp_ops_onehot):
+            for cmp_op, i in self.cmp_ops_onehot.items():
                 maps["idx"].append(cmp_op_idx+i)
                 maps["descr"].append(DESCR_TMP.format(COL = col, TYPE = cmp_op))
                 maps["continuous"].append(continuous)
@@ -514,6 +514,8 @@ class DB():
 
             ## pg est
             maps["idx"].append(cmp_op_idx+num_vals-1)
+            # print("FIXME: pg obob")
+            # maps["idx"].append(cmp_op_idx+num_vals)
             maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="pg"))
             maps["pg"].append(True)
             maps["continuous"].append(continuous)
@@ -603,7 +605,8 @@ class DB():
 
         ## FIXME: we are overshooting by one here
         if pred_est:
-            preds_vector[pred_idx_start + num_pred_vals] = pred_est
+            # preds_vector[pred_idx_start + num_pred_vals] = pred_est
+            preds_vector[pred_idx_start + num_pred_vals-1] = pred_est
 
         if not continuous:
             if "like" in cmp_op:

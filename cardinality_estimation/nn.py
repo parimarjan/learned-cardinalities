@@ -551,6 +551,8 @@ class NN(CardinalityEstimationAlg):
         self.start_day = days[weekno]
         if self.loss_func == "qloss":
             self.loss = qloss_torch
+        if self.loss_func == "ll_scaled_norm_loss":
+            self.loss = self.scaled_norm_loss_wrapper
         elif self.loss_func == "flow_loss":
             self.loss = flow_loss
             self.load_query_together = True
@@ -565,7 +567,8 @@ class NN(CardinalityEstimationAlg):
         elif self.loss_func == "abs":
             self.loss = abs_loss_torch
         elif self.loss_func == "mse":
-            self.loss = torch.nn.MSELoss(reduction="none")
+            # self.loss = torch.nn.MSELoss(reduction="none")
+            self.loss = self.mse_with_min
         elif self.loss_func == "cm_fcnn":
             self.loss = qloss_torch
         else:
@@ -631,6 +634,52 @@ class NN(CardinalityEstimationAlg):
         if self.eval_parallel:
             self.eval_sync = None
             self.eval_pool = ThreadPool(2)
+
+    def scaled_norm_loss_wrapper(self, yhat, ytrue):
+        # else convert them to preds / targets
+        assert self.normalization_type == "mscn"
+        # yhat = yhat.cpu().detach().numpy()
+        # ytrue = ytrue.cpu().detach().numpy()
+        yhat = torch.exp((yhat + \
+            self.min_val)*(self.max_val-self.min_val))
+        ytrue = torch.exp((ytrue + \
+            self.min_val)*(self.max_val-self.min_val))
+        return ll_scaled_norm_loss(yhat, ytrue)
+
+    def mse_with_min(self, yhat, ytrue, min_qerr=1.0):
+        mse_losses = torch.nn.MSELoss(reduction="none")(yhat, ytrue)
+        if min_qerr == 1.0:
+            return mse_losses
+        # else convert them to preds / targets
+        assert self.normalization_type == "mscn"
+        yhat = yhat.cpu().detach().numpy()
+        ytrue = ytrue.cpu().detach().numpy()
+        yhat = np.exp((yhat + \
+            self.min_val)*(self.max_val-self.min_val))
+        ytrue = np.exp((ytrue + \
+            self.min_val)*(self.max_val-self.min_val))
+        qerrors = np.maximum( (ytrue / yhat), (yhat / ytrue))
+        vals = []
+        cur_min_mse_loss = 10000000
+        for i, qerr in enumerate(qerrors):
+            if qerr < min_qerr:
+                vals.append(0.0)
+            else:
+                vals.append(1.0)
+                if mse_losses[i] < cur_min_mse_loss:
+                    cur_min_mse_loss = mse_losses[i]
+
+        vals = to_variable(vals, requires_grad=True).float()
+        assert vals.shape == ytrue.shape
+        assert vals.shape == mse_losses.shape
+
+        mse_losses -= cur_min_mse_loss
+        mse_losses *= vals
+        mse_np = mse_losses.cpu().detach().numpy()
+        assert ((mse_np >= 0).sum() == mse_np.size).astype(np.int)
+        assert mse_losses.shape == ytrue.shape
+        return mse_losses
+
 
     def train_combined_net(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
@@ -771,8 +820,18 @@ class NN(CardinalityEstimationAlg):
                         self.normalize_flow_loss,
                         self.join_loss_pool, self.cost_model)
             else:
-                losses = loss_fn(pred, ybatch)
+                if self.loss_func == "mse_with_min":
+                    losses = loss_fn(pred, ybatch, self.min_qerr)
+                else:
+                    losses = loss_fn(pred, ybatch)
 
+                if self.flow_weighted_loss:
+                    # which subqueries have we been using
+                    subq_idxs = info["dataset_idx"]
+                    loss_weights = np.ascontiguousarray(self.subq_imp["train"][subq_idxs])
+                    loss_weights = to_variable(loss_weights).float()
+                    assert losses.shape == loss_weights.shape
+                    losses *= loss_weights
             try:
                 loss = losses.sum() / len(losses)
             except:
@@ -1283,7 +1342,7 @@ class NN(CardinalityEstimationAlg):
             if SOURCE_NODE in nodes:
                 nodes.remove(SOURCE_NODE)
             nodes.sort()
-            cur_subq_imps = subq_imps[samplei]
+            # cur_subq_imps = subq_imps[samplei]
             for subq_idx, node in enumerate(nodes):
                 num_tables = len(node)
                 idx = query_idx + subq_idx
@@ -1292,7 +1351,7 @@ class NN(CardinalityEstimationAlg):
                 summary_data["loss"].append(loss)
                 summary_data["num_tables"].append(num_tables)
                 summary_data["template"].append(template)
-                summary_data["subq_imp"].append(cur_subq_imps[subq_idx])
+                summary_data["subq_imp"].append(subq_imps[idx])
                 sorted_node = list(node)
                 sorted_node.sort()
                 subq_id = deterministic_hash(str(sorted_node))
@@ -1304,9 +1363,16 @@ class NN(CardinalityEstimationAlg):
             self.query_qerr_stats["qerr"].append(sum(sample_losses) / len(sample_losses))
 
         df = pd.DataFrame(summary_data)
-        self.subquery_summary_data = df
+
         df["samples_type"] = samples_type
         df["epoch"] = self.epoch
+
+        if samples_type == "test":
+            self.subquery_summary_data = pd.concat([self.subquery_summary_data,
+                df])
+        else:
+            self.subquery_summary_data = df
+
         for template in set(df["template"]):
             tvals = df[df["template"] == template]
             self.add_row(tvals["loss"].values, "qerr", epoch,
@@ -1588,9 +1654,9 @@ class NN(CardinalityEstimationAlg):
                     node_pr += flows[edge_dict[edge]]
                 node_importances.append(node_pr)
 
-            imps.append(node_importances)
+            imps += node_importances
 
-        return imps
+        return np.array(imps)
 
     def update_flow_training_info(self):
         print("precomputing flow loss info")
@@ -1811,17 +1877,18 @@ class NN(CardinalityEstimationAlg):
             num_proc = 10
             par_args = []
             # training_samples_hash = deterministic_hash(str(training_samples))
-            for s in training_samples:
-                par_args.append((s, "cost"))
+            # for s in training_samples:
+                # par_args.append((s, "cost"))
 
-            with Pool(processes = num_proc) as pool:
-                res = pool.starmap(get_subq_flows, par_args)
+            # with Pool(processes = num_proc) as pool:
+                # res = pool.starmap(get_subq_flows, par_args)
 
             if self.priority_normalize_type == "flow4":
                 # count number at each level
                 template_level_counts = {}
 
             qidx = 0
+            subq_imps = self.subq_imp["train"]
             for si, sample in enumerate(training_samples):
                 subsetg = sample["subset_graph"]
                 node_list = list(subsetg.nodes())
@@ -1830,15 +1897,17 @@ class NN(CardinalityEstimationAlg):
                 node_list.sort()
                 cur_weights = np.zeros(len(node_list))
                 # will update the cur_weights for this sample now
-                flows, edge_dict = res[si]
+                # flows, edge_dict = res[si]
 
                 for i, node in enumerate(node_list):
                     # all_paths = nx.all_simple_paths(subsetg, dest, node)
                     # num_paths = len(list(all_paths))
-                    in_edges = subsetg.in_edges(node)
-                    node_pr = 0.0
-                    for edge in in_edges:
-                        node_pr += flows[edge_dict[edge]]
+                    # in_edges = subsetg.in_edges(node)
+                    # node_pr = 0.0
+                    # for edge in in_edges:
+                        # node_pr += flows[edge_dict[edge]]
+                    subq_idx = idx = qidx + i
+                    node_pr = subq_imps[subq_idx]
 
                     if self.priority_normalize_type in ["flow1", "flow2"]:
                         cur_weights[i] = node_pr
@@ -1998,10 +2067,11 @@ class NN(CardinalityEstimationAlg):
 
                         # the order of iteration doesn't matter here since each
                         # is being given the same weight
-                        for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
+                        num_nodes = len(sample["subset_graph"].nodes())-1
+                        for subq_idx in range(num_nodes):
                             weights[query_idx+subq_idx] = sq_weight
 
-                        query_idx += len(sample["subset_graph"].nodes())
+                        query_idx += num_nodes
 
                     if subquery_rel_weights is not None:
                         weights *= subquery_rel_weights

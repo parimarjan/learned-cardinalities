@@ -67,25 +67,29 @@ class SimpleRegression(torch.nn.Module):
         else:
             n_hidden = hidden_layer_size
 
-        self.layers = []
-        self.layer1 = nn.Sequential(
+        # self.layers = []
+        self.layers = nn.ModuleList()
+
+        layer1 = nn.Sequential(
             nn.Linear(input_width, n_hidden, bias=True),
             nn.LeakyReLU()
         ).to(device)
-        self.layers.append(self.layer1)
+        self.layers.append(layer1)
 
         for i in range(0,num_hidden_layers-1,1):
+            print("initializing extra hidden layer")
+
             layer = nn.Sequential(
                 nn.Linear(n_hidden, n_hidden, bias=True),
                 nn.LeakyReLU()
             ).to(device)
             self.layers.append(layer)
 
-        self.final_layer = nn.Sequential(
+        final_layer = nn.Sequential(
             nn.Linear(n_hidden, n_output, bias=True),
             nn.Sigmoid()
         ).to(device)
-        self.layers.append(self.final_layer)
+        self.layers.append(final_layer)
 
     def compute_grads(self):
         wts = []

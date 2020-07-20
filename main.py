@@ -69,6 +69,8 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                min_qerr = args.min_qerr,
+                flow_weighted_loss = args.flow_weighted_loss,
                 eval_parallel = args.eval_parallel,
                 max_hid = args.max_hid,
                 cost_model = args.cost_model,
@@ -527,6 +529,8 @@ def read_flags():
             default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
             default=1)
+    parser.add_argument("--flow_weighted_loss", type=int, required=False,
+            default=0)
     parser.add_argument("--job_query_dir", type=str, required=False,
             default="./job_queries/")
     parser.add_argument("--test_diff_templates", type=int, required=False,
@@ -534,7 +538,7 @@ def read_flags():
     parser.add_argument("--diff_templates_type", type=int, required=False,
             default=1)
     parser.add_argument("--diff_templates_seed", type=int, required=False,
-            default=1234)
+            default=1)
     parser.add_argument("--eval_parallel", type=int, required=False,
             default=0)
     parser.add_argument("--max_hid", type=int, required=False,
@@ -572,6 +576,8 @@ def read_flags():
             default=1)
     parser.add_argument("--normalization_type", type=str, required=False,
             default="mscn")
+    parser.add_argument("--min_qerr", type=float, required=False,
+            default=1.00)
 
     parser.add_argument("--nn_weights_init_pg", type=int, required=False,
             default=0)

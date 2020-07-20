@@ -2171,7 +2171,8 @@ def get_subq_flows(qrep, cost_key):
     if key in flow_cache.archive:
         return flow_cache.archive[key]
 
-    subsetg = qrep["subset_graph_paths"]
+    # subsetg = qrep["subset_graph_paths"]
+    subsetg = qrep["subset_graph"]
     edges, c, A, b, G, h = construct_lp(subsetg, cost_key)
 
     n = len(edges)

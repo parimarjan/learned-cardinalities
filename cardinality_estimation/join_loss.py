@@ -271,16 +271,16 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
             est_explain)
 
     # print("do join orders match: ", debug_leading == leading_hint)
-    for k,v in cost_join_ops.items():
-        if (v != est_join_ops[k]):
-            print(k, v, est_join_ops[k])
+    # for k,v in cost_join_ops.items():
+        # if (v != est_join_ops[k]):
+            # print(k, v, est_join_ops[k])
 
-    for k,v in cost_scan_ops.items():
+    # for k,v in cost_scan_ops.items():
         # assert v == scan_ops[k]
-        if k not in scan_types:
-            print("not in scan types: ", k, v, scan_ops[k])
-        elif (v != scan_types[k]):
-            print(k, v, scan_ops[k])
+        # if k not in scan_types:
+            # print("not in scan types: ", k, v, scan_ops[k])
+        # elif (v != scan_types[k]):
+            # print(k, v, scan_ops[k])
     # pdb.set_trace()
 
     # FIXME: need to do this
@@ -755,8 +755,8 @@ def get_shortest_path_costs(samples, source_node, cost_key,
             if scan_key in subsetg[path[pi]][path[pi+1]]:
                 scan_types.update(subsetg[path[pi]][path[pi+1]][scan_key])
 
-        if len(scan_types) < 1:
-            print("scan types: ", scan_types)
+        # if len(scan_types) < 1:
+            # print("scan types: ", scan_types)
         assert cost >= 1
         costs.append(cost)
 
