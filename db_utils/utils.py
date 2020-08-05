@@ -50,6 +50,10 @@ else:
 # CROSS_JOIN_CONSTANT = 15000100000
 # EXCEPTION_COUNT_CONSTANT = 15000100002
 
+SAMPLE_TABLES = ["title", "name", "aka_name", "keyword", "movie_info",
+        "movie_companies", "company_type", "kind_type", "info_type",
+        "role_type", "company_name"]
+
 SOURCE_NODE = tuple("s")
 SOURCE_NODE_CONST = 100000
 OLD_TIMEOUT_COUNT_CONSTANT = 150001001

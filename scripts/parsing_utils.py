@@ -306,7 +306,7 @@ def plot_summaries(df, loss_type, HUE_COLORS=None, order=None):
 
 
 ERROR_NAMES = {}
-ERROR_NAMES["qerr"] = "MSE"
+ERROR_NAMES["qerr"] = "Q-Error"
 ERROR_NAMES["flow_err"] = "Flow Loss"
 ERROR_NAMES["flow_ratio"] = "Flow Ratio"
 ERROR_NAMES["mm1_plan_err"] = "Simple Plan Error"
@@ -520,6 +520,28 @@ def plot_loss_template(df, loss_type, samples_type, yscale,
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
+
+def plot_model_complexity(df, title, error, HUE_COLORS, HUE_ORDER, ORDER):
+    df2 = df[df.loss_type == error]
+    df2 = df2[df2.samples_type != "job"]
+    fg = sns.catplot(data=df2, x="samples_type", y="loss",
+	row="buckets", col="hidden_layer_size",
+	hue="alg_name", kind="bar", ci=None, palette=HUE_COLORS,
+        hue_order=HUE_ORDER, order=ORDER)
+
+    sup_title = ERROR_NAMES[error]
+    fg.fig.suptitle(sup_title, fontsize=75)
+    # fg.despine(left=True)
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
+    plt.show()
+    plt.clf()
+    # plt.show()
+
+def construct_summary_final_model_complexity(df, title, ERRORS,
+        HUE_COLORS=None, HUE_ORDER=None, ORDER=None, miny=0.0):
+
+    for error in ERRORS:
+        plot_model_complexity(df, title, error, HUE_COLORS, HUE_ORDER, ORDER)
 
 def main():
     query_dir = "./our_dataset/queries/"

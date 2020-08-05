@@ -280,6 +280,14 @@ def get_summary_df(results_dir):
             partition = "0"
         cur_df["partition"] = partition
 
+        # if (partition == 4 or partition == 5) \
+                # and "sample_bitmaps":
+            # print("****")
+            # print(partition)
+            # print(results_dir)
+            # print(fn)
+            # print("***")
+
         all_dfs.append(cur_df)
 
     summary_df = pd.concat(all_dfs, ignore_index=True)

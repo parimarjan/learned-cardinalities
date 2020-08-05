@@ -164,7 +164,7 @@ def remove_doubles(query_strs):
         newq.append(q)
     return newq
 
-def eval_alg(alg, losses, queries, samples_type, join_loss_pool):
+def eval_alg(alg, loss_funcs, queries, samples_type, join_loss_pool):
     '''
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
@@ -181,7 +181,7 @@ def eval_alg(alg, losses, queries, samples_type, join_loss_pool):
     loss_start = time.time()
     alg_name = alg.__str__()
     exp_name = alg.get_exp_name()
-    for loss_func in losses:
+    for loss_func in loss_funcs:
         losses = loss_func(queries, yhats, name=alg_name,
                 args=args, samples_type=samples_type, exp_name = exp_name,
                 pool = join_loss_pool)
@@ -428,7 +428,9 @@ def main():
             feat_rel_pg_ests_onehot = args.feat_rel_pg_ests_onehot,
             feat_pg_est_one_hot = args.feat_pg_est_one_hot,
             feat_tolerance = args.feat_tolerance,
-            cost_model = args.cost_model)
+            cost_model = args.cost_model, sample_bitmap=args.sample_bitmap,
+            sample_bitmap_num=args.sample_bitmap_num,
+            sample_bitmap_buckets=args.sample_bitmap_buckets)
 
     # df = db.get_pred_features_map()
     # print(df.head())
@@ -475,23 +477,45 @@ def main():
 
     for alg in algorithms:
         start = time.time()
-        if args.use_val_set:
+        if args.model_dir is None:
+            if args.use_val_set:
+                alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                        val_samples=val_queries, join_loss_pool=join_loss_pool)
+            elif args.eval_test_while_training:
+                alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                        val_samples=test_queries, join_loss_pool=join_loss_pool)
+            else:
+                alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                        val_samples=None, join_loss_pool=join_loss_pool)
+
+            train_times[alg.__str__()] = round(time.time() - start, 2)
+
+            del(alg.training_sets[0])
+            del(alg.training_loaders[0])
+            if args.eval_epoch < args.max_epochs:
+                del(alg.eval_test_sets[0])
+                for k,v in alg.eval_loaders.items():
+                    del(v)
+        else:
+            alg.max_epochs = 0
             alg.train(db, train_queries, use_subqueries=args.use_subqueries,
                     val_samples=val_queries, join_loss_pool=join_loss_pool)
-        elif args.eval_test_while_training:
-            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    val_samples=test_queries, join_loss_pool=join_loss_pool)
-        else:
-            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    val_samples=None, join_loss_pool=join_loss_pool)
-
-        train_times[alg.__str__()] = round(time.time() - start, 2)
+            # load the model instead of training it!
+            alg.load_model(args.model_dir)
 
         start = time.time()
+
+        # print("FIXME: not evaluating loaded model on training set")
+        # if args.model_dir is None:
         eval_alg(alg, losses, train_queries, "train", join_loss_pool)
 
-        if args.test:
-            eval_alg(alg, losses, test_queries, "test", join_loss_pool)
+        # if args.test:
+            # size = int(len(test_queries) / 10)
+            # for i in range(10):
+                # idx = size*i
+                # eval_alg(alg, losses, test_queries[idx:idx+size], "test", join_loss_pool)
+
+        eval_alg(alg, losses, test_queries, "test", join_loss_pool)
 
         if args.eval_on_job:
             eval_alg(alg, losses, job_queries, "job", join_loss_pool)
@@ -527,6 +551,13 @@ def read_flags():
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
+    parser.add_argument("--sample_bitmap", type=int, required=False,
+            default=0)
+    parser.add_argument("--sample_bitmap_num", type=int, required=False,
+            default=1000)
+    parser.add_argument("--sample_bitmap_buckets", type=int, required=False,
+            default=1000)
+
     parser.add_argument("--eval_on_job", type=int, required=False,
             default=1)
     parser.add_argument("--flow_weighted_loss", type=int, required=False,
@@ -542,7 +573,7 @@ def read_flags():
     parser.add_argument("--eval_parallel", type=int, required=False,
             default=0)
     parser.add_argument("--max_hid", type=int, required=False,
-            default=128)
+            default=512)
     parser.add_argument("--no7a", type=int, required=False,
             default=0)
     parser.add_argument("--feat_pg_costs", type=int, required=False,
@@ -701,7 +732,7 @@ def read_flags():
             default="FCNN")
 
     parser.add_argument("--num_hidden_layers", type=int,
-            required=False, default=1)
+            required=False, default=2)
     parser.add_argument("--hidden_layer_multiple", type=float,
             required=False, default=None)
     parser.add_argument("--hidden_layer_size", type=int,
@@ -743,6 +774,10 @@ def read_flags():
             help="comma separated list of loss names")
     parser.add_argument("--result_dir", type=str, required=False,
             default="./results2/")
+
+    parser.add_argument("--model_dir", type=str, required=False,
+            default=None)
+
     parser.add_argument("--baseline_join_alg", type=str, required=False,
             default="EXHAUSTIVE")
     parser.add_argument("--db_file_name", type=str, required=False,

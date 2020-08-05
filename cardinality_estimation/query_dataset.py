@@ -128,7 +128,19 @@ class QueryDataset(data.Dataset):
             for node, info in node_data:
                 if SOURCE_NODE in node_data:
                     continue
-                table_features = self.db.get_table_features(info["real_name"])
+
+                cards = qrep["subset_graph"].nodes()[(node,)]
+                if "sample_bitmap" in cards:
+                    bitmap = cards["sample_bitmap"]
+                else:
+                    bitmap = None
+                table_features = self.db.get_table_features(info["real_name"],
+                        bitmap_dict=bitmap)
+
+                # print(bitmap)
+                # print("len of table features: ", len(table_features))
+                # pdb.set_trace()
+
                 table_feat_dict[node] = table_features
                 # TODO: pass in the cardinality as well.
                 heuristic_est = None
@@ -179,7 +191,7 @@ class QueryDataset(data.Dataset):
                 total = info["cardinality"]["total"]
 
                 pred_features = np.zeros(self.db.pred_features_len)
-                table_features = np.zeros(len(self.db.tables))
+                table_features = np.zeros(self.db.table_features_len)
                 join_features = np.zeros(len(self.db.joins))
 
                 # these are base tables within a join, or node in the subset

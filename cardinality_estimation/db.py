@@ -168,7 +168,8 @@ class DB():
             feat_rel_pg_ests=True, feat_join_graph_neighbors=True,
             feat_rel_pg_ests_onehot=True,
             feat_pg_est_one_hot=True,
-            cost_model=None):
+            cost_model=None, sample_bitmap=False, sample_bitmap_num=1000,
+            sample_bitmap_buckets=1000):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -188,8 +189,35 @@ class DB():
         assert self.featurizer is None
         # only need to know the number of tables for table features
         self.table_featurizer = {}
+        bitmap_tables = []
         for i, table in enumerate(sorted(self.tables)):
             self.table_featurizer[table] = i
+            if sample_bitmap and table in SAMPLE_TABLES:
+                bitmap_tables.append(table)
+
+        self.sample_bitmap = sample_bitmap
+        self.sample_bitmap_num = sample_bitmap_num
+        self.sample_bitmap_buckets = sample_bitmap_buckets
+        self.sample_bitmap_key = "sb" + str(self.sample_bitmap_num)
+        if sample_bitmap:
+            bitmap_tables.sort()
+            # also indexes into table_featurizer
+            self.sample_bitmap_featurizer = {}
+            table_idx = len(self.tables)
+            for i, table in enumerate(bitmap_tables):
+                # how many elements in the current table
+                count_str = "SELECT COUNT(*) FROM {}".format(table)
+                output = self.execute(count_str)
+                count = output[0][0]
+                feat_count = min(count, sample_bitmap_buckets)
+                self.sample_bitmap_featurizer[table] = (table_idx, feat_count)
+                table_idx += feat_count
+
+            self.table_features_len = table_idx
+        else:
+            print("sample bitmap off")
+            self.table_features_len = len(self.table_featurizer)
+
         self.join_featurizer = {}
 
         for i, join in enumerate(sorted(self.joins)):
@@ -469,11 +497,20 @@ class DB():
 
         return flow_features
 
-    def get_table_features(self, table):
+    def get_table_features(self, table, bitmap_dict=None):
         '''
         '''
-        tables_vector = np.zeros(len(self.table_featurizer))
+        tables_vector = np.zeros(self.table_features_len)
         tables_vector[self.table_featurizer[table]] = 1.00
+        if bitmap_dict is not None and self.sample_bitmap:
+            if self.sample_bitmap_key not in bitmap_dict:
+                return tables_vector
+            bitmap = bitmap_dict[self.sample_bitmap_key]
+            start_idx, num_bins = self.sample_bitmap_featurizer[table]
+            for val in bitmap:
+                idx = deterministic_hash(val) % num_bins
+                tables_vector[start_idx+idx] = 1.00
+
         return tables_vector
 
     def get_join_features(self, join_str):

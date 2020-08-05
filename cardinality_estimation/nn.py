@@ -931,12 +931,14 @@ class NN(CardinalityEstimationAlg):
                 net = SetConv(len(sample[0][0]), len(sample[1][0]),
                         len(sample[2][0]), len(sample[3][0]),
                         self.hidden_layer_size, dropout= self.dropout,
-                        max_hid = self.max_hid)
+                        max_hid = self.max_hid,
+                        num_hidden_layers=self.num_hidden_layers)
             else:
                 net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
                         len(sample[3]),
                         self.hidden_layer_size, dropout=self.dropout,
-                        max_hid = self.max_hid)
+                        max_hid = self.max_hid,
+                        num_hidden_layers=self.num_hidden_layers)
         else:
             assert False
 
@@ -981,12 +983,14 @@ class NN(CardinalityEstimationAlg):
             if self.nn_type == "mscn":
                 net, optimizer, scheduler = \
                         self._init_net("SetConv", self.optimizer_name, sample)
+                print(net)
+                # print(len(list(net.parameters())))
+                # pdb.set_trace()
             else:
                 net, optimizer, scheduler = \
                         self._init_net(self.net_name, self.optimizer_name, sample)
                 print(net)
                 print(len(list(net.parameters())))
-                pdb.set_trace()
 
             # print(net)
             # print(net.parameters())
@@ -1401,6 +1405,7 @@ class NN(CardinalityEstimationAlg):
             self.save_join_loss_stats(opt_flow_ratios, None, samples,
                     samples_type, loss_key="flow_ratio")
 
+        opt_plan_pg_costs = None
         if self.cost_model_plan_err and \
                 epoch % self.eval_epoch_plan_err == 0:
             opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
@@ -1727,6 +1732,15 @@ class NN(CardinalityEstimationAlg):
             # farchive.dump()
         # del farchive
 
+    def load_model(self, model_dir):
+        # TODO: can model dir be reconstructed based on args?
+        model_path = model_dir + "/model_weights.pt"
+        assert os.path.exists(model_path)
+        assert len(self.nets) == 1
+        self.nets[0].load_state_dict(torch.load(model_path))
+        self.nets[0].eval()
+        print("*****loaded model*****")
+
     def train(self, db, training_samples, use_subqueries=False,
             val_samples=None, join_loss_pool = None):
         assert isinstance(training_samples[0], dict)
@@ -1780,6 +1794,7 @@ class NN(CardinalityEstimationAlg):
         if self.sampling_priority_alpha > 0.00:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
                                     False, self.mb_size, weighted=True)
+            self.training_sets = training_sets
             priority_loaders = []
             for i, ds in enumerate(training_sets):
                 priority_loaders.append(data.DataLoader(ds,
@@ -1787,6 +1802,7 @@ class NN(CardinalityEstimationAlg):
         else:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
                                     True, self.mb_size, weighted=False)
+            self.training_sets = training_sets
 
         assert len(self.training_loaders) == len(self.groups)
 
@@ -1960,7 +1976,7 @@ class NN(CardinalityEstimationAlg):
                     self.init_dataset(eval_training_samples, False,
                             self.eval_batch_size, weighted=False)
             self.eval_loaders["train"] = eval_train_loaders
-        else:
+        elif self.eval_epoch < self.max_epochs:
             eval_training_samples = training_samples
             assert len(training_sets) == 1
             # eval loader should maintain order of samples for periodic_eval to
@@ -1968,11 +1984,12 @@ class NN(CardinalityEstimationAlg):
             self.eval_loaders["train"] = [data.DataLoader(training_sets[0],
                     batch_size=self.eval_batch_size, shuffle=False,
                     num_workers=0)]
-        self.samples["train"] = eval_training_samples
+            self.samples["train"] = eval_training_samples
 
         # TODO: add separate dataset, dataloaders for evaluation
         if val_samples is not None and len(val_samples) > 0 \
-                and not self.no_eval:
+                and not self.no_eval \
+                and self.eval_epoch < self.max_epochs:
             # val_samples = random.sample(val_samples, int(len(val_samples) /
                     # eval_samples_size_divider))
             assert eval_samples_size_divider == 1
@@ -1985,6 +2002,7 @@ class NN(CardinalityEstimationAlg):
             eval_test_sets, eval_test_loaders = \
                     self.init_dataset(val_samples, False, self.eval_batch_size,
                             weighted=False)
+            self.eval_test_sets = eval_test_sets
             self.eval_loaders["test"] = eval_test_loaders
         else:
             self.samples["test"] = None
@@ -2190,11 +2208,10 @@ class NN(CardinalityEstimationAlg):
         pred, y = self._eval_samples(loaders)
         if self.preload_features:
             for dataset in datasets:
-                del(dataset.X)
-                del(dataset.Y)
-                del(dataset.info)
-        # loss = self.loss(pred, y).detach().numpy()
-        # print("loss after test: ", np.mean(loss))
+                del(dataset)
+            for loader in loaders:
+                del(loader)
+
         pred = pred.detach().numpy()
         all_ests = []
         query_idx = 0
