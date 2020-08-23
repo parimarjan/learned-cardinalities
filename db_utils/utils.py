@@ -239,14 +239,16 @@ def _plot_join_order_graph(G, base_table_nodes, join_nodes, pdf, title):
         labels = {}
         label_pos = {}
         for k, v in pos.items():
-            label_pos[k] = (v[0]+xdiff, v[1]+ydiff)
             if key in G.nodes[k]:
                 if is_float(G.nodes[k][key]):
                     labels[k] = format_ints(G.nodes[k][key])
                 else:
                     labels[k] = G.nodes[k][key]
             else:
-                est_labels[k] = -1
+                # est_labels[k] = -1
+                continue
+
+            label_pos[k] = (v[0]+xdiff, v[1]+ydiff)
 
         nx.draw_networkx_labels(G, label_pos, labels,
                 font_size=font_size, font_color=font_color)
@@ -433,21 +435,22 @@ def plot_explain_join_order(explain, true_cardinalities,
             G.nodes[node]["true_card"] = true_cardinalities[tuple(aliases)]
         else:
             # unknown, might be a cross-join?
-            G.nodes[node]["est_card"] = CROSS_JOIN_CARD
-            G.nodes[node]["true_card"] = CROSS_JOIN_CARD
-            print("did not find alias in cards, is this cross join?")
-            print(aliases)
-            pdb.set_trace()
+            # G.nodes[node]["est_card"] = CROSS_JOIN_CARD
+            # G.nodes[node]["true_card"] = CROSS_JOIN_CARD
+            # print("did not find alias in cards, is this cross join?")
+            # print(aliases)
+            # pdb.set_trace()
+            pass
 
-        if G.nodes[node]["Plan Rows"] != G.nodes[node]["true_card"]:
+        # if G.nodes[node]["Plan Rows"] != G.nodes[node]["true_card"]:
             # if len(aliases) != 1 and \
                 # G.nodes[node]["true_card"] != TIMEOUT_COUNT_CONSTANT:
-            if len(aliases) != 1:
-                print("should run explain with true values")
-                print("aliases: {}, true: {}, est: {}, plan rows: {}".format(\
-                        aliases,
-                        G.nodes[node]["true_card"], G.nodes[node]["est_card"],
-                        G.nodes[node]["Plan Rows"]))
+            # if len(aliases) != 1:
+                # print("should run explain with true values")
+                # print("aliases: {}, true: {}, est: {}, plan rows: {}".format(\
+                        # aliases,
+                        # G.nodes[node]["true_card"], G.nodes[node]["est_card"],
+                        # G.nodes[node]["Plan Rows"]))
                 # pdb.set_trace()
                 # assert False
 
@@ -1335,7 +1338,9 @@ def draw_graph(g, highlight_nodes=set(), color_nodes={}, bold_edges=[],
     '''
     ryan's version.
     '''
+    print("trying to reverse edge directions!")
     g = g.copy()
+    g = g.reverse()
     if highlight_nodes:
         for n in g.nodes:
             if n in highlight_nodes:

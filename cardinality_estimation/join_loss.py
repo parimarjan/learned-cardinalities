@@ -591,8 +591,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         Gv2 = to_variable(Gv2).float()
         # predC2 = to_variable(predC2).float()
         G2 = to_variable(G2).float()
-        invG = torch.inverse(G2)
-        # invG = torch.pinverse(G2)
+        # invG = torch.inverse(G2)
+        invG = torch.pinverse(G2)
         v = invG @ Gv2 # vshape: Nx1
         v = v.detach().numpy()
         if debug_sql:
@@ -762,6 +762,7 @@ class PlanError():
                 for i, qrep in enumerate(qreps):
                     qkey = deterministic_hash(qrep["sql"])
                     self.opt_costs[qkey] = opt_costs[i]
+
         else:
             num_processes = pool._processes
             batch_size = max(1, math.ceil(len(qreps) / num_processes))
