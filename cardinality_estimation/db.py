@@ -190,15 +190,21 @@ class DB():
         # only need to know the number of tables for table features
         self.table_featurizer = {}
         bitmap_tables = []
-        for i, table in enumerate(sorted(self.tables)):
-            self.table_featurizer[table] = i
-            if sample_bitmap and table in SAMPLE_TABLES:
-                bitmap_tables.append(table)
-
         self.sample_bitmap = sample_bitmap
         self.sample_bitmap_num = sample_bitmap_num
         self.sample_bitmap_buckets = sample_bitmap_buckets
         self.sample_bitmap_key = "sb" + str(self.sample_bitmap_num)
+
+        if self.sample_bitmap:
+            self.bitmap_mapping = {}
+            self.bitmap_next_mapping = {}
+
+        for i, table in enumerate(sorted(self.tables)):
+            self.table_featurizer[table] = i
+            if sample_bitmap and table in SAMPLE_TABLES:
+                bitmap_tables.append(table)
+                self.bitmap_next_mapping[table] = 0
+
         if sample_bitmap:
             bitmap_tables.sort()
             # also indexes into table_featurizer
@@ -507,8 +513,16 @@ class DB():
                 return tables_vector
             bitmap = bitmap_dict[self.sample_bitmap_key]
             start_idx, num_bins = self.sample_bitmap_featurizer[table]
+
             for val in bitmap:
-                idx = deterministic_hash(val) % num_bins
+                if table+str(val) in self.bitmap_mapping:
+                    cur_bin = self.bitmap_mapping[table+str(val)]
+                else:
+                    cur_bin = self.bitmap_next_mapping[table]
+                    self.bitmap_next_mapping[table] += 1
+                    self.bitmap_mapping[table+str(val)] = cur_bin
+
+                idx = cur_bin % num_bins
                 tables_vector[start_idx+idx] = 1.00
 
         return tables_vector
