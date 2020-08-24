@@ -109,6 +109,7 @@ def get_alg(alg):
                 heuristic_features = args.heuristic_features,
                 debug_set = args.debug_set,
                 num_hidden_layers=args.num_hidden_layers,
+                num_attention_heads = args.num_attention_heads,
                 hidden_layer_multiple=args.hidden_layer_multiple,
                     eval_epoch = args.eval_epoch,
                     optimizer_name=args.optimizer_name,
@@ -490,12 +491,13 @@ def main():
 
             train_times[alg.__str__()] = round(time.time() - start, 2)
 
-            del(alg.training_sets[0])
-            del(alg.training_loaders[0])
-            if args.eval_epoch < args.max_epochs:
-                del(alg.eval_test_sets[0])
-                for k,v in alg.eval_loaders.items():
-                    del(v)
+            if hasattr(alg, "training_sets"):
+                del(alg.training_sets[0])
+                del(alg.training_loaders[0])
+                if args.eval_epoch < args.max_epochs:
+                    del(alg.eval_test_sets[0])
+                    for k,v in alg.eval_loaders.items():
+                        del(v)
         else:
             alg.max_epochs = 0
             alg.train(db, train_queries, use_subqueries=args.use_subqueries,
@@ -505,8 +507,6 @@ def main():
 
         start = time.time()
 
-        # print("FIXME: not evaluating loaded model on training set")
-        # if args.model_dir is None:
         eval_alg(alg, losses, train_queries, "train", join_loss_pool)
 
         # if args.test:
@@ -559,7 +559,7 @@ def read_flags():
             default=1000)
 
     parser.add_argument("--eval_on_job", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--flow_weighted_loss", type=int, required=False,
             default=0)
     parser.add_argument("--job_query_dir", type=str, required=False,
@@ -732,6 +732,8 @@ def read_flags():
             default="FCNN")
 
     parser.add_argument("--num_hidden_layers", type=int,
+            required=False, default=2)
+    parser.add_argument("--num_attention_heads", type=int,
             required=False, default=2)
     parser.add_argument("--hidden_layer_multiple", type=float,
             required=False, default=None)
