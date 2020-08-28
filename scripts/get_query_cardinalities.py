@@ -58,6 +58,8 @@ def read_flags():
             required=False, default=-1)
     parser.add_argument("--use_tries", type=int,
             required=False, default=0)
+    parser.add_argument("--skip_zero_queries", type=int,
+            required=False, default=1)
     parser.add_argument("--no_parallel", type=int,
             required=False, default=0)
     parser.add_argument("--card_type", type=str, required=False,
@@ -152,7 +154,7 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
 def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         port, true_timeout, pg_total, cache_dir, fn, wj_walk_timeout, idx,
-        sampling_percentage, sampling_type):
+        sampling_percentage, sampling_type, skip_zero_queries):
     '''
     updates qrep's fields with the needed cardinality estimates, and returns
     the qrep.
@@ -211,7 +213,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         if key_name in cards \
                 and not DEBUG_CHECK_TIMES:
             if key_name == "actual":
-                if cards[key_name] == 0:
+                if cards[key_name] == 0 and skip_zero_queries:
                     # don't want to get cardinalities for zero queries
                     break
 
@@ -355,7 +357,8 @@ def main():
                 get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
                         args.db_name, args.user, args.pwd, args.port,
                         args.true_timeout, args.pg_total, args.card_cache_dir, fn,
-                        args.wj_walk_timeout, i, args.sampling_percentage, args.sampling_type)
+                        args.wj_walk_timeout, i, args.sampling_percentage,
+                        args.sampling_type, True)
                 pdb.set_trace()
             continue
 
@@ -383,7 +386,7 @@ def main():
                     args.db_name, args.user, args.pwd, args.port,
                     args.true_timeout, args.pg_total, args.card_cache_dir, fn,
                     args.wj_walk_timeout, i, args.sampling_percentage,
-                    args.sampling_type))
+                    args.sampling_type, args.skip_zero_queries))
 
     assert not args.no_parallel
     start = time.time()

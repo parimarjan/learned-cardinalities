@@ -198,13 +198,15 @@ def eval_alg(alg, loss_funcs, queries, samples_type, join_loss_pool):
 
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
-def load_samples(qdir, db, found_db, template_name):
+def load_samples(qdir, db, found_db, template_name,
+        skip_zero_queries=True):
     start = time.time()
     # loading, or generating samples
     samples = []
     qfns = list(glob.glob(qdir+"/*.pkl"))
     qfns.sort()
-    if args.num_samples_per_template == -1:
+    if args.num_samples_per_template == -1 \
+            or "job" in qdir:
         qfns = qfns
     elif args.num_samples_per_template < len(qfns):
         qfns = qfns[0:args.num_samples_per_template]
@@ -236,7 +238,7 @@ def load_samples(qdir, db, found_db, template_name):
                 break
 
             if args.train_card_key not in info["cardinality"]:
-                # print("train card key not in qrep")
+                print("train card key not in qrep")
                 zero_query = True
                 break
 
@@ -252,9 +254,11 @@ def load_samples(qdir, db, found_db, template_name):
                 break
 
             elif info["cardinality"]["actual"] == 0:
-                # print("zero query")
-                zero_query = True
-                break
+                if skip_zero_queries:
+                    zero_query = True
+                    break
+                else:
+                    info["cardinality"]["actual"] += 1
 
             if args.sampling_key is not None:
                 if wj_times is None:
@@ -403,7 +407,8 @@ def main():
         job_fns = list(glob.glob(args.job_query_dir + "/*"))
         for qi,qdir in enumerate(job_fns):
             template_name = os.path.basename(qdir)
-            samples = load_samples(qdir, db, found_db, template_name)
+            samples = load_samples(qdir, db, found_db, template_name,
+                    skip_zero_queries=False)
             job_queries += samples
 
     # shuffle train, test queries so join loss computation can be parallelized
@@ -559,7 +564,7 @@ def read_flags():
             default=1000)
 
     parser.add_argument("--eval_on_job", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--flow_weighted_loss", type=int, required=False,
             default=0)
     parser.add_argument("--job_query_dir", type=str, required=False,
@@ -734,7 +739,7 @@ def read_flags():
     parser.add_argument("--num_hidden_layers", type=int,
             required=False, default=2)
     parser.add_argument("--num_attention_heads", type=int,
-            required=False, default=2)
+            required=False, default=1)
     parser.add_argument("--hidden_layer_multiple", type=float,
             required=False, default=None)
     parser.add_argument("--hidden_layer_size", type=int,
@@ -839,7 +844,6 @@ def read_flags():
 
     return parser.parse_args()
 
-# need __name__ == "__main__" for torch multithreading haha
 if __name__ == "__main__":
     args = read_flags()
     main()
