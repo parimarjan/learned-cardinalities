@@ -274,8 +274,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             cards[key_name] = card
             execs[key_name] = exec_time
             query_exec_times.append(exec_time)
-            if card == 0:
+            if card == 0 and skip_zero_queries:
                 # bad times...
+                print("skipping query with zero cardinality subquery")
                 break
 
         elif card_type == "wanderjoin":
@@ -314,6 +315,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if fn is not None:
         update_qrep(qrep)
         save_sql_rep(fn, qrep)
+        print("updated sql rep!")
     return qrep
 
 def main():

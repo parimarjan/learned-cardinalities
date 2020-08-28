@@ -1440,8 +1440,13 @@ def compute_costs(subset_graph, cost_model,
         cards1 = subset_graph.nodes()[node1]["cardinality"]
         cards2 = subset_graph.nodes()[node2]["cardinality"]
         cards3 = subset_graph.nodes()[edge[0]]["cardinality"]
-        total1 = cards1["total"]
-        total2 = cards2["total"]
+
+        if "total" in cards1:
+            total1 = cards1["total"]
+            total2 = cards2["total"]
+        else:
+            total1 = None
+            total2 = None
 
         if isinstance(ests, str):
             card1 = cards1[ests]

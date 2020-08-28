@@ -177,7 +177,8 @@ class QueryDataset(data.Dataset):
             # now, we will generate the actual feature vectors over all the
             # subqueries
             node_names = list(qrep["subset_graph"].nodes())
-            node_names.remove(SOURCE_NODE)
+            if SOURCE_NODE in node_names:
+                node_names.remove(SOURCE_NODE)
             node_names.sort()
             for node_idx, nodes in enumerate(node_names):
                 if self.group is not None:

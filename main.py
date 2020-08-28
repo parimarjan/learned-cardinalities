@@ -238,7 +238,7 @@ def load_samples(qdir, db, found_db, template_name,
                 break
 
             if args.train_card_key not in info["cardinality"]:
-                print("train card key not in qrep")
+                # print("train card key not in qrep")
                 zero_query = True
                 break
 
@@ -410,6 +410,9 @@ def main():
             samples = load_samples(qdir, db, found_db, template_name,
                     skip_zero_queries=False)
             job_queries += samples
+
+        update_samples(job_queries, args.flow_features,
+                args.cost_model, False)
 
     # shuffle train, test queries so join loss computation can be parallelized
     # better: otherwise all queries from templates that take a long time would

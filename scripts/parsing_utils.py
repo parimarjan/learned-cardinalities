@@ -136,6 +136,25 @@ def get_all_objects(results_dir, obj_name):
             df["alg"] = exp_args["loss_func"]
         else:
             df["alg"] = exp_args["algs"]
+
+        df = df.assign(**exp_args)
+        if "nn" in exp_args["algs"]:
+            df["alg_name"] = exp_args["loss_func"]
+        else:
+            df["alg_name"] = exp_args["algs"]
+
+        # decide partition
+        if exp_args["test_diff_templates"]:
+            if exp_args["diff_templates_type"] == 1:
+                partition = "X"
+            elif exp_args["diff_templates_type"] == 2:
+                partition = "Y"
+            elif exp_args["diff_templates_type"] == 3:
+                partition = exp_args["diff_templates_seed"]
+        else:
+            partition = "0"
+        df["partition"] = partition
+
         all_dfs.append(df)
     return pd.concat(all_dfs)
 
