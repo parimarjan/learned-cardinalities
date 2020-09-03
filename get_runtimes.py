@@ -126,8 +126,8 @@ def execute_sql(sql, template="sql", cost_model="cm1",
     cursor.execute("SET geqo_threshold = {}".format(20))
     set_cost_model(cursor, cost_model, materialize)
     if "jerr.pkl" in results_fn:
-        cursor.execute("SET join_collapse_limit = {}".format(16))
-        cursor.execute("SET from_collapse_limit = {}".format(16))
+        cursor.execute("SET join_collapse_limit = {}".format(17))
+        cursor.execute("SET from_collapse_limit = {}".format(17))
     else:
         cursor.execute("SET join_collapse_limit = {}".format(1))
         cursor.execute("SET from_collapse_limit = {}".format(1))
@@ -201,11 +201,15 @@ def main():
             continue
         assert isinstance(costs, pd.DataFrame)
         rt_fn = args.results_dir + "/" + alg_dir + "/" + "runtimes_" + args.results_fn
+        rt_fn = rt_fn.replace(".pkl", ".csv")
         # go in order and execute runtimes...
-        runtimes = load_object(rt_fn)
+        # runtimes = load_object(rt_fn)
+        runtimes = pd.read_csv(rt_fn)
+
         if runtimes is None:
             columns = ["sql_key", "runtime","exp_analyze"]
             runtimes = pd.DataFrame(columns=columns)
+        
         cur_runtimes = defaultdict(list)
 
         for i,row in costs.iterrows():
@@ -235,10 +239,12 @@ def main():
             print("Alg:{}, N:{}, AvgRt: {}".format(alg_dir, len(rts),
                 sum(rts) / len(rts)))
             df = pd.concat([runtimes, pd.DataFrame(cur_runtimes)], ignore_index=True)
-            save_object(rt_fn, df)
+            #save_object(rt_fn, df)
+            df.to_csv(rt_fn, index=False)
 
         df = pd.concat([runtimes, pd.DataFrame(cur_runtimes)], ignore_index=True)
-        save_object(rt_fn, df)
+        #save_object(rt_fn, df)
+        df.to_csv(rt_fn, index=False)
         print("DONE")
         sys.stdout.flush()
 
