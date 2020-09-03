@@ -204,7 +204,10 @@ def main():
         rt_fn = rt_fn.replace(".pkl", ".csv")
         # go in order and execute runtimes...
         # runtimes = load_object(rt_fn)
-        runtimes = pd.read_csv(rt_fn)
+        if os.path.exists(rt_fn):
+            runtimes = pd.read_csv(rt_fn)
+        else:
+            runtimes = None
 
         if runtimes is None:
             columns = ["sql_key", "runtime","exp_analyze"]
