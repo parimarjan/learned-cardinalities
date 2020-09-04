@@ -143,11 +143,13 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
     all_dfs = []
     fns = os.listdir(results_dir)
     rt_fn = "runtimes_" + res_fn
+    rt_fn = rt_fn.replace(".pkl", ".csv")
     print(rt_fn)
     for fn in fns:
         cur_dir = results_dir + "/" + fn + "/"
         if os.path.exists(cur_dir + rt_fn):
-            runtimes = load_object(cur_dir + rt_fn)
+            # runtimes = load_object(cur_dir + rt_fn)
+            runtimes = pd.read_csv(cur_dir+rt_fn)
         else:
             continue
 
