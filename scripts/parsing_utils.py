@@ -136,6 +136,25 @@ def get_all_objects(results_dir, obj_name):
             df["alg"] = exp_args["loss_func"]
         else:
             df["alg"] = exp_args["algs"]
+
+        df = df.assign(**exp_args)
+        if "nn" in exp_args["algs"]:
+            df["alg_name"] = exp_args["loss_func"]
+        else:
+            df["alg_name"] = exp_args["algs"]
+
+        # decide partition
+        if exp_args["test_diff_templates"]:
+            if exp_args["diff_templates_type"] == 1:
+                partition = "X"
+            elif exp_args["diff_templates_type"] == 2:
+                partition = "Y"
+            elif exp_args["diff_templates_type"] == 3:
+                partition = exp_args["diff_templates_seed"]
+        else:
+            partition = "0"
+        df["partition"] = partition
+
         all_dfs.append(df)
     return pd.concat(all_dfs)
 
@@ -308,7 +327,7 @@ def plot_summaries(df, loss_type, HUE_COLORS=None, order=None):
 
 
 ERROR_NAMES = {}
-ERROR_NAMES["qerr"] = "MSE"
+ERROR_NAMES["qerr"] = "Q-Error"
 ERROR_NAMES["flow_err"] = "Flow Loss"
 ERROR_NAMES["flow_ratio"] = "Flow Ratio"
 ERROR_NAMES["mm1_plan_err"] = "Simple Plan Error"
@@ -339,7 +358,7 @@ COST_MODEL_NAMES["nested_loop_index14"] = "cm4d"
 COST_MODEL_NAMES["nested_loop_index13"] = "cm5"
 
 def plot_loss_summary_final(df, loss_type, samples_type, yscale, ax,
-        HUE_COLORS=None, miny=None, maxy=None, ORDER=None):
+        HUE_COLORS=None, miny=None, maxy=None, ORDER=None, HUE_ORDER=None):
 
     # if loss_type in ["mm1_plan_err", "mm1_plan_pg_err", "jerr"]:
         # maxy = 10e6
@@ -356,14 +375,16 @@ def plot_loss_summary_final(df, loss_type, samples_type, yscale, ax,
     ax.set_title(title, fontsize=40)
     cur_df = df[df["samples_type"] == samples_type]
     cur_df = cur_df[cur_df["loss_type"] == loss_type]
-    sns.barplot(x="alg_name", y="loss", hue="alg_name", data=cur_df,
+    bg = sns.barplot(x="alg_name", y="loss", hue="alg_name", data=cur_df,
             palette=HUE_COLORS, ci=95,
-                 ax=ax, linewidth=10, order=ORDER)
+                 ax=ax, linewidth=10, order=ORDER, dodge=False,
+                 hue_order=HUE_ORDER)
 
     ax.set_yscale(yscale)
     ax.get_legend().remove()
     ax.tick_params(labelsize=20)
     ax.xaxis.label.set_size(20)
+    bg.set_xticklabels(bg.get_xticklabels(), rotation=45)
 
 def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
         HUE_COLORS=None, miny=None, maxy=None):
@@ -397,13 +418,14 @@ def plot_loss_summary(df, loss_type, samples_type, yscale, ax,
     ax.xaxis.label.set_size(20)
 
 def construct_summary_final(df, samples_type, title, ERRORS,
-        HUE_COLORS=None, ORDER=None, miny=0.0):
+        HUE_COLORS=None, HUE_ORDER=None, ORDER=None, miny=0.0):
     num_errs = len(ERRORS)
     fig, axs = plt.subplots(1, num_errs, figsize=(40,10))
     fig.suptitle(title, fontsize=50)
     for i, err in enumerate(ERRORS):
         plot_loss_summary_final(df, err, samples_type, "linear", axs[i],
-                     HUE_COLORS=HUE_COLORS, miny=miny, ORDER=ORDER)
+                     HUE_COLORS=HUE_COLORS, miny=miny, ORDER=ORDER,
+                     HUE_ORDER=HUE_ORDER)
 
     if samples_type == "train":
         plt.tight_layout(rect=[0, 0, 1, 0.70])
@@ -519,6 +541,28 @@ def plot_loss_template(df, loss_type, samples_type, yscale,
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
+
+def plot_model_complexity(df, title, error, HUE_COLORS, HUE_ORDER, ORDER):
+    df2 = df[df.loss_type == error]
+    df2 = df2[df2.samples_type != "job"]
+    fg = sns.catplot(data=df2, x="samples_type", y="loss",
+	row="buckets", col="hidden_layer_size",
+	hue="alg_name", kind="bar", ci=None, palette=HUE_COLORS,
+        hue_order=HUE_ORDER, order=ORDER)
+
+    sup_title = ERROR_NAMES[error]
+    fg.fig.suptitle(sup_title, fontsize=75)
+    # fg.despine(left=True)
+    plt.tight_layout(rect=[0, 0, 1, 0.90])
+    plt.show()
+    plt.clf()
+    # plt.show()
+
+def construct_summary_final_model_complexity(df, title, ERRORS,
+        HUE_COLORS=None, HUE_ORDER=None, ORDER=None, miny=0.0):
+
+    for error in ERRORS:
+        plot_model_complexity(df, title, error, HUE_COLORS, HUE_ORDER, ORDER)
 
 def main():
     query_dir = "./our_dataset/queries/"

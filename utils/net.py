@@ -67,25 +67,29 @@ class SimpleRegression(torch.nn.Module):
         else:
             n_hidden = hidden_layer_size
 
-        self.layers = []
-        self.layer1 = nn.Sequential(
+        # self.layers = []
+        self.layers = nn.ModuleList()
+
+        layer1 = nn.Sequential(
             nn.Linear(input_width, n_hidden, bias=True),
             nn.LeakyReLU()
         ).to(device)
-        self.layers.append(self.layer1)
+        self.layers.append(layer1)
 
         for i in range(0,num_hidden_layers-1,1):
+            print("initializing extra hidden layer")
+
             layer = nn.Sequential(
                 nn.Linear(n_hidden, n_hidden, bias=True),
                 nn.LeakyReLU()
             ).to(device)
             self.layers.append(layer)
 
-        self.final_layer = nn.Sequential(
+        final_layer = nn.Sequential(
             nn.Linear(n_hidden, n_output, bias=True),
             nn.Sigmoid()
         ).to(device)
-        self.layers.append(self.final_layer)
+        self.layers.append(final_layer)
 
     def compute_grads(self):
         wts = []
@@ -107,9 +111,10 @@ class SimpleRegression(torch.nn.Module):
 # MSCN model, kipf et al.
 class SetConv(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
-            hid_units, dropout=0.0, max_hid=None):
+            hid_units, dropout=0.0, max_hid=None, num_hidden_layers=2):
         # super(SetConv, self).__init__()
         super().__init__()
+        print("initializing mscn with {} hidden layers".format(num_hidden_layers))
         self.dropout = dropout
         self.flow_feats = flow_feats
         # doesn't really make sense to have this be bigger...
@@ -117,52 +122,103 @@ class SetConv(nn.Module):
         if max_hid is not None:
             sample_hid = min(hid_units, max_hid)
 
-        self.sample_mlp1 = nn.Sequential(
+        self.sample_mlps = nn.ModuleList()
+        sample_mlp1 = nn.Sequential(
             nn.Linear(sample_feats, sample_hid),
             nn.ReLU()
         ).to(device)
+        self.sample_mlps.append(sample_mlp1)
 
-        self.sample_mlp2 = nn.Sequential(
-            nn.Linear(sample_hid, sample_hid),
-            nn.ReLU()
-        ).to(device)
+        for i in range(0,num_hidden_layers-1,1):
+            layer = nn.Sequential(
+                nn.Linear(sample_hid, sample_hid),
+                nn.ReLU()
+            ).to(device)
+            self.sample_mlps.append(layer)
 
-        self.predicate_mlp1 = nn.Sequential(
+        # self.sample_mlp1 = nn.Sequential(
+            # nn.Linear(sample_feats, sample_hid),
+            # nn.ReLU()
+        # ).to(device)
+
+        # self.sample_mlp2 = nn.Sequential(
+            # nn.Linear(sample_hid, sample_hid),
+            # nn.ReLU()
+        # ).to(device)
+
+        self.predicate_mlps = nn.ModuleList()
+        self.predicate_mlps.append(nn.Sequential(
             nn.Linear(predicate_feats, hid_units),
             nn.ReLU()
-        ).to(device)
+        ).to(device))
+        for i in range(0,num_hidden_layers-1,1):
+            layer = nn.Sequential(
+                nn.Linear(hid_units, hid_units),
+                nn.ReLU()
+            ).to(device)
+            self.predicate_mlps.append(layer)
 
-        self.predicate_mlp2 = nn.Sequential(
-            nn.Linear(hid_units, hid_units),
-            nn.ReLU()
-        ).to(device)
+        # self.predicate_mlp1 = nn.Sequential(
+            # nn.Linear(predicate_feats, hid_units),
+            # nn.ReLU()
+        # ).to(device)
+
+        # self.predicate_mlp2 = nn.Sequential(
+            # nn.Linear(hid_units, hid_units),
+            # nn.ReLU()
+        # ).to(device)
 
         if max_hid is not None:
             join_hid = min(hid_units, 128)
         else:
             join_hid = hid_units
 
-        self.join_mlp1 = nn.Sequential(
+        self.join_mlps  = nn.ModuleList()
+        self.join_mlps.append(nn.Sequential(
             nn.Linear(join_feats, join_hid),
             nn.ReLU()
-        ).to(device)
+        ).to(device))
 
-        self.join_mlp2 = nn.Sequential(
-            nn.Linear(join_hid, join_hid),
-            nn.ReLU()
-        ).to(device)
+        for i in range(0,num_hidden_layers-1,1):
+            layer = nn.Sequential(
+                nn.Linear(join_hid, join_hid),
+                nn.ReLU()
+            ).to(device)
+            self.join_mlps.append(layer)
+
+        # self.join_mlp1 = nn.Sequential(
+            # nn.Linear(join_feats, join_hid),
+            # nn.ReLU()
+        # ).to(device)
+
+        # self.join_mlp2 = nn.Sequential(
+            # nn.Linear(join_hid, join_hid),
+            # nn.ReLU()
+        # ).to(device)
 
         if flow_feats > 0:
             flow_hid = hid_units
-            self.flow_mlp1 = nn.Sequential(
+            self.flow_mlps  = nn.ModuleList()
+            self.flow_mlps.append(nn.Sequential(
                 nn.Linear(self.flow_feats, flow_hid),
                 nn.ReLU()
-            ).to(device)
+            ).to(device))
+            for i in range(0,num_hidden_layers-1,1):
+                layer = nn.Sequential(
+                    nn.Linear(flow_hid, flow_hid),
+                    nn.ReLU()
+                ).to(device)
+                self.flow_mlps.append(layer)
 
-            self.flow_mlp2 = nn.Sequential(
-                nn.Linear(flow_hid, flow_hid),
-                nn.ReLU()
-            ).to(device)
+            # self.flow_mlp1 = nn.Sequential(
+                # nn.Linear(self.flow_feats, flow_hid),
+                # nn.ReLU()
+            # ).to(device)
+
+            # self.flow_mlp2 = nn.Sequential(
+                # nn.Linear(flow_hid, flow_hid),
+                # nn.ReLU()
+            # ).to(device)
 
         total_hid = sample_hid + join_hid + hid_units
 
@@ -183,19 +239,19 @@ class SetConv(nn.Module):
 
     def compute_grads(self):
         wts = []
-        wts.append(self.sample_mlp1[0].weight.grad)
-        wts.append(self.sample_mlp2[0].weight.grad)
-        wts.append(self.predicate_mlp1[0].weight.grad)
-        wts.append(self.predicate_mlp2[0].weight.grad)
-        wts.append(self.join_mlp1[0].weight.grad)
-        wts.append(self.join_mlp2[0].weight.grad)
+        # wts.append(self.sample_mlp1[0].weight.grad)
+        # wts.append(self.sample_mlp2[0].weight.grad)
+        # wts.append(self.predicate_mlp1[0].weight.grad)
+        # wts.append(self.predicate_mlp2[0].weight.grad)
+        # wts.append(self.join_mlp1[0].weight.grad)
+        # wts.append(self.join_mlp2[0].weight.grad)
 
-        wts.append(self.out_mlp1[0].weight.grad)
-        wts.append(self.out_mlp2[0].weight.grad)
+        # wts.append(self.out_mlp1[0].weight.grad)
+        # wts.append(self.out_mlp2[0].weight.grad)
 
-        if self.flow_feats:
-            wts.append(self.flow_mlp1[0].weight.grad)
-            wts.append(self.flow_mlp2[0].weight.grad)
+        # if self.flow_feats:
+            # wts.append(self.flow_mlp1[0].weight.grad)
+            # wts.append(self.flow_mlp2[0].weight.grad)
 
         mean_wts = []
         for i,wt in enumerate(wts):
@@ -206,28 +262,41 @@ class SetConv(nn.Module):
     def forward(self, samples, predicates, joins,
             flows):
 
-        hid_sample = self.sample_mlp1(samples)
+        # hid_sample = self.sample_mlp1(samples)
         # hid_sample = self.drop_layer(hid_sample)
-        hid_sample = self.sample_mlp2(hid_sample)
+        # hid_sample = self.sample_mlp2(hid_sample)
+        hid_sample = samples
+        for layer in self.sample_mlps:
+            hid_sample = layer(hid_sample)
 
-        hid_predicate = self.predicate_mlp1(predicates)
-        hid_predicate = self.drop_layer(hid_predicate)
-        hid_predicate = self.predicate_mlp2(hid_predicate)
+        hid_predicate = predicates
+        for layer in self.predicate_mlps:
+            hid_predicate = layer(hid_predicate)
+            # TODO: add dropout
 
-        hid_join = self.join_mlp1(joins)
-        # hid_join = self.drop_layer(hid_join)
-        hid_join = self.join_mlp2(hid_join)
+        # hid_predicate = self.predicate_mlp1(predicates)
+        # hid_predicate = self.drop_layer(hid_predicate)
+        # hid_predicate = self.predicate_mlp2(hid_predicate)
+
+        hid_join = joins
+        for layer in self.join_mlps:
+            hid_join = layer(hid_join)
+
+        # hid_join = self.join_mlp1(joins)
+        # hid_join = self.join_mlp2(hid_join)
 
         if self.flow_feats:
-            hid_flow = self.flow_mlp1(flows)
-            # hid_join = self.drop_layer(hid_flow)
-            hid_flow = self.flow_mlp2(hid_flow)
+            # hid_flow = self.flow_mlp1(flows)
+            # hid_flow = self.flow_mlp2(hid_flow)
+            hid_flow = flows
+            for layer in self.flow_mlps:
+                hid_flow = layer(hid_flow)
+
             hid = torch.cat((hid_sample, hid_predicate, hid_join, hid_flow), 1)
         else:
             hid = torch.cat((hid_sample, hid_predicate, hid_join), 1)
 
         hid = self.out_mlp1(hid)
-        # hid = self.drop_layer(hid)
         out = self.out_mlp2(hid)
 
         return out

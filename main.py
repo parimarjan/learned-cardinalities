@@ -69,6 +69,8 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                min_qerr = args.min_qerr,
+                flow_weighted_loss = args.flow_weighted_loss,
                 eval_parallel = args.eval_parallel,
                 max_hid = args.max_hid,
                 cost_model = args.cost_model,
@@ -107,6 +109,7 @@ def get_alg(alg):
                 heuristic_features = args.heuristic_features,
                 debug_set = args.debug_set,
                 num_hidden_layers=args.num_hidden_layers,
+                num_attention_heads = args.num_attention_heads,
                 hidden_layer_multiple=args.hidden_layer_multiple,
                     eval_epoch = args.eval_epoch,
                     optimizer_name=args.optimizer_name,
@@ -162,7 +165,7 @@ def remove_doubles(query_strs):
         newq.append(q)
     return newq
 
-def eval_alg(alg, losses, queries, samples_type, join_loss_pool):
+def eval_alg(alg, loss_funcs, queries, samples_type, join_loss_pool):
     '''
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
@@ -179,7 +182,7 @@ def eval_alg(alg, losses, queries, samples_type, join_loss_pool):
     loss_start = time.time()
     alg_name = alg.__str__()
     exp_name = alg.get_exp_name()
-    for loss_func in losses:
+    for loss_func in loss_funcs:
         losses = loss_func(queries, yhats, name=alg_name,
                 args=args, samples_type=samples_type, exp_name = exp_name,
                 pool = join_loss_pool)
@@ -195,13 +198,15 @@ def eval_alg(alg, losses, queries, samples_type, join_loss_pool):
 
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
-def load_samples(qdir, db, found_db, template_name):
+def load_samples(qdir, db, found_db, template_name,
+        skip_zero_queries=True):
     start = time.time()
     # loading, or generating samples
     samples = []
     qfns = list(glob.glob(qdir+"/*.pkl"))
     qfns.sort()
-    if args.num_samples_per_template == -1:
+    if args.num_samples_per_template == -1 \
+            or "job" in qdir:
         qfns = qfns
     elif args.num_samples_per_template < len(qfns):
         qfns = qfns[0:args.num_samples_per_template]
@@ -249,9 +254,11 @@ def load_samples(qdir, db, found_db, template_name):
                 break
 
             elif info["cardinality"]["actual"] == 0:
-                # print("zero query")
-                zero_query = True
-                break
+                if skip_zero_queries:
+                    zero_query = True
+                    break
+                else:
+                    info["cardinality"]["actual"] += 1
 
             if args.sampling_key is not None:
                 if wj_times is None:
@@ -400,8 +407,12 @@ def main():
         job_fns = list(glob.glob(args.job_query_dir + "/*"))
         for qi,qdir in enumerate(job_fns):
             template_name = os.path.basename(qdir)
-            samples = load_samples(qdir, db, found_db, template_name)
+            samples = load_samples(qdir, db, found_db, template_name,
+                    skip_zero_queries=False)
             job_queries += samples
+
+        update_samples(job_queries, args.flow_features,
+                args.cost_model, False)
 
     # shuffle train, test queries so join loss computation can be parallelized
     # better: otherwise all queries from templates that take a long time would
@@ -426,7 +437,9 @@ def main():
             feat_rel_pg_ests_onehot = args.feat_rel_pg_ests_onehot,
             feat_pg_est_one_hot = args.feat_pg_est_one_hot,
             feat_tolerance = args.feat_tolerance,
-            cost_model = args.cost_model)
+            cost_model = args.cost_model, sample_bitmap=args.sample_bitmap,
+            sample_bitmap_num=args.sample_bitmap_num,
+            sample_bitmap_buckets=args.sample_bitmap_buckets)
 
     # df = db.get_pred_features_map()
     # print(df.head())
@@ -473,23 +486,44 @@ def main():
 
     for alg in algorithms:
         start = time.time()
-        if args.use_val_set:
+        if args.model_dir is None:
+            if args.use_val_set:
+                alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                        val_samples=val_queries, join_loss_pool=join_loss_pool)
+            elif args.eval_test_while_training:
+                alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                        val_samples=test_queries, join_loss_pool=join_loss_pool)
+            else:
+                alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                        val_samples=None, join_loss_pool=join_loss_pool)
+
+            train_times[alg.__str__()] = round(time.time() - start, 2)
+
+            if hasattr(alg, "training_sets"):
+                del(alg.training_sets[0])
+                del(alg.training_loaders[0])
+                if args.eval_epoch < args.max_epochs:
+                    del(alg.eval_test_sets[0])
+                    for k,v in alg.eval_loaders.items():
+                        del(v)
+        else:
+            alg.max_epochs = 0
             alg.train(db, train_queries, use_subqueries=args.use_subqueries,
                     val_samples=val_queries, join_loss_pool=join_loss_pool)
-        elif args.eval_test_while_training:
-            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    val_samples=test_queries, join_loss_pool=join_loss_pool)
-        else:
-            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    val_samples=None, join_loss_pool=join_loss_pool)
-
-        train_times[alg.__str__()] = round(time.time() - start, 2)
+            # load the model instead of training it!
+            alg.load_model(args.model_dir)
 
         start = time.time()
+
         eval_alg(alg, losses, train_queries, "train", join_loss_pool)
 
-        if args.test:
-            eval_alg(alg, losses, test_queries, "test", join_loss_pool)
+        # if args.test:
+            # size = int(len(test_queries) / 10)
+            # for i in range(10):
+                # idx = size*i
+                # eval_alg(alg, losses, test_queries[idx:idx+size], "test", join_loss_pool)
+
+        eval_alg(alg, losses, test_queries, "test", join_loss_pool)
 
         if args.eval_on_job:
             eval_alg(alg, losses, job_queries, "job", join_loss_pool)
@@ -525,8 +559,17 @@ def read_flags():
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
+    parser.add_argument("--sample_bitmap", type=int, required=False,
+            default=0)
+    parser.add_argument("--sample_bitmap_num", type=int, required=False,
+            default=1000)
+    parser.add_argument("--sample_bitmap_buckets", type=int, required=False,
+            default=1000)
+
     parser.add_argument("--eval_on_job", type=int, required=False,
             default=1)
+    parser.add_argument("--flow_weighted_loss", type=int, required=False,
+            default=0)
     parser.add_argument("--job_query_dir", type=str, required=False,
             default="./job_queries/")
     parser.add_argument("--test_diff_templates", type=int, required=False,
@@ -534,11 +577,11 @@ def read_flags():
     parser.add_argument("--diff_templates_type", type=int, required=False,
             default=1)
     parser.add_argument("--diff_templates_seed", type=int, required=False,
-            default=1234)
+            default=1)
     parser.add_argument("--eval_parallel", type=int, required=False,
             default=0)
     parser.add_argument("--max_hid", type=int, required=False,
-            default=128)
+            default=512)
     parser.add_argument("--no7a", type=int, required=False,
             default=0)
     parser.add_argument("--feat_pg_costs", type=int, required=False,
@@ -572,6 +615,8 @@ def read_flags():
             default=1)
     parser.add_argument("--normalization_type", type=str, required=False,
             default="mscn")
+    parser.add_argument("--min_qerr", type=float, required=False,
+            default=1.00)
 
     parser.add_argument("--nn_weights_init_pg", type=int, required=False,
             default=0)
@@ -695,6 +740,8 @@ def read_flags():
             default="FCNN")
 
     parser.add_argument("--num_hidden_layers", type=int,
+            required=False, default=2)
+    parser.add_argument("--num_attention_heads", type=int,
             required=False, default=1)
     parser.add_argument("--hidden_layer_multiple", type=float,
             required=False, default=None)
@@ -737,6 +784,10 @@ def read_flags():
             help="comma separated list of loss names")
     parser.add_argument("--result_dir", type=str, required=False,
             default="./results2/")
+
+    parser.add_argument("--model_dir", type=str, required=False,
+            default=None)
+
     parser.add_argument("--baseline_join_alg", type=str, required=False,
             default="EXHAUSTIVE")
     parser.add_argument("--db_file_name", type=str, required=False,
@@ -796,7 +847,6 @@ def read_flags():
 
     return parser.parse_args()
 
-# need __name__ == "__main__" for torch multithreading haha
 if __name__ == "__main__":
     args = read_flags()
     main()

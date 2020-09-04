@@ -9,6 +9,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from utils.net import *
+from utils.transformer import *
+
 from cardinality_estimation.losses import *
 import pandas as pd
 import json
@@ -265,75 +267,6 @@ def fcnn_loss(net, use_qloss=False):
 
     return f
 
-def single_train_combined_net(net, optimizer, loader, loss_fn, loss_fn_name,
-        clip_gradient, samples, normalization_type, min_val, max_val,
-        load_query_together=False):
-    torch.set_num_threads(1)
-    # FIXME: requires that each sample seen in training set
-    if "flow_loss" in loss_fn_name:
-        opt_flow_costs = []
-        est_flow_costs = []
-
-    for idx, (xbatch, ybatch,info) in enumerate(loader):
-        start = time.time()
-        # TODO: add handling for num_tables
-        if load_query_together:
-            # update the batches
-            xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
-                    xbatch.shape[2])
-            ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
-            query_idx = info[0]["query_idx"]
-            assert query_idx == info[1]["query_idx"]
-            sample = samples[query_idx]
-            if DEBUG:
-                print(sample["template_name"])
-        pred = net(xbatch).squeeze(1)
-        if "flow_loss" in loss_fn_name:
-            assert load_query_together
-            losses = loss_fn(pred, ybatch, sample, normalization_type, min_val,
-                    max_val)
-        else:
-            losses = loss_fn(pred, ybatch)
-
-        try:
-            loss = losses.sum() / len(losses)
-        except:
-            loss = losses
-
-        opt_start = time.time()
-        optimizer.zero_grad()
-        loss.backward()
-
-        if clip_gradient is not None:
-            clip_grad_norm_(net.parameters(), clip_gradient)
-        optimizer.step()
-
-        ## debug step, with autograd
-        # pred2 = net(xbatch).squeeze(1)
-        # flow_loss_debug, predC = flow_loss(pred2, ybatch, sample, normalization_type,
-                # min_val, max_val)
-        # optimizer.zero_grad()
-        # predC.retain_grad()
-        # pred2.retain_grad()
-        # flow_loss_debug.backward()
-        # pred_grad2 = pred2.grad
-        # print(pred_grad2)
-        # print(predC.grad)
-        # update_list("pred_grad.pkl", pred.grad.detach().numpy())
-        # update_list("dCdg_autograd.pkl", predC.grad.detach().numpy())
-        # update_list("pred_autograd.pkl", pred2.grad.detach().numpy())
-        # pdb.set_trace()
-
-        if DEBUG:
-            print("optimizer things took: ", time.time()-opt_start)
-
-        # print("optimizer things took: ", time.time()-opt_start)
-        idx_time = time.time() - start
-
-        if idx_time > 10:
-            print("train idx took: ", idx_time)
-            # pdb.set_trace()
-
 def compute_subquery_priorities(qrep, true_cards, est_cards,
         explain, jerr, env, use_indexes=True):
     '''
@@ -551,6 +484,8 @@ class NN(CardinalityEstimationAlg):
         self.start_day = days[weekno]
         if self.loss_func == "qloss":
             self.loss = qloss_torch
+        if self.loss_func == "ll_scaled_norm_loss":
+            self.loss = self.scaled_norm_loss_wrapper
         elif self.loss_func == "flow_loss":
             self.loss = flow_loss
             self.load_query_together = True
@@ -565,12 +500,27 @@ class NN(CardinalityEstimationAlg):
         elif self.loss_func == "abs":
             self.loss = abs_loss_torch
         elif self.loss_func == "mse":
-            self.loss = torch.nn.MSELoss(reduction="none")
+            # self.loss = torch.nn.MSELoss(reduction="none")
+            self.loss = self.mse_with_min
         elif self.loss_func == "cm_fcnn":
             self.loss = qloss_torch
         else:
             assert False
 
+        if self.nn_type == "microsoft":
+            self.featurization_scheme = "combined"
+            # if self.net_name == "FCNN-Query":
+                # self.load_query_together = True
+
+        elif self.nn_type == "num_tables":
+            self.featurization_scheme = "combined"
+        elif self.nn_type == "mscn":
+            self.featurization_scheme = "mscn"
+        elif self.nn_type == "transformer":
+            self.featurization_scheme = "combined"
+            self.load_query_together = True
+        else:
+            assert False
 
         if self.load_query_together:
             self.mb_size = 1
@@ -578,15 +528,6 @@ class NN(CardinalityEstimationAlg):
         else:
             self.mb_size = 2500
             self.eval_batch_size = 10000
-
-        if self.nn_type == "microsoft":
-            self.featurization_scheme = "combined"
-        elif self.nn_type == "num_tables":
-            self.featurization_scheme = "combined"
-        elif self.nn_type == "mscn":
-            self.featurization_scheme = "mscn"
-        else:
-            assert False
 
         self.nets = []
         self.optimizers = []
@@ -631,6 +572,137 @@ class NN(CardinalityEstimationAlg):
         if self.eval_parallel:
             self.eval_sync = None
             self.eval_pool = ThreadPool(2)
+
+    def scaled_norm_loss_wrapper(self, yhat, ytrue):
+        # else convert them to preds / targets
+        assert self.normalization_type == "mscn"
+        # yhat = yhat.cpu().detach().numpy()
+        # ytrue = ytrue.cpu().detach().numpy()
+        yhat = torch.exp((yhat + \
+            self.min_val)*(self.max_val-self.min_val))
+        ytrue = torch.exp((ytrue + \
+            self.min_val)*(self.max_val-self.min_val))
+        return ll_scaled_norm_loss(yhat, ytrue)
+
+    def mse_with_min(self, yhat, ytrue, min_qerr=1.0):
+        mse_losses = torch.nn.MSELoss(reduction="none")(yhat, ytrue)
+        if min_qerr == 1.0:
+            return mse_losses
+        # else convert them to preds / targets
+        assert self.normalization_type == "mscn"
+        yhat = yhat.cpu().detach().numpy()
+        ytrue = ytrue.cpu().detach().numpy()
+        yhat = np.exp((yhat + \
+            self.min_val)*(self.max_val-self.min_val))
+        ytrue = np.exp((ytrue + \
+            self.min_val)*(self.max_val-self.min_val))
+        qerrors = np.maximum( (ytrue / yhat), (yhat / ytrue))
+        vals = []
+        cur_min_mse_loss = 10000000
+        for i, qerr in enumerate(qerrors):
+            if qerr < min_qerr:
+                vals.append(0.0)
+            else:
+                vals.append(1.0)
+                if mse_losses[i] < cur_min_mse_loss:
+                    cur_min_mse_loss = mse_losses[i]
+
+        vals = to_variable(vals, requires_grad=True).float()
+        assert vals.shape == ytrue.shape
+        assert vals.shape == mse_losses.shape
+
+        mse_losses -= cur_min_mse_loss
+        mse_losses *= vals
+        mse_np = mse_losses.cpu().detach().numpy()
+        assert ((mse_np >= 0).sum() == mse_np.size).astype(np.int)
+        assert mse_losses.shape == ytrue.shape
+        return mse_losses
+
+    def train_transformer(self, net, optimizer, loader, loss_fn, loss_fn_name,
+            clip_gradient, samples, normalization_type, min_val, max_val,
+            load_query_together=True):
+        torch.set_num_threads(1)
+
+        if self.save_gradients:
+            grads = []
+            par_grads = defaultdict(list)
+            grad_samples = []
+
+        assert load_query_together
+        for idx, (xbatch, ybatch,info) in enumerate(loader):
+
+            start = time.time()
+            assert ybatch.shape[0] == 1
+            ybatch = ybatch.reshape(ybatch.shape[1])
+            pred = net(xbatch)
+            pred = pred.reshape(pred.shape[1])
+            if len(pred) != len(ybatch):
+                pred = pred[0:len(ybatch)]
+
+            qidx = info[0]["query_idx"]
+            assert qidx == info[1]["query_idx"]
+            sample = samples[qidx]
+
+            if "flow_loss" in loss_fn_name:
+                assert load_query_together
+                subsetg_vectors, trueC_vec, opt_loss = \
+                        self.flow_training_info[qidx]
+
+                assert len(subsetg_vectors) == 8
+
+                losses = loss_fn(pred, ybatch.detach(),
+                        normalization_type, min_val,
+                        max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
+                        self.normalize_flow_loss,
+                        self.join_loss_pool, self.cost_model)
+            else:
+                losses = loss_fn(pred, ybatch)
+
+            try:
+                loss = losses.sum() / len(losses)
+            except:
+                loss = losses
+
+            if self.weighted_qloss != 0.0:
+                qloss = qloss_torch(pred, ybatch)
+                loss += self.weighted_qloss* (sum(qloss) / len(qloss))
+
+            if self.weighted_mse != 0.0:
+                mse = torch.nn.MSELoss(reduction="mean")(pred,
+                        ybatch)
+                loss += self.weighted_mse * mse
+
+            if self.save_gradients and "flow_loss" in loss_fn_name:
+                optimizer.zero_grad()
+                pred.retain_grad()
+                loss.backward()
+                # grads
+                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                if sample is not None:
+                    grad_samples.append(sample)
+                wt_grads = net.compute_grads()
+                for wi, wt in enumerate(wt_grads):
+                    par_grads[wi].append(wt)
+            else:
+                optimizer.zero_grad()
+                loss.backward()
+
+            if clip_gradient is not None:
+                clip_grad_norm_(net.parameters(), clip_gradient)
+
+            optimizer.step()
+
+            idx_time = time.time() - start
+            if idx_time > 10:
+                print("train idx took: ", idx_time)
+
+        if self.save_gradients and len(grad_samples) > 0 \
+                and self.epoch % self.eval_epoch == 0:
+            self.save_join_loss_stats(grads, None, grad_samples,
+                    "train", loss_key="gradients")
+            for k,v in par_grads.items():
+                self.save_join_loss_stats(v, None, grad_samples,
+                        "train", loss_key="param_gradients" + str(k))
 
     def train_combined_net(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
@@ -771,8 +843,18 @@ class NN(CardinalityEstimationAlg):
                         self.normalize_flow_loss,
                         self.join_loss_pool, self.cost_model)
             else:
-                losses = loss_fn(pred, ybatch)
+                if self.loss_func == "mse_with_min":
+                    losses = loss_fn(pred, ybatch, self.min_qerr)
+                else:
+                    losses = loss_fn(pred, ybatch)
 
+                if self.flow_weighted_loss:
+                    # which subqueries have we been using
+                    subq_idxs = info["dataset_idx"]
+                    loss_weights = np.ascontiguousarray(self.subq_imp["train"][subq_idxs])
+                    loss_weights = to_variable(loss_weights).float()
+                    assert losses.shape == loss_weights.shape
+                    losses *= loss_weights
             try:
                 loss = losses.sum() / len(losses)
             except:
@@ -864,6 +946,19 @@ class NN(CardinalityEstimationAlg):
                     self.hidden_layer_multiple, 1,
                     num_hidden_layers=self.num_hidden_layers,
                     hidden_layer_size=self.hidden_layer_size)
+        elif net_name == "FCNN-Query":
+            assert self.load_query_together
+            net = SimpleRegression(self.num_features*self.max_subqs,
+                    self.hidden_layer_multiple, 1,
+                    num_hidden_layers=self.num_hidden_layers,
+                    hidden_layer_size=self.hidden_layer_size)
+        elif net_name == "Transformer":
+            assert self.load_query_together
+            # FIXME:
+            net = RegressionTransformer(self.num_features, self.num_attention_heads,
+                    self.num_hidden_layers, self.max_subqs,
+                    self.max_subqs)
+
         elif net_name == "LinearRegression":
             net = LinearRegression(self.num_features,
                     1)
@@ -872,12 +967,14 @@ class NN(CardinalityEstimationAlg):
                 net = SetConv(len(sample[0][0]), len(sample[1][0]),
                         len(sample[2][0]), len(sample[3][0]),
                         self.hidden_layer_size, dropout= self.dropout,
-                        max_hid = self.max_hid)
+                        max_hid = self.max_hid,
+                        num_hidden_layers=self.num_hidden_layers)
             else:
                 net = SetConv(len(sample[0]), len(sample[1]), len(sample[2]),
                         len(sample[3]),
                         self.hidden_layer_size, dropout=self.dropout,
-                        max_hid = self.max_hid)
+                        max_hid = self.max_hid,
+                        num_hidden_layers=self.num_hidden_layers)
         else:
             assert False
 
@@ -922,22 +1019,48 @@ class NN(CardinalityEstimationAlg):
             if self.nn_type == "mscn":
                 net, optimizer, scheduler = \
                         self._init_net("SetConv", self.optimizer_name, sample)
+            elif self.nn_type == "transformer":
+                net, optimizer, scheduler = \
+                        self._init_net("Transformer", self.optimizer_name, sample)
             else:
                 net, optimizer, scheduler = \
                         self._init_net(self.net_name, self.optimizer_name, sample)
-                print(net)
-                print(len(list(net.parameters())))
-                pdb.set_trace()
+            print(net)
 
-            # print(net)
-            # print(net.parameters())
-            # pdb.set_trace()
             self.nets.append(net)
             self.optimizers.append(optimizer)
             self.schedulers.append(scheduler)
 
         print("initialized {} nets for num_tables version".format(len(self.nets)))
         assert len(self.nets) == len(self.groups)
+
+    def _eval_transformer(self, net, loader):
+        tstart = time.time()
+        # TODO: set num threads, gradient off etc.
+        torch.set_grad_enabled(False)
+        all_preds = []
+        all_y = []
+        all_idxs = []
+
+        for idx, (xbatch, ybatch,info) in enumerate(loader):
+
+            assert self.load_query_together
+            # pred = net(xbatch).reshape(ybatch.shape[1])
+            ybatch = ybatch.reshape(ybatch.shape[1])
+            pred = net(xbatch)
+            pred = pred.reshape(pred.shape[1])
+            if len(pred) != len(ybatch):
+                pred = pred[0:len(ybatch)]
+
+            all_preds.append(pred)
+            all_y.append(ybatch)
+
+        pred = torch.cat(all_preds).detach().numpy()
+        y = torch.cat(all_y).detach().numpy()
+
+        if not self.load_query_together:
+            all_idxs = torch.cat(all_idxs).detach().numpy()
+        return pred, y, all_idxs
 
     def _eval_combined(self, net, loader):
         tstart = time.time()
@@ -1010,7 +1133,10 @@ class NN(CardinalityEstimationAlg):
             net = self.nets[0]
             loader = loaders[0]
             if self.featurization_scheme == "combined":
-                res = self._eval_combined(net, loader)
+                if self.nn_type == "transformer":
+                    res = self._eval_transformer(net, loader)
+                else:
+                    res = self._eval_combined(net, loader)
             elif self.featurization_scheme == "mscn":
                 res = self._eval_mscn(net, loader)
 
@@ -1181,16 +1307,18 @@ class NN(CardinalityEstimationAlg):
             opt = self.optimizers[i]
             loader = self.training_loaders[i]
             if self.featurization_scheme == "combined":
-                # single_train_combined_net(net, opt, loader, self.loss,
-                        # self.loss_func, self.clip_gradient,
-                        # self.training_samples, self.normalization_type,
-                        # self.min_val, self.max_val,
-                        # self.load_query_together)
-                self.train_combined_net(net, opt, loader, self.loss,
-                        self.loss_func, self.clip_gradient,
-                        self.training_samples, self.normalization_type,
-                        self.min_val, self.max_val,
-                        self.load_query_together)
+                if self.nn_type == "transformer":
+                    self.train_transformer(net, opt, loader, self.loss,
+                            self.loss_func, self.clip_gradient,
+                            self.training_samples, self.normalization_type,
+                            self.min_val, self.max_val,
+                            self.load_query_together)
+                else:
+                    self.train_combined_net(net, opt, loader, self.loss,
+                            self.loss_func, self.clip_gradient,
+                            self.training_samples, self.normalization_type,
+                            self.min_val, self.max_val,
+                            self.load_query_together)
             elif self.featurization_scheme == "mscn":
                 self.train_mscn(net, opt, loader, self.loss,
                         self.loss_func, self.clip_gradient,
@@ -1252,6 +1380,7 @@ class NN(CardinalityEstimationAlg):
         start = time.time()
         self.nets[0].eval()
         pred, Y = self.eval_samples(samples_type)
+        # assert pred.shape == Y.shape
         print("eval samples done at epoch: ", self.epoch)
         self.nets[0].train()
         if "flow_loss" not in self.loss_func:
@@ -1283,7 +1412,7 @@ class NN(CardinalityEstimationAlg):
             if SOURCE_NODE in nodes:
                 nodes.remove(SOURCE_NODE)
             nodes.sort()
-            cur_subq_imps = subq_imps[samplei]
+            # cur_subq_imps = subq_imps[samplei]
             for subq_idx, node in enumerate(nodes):
                 num_tables = len(node)
                 idx = query_idx + subq_idx
@@ -1292,7 +1421,7 @@ class NN(CardinalityEstimationAlg):
                 summary_data["loss"].append(loss)
                 summary_data["num_tables"].append(num_tables)
                 summary_data["template"].append(template)
-                summary_data["subq_imp"].append(cur_subq_imps[subq_idx])
+                summary_data["subq_imp"].append(subq_imps[idx])
                 sorted_node = list(node)
                 sorted_node.sort()
                 subq_id = deterministic_hash(str(sorted_node))
@@ -1304,9 +1433,16 @@ class NN(CardinalityEstimationAlg):
             self.query_qerr_stats["qerr"].append(sum(sample_losses) / len(sample_losses))
 
         df = pd.DataFrame(summary_data)
-        self.subquery_summary_data = df
+
         df["samples_type"] = samples_type
         df["epoch"] = self.epoch
+
+        if samples_type == "test":
+            self.subquery_summary_data = pd.concat([self.subquery_summary_data,
+                df])
+        else:
+            self.subquery_summary_data = df
+
         for template in set(df["template"]):
             tvals = df[df["template"] == template]
             self.add_row(tvals["loss"].values, "qerr", epoch,
@@ -1335,6 +1471,7 @@ class NN(CardinalityEstimationAlg):
             self.save_join_loss_stats(opt_flow_ratios, None, samples,
                     samples_type, loss_key="flow_ratio")
 
+        opt_plan_pg_costs = None
         if self.cost_model_plan_err and \
                 epoch % self.eval_epoch_plan_err == 0:
             opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
@@ -1515,7 +1652,7 @@ class NN(CardinalityEstimationAlg):
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = self.train_card_key,
-                    group = self.groups[i]))
+                    group = self.groups[i], max_sequence_len=self.max_subqs))
             if not weighted:
                 training_loaders.append(data.DataLoader(training_sets[i],
                         batch_size=batch_size, shuffle=shuffle, num_workers=0))
@@ -1588,9 +1725,9 @@ class NN(CardinalityEstimationAlg):
                     node_pr += flows[edge_dict[edge]]
                 node_importances.append(node_pr)
 
-            imps.append(node_importances)
+            imps += node_importances
 
-        return imps
+        return np.array(imps)
 
     def update_flow_training_info(self):
         print("precomputing flow loss info")
@@ -1661,6 +1798,15 @@ class NN(CardinalityEstimationAlg):
             # farchive.dump()
         # del farchive
 
+    def load_model(self, model_dir):
+        # TODO: can model dir be reconstructed based on args?
+        model_path = model_dir + "/model_weights.pt"
+        assert os.path.exists(model_path)
+        assert len(self.nets) == 1
+        self.nets[0].load_state_dict(torch.load(model_path))
+        self.nets[0].eval()
+        print("*****loaded model*****")
+
     def train(self, db, training_samples, use_subqueries=False,
             val_samples=None, join_loss_pool = None):
         assert isinstance(training_samples[0], dict)
@@ -1681,6 +1827,22 @@ class NN(CardinalityEstimationAlg):
 
         self.training_samples = training_samples
         self.init_stats(training_samples)
+
+        max_subqs = 0
+        for sample in training_samples:
+            num_subqs = len(sample["subset_graph"])
+            if num_subqs > max_subqs:
+                max_subqs = num_subqs
+
+        if val_samples:
+            for sample in val_samples:
+                num_subqs = len(sample["subset_graph"])
+                if num_subqs > max_subqs:
+                    max_subqs = num_subqs
+
+        # -1 because this calc would include the source node
+        self.max_subqs = max_subqs-1
+
         self.groups = self.init_groups(self.num_groups)
         if self.cost_model_plan_err or self.eval_flow_loss or \
                 self.flow_features:
@@ -1714,6 +1876,7 @@ class NN(CardinalityEstimationAlg):
         if self.sampling_priority_alpha > 0.00:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
                                     False, self.mb_size, weighted=True)
+            self.training_sets = training_sets
             priority_loaders = []
             for i, ds in enumerate(training_sets):
                 priority_loaders.append(data.DataLoader(ds,
@@ -1721,6 +1884,7 @@ class NN(CardinalityEstimationAlg):
         else:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
                                     True, self.mb_size, weighted=False)
+            self.training_sets = training_sets
 
         assert len(self.training_loaders) == len(self.groups)
 
@@ -1811,17 +1975,18 @@ class NN(CardinalityEstimationAlg):
             num_proc = 10
             par_args = []
             # training_samples_hash = deterministic_hash(str(training_samples))
-            for s in training_samples:
-                par_args.append((s, "cost"))
+            # for s in training_samples:
+                # par_args.append((s, "cost"))
 
-            with Pool(processes = num_proc) as pool:
-                res = pool.starmap(get_subq_flows, par_args)
+            # with Pool(processes = num_proc) as pool:
+                # res = pool.starmap(get_subq_flows, par_args)
 
             if self.priority_normalize_type == "flow4":
                 # count number at each level
                 template_level_counts = {}
 
             qidx = 0
+            subq_imps = self.subq_imp["train"]
             for si, sample in enumerate(training_samples):
                 subsetg = sample["subset_graph"]
                 node_list = list(subsetg.nodes())
@@ -1830,15 +1995,17 @@ class NN(CardinalityEstimationAlg):
                 node_list.sort()
                 cur_weights = np.zeros(len(node_list))
                 # will update the cur_weights for this sample now
-                flows, edge_dict = res[si]
+                # flows, edge_dict = res[si]
 
                 for i, node in enumerate(node_list):
                     # all_paths = nx.all_simple_paths(subsetg, dest, node)
                     # num_paths = len(list(all_paths))
-                    in_edges = subsetg.in_edges(node)
-                    node_pr = 0.0
-                    for edge in in_edges:
-                        node_pr += flows[edge_dict[edge]]
+                    # in_edges = subsetg.in_edges(node)
+                    # node_pr = 0.0
+                    # for edge in in_edges:
+                        # node_pr += flows[edge_dict[edge]]
+                    subq_idx = idx = qidx + i
+                    node_pr = subq_imps[subq_idx]
 
                     if self.priority_normalize_type in ["flow1", "flow2"]:
                         cur_weights[i] = node_pr
@@ -1891,7 +2058,7 @@ class NN(CardinalityEstimationAlg):
                     self.init_dataset(eval_training_samples, False,
                             self.eval_batch_size, weighted=False)
             self.eval_loaders["train"] = eval_train_loaders
-        else:
+        elif self.eval_epoch < self.max_epochs:
             eval_training_samples = training_samples
             assert len(training_sets) == 1
             # eval loader should maintain order of samples for periodic_eval to
@@ -1899,11 +2066,12 @@ class NN(CardinalityEstimationAlg):
             self.eval_loaders["train"] = [data.DataLoader(training_sets[0],
                     batch_size=self.eval_batch_size, shuffle=False,
                     num_workers=0)]
-        self.samples["train"] = eval_training_samples
+            self.samples["train"] = eval_training_samples
 
         # TODO: add separate dataset, dataloaders for evaluation
         if val_samples is not None and len(val_samples) > 0 \
-                and not self.no_eval:
+                and not self.no_eval \
+                and self.eval_epoch < self.max_epochs:
             # val_samples = random.sample(val_samples, int(len(val_samples) /
                     # eval_samples_size_divider))
             assert eval_samples_size_divider == 1
@@ -1916,6 +2084,7 @@ class NN(CardinalityEstimationAlg):
             eval_test_sets, eval_test_loaders = \
                     self.init_dataset(val_samples, False, self.eval_batch_size,
                             weighted=False)
+            self.eval_test_sets = eval_test_sets
             self.eval_loaders["test"] = eval_test_loaders
         else:
             self.samples["test"] = None
@@ -1998,10 +2167,11 @@ class NN(CardinalityEstimationAlg):
 
                         # the order of iteration doesn't matter here since each
                         # is being given the same weight
-                        for subq_idx, _ in enumerate(sample["subset_graph"].nodes()):
+                        num_nodes = len(sample["subset_graph"].nodes())-1
+                        for subq_idx in range(num_nodes):
                             weights[query_idx+subq_idx] = sq_weight
 
-                        query_idx += len(sample["subset_graph"].nodes())
+                        query_idx += num_nodes
 
                     if subquery_rel_weights is not None:
                         weights *= subquery_rel_weights
@@ -2120,11 +2290,10 @@ class NN(CardinalityEstimationAlg):
         pred, y = self._eval_samples(loaders)
         if self.preload_features:
             for dataset in datasets:
-                del(dataset.X)
-                del(dataset.Y)
-                del(dataset.info)
-        # loss = self.loss(pred, y).detach().numpy()
-        # print("loss after test: ", np.mean(loss))
+                del(dataset)
+            for loader in loaders:
+                del(loader)
+
         pred = pred.detach().numpy()
         all_ests = []
         query_idx = 0
@@ -2161,6 +2330,8 @@ class NN(CardinalityEstimationAlg):
             name = "nt"
         elif self.nn_type == "mscn":
             name = "mscn"
+        elif self.nn_type == "transformer":
+            name = "transformer"
         else:
             name = self.__class__.__name__
 

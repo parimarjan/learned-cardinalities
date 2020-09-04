@@ -13,7 +13,7 @@ class QueryDataset(data.Dataset):
             normalization_type, load_query_together,
             flow_features, table_features, join_features, pred_features,
             min_val=None, max_val=None, card_key="actual",
-            group=None):
+            group=None, max_sequence_len=None):
         '''
         @samples: [] sqlrep query dictionaries, which represent a query and all
         of its subqueries.
@@ -38,6 +38,7 @@ class QueryDataset(data.Dataset):
         self.table_features = table_features
         self.join_features = join_features
         self.pred_features = pred_features
+        self.max_sequence_len = max_sequence_len
 
         # -1 to ignore SOURCE_NODE
         total_nodes = [len(s["subset_graph"].nodes())-1 for s in samples]
@@ -117,7 +118,19 @@ class QueryDataset(data.Dataset):
         Y = []
         sample_info = []
         qidx = 0
+
+        self.input_feature_len = 0
+        self.input_feature_len += self.db.pred_features_len
+        self.input_feature_len += self.db.table_features_len
+        self.input_feature_len += len(self.db.joins)
+        if self.flow_features:
+            self.input_feature_len += self.db.num_flow_features
+
         for i, qrep in enumerate(samples):
+            if self.featurization_type == "transformer":
+                cur_query_features = []
+                cur_y = []
+
             node_data = qrep["join_graph"].nodes(data=True)
             # TODO: can also save these values and generate features when
             # needed, without wasting memory
@@ -128,14 +141,21 @@ class QueryDataset(data.Dataset):
             for node, info in node_data:
                 if SOURCE_NODE in node_data:
                     continue
-                table_features = self.db.get_table_features(info["real_name"])
+
+                cards = qrep["subset_graph"].nodes()[(node,)]
+                if "sample_bitmap" in cards:
+                    bitmap = cards["sample_bitmap"]
+                else:
+                    bitmap = None
+                table_features = self.db.get_table_features(info["real_name"],
+                        bitmap_dict=bitmap)
+
                 table_feat_dict[node] = table_features
                 # TODO: pass in the cardinality as well.
                 heuristic_est = None
                 if self.heuristic_features:
                     node_key = tuple([node])
                     cards = qrep["subset_graph"].nodes()[node_key]["cardinality"]
-                    # heuristic_est = float(cards["expected"]) / cards["total"]
                     heuristic_est = self.normalize_val(cards["expected"],
                             cards["total"])
 
@@ -157,7 +177,8 @@ class QueryDataset(data.Dataset):
             # now, we will generate the actual feature vectors over all the
             # subqueries
             node_names = list(qrep["subset_graph"].nodes())
-            node_names.remove(SOURCE_NODE)
+            if SOURCE_NODE in node_names:
+                node_names.remove(SOURCE_NODE)
             node_names.sort()
             for node_idx, nodes in enumerate(node_names):
                 if self.group is not None:
@@ -179,7 +200,7 @@ class QueryDataset(data.Dataset):
                 total = info["cardinality"]["total"]
 
                 pred_features = np.zeros(self.db.pred_features_len)
-                table_features = np.zeros(len(self.db.tables))
+                table_features = np.zeros(self.db.table_features_len)
                 join_features = np.zeros(len(self.db.joins))
 
                 # these are base tables within a join, or node in the subset
@@ -214,7 +235,8 @@ class QueryDataset(data.Dataset):
                     flow_features = []
 
                 # now, store features
-                if self.featurization_type == "combined":
+                if self.featurization_type == "combined" or \
+                        self.featurization_type == "transformer":
                     comb_feats = []
                     if self.table_features:
                         comb_feats.append(table_features)
@@ -225,14 +247,21 @@ class QueryDataset(data.Dataset):
                     if self.flow_features:
                         comb_feats.append(flow_features)
                     assert len(comb_feats) > 0
-                    X.append(np.concatenate(comb_feats))
+                    if self.featurization_type == "combined":
+                        X.append(np.concatenate(comb_feats))
+                    elif self.featurization_type == "transformer":
+                        cur_query_features.append(np.concatenate(comb_feats))
                 else:
                     X["table"].append(table_features)
                     X["join"].append(join_features)
                     X["pred"].append(pred_features)
                     X["flow"].append(flow_features)
 
-                Y.append(self.normalize_val(true_val, total))
+                if self.featurization_type == "transformer":
+                    cur_y.append(self.normalize_val(true_val, total))
+                else:
+                    Y.append(self.normalize_val(true_val, total))
+
                 cur_info = {}
                 cur_info["num_tables"] = len(nodes)
                 cur_info["dataset_idx"] = qidx + node_idx
@@ -244,6 +273,14 @@ class QueryDataset(data.Dataset):
                 sample_info.append(cur_info)
 
             qidx += len(node_names)
+
+            if self.featurization_type == "transformer":
+                assert len(cur_query_features) == len(cur_y)
+                cur_query_features = np.concatenate(cur_query_features)
+                print(len(cur_query_features),self.max_sequence_len*self.input_feature_len)
+                # assert len(cur_query_features) == self.max_sequence_len*self.input_feature_len
+
+                pdb.set_trace()
 
         print("get features took: ", time.time() - start)
 

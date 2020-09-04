@@ -428,6 +428,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
     alg_name = kwargs["name"]
     env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
             args.port, args.db_name)
+
     if "nested" in args.cost_model:
         env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
                 args.port, args.db_name)

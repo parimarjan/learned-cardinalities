@@ -11,6 +11,7 @@ from cardinality_estimation.flow_loss import *
 import pdb
 import klepto
 import copy
+import cvxpy as cp
 
 system = platform.system()
 if system == 'Linux':
@@ -271,16 +272,16 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
             est_explain)
 
     # print("do join orders match: ", debug_leading == leading_hint)
-    for k,v in cost_join_ops.items():
-        if (v != est_join_ops[k]):
-            print(k, v, est_join_ops[k])
+    # for k,v in cost_join_ops.items():
+        # if (v != est_join_ops[k]):
+            # print(k, v, est_join_ops[k])
 
-    for k,v in cost_scan_ops.items():
+    # for k,v in cost_scan_ops.items():
         # assert v == scan_ops[k]
-        if k not in scan_types:
-            print("not in scan types: ", k, v, scan_ops[k])
-        elif (v != scan_types[k]):
-            print(k, v, scan_ops[k])
+        # if k not in scan_types:
+            # print("not in scan types: ", k, v, scan_ops[k])
+        # elif (v != scan_types[k]):
+            # print(k, v, scan_ops[k])
     # pdb.set_trace()
 
     # FIXME: need to do this
@@ -570,7 +571,7 @@ class JoinLoss():
             print(loss)
             pdb.set_trace()
 
-        print("compute postgres join error took: ", time.time()-start)
+        # print("compute postgres join error took: ", time.time()-start)
         return np.array(est_costs), np.array(opt_costs), est_explains, \
     opt_explains, est_sqls, opt_sqls
 
@@ -703,6 +704,222 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
             # farchive.archive[qkey] = subsetg_vectors
     return costs
 
+def get_flow_cost(qrep, yhat, y,
+        cost_model, flow_loss_power=2.0):
+    def get_cost(sample, cost_key, ests,
+            true_edge_costs=None):
+        assert SOURCE_NODE in sample["subset_graph"].nodes()
+
+        # compute_costs(subsetg, cost_model, cost_key=cost_key,
+                # ests=ests)
+        subsetg_vectors = list(get_subsetg_vectors(sample, cost_model))
+        assert len(subsetg_vectors) == 8
+
+        totals, edges_head, edges_tail, nilj, edges_cost_node1, \
+                edges_cost_node2, final_node, edges_penalties = subsetg_vectors
+        nodes = list(sample["subset_graph"].nodes())
+        if SOURCE_NODE in nodes:
+            nodes.remove(SOURCE_NODE)
+        nodes.sort()
+
+        if true_edge_costs is not None:
+            # calculate other variables needed for optimization
+            est_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+            for ni, node in enumerate(nodes):
+                if node in ests:
+                    est_cards[ni] = ests[node]
+                else:
+                    est_cards[ni] = ests[" ".join(node)]
+            predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
+                    0.0, 24.0, None, edges_cost_node1,
+                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model,
+                    edges_penalties)
+
+        else:
+            true_cards = np.zeros(len(subsetg_vectors[0]),
+                    dtype=np.float32)
+            for ni, node in enumerate(nodes):
+                true_cards[ni] = \
+                        sample["subset_graph"].nodes()[node]["cardinality"]["actual"]
+
+            true_edge_costs, _, G2, Q2 = get_optimization_variables(true_cards, totals,
+                    0.0, 24.0, None, edges_cost_node1,
+                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model,
+                    edges_penalties)
+
+        Gv2 = np.zeros(len(totals), dtype=np.float32)
+        Gv2[final_node] = 1.0
+        Gv2 = to_variable(Gv2).float()
+        G2 = to_variable(G2).float()
+        invG = torch.inverse(G2)
+        v = invG @ Gv2 # vshape: Nx1
+        v = v.detach().numpy()
+
+        # TODO: we don't even need to compute the loss here if we don't want to
+        loss2 = np.zeros(1, dtype=np.float32)
+        assert Q2.dtype == np.float32
+        assert v.dtype == np.float32
+
+        if isinstance(true_edge_costs, torch.Tensor):
+            true_edge_costs = true_edge_costs.detach().numpy()
+
+        # assert true_edge_costs.dtype == np.float32
+        fl_cpp.get_qvtqv(
+                c_int(len(edges_head)),
+                c_int(len(v)),
+                edges_head.ctypes.data_as(c_void_p),
+                edges_tail.ctypes.data_as(c_void_p),
+                Q2.ctypes.data_as(c_void_p),
+                v.ctypes.data_as(c_void_p),
+                true_edge_costs.ctypes.data_as(c_void_p),
+                loss2.ctypes.data_as(c_void_p)
+                )
+
+        flows = Q2 @ v
+        if isinstance(flows, torch.Tensor):
+            flows = flows.detach().numpy()
+        flow_cost = np.dot(true_edge_costs, np.power(flows, flow_loss_power))
+
+        # just reuse cost key so source node edge costs are already there
+        edges = []
+        # nodes =
+        assert len(flows) == len(edges_head) == len(edges_tail)
+        # tmp_subsetg = copy.deepcopy(sample["subset_graph"])
+        tmp_subsetg = sample["subset_graph"]
+        for edgei, edge in enumerate(edges_head):
+            head_node = nodes[edge]
+            if edges_tail[edgei] > len(nodes):
+                # source node
+                tmp_subsetg[head_node][SOURCE_NODE][cost_model+cost_key] = -flows[edgei]
+                continue
+
+            tail_node = nodes[edges_tail[edgei]]
+            tmp_subsetg[head_node][tail_node][cost_model+cost_key] = -flows[edgei]
+
+        nodes = list(sample["subset_graph"].nodes())
+        nodes.sort(key=lambda x: len(x))
+        final_node = nodes[-1]
+
+        path = nx.shortest_path(tmp_subsetg, final_node,
+                SOURCE_NODE, weight=cost_model+cost_key)
+
+        path = path[0:-1]
+        plan_cost = 0.0
+        for pi in range(len(path)-1):
+            plan_cost += tmp_subsetg[path[pi]][path[pi+1]][cost_model+"cost"]
+
+        return path, flow_cost, plan_cost, true_edge_costs
+
+    qrep = copy.deepcopy(qrep)
+    opt_path, flow_cost, plan_cost, true_edge_costs = get_cost(qrep, "cost", y)
+    est_path, est_flow_cost, est_plan_cost,_ = get_cost(qrep, "est_cost", yhat, true_edge_costs)
+    return flow_cost, est_flow_cost, plan_cost,est_plan_cost,opt_path,est_path
+
+def get_quadratic_program_cost(qrep, yhat, y,
+        cost_model, beta=2.0):
+    def get_cost(subsetg, cost_key, ests,
+            true_edge_costs=None):
+        assert SOURCE_NODE in subsetg.nodes()
+
+        compute_costs(subsetg, cost_model, cost_key=cost_key,
+                ests=ests)
+        edges, costs, A, b, G, h = construct_lp(subsetg,
+                cost_key=cost_model+cost_key)
+        costs = costs / 1e6
+
+        n = len(edges)
+        P = np.zeros((len(edges),len(edges)))
+        for i,c in enumerate(costs):
+            P[i,i] = c
+
+        q = np.zeros(len(edges))
+        x = cp.Variable(n)
+
+        obj = cp.Minimize(1/2 * (costs @ (x**beta)))
+        # obj = cp.Minimize((1/2)*cp.quad_form(x, P) + q.T @ x)
+
+        prob = cp.Problem(obj,
+                        [G @ x <= h,
+                         A @ x == b])
+
+        try:
+            prob.solve(verbose=False, solver=cp.CVXOPT)
+        except:
+            return None,None,None,None
+
+        qsolx = np.array(x.value)
+
+        if true_edge_costs is None:
+            quad_cost = np.dot(costs, qsolx**2)
+        else:
+            quad_cost = np.dot(true_edge_costs, qsolx**2)
+
+        # if true_edge_costs is None:
+            # quad_cost = np.dot(costs, qsolx**beta)
+        # else:
+            # quad_cost = np.dot(true_edge_costs, qsolx**beta)
+
+        # just reuse cost key so source node edge costs are already there
+        ## negative because flows would be higher when costs are cheaper
+        for edgei, edge in enumerate(edges):
+            subsetg[edge[0]][edge[1]][cost_model+cost_key] = -qsolx[edgei]
+
+        nodes = list(subsetg.nodes())
+        nodes.sort(key=lambda x: len(x))
+        final_node = nodes[-1]
+
+        path = nx.shortest_path(subsetg, final_node,
+                SOURCE_NODE, weight=cost_model+cost_key)
+
+        path = path[0:-1]
+
+        plan_cost = 0.0
+        for pi in range(len(path)-1):
+            plan_cost += subsetg[path[pi]][path[pi+1]][cost_model+"cost"]
+        assert plan_cost != 0.0
+
+        return path, quad_cost, plan_cost, costs
+
+    subsetg = copy.deepcopy(qrep["subset_graph"])
+
+    opt_path, quad_cost, cost, true_edge_costs = get_cost(subsetg, "cost", y)
+    est_path, est_quad_cost, est_cost,_ = get_cost(subsetg, "est_cost", yhat, true_edge_costs)
+
+    if opt_path is None or est_path is None:
+        return 0.0, -1.0, 0.0, -1.0, [],[]
+
+    return quad_cost, est_quad_cost, cost,est_cost,opt_path,est_path
+
+def get_simple_shortest_path_cost(qrep, yhat, y,
+        cost_model, directed):
+    def get_cost(subsetg, cost_key, ests):
+        assert SOURCE_NODE in subsetg.nodes()
+        compute_costs(subsetg, cost_model, cost_key=cost_key,
+                ests=ests)
+        nodes = list(subsetg.nodes())
+        nodes.sort(key=lambda x: len(x))
+
+        if not directed:
+            subsetg = subsetg.to_undirected()
+
+        final_node = nodes[-1]
+        path = nx.shortest_path(subsetg, final_node,
+                SOURCE_NODE, weight=cost_model+cost_key)
+        path = path[0:-1]
+
+        # need to cost the path using true cardinalities
+        cost = 0.0
+        for pi in range(len(path)-1):
+            cost += subsetg[path[pi]][path[pi+1]][cost_model+"cost"]
+
+        return cost, path
+
+    subsetg = copy.deepcopy(qrep["subset_graph"])
+    cost,opt_path = get_cost(subsetg, "cost", y)
+    est_cost,est_path = get_cost(subsetg, "est_cost", yhat)
+    return cost,est_cost,opt_path,est_path
+
 def get_shortest_path_costs(samples, source_node, cost_key,
         all_ests, known_costs, cost_model, compute_pg_costs,
         user=None, pwd=None, db_host=None, port=None, db_name=None,
@@ -755,8 +972,8 @@ def get_shortest_path_costs(samples, source_node, cost_key,
             if scan_key in subsetg[path[pi]][path[pi+1]]:
                 scan_types.update(subsetg[path[pi]][path[pi+1]][scan_key])
 
-        if len(scan_types) < 1:
-            print("scan types: ", scan_types)
+        # if len(scan_types) < 1:
+            # print("scan types: ", scan_types)
         assert cost >= 1
         costs.append(cost)
 

@@ -168,7 +168,8 @@ class DB():
             feat_rel_pg_ests=True, feat_join_graph_neighbors=True,
             feat_rel_pg_ests_onehot=True,
             feat_pg_est_one_hot=True,
-            cost_model=None):
+            cost_model=None, sample_bitmap=False, sample_bitmap_num=1000,
+            sample_bitmap_buckets=1000):
         '''
         Sets up a transformation to 1d feature vectors based on the registered
         templates seen in get_samples.
@@ -188,8 +189,41 @@ class DB():
         assert self.featurizer is None
         # only need to know the number of tables for table features
         self.table_featurizer = {}
+        bitmap_tables = []
+        self.sample_bitmap = sample_bitmap
+        self.sample_bitmap_num = sample_bitmap_num
+        self.sample_bitmap_buckets = sample_bitmap_buckets
+        self.sample_bitmap_key = "sb" + str(self.sample_bitmap_num)
+
+        if self.sample_bitmap:
+            self.bitmap_mapping = {}
+            self.bitmap_next_mapping = {}
+
         for i, table in enumerate(sorted(self.tables)):
             self.table_featurizer[table] = i
+            if sample_bitmap and table in SAMPLE_TABLES:
+                bitmap_tables.append(table)
+                self.bitmap_next_mapping[table] = 0
+
+        if sample_bitmap:
+            bitmap_tables.sort()
+            # also indexes into table_featurizer
+            self.sample_bitmap_featurizer = {}
+            table_idx = len(self.tables)
+            for i, table in enumerate(bitmap_tables):
+                # how many elements in the current table
+                count_str = "SELECT COUNT(*) FROM {}".format(table)
+                output = self.execute(count_str)
+                count = output[0][0]
+                feat_count = min(count, sample_bitmap_buckets)
+                self.sample_bitmap_featurizer[table] = (table_idx, feat_count)
+                table_idx += feat_count
+
+            self.table_features_len = table_idx
+        else:
+            print("sample bitmap off")
+            self.table_features_len = len(self.table_featurizer)
+
         self.join_featurizer = {}
 
         for i, join in enumerate(sorted(self.joins)):
@@ -469,11 +503,28 @@ class DB():
 
         return flow_features
 
-    def get_table_features(self, table):
+    def get_table_features(self, table, bitmap_dict=None):
         '''
         '''
-        tables_vector = np.zeros(len(self.table_featurizer))
+        tables_vector = np.zeros(self.table_features_len)
         tables_vector[self.table_featurizer[table]] = 1.00
+        if bitmap_dict is not None and self.sample_bitmap:
+            if self.sample_bitmap_key not in bitmap_dict:
+                return tables_vector
+            bitmap = bitmap_dict[self.sample_bitmap_key]
+            start_idx, num_bins = self.sample_bitmap_featurizer[table]
+
+            for val in bitmap:
+                if table+str(val) in self.bitmap_mapping:
+                    cur_bin = self.bitmap_mapping[table+str(val)]
+                else:
+                    cur_bin = self.bitmap_next_mapping[table]
+                    self.bitmap_next_mapping[table] += 1
+                    self.bitmap_mapping[table+str(val)] = cur_bin
+
+                idx = cur_bin % num_bins
+                tables_vector[start_idx+idx] = 1.00
+
         return tables_vector
 
     def get_join_features(self, join_str):
@@ -506,7 +557,7 @@ class DB():
         for col in self.featurizer:
             cmp_op_idx, num_vals, continuous = self.featurizer[col]
 
-            for i, cmp_op in enumerate(self.cmp_ops_onehot):
+            for cmp_op, i in self.cmp_ops_onehot.items():
                 maps["idx"].append(cmp_op_idx+i)
                 maps["descr"].append(DESCR_TMP.format(COL = col, TYPE = cmp_op))
                 maps["continuous"].append(continuous)
@@ -514,6 +565,8 @@ class DB():
 
             ## pg est
             maps["idx"].append(cmp_op_idx+num_vals-1)
+            # print("FIXME: pg obob")
+            # maps["idx"].append(cmp_op_idx+num_vals)
             maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="pg"))
             maps["pg"].append(True)
             maps["continuous"].append(continuous)
@@ -603,7 +656,8 @@ class DB():
 
         ## FIXME: we are overshooting by one here
         if pred_est:
-            preds_vector[pred_idx_start + num_pred_vals] = pred_est
+            # preds_vector[pred_idx_start + num_pred_vals] = pred_est
+            preds_vector[pred_idx_start + num_pred_vals-1] = pred_est
 
         if not continuous:
             if "like" in cmp_op:

@@ -50,6 +50,10 @@ else:
 # CROSS_JOIN_CONSTANT = 15000100000
 # EXCEPTION_COUNT_CONSTANT = 15000100002
 
+SAMPLE_TABLES = ["title", "name", "aka_name", "keyword", "movie_info",
+        "movie_companies", "company_type", "kind_type", "info_type",
+        "role_type", "company_name"]
+
 SOURCE_NODE = tuple("s")
 SOURCE_NODE_CONST = 100000
 OLD_TIMEOUT_COUNT_CONSTANT = 150001001
@@ -1436,8 +1440,13 @@ def compute_costs(subset_graph, cost_model,
         cards1 = subset_graph.nodes()[node1]["cardinality"]
         cards2 = subset_graph.nodes()[node2]["cardinality"]
         cards3 = subset_graph.nodes()[edge[0]]["cardinality"]
-        total1 = cards1["total"]
-        total2 = cards2["total"]
+
+        if "total" in cards1:
+            total1 = cards1["total"]
+            total2 = cards2["total"]
+        else:
+            total1 = None
+            total2 = None
 
         if isinstance(ests, str):
             card1 = cards1[ests]
@@ -2171,7 +2180,8 @@ def get_subq_flows(qrep, cost_key):
     if key in flow_cache.archive:
         return flow_cache.archive[key]
 
-    subsetg = qrep["subset_graph_paths"]
+    # subsetg = qrep["subset_graph_paths"]
+    subsetg = qrep["subset_graph"]
     edges, c, A, b, G, h = construct_lp(subsetg, cost_key)
 
     n = len(edges)
