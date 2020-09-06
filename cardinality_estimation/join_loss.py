@@ -817,7 +817,7 @@ def get_flow_cost(qrep, yhat, y,
     return flow_cost, est_flow_cost, plan_cost,est_plan_cost,opt_path,est_path
 
 def get_quadratic_program_cost(qrep, yhat, y,
-        cost_model, beta=2.0):
+        cost_model, beta=2.0, alpha=2.0):
     def get_cost(subsetg, cost_key, ests,
             true_edge_costs=None):
         assert SOURCE_NODE in subsetg.nodes()
@@ -849,16 +849,11 @@ def get_quadratic_program_cost(qrep, yhat, y,
             return None,None,None,None
 
         qsolx = np.array(x.value)
-
+        qsolx = np.maximum(qsolx, 0.00)
         if true_edge_costs is None:
-            quad_cost = np.dot(costs, qsolx**2)
+            quad_cost = np.dot(costs, qsolx**alpha)
         else:
-            quad_cost = np.dot(true_edge_costs, qsolx**2)
-
-        # if true_edge_costs is None:
-            # quad_cost = np.dot(costs, qsolx**beta)
-        # else:
-            # quad_cost = np.dot(true_edge_costs, qsolx**beta)
+            quad_cost = np.dot(true_edge_costs, qsolx**alpha)
 
         # just reuse cost key so source node edge costs are already there
         ## negative because flows would be higher when costs are cheaper

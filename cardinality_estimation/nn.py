@@ -611,7 +611,7 @@ class NN(CardinalityEstimationAlg):
         assert vals.shape == ytrue.shape
         assert vals.shape == mse_losses.shape
 
-        mse_losses -= cur_min_mse_loss
+        # mse_losses -= cur_min_mse_loss
         mse_losses *= vals
         mse_np = mse_losses.cpu().detach().numpy()
         assert ((mse_np >= 0).sum() == mse_np.size).astype(np.int)
@@ -729,7 +729,8 @@ class NN(CardinalityEstimationAlg):
                 ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
                 qidx = info[0]["query_idx"]
                 assert qidx == info[1]["query_idx"]
-                sample = samples[qidx]
+                # sample = samples[qidx]
+                sample = None
             else:
                 sample = None
 
@@ -824,7 +825,8 @@ class NN(CardinalityEstimationAlg):
                         fbatch.shape[2])
                 ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
                 qidx = info[0]["query_idx"][0]
-                sample = samples[qidx]
+                # sample = samples[qidx]
+                sample = None
             else:
                 sample = None
 
@@ -1402,6 +1404,8 @@ class NN(CardinalityEstimationAlg):
         self.add_row(losses, "qerr", epoch, "all",
                 "all", samples_type)
         samples = self.samples[samples_type]
+        if samples is None:
+            return
         summary_data = defaultdict(list)
         query_idx = 0
         subq_imps = self.subq_imp[samples_type]
@@ -1412,7 +1416,6 @@ class NN(CardinalityEstimationAlg):
             if SOURCE_NODE in nodes:
                 nodes.remove(SOURCE_NODE)
             nodes.sort()
-            # cur_subq_imps = subq_imps[samplei]
             for subq_idx, node in enumerate(nodes):
                 num_tables = len(node)
                 idx = query_idx + subq_idx
@@ -1655,7 +1658,8 @@ class NN(CardinalityEstimationAlg):
                     group = self.groups[i], max_sequence_len=self.max_subqs))
             if not weighted:
                 training_loaders.append(data.DataLoader(training_sets[i],
-                        batch_size=batch_size, shuffle=shuffle, num_workers=0))
+                        batch_size=batch_size, shuffle=shuffle, num_workers=0,
+                        pin_memory=False))
             else:
                 weight = 1 / len(training_sets[i])
                 weights = torch.DoubleTensor([weight]*len(training_sets[i]))
@@ -1863,8 +1867,7 @@ class NN(CardinalityEstimationAlg):
             assert self.normalization_type == "pg_total_selectivity"
             self.min_val, self.max_val = None, None
 
-        # create a new park env, and close at the end.
-        self.env = JoinLoss(self.cost_model, self.db.user, self.db.pwd,
+        self.env = JoinLoss("cm1", self.db.user, self.db.pwd,
                 self.db.db_host, self.db.port, self.db.db_name)
         self.plan_err = PlanError(self.cost_model, "plan-loss", self.db.user,
                 self.db.pwd, self.db.db_host, self.db.port, self.db.db_name,
@@ -1897,9 +1900,18 @@ class NN(CardinalityEstimationAlg):
                     print(self.total_training_samples, len(training_sets[0]))
                     assert self.total_training_samples == len(training_sets[0])
         else:
-            # FIXME: need tp get accurate number for load_query_together
-            self.num_features = len(training_sets[0][0][0]) + \
-                    len(training_sets[0][0][1]) + len(training_sets[0][0][2])
+            # FIXME: need to get accurate number for load_query_together
+            if self.load_query_together:
+                self.num_features = len(training_sets[0][0][0][0]) + \
+                        len(training_sets[0][0][1][0]) + \
+                        len(training_sets[0][0][2][0]) + \
+                        len(training_sets[0][0][3][0])
+            else:
+                self.num_features = len(training_sets[0][0][0]) + \
+                        len(training_sets[0][0][1]) + \
+                        len(training_sets[0][0][2]) + \
+                        len(training_sets[0][0][3])
+            print("num features are: ", self.num_features)
 
         self.subq_imp = {}
         self.subq_imp["train"] = self.get_subq_imp(self.training_samples)
@@ -2098,6 +2110,19 @@ class NN(CardinalityEstimationAlg):
                 format(self.total_training_samples, self.num_features, model_size,
                     self.max_discrete_featurizing_buckets,
                     self.hidden_layer_size))
+
+        # print(type(self.samples["train"]))
+
+        if self.eval_epoch > self.max_epochs:
+            del(self.training_samples[:])
+            if val_samples is not None:
+                del(val_samples[:])
+            # self.training_samples.__del__()
+            # val_samples.__del__()
+            self.training_samples = None
+            val_samples = None
+            # del(self.db)
+            del(training_sets[0].db)
 
         for self.epoch in range(0,self.max_epochs):
             # if self.epoch % self.eval_epoch == 0:

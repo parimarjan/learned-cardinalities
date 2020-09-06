@@ -129,6 +129,7 @@ def get_all_objects(results_dir, obj_name):
             if not isinstance(df, pd.DataFrame):
                 df = pd.DataFrame(df)
         else:
+            print("skipping obj: ", obj_name)
             continue
         exp_args = load_object(cur_dir + "/args.pkl")
         exp_args = vars(exp_args)
@@ -137,7 +138,14 @@ def get_all_objects(results_dir, obj_name):
         else:
             df["alg"] = exp_args["algs"]
 
-        df = df.assign(**exp_args)
+        # df = df.assign(**exp_args)
+
+        ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
+                "flow_features"]
+
+        for k in ARG_KEYS:
+            df[k] = exp_args[k]
+
         if "nn" in exp_args["algs"]:
             df["alg_name"] = exp_args["loss_func"]
         else:
@@ -255,6 +263,18 @@ def get_all_training_df(results_dir):
                 df["normalize_flow_loss"] = exp_args["normalize_flow_loss"]
             else:
                 df["normalize_flow_loss"] = 1
+
+            # decide partition
+            if exp_args["test_diff_templates"]:
+                if exp_args["diff_templates_type"] == 1:
+                    partition = "X"
+                elif exp_args["diff_templates_type"] == 2:
+                    partition = "Y"
+                elif exp_args["diff_templates_type"] == 3:
+                    partition = exp_args["diff_templates_seed"]
+            else:
+                partition = "0"
+            df["partition"] = partition
 
             all_dfs.append(df)
         except Exception as e:

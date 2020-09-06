@@ -39,6 +39,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import sql_rep.query
 import multiprocessing as mp
+import psutil
 
 def get_alg(alg):
     if alg == "independent":
@@ -70,6 +71,7 @@ def get_alg(alg):
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 min_qerr = args.min_qerr,
+                mat_sparse_features = args.mat_sparse_features,
                 flow_weighted_loss = args.flow_weighted_loss,
                 eval_parallel = args.eval_parallel,
                 max_hid = args.max_hid,
@@ -152,6 +154,43 @@ def get_alg(alg):
     else:
         assert False
 
+def compute_subq_ids(samples):
+
+    node_ids = []
+    pred_ids = []
+
+    for samplei, sample in enumerate(samples):
+        nodes = list(sample["subset_graph"].nodes())
+        if SOURCE_NODE in nodes:
+            nodes.remove(SOURCE_NODE)
+        nodes.sort()
+
+        for subq_idx, node in enumerate(nodes):
+            sorted_node = list(node)
+            sorted_node.sort()
+            subq_id = deterministic_hash(str(sorted_node))
+            node_ids.append(subq_id)
+            cur_pred_cols = []
+            for table in sorted_node:
+                cur_pred_cols.append(sample["join_graph"].nodes()[table]["pred_cols"])
+            pred_ids.append(deterministic_hash(str(cur_pred_cols)))
+
+    node_ids = np.array(list(set(node_ids)))
+    pred_ids = np.array(list(set(pred_ids)))
+
+    print(len(node_ids), len(pred_ids))
+
+    return node_ids, pred_ids
+
+def clear_memory(ts):
+    if isinstance(ts.X, dict):
+        for k,v in ts.X.items():
+            del(v)
+
+    del(ts.X)
+    del(ts.Y)
+    del(ts)
+
 def remove_doubles(query_strs):
     print("remove_doubles")
     newq = []
@@ -199,7 +238,7 @@ def eval_alg(alg, loss_funcs, queries, samples_type, join_loss_pool):
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
 def load_samples(qdir, db, found_db, template_name,
-        skip_zero_queries=True):
+        skip_zero_queries=True, train_template=True):
     start = time.time()
     # loading, or generating samples
     samples = []
@@ -224,6 +263,7 @@ def load_samples(qdir, db, found_db, template_name,
         if ".pkl" not in qfn:
             print("skipping because qfn not .pkl file")
             continue
+
         qrep = load_sql_rep(qfn)
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
@@ -235,6 +275,12 @@ def load_samples(qdir, db, found_db, template_name,
             if "cardinality" not in info:
                 print("cardinality not in qrep")
                 zero_query = True
+                break
+
+            if "total" not in info["cardinality"]:
+                print("total not in query ", qfn)
+                zero_query = True
+                pdb.set_trace()
                 break
 
             if args.train_card_key not in info["cardinality"]:
@@ -253,12 +299,15 @@ def load_samples(qdir, db, found_db, template_name,
                 zero_query = True
                 break
 
-            elif info["cardinality"]["actual"] == 0:
+            # ugh FIXME
+            elif info["cardinality"]["actual"] == 0 or \
+                    info["cardinality"]["actual"] == 1.1:
                 if skip_zero_queries:
                     zero_query = True
                     break
                 else:
-                    info["cardinality"]["actual"] += 1
+                    print(qfn)
+                    info["cardinality"]["actual"] += 1.1
 
             if args.sampling_key is not None:
                 if wj_times is None:
@@ -290,35 +339,62 @@ def load_samples(qdir, db, found_db, template_name,
         samples.append(qrep)
 
     print(("template: {}, zeros skipped: {}, edges: {}, subqueries: {}, queries: {}"
-            ", loading time: {}").format( template_name, skipped,
+            ", loading time: {}").format(template_name, skipped,
                 len(samples[0]["subset_graph"].edges()),
                 len(samples[0]["subset_graph"].nodes()), len(samples),
                 time.time()-start))
 
+    if "job" in template_name:
+        update_samples(samples, args.flow_features,
+                args.cost_model, False)
+
     if not found_db:
-        for sample in samples:
-            # not all samples may share all predicates etc. so updating
-            # them all. stats will not be recomputed for repeated columns
-            # FIXME:
-            db.update_db_stats(sample, args.flow_features)
+        if "job" in template_name and \
+                not args.add_job_features:
+
+            return samples
+
+        elif args.test_diff_templates and \
+                not args.add_test_features and \
+                not train_template:
+                    return samples
+
+
+        if db is not None:
+            for sample in samples:
+                # not all samples may share all predicates etc. so updating
+                # them all. stats will not be recomputed for repeated columns
+                # FIXME:
+                db.update_db_stats(sample, args.flow_features)
 
     return samples
 
-def main():
-    # TODO: stop using klepto
+def load_all_qrep_data(load_job_queries,
+        load_test_queries, load_db, load_train_queries):
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
-    db_key = deterministic_hash("db-" + args.query_directory + \
-                args.query_templates + str(args.eval_on_job))
 
-    found_db = db_key in misc_cache.archive
-    # found_db = False
-    if found_db:
-        db = misc_cache.archive[db_key]
+    if load_db:
+        db_key = deterministic_hash("db-" + args.query_directory + \
+                    args.query_templates + str(args.eval_on_job))
+
+        found_db = db_key in misc_cache.archive
+        # found_db = False
+        if found_db:
+            db = misc_cache.archive[db_key]
+        else:
+            # assert load_job_queries
+            # assert load_test_queries
+            # assert load_train_queries
+            load_train_queries = True
+            load_job_queries = True
+            load_test_queries = True
+            db = DB(args.user, args.pwd, args.db_host, args.port,
+                    args.db_name)
     else:
-        # either load the db object from cache, or regenerate it.
-        db = DB(args.user, args.pwd, args.db_host, args.port,
-                args.db_name)
+        db = None
+        found_db = False
+
     train_queries = []
     test_queries = []
     val_queries = []
@@ -353,7 +429,19 @@ def main():
                 print("skipping template 7a")
                 continue
 
-        samples = load_samples(qdir, db, found_db, template_name)
+        if args.test_diff_templates:
+            train_template = qdir in train_tmps
+            if not train_template and not load_test_queries:
+                continue
+            elif train_template and not load_train_queries:
+                continue
+
+            samples = load_samples(qdir, db, found_db, template_name,
+                    skip_zero_queries=True, train_template=qdir in train_tmps)
+        else:
+            samples = load_samples(qdir, db, found_db, template_name,
+                    skip_zero_queries=True, train_template=True)
+
 
         if args.test and args.use_val_set:
             cur_train_queries, cur_test_queries = train_test_split(samples,
@@ -403,16 +491,14 @@ def main():
             val_queries += cur_val_queries
 
     job_queries = []
-    if args.eval_on_job:
+    if args.eval_on_job and load_job_queries:
         job_fns = list(glob.glob(args.job_query_dir + "/*"))
         for qi,qdir in enumerate(job_fns):
             template_name = os.path.basename(qdir)
             samples = load_samples(qdir, db, found_db, template_name,
-                    skip_zero_queries=False)
+                    skip_zero_queries=args.job_skip_zero_queries,
+                    train_template=False)
             job_queries += samples
-
-        update_samples(job_queries, args.flow_features,
-                args.cost_model, False)
 
     # shuffle train, test queries so join loss computation can be parallelized
     # better: otherwise all queries from templates that take a long time would
@@ -423,27 +509,70 @@ def main():
     if args.use_val_set:
         random.shuffle(val_queries)
 
-    if not found_db:
+    if not found_db and db is not None:
         misc_cache.archive[db_key] = db
+    del(misc_cache)
 
-    db.init_featurizer(num_tables_feature = args.num_tables_feature,
-            max_discrete_featurizing_buckets =
-            args.max_discrete_featurizing_buckets,
-            heuristic_features = args.heuristic_features,
-            flow_features = args.flow_features,
-            feat_pg_costs = args.feat_pg_costs,
-            feat_pg_path = args.feat_pg_path,
-            feat_rel_pg_ests = args.feat_rel_pg_ests,
-            feat_rel_pg_ests_onehot = args.feat_rel_pg_ests_onehot,
-            feat_pg_est_one_hot = args.feat_pg_est_one_hot,
-            feat_tolerance = args.feat_tolerance,
-            cost_model = args.cost_model, sample_bitmap=args.sample_bitmap,
-            sample_bitmap_num=args.sample_bitmap_num,
-            sample_bitmap_buckets=args.sample_bitmap_buckets)
+    if db is not None:
+        db.init_featurizer(num_tables_feature = args.num_tables_feature,
+                max_discrete_featurizing_buckets =
+                args.max_discrete_featurizing_buckets,
+                heuristic_features = args.heuristic_features,
+                flow_features = args.flow_features,
+                feat_pg_costs = args.feat_pg_costs,
+                feat_pg_path = args.feat_pg_path,
+                feat_rel_pg_ests = args.feat_rel_pg_ests,
+                feat_rel_pg_ests_onehot = args.feat_rel_pg_ests_onehot,
+                feat_pg_est_one_hot = args.feat_pg_est_one_hot,
+                feat_tolerance = args.feat_tolerance,
+                cost_model = args.cost_model, sample_bitmap=args.sample_bitmap,
+                sample_bitmap_num=args.sample_bitmap_num,
+                sample_bitmap_buckets=args.sample_bitmap_buckets)
 
-    # df = db.get_pred_features_map()
-    # print(df.head())
-    # pdb.set_trace()
+    return train_queries, test_queries, val_queries, job_queries, db
+
+def main():
+
+    if args.max_epochs < args.eval_epoch \
+            or not args.eval_test_while_training:
+        load_test_samples = False
+    else:
+        load_test_samples = True
+
+    train_queries, test_queries, val_queries, job_queries, db = \
+            load_all_qrep_data(False, load_test_samples, True, True)
+
+    train_node_ids, train_pred_ids = compute_subq_ids(train_queries)
+
+    if len(test_queries) > 0:
+        test_node_ids, test_pred_ids = compute_subq_ids(test_queries)
+        # print stats
+        node_common = np.intersect1d(train_node_ids, test_node_ids)
+        pred_common = np.intersect1d(train_pred_ids, test_pred_ids)
+        node_all = np.union1d(train_node_ids, test_node_ids)
+        pred_all = np.union1d(train_pred_ids, test_pred_ids)
+
+        train_tmps = set([s["template_name"] for s in train_queries])
+        test_tmps = set([s["template_name"] for s in test_queries])
+
+        print(train_tmps)
+        print(test_tmps)
+        print("""train-test intersection; node#: {}, common node /all: {}, common
+        node /test_nodes:
+        {}, pred#: {}, common pred/all: {}, common pred / test_preds: {}""".format(len(node_common),
+            float(len(node_common)) / len(node_all), float(len(node_common)) /
+                len(test_node_ids), len(pred_common),
+            float(len(pred_common)) / len(pred_all), float(len(pred_common)) /
+            len(test_pred_ids)))
+
+        # pdb.set_trace()
+
+    if len(job_queries) > 0:
+        job_node_ids, job_pred_ids = compute_subq_ids(job_queries)
+    else:
+        job_node_ids = []
+        job_pred_ids = []
+
 
     if len(train_queries) == 0:
         # debugging, so doesn't crash
@@ -498,24 +627,45 @@ def main():
                         val_samples=None, join_loss_pool=join_loss_pool)
 
             train_times[alg.__str__()] = round(time.time() - start, 2)
+            # print("before deleting training sets")
+            # print(psutil.virtual_memory())
+            # pdb.set_trace()
 
             if hasattr(alg, "training_sets"):
-                del(alg.training_sets[0])
+                ts = alg.training_sets[0]
+                clear_memory(alg.training_sets[0])
                 del(alg.training_loaders[0])
+                del(alg.training_sets[0])
+
                 if args.eval_epoch < args.max_epochs:
+                    clear_memory(alg.eval_test_sets[0])
                     del(alg.eval_test_sets[0])
-                    for k,v in alg.eval_loaders.items():
-                        del(v)
+                    # del(alg.eval_test_sets[0])
+
+                for k,v in alg.eval_loaders.items():
+                    del(v)
         else:
+            # just used to initialize the fields in the alg
             alg.max_epochs = 0
             alg.train(db, train_queries, use_subqueries=args.use_subqueries,
                     val_samples=val_queries, join_loss_pool=join_loss_pool)
             # load the model instead of training it!
             alg.load_model(args.model_dir)
 
+
+        # print("after deleting training sets")
+        # print(psutil.virtual_memory())
+        # pdb.set_trace()
+
+        # may have deleted it to save space
+        if len(train_queries) == 0:
+            train_queries, _, _, _, _ = \
+                    load_all_qrep_data(False, False, False, True)
+
         start = time.time()
 
         eval_alg(alg, losses, train_queries, "train", join_loss_pool)
+        del(train_queries[:])
 
         # if args.test:
             # size = int(len(test_queries) / 10)
@@ -523,9 +673,34 @@ def main():
                 # idx = size*i
                 # eval_alg(alg, losses, test_queries[idx:idx+size], "test", join_loss_pool)
 
+        if len(test_queries) == 0:
+            _, test_queries, _, _, _ = \
+                    load_all_qrep_data(False, True, False, False)
+            # del(train_queries[:])
+
         eval_alg(alg, losses, test_queries, "test", join_loss_pool)
+        del(test_queries[:])
 
         if args.eval_on_job:
+            _, _, _, job_queries, _ = \
+                    load_all_qrep_data(True, False, False, False)
+            # del(train_queries[:])
+            assert len(job_queries) > 0
+            job_node_ids, job_pred_ids = compute_subq_ids(job_queries)
+
+            node_common = np.intersect1d(train_node_ids, job_node_ids)
+            pred_common = np.intersect1d(train_pred_ids, job_pred_ids)
+            node_all = np.union1d(train_node_ids, job_node_ids)
+            pred_all = np.union1d(train_pred_ids, job_pred_ids)
+
+            print("""train-job intersection; node#: {}, node/all: {}, node/test_nodes:
+            {}, pred#: {}, pred/all: {}, pred / test_preds""".format(len(node_common),
+                float(len(node_common)) / len(node_all), float(len(node_common)) /
+                    len(job_node_ids), len(pred_common),
+                float(len(pred_common)) / len(pred_all), float(len(pred_common)) /
+                len(job_pred_ids)))
+            # pdb.set_trace()
+
             eval_alg(alg, losses, job_queries, "job", join_loss_pool)
 
         eval_times[alg.__str__()] = round(time.time() - start, 2)
@@ -565,8 +740,15 @@ def read_flags():
             default=1000)
     parser.add_argument("--sample_bitmap_buckets", type=int, required=False,
             default=1000)
-
+    parser.add_argument("--mat_sparse_features", type=int, required=False,
+            default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
+            default=1)
+    parser.add_argument("--add_job_features", type=int, required=False,
+            default=1)
+    parser.add_argument("--add_test_features", type=int, required=False,
+            default=1)
+    parser.add_argument("--job_skip_zero_queries", type=int, required=False,
             default=1)
     parser.add_argument("--flow_weighted_loss", type=int, required=False,
             default=0)
@@ -575,7 +757,7 @@ def read_flags():
     parser.add_argument("--test_diff_templates", type=int, required=False,
             default=0)
     parser.add_argument("--diff_templates_type", type=int, required=False,
-            default=1)
+            default=3)
     parser.add_argument("--diff_templates_seed", type=int, required=False,
             default=1)
     parser.add_argument("--eval_parallel", type=int, required=False,

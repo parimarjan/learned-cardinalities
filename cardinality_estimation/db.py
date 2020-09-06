@@ -426,6 +426,8 @@ class DB():
         if self.feat_join_graph_neighbors:
             neighbors = nx.node_boundary(join_graph, node)
             for al in neighbors:
+                # if al not in self.aliases:
+                    # continue
                 table = self.aliases[al]
                 tidx = self.table_featurizer[table]
                 flow_features[cur_idx + tidx] = 1.0
@@ -440,7 +442,8 @@ class DB():
 
             # neighbors in join graph
             for al in neighbors:
-                # aidx = self.aliases[al]
+                # if al not in self.aliases:
+                    # continue
                 table = self.aliases[al]
                 tidx = self.table_featurizer[table]
                 ncard = subsetg.nodes()[tuple([al])]["cardinality"]["expected"]
@@ -464,7 +467,8 @@ class DB():
 
             # neighbors in join graph
             for al in neighbors:
-                # aidx = self.aliases[al]
+                # if al not in self.aliases:
+                    # continue
                 table = self.aliases[al]
                 tidx = self.table_featurizer[table]
                 ncard = subsetg.nodes()[tuple([al])]["cardinality"]["expected"]
@@ -507,6 +511,11 @@ class DB():
         '''
         '''
         tables_vector = np.zeros(self.table_features_len)
+
+        if table not in self.table_featurizer:
+            print("table: {} not found in featurizer".format(table))
+            return tables_vector
+
         tables_vector[self.table_featurizer[table]] = 1.00
         if bitmap_dict is not None and self.sample_bitmap:
             if self.sample_bitmap_key not in bitmap_dict:
@@ -533,6 +542,9 @@ class DB():
         keys.sort()
         keys = ",".join(keys)
         joins_vector = np.zeros(len(self.join_featurizer))
+        if keys not in self.join_featurizer:
+            print("join_str: {} not found in featurizer".format(join_str))
+            return joins_vector
         joins_vector[self.join_featurizer[keys]] = 1.00
         return joins_vector
 
@@ -622,7 +634,7 @@ class DB():
 
         assert self.pred_features_len-1 not in maps["idx"]
         assert self.pred_features_len not in maps["idx"]
-        print(unaccounted_idxs)
+        # print(unaccounted_idxs)
 
         maps["idx"].append(self.pred_features_len-1)
         maps["descr"].append(DESCR_TMP.format(COL="all",
@@ -640,6 +652,10 @@ class DB():
         if pred_est is not None:
             assert self.heuristic_features
         preds_vector = np.zeros(self.pred_features_len)
+
+        if col not in self.featurizer:
+            print("col: {} not found in featurizer".format(col))
+            return preds_vector
 
         # set comparison operator 1-hot value
         cmp_op_idx, num_vals, continuous = self.featurizer[col]

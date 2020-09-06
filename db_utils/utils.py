@@ -55,6 +55,10 @@ SAMPLE_TABLES = ["title", "name", "aka_name", "keyword", "movie_info",
         "role_type", "company_name"]
 
 SOURCE_NODE = tuple("s")
+
+# TODO: FIXME
+SOURCE_NODE2 = tuple("SOURCE")
+
 SOURCE_NODE_CONST = 100000
 OLD_TIMEOUT_COUNT_CONSTANT = 150001001
 OLD_CROSS_JOIN_CONSTANT = 150001000

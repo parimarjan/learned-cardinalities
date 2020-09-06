@@ -168,19 +168,19 @@ def get_loss_name(loss_name):
 def _get_all_cardinalities(queries, preds):
     ytrue = []
     yhat = []
-    totals = []
+    # totals = []
     for i, pred_subsets in enumerate(preds):
         assert pred_subsets != SOURCE_NODE
         qrep = queries[i]["subset_graph"].nodes()
         for alias, pred in pred_subsets.items():
             actual = qrep[alias]["cardinality"]["actual"]
-            total = qrep[alias]["cardinality"]["total"]
-            totals.append(total)
-            # ytrue.append(float(actual) / total)
-            # yhat.append(float(pred) / total)
+            # total = qrep[alias]["cardinality"]["total"]
+            # totals.append(total)
+            if actual == 0:
+                actual += 1
             ytrue.append(float(actual))
             yhat.append(float(pred))
-    return ytrue, yhat, totals
+    return ytrue, yhat, None
 
 # TODO: put the yhat, ytrue parts in db_utils
 def compute_relative_loss(queries, preds, **kwargs):
@@ -193,10 +193,10 @@ def compute_relative_loss(queries, preds, **kwargs):
     errors = np.abs(ytrue - yhat) / ytrue
     return errors
 
-def compute_abs_loss(queries, preds, **kwargs):
-    ytrue, yhat, totals = _get_all_cardinalities(queries, preds)
-    errors = np.abs(yhat_total - ytrue)
-    return errors
+# def compute_abs_loss(queries, preds, **kwargs):
+    # ytrue, yhat, totals = _get_all_cardinalities(queries, preds)
+    # errors = np.abs(yhat_total - ytrue)
+    # return errors
 
 def compute_qerror(queries, preds, **kwargs):
     assert len(preds) == len(queries)
@@ -238,6 +238,7 @@ def compute_qerror(queries, preds, **kwargs):
 
     save_object(fn, df)
 
+    all_qerr_losses = defaultdict(list)
     query_losses = defaultdict(list)
     query_idx = 0
     for sample in queries:
@@ -245,6 +246,7 @@ def compute_qerror(queries, preds, **kwargs):
         cur_err = np.mean(errors[query_idx:query_idx+len(sample["subset_graph"].nodes())])
         query_losses["name"].append(sample["name"])
         query_losses["qerr"].append(cur_err)
+        query_losses["samples_type"].append(samples_type)
         query_idx += len(sample["subset_graph"].nodes())
 
     query_losses = pd.DataFrame(query_losses)
@@ -254,6 +256,19 @@ def compute_qerror(queries, preds, **kwargs):
         df = pd.concat([old_results, query_losses], ignore_index=True)
     else:
         df = query_losses
+    save_object(qfn, df)
+
+    for error in errors:
+        all_qerr_losses["loss"].append(error)
+        all_qerr_losses["samples_type"].append(samples_type)
+
+    all_qerr_losses = pd.DataFrame(all_qerr_losses)
+    qfn = rdir + "/" + "all_qerr.pkl"
+    old_results = load_object(qfn)
+    if old_results is not None:
+        df = pd.concat([old_results, all_qerr_losses], ignore_index=True)
+    else:
+        df = all_qerr_losses
     save_object(qfn, df)
 
     return errors
@@ -609,8 +624,9 @@ def compute_plan_loss(queries, preds, **kwargs):
     combined_df = pd.concat([costs, cur_df], ignore_index=True)
     save_object(costs_fn, combined_df)
 
-    cur_df_pg = pd.DataFrame(cur_costs_pg)
-    combined_df_pg = pd.concat([costs_pg, cur_df_pg], ignore_index=True)
-    save_object(costs_fn_pg, combined_df_pg)
+    ## FIXME: not using these anymore, but add flags
+    # cur_df_pg = pd.DataFrame(cur_costs_pg)
+    # combined_df_pg = pd.concat([costs_pg, cur_df_pg], ignore_index=True)
+    # save_object(costs_fn_pg, combined_df_pg)
 
     return np.array(est_costs) - np.array(opt_costs)
