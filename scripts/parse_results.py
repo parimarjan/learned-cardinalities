@@ -205,6 +205,12 @@ def get_summary_df(results_dir):
         if exp_args is None:
             print("exp args None!")
             continue
+
+        print(fn)
+        print(exp_args.hidden_layer_size)
+        print(exp_args.max_epochs)
+        print("******")
+
         exp_args = vars(exp_args)
         exp_args["alg"] = get_alg_name(exp_args)
 
@@ -225,10 +231,6 @@ def get_summary_df(results_dir):
 
         qerrs = qerrs[qerrs["num_tables"] == "all"]
         qerrs = qerrs[LOSS_COLUMNS]
-
-        # if jerrs is None:
-            # print("jerrs None")
-            # continue
 
         to_concat = []
         to_concat.append(qerrs)

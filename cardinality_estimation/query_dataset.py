@@ -25,7 +25,7 @@ class QueryDataset(data.Dataset):
         index should uniquely map to a subquery.
         '''
         self.db = db
-        self.samples = samples
+        # self.samples = samples
         self.heuristic_features = heuristic_features
         self.featurization_type = featurization_type
         self.preload_features = preload_features
@@ -156,8 +156,12 @@ class QueryDataset(data.Dataset):
                 if self.heuristic_features:
                     node_key = tuple([node])
                     cards = qrep["subset_graph"].nodes()[node_key]["cardinality"]
+                    if "total" in cards:
+                        total = cards["total"]
+                    else:
+                        total = None
                     heuristic_est = self.normalize_val(cards["expected"],
-                            cards["total"])
+                            total)
 
                 if len(info["pred_cols"]) == 0:
                     pred_features = np.zeros(self.db.pred_features_len)
@@ -197,7 +201,10 @@ class QueryDataset(data.Dataset):
                     ck = self.card_key
                     true_val = info["cardinality"][ck]
 
-                total = info["cardinality"]["total"]
+                if total in info["cardinality"]:
+                    total = info["cardinality"]["total"]
+                else:
+                    total = None
 
                 pred_features = np.zeros(self.db.pred_features_len)
                 table_features = np.zeros(self.db.table_features_len)
