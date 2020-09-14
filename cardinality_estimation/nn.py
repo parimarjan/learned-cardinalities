@@ -51,10 +51,18 @@ import torch.multiprocessing as mp
 # mp.set_sharing_strategy('file_system')
 import resource
 
-try:
-    mp.set_start_method("spawn")
-except:
-    pass
+from sklearn.model_selection import cross_val_score, GridSearchCV, KFold, RandomizedSearchCV, train_test_split
+import xgboost as xgb
+from sklearn.experimental import enable_hist_gradient_boosting  # noqa
+from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.ensemble import GradientBoostingRegressor
+
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
+
+# try:
+    # mp.set_start_method("spawn")
+# except:
+    # pass
 
 from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variables
 
@@ -668,7 +676,7 @@ class NN(CardinalityEstimationAlg):
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
 
             if self.weighted_mse != 0.0:
-                mse = torch.nn.MSELoss(reduction="mean")(pred,
+                mses = torch.nn.MSELoss(reduction="None")(pred,
                         ybatch)
                 loss += self.weighted_mse * mse
 
@@ -729,7 +737,6 @@ class NN(CardinalityEstimationAlg):
                 ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
                 qidx = info[0]["query_idx"]
                 assert qidx == info[1]["query_idx"]
-                # sample = samples[qidx]
                 sample = None
             else:
                 sample = None
@@ -761,8 +768,21 @@ class NN(CardinalityEstimationAlg):
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
 
             if self.weighted_mse != 0.0:
-                mse = torch.nn.MSELoss(reduction="mean")(pred,
+                mses = torch.nn.MSELoss(reduction="none")(pred,
                         ybatch)
+                random.seed(1234)
+                mse_idxs = random.sample(range(0, len(mses)), self.num_mse_anchoring)
+                mses = mses[mse_idxs]
+                mse = torch.mean(mses)
+
+                # nodes = sample["subset_graph"].nodes()
+                # if SOURCE_NODE in nodes:
+                    # nodes.remove(SOURCE_NODE)
+                # nodes.sort()
+                # for ni, node in enumerate(nodes):
+                    # print(sample["subset_graph"].nodes()[node].keys())
+                    # pdb.set_trace()
+
                 loss += self.weighted_mse * mse
 
             if self.save_gradients and "flow_loss" in loss_fn_name:
@@ -851,6 +871,7 @@ class NN(CardinalityEstimationAlg):
                     losses = loss_fn(pred, ybatch)
 
                 if self.flow_weighted_loss:
+                    assert False
                     # which subqueries have we been using
                     subq_idxs = info["dataset_idx"]
                     loss_weights = np.ascontiguousarray(self.subq_imp["train"][subq_idxs])
@@ -867,6 +888,7 @@ class NN(CardinalityEstimationAlg):
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
 
             if self.weighted_mse != 0.0:
+                assert False
                 mse = torch.nn.MSELoss(reduction="mean")(pred,
                         ybatch)
                 loss += self.weighted_mse * mse
@@ -1553,6 +1575,25 @@ class NN(CardinalityEstimationAlg):
             print("going to save best join error at epoch: ", epoch)
             self.save_model_dict()
 
+        # temporary
+        if self.env2 is not None:
+            (est_costs, opt_costs,est_plans,_,_,_) = join_loss_pg(sqls,
+                    jgs,
+                    true_cardinalities, est_cardinalities, self.env2,
+                    self.jl_indexes, None,
+                    pool = self.join_loss_pool,
+                    join_loss_data_file = self.join_loss_data_file)
+
+            join_losses = np.array(est_costs) - np.array(opt_costs)
+            join_losses_ratio = np.array(est_costs) / np.array(opt_costs)
+
+            # join_losses = np.maximum(join_losses, 0.00)
+
+            self.save_join_loss_stats(join_losses, est_plans, samples,
+                    samples_type, epoch=epoch, loss_key="inl_jerr")
+            self.save_join_loss_stats(join_losses_ratio, est_plans, samples,
+                    samples_type, loss_key="inl_jerr_ratio", epoch=epoch)
+
     def _normalize_priorities(self, priorities):
         total = np.float64(np.sum(priorities))
         norm_priorities = np.zeros(len(priorities))
@@ -1869,6 +1910,14 @@ class NN(CardinalityEstimationAlg):
 
         self.env = JoinLoss("cm1", self.db.user, self.db.pwd,
                 self.db.db_host, self.db.port, self.db.db_name)
+
+        if self.cost_model != "cm1":
+            # self.env2 = JoinLoss(self.cost_model, self.db.user, self.db.pwd,
+                    # self.db.db_host, self.db.port, self.db.db_name)
+            self.env2 = None
+        else:
+            self.env2 = None
+
         self.plan_err = PlanError(self.cost_model, "plan-loss", self.db.user,
                 self.db.pwd, self.db.db_host, self.db.port, self.db.db_name,
                 compute_pg_costs=True)
@@ -2125,9 +2174,11 @@ class NN(CardinalityEstimationAlg):
             del(training_sets[0].db)
 
         for self.epoch in range(0,self.max_epochs):
-            # if self.epoch % self.eval_epoch == 0:
-            if self.epoch % self.eval_epoch == 0 and \
-                    self.epoch != 0:
+            if self.epoch % self.eval_epoch == 0 \
+                and self.epoch != 0:
+            # if self.epoch % self.eval_epoch == 0 and \
+                    # self.eval_epoch < self.max_epochs:
+
                 eval_start = time.time()
                 self._eval_wrapper("train")
                 if self.samples["test"] is not None:
@@ -2379,3 +2430,291 @@ class NN(CardinalityEstimationAlg):
             name += "-no_pg_ests"
 
         return name
+
+class XGBoost(NN):
+
+    def init_dataset(self, samples, shuffle, batch_size,
+            weighted=False):
+        ds = QueryDataset(samples, self.db,
+                    "combined", self.heuristic_features,
+                    self.preload_features, self.normalization_type,
+                    self.load_query_together, self.flow_features,
+                    self.table_features, self.join_features,
+                    self.pred_features,
+                    min_val = self.min_val,
+                    max_val = self.max_val,
+                    card_key = self.train_card_key,
+                    group = None, max_sequence_len=self.max_subqs)
+
+        X = ds.X.cpu().numpy()
+        Y = ds.Y.cpu().numpy()
+        X = np.array(X, dtype=np.float64)
+        Y = np.array(Y, dtype=np.float64)
+
+        del(ds)
+        return X, Y
+
+    def set_min_max(self, training_samples):
+        y = np.array(get_all_cardinalities(training_samples))
+        y = np.log(y)
+        self.max_val = np.max(y)
+        self.min_val = np.min(y)
+        print("min val: ", self.min_val)
+        print("max val: ", self.max_val)
+
+    def train(self, db, training_samples, use_subqueries=False,
+            val_samples=None, join_loss_pool = None):
+        self.db = db
+        self.training_samples = training_samples
+        self.set_min_max(training_samples)
+
+        max_subqs = 0
+        for sample in training_samples:
+            num_subqs = len(sample["subset_graph"])
+            if num_subqs > max_subqs:
+                max_subqs = num_subqs
+
+        if val_samples:
+            for sample in val_samples:
+                num_subqs = len(sample["subset_graph"])
+                if num_subqs > max_subqs:
+                    max_subqs = num_subqs
+
+        # -1 because this calc would include the source node
+        self.max_subqs = max_subqs-1
+
+        X,Y = \
+                self.init_dataset(training_samples, False, self.eval_batch_size,
+                        weighted=False)
+
+        del(self.training_samples[:])
+        print("deleted training samples, test samples: ", type(val_samples))
+        if val_samples is not None:
+            print(len(val_samples))
+            del(val_samples[:])
+            print("deleted val samples")
+
+        if self.grid_search:
+
+            # parameters = {'learning_rate':(0.001, 0.0001),
+                    # 'n_estimators':(100, 1000),
+                    # 'reg_alpha':(0.0, 0.1, 1),
+                    # 'max_depth':(3, 6, 10)}
+            # xgb_model = xgb.XGBRegressor(objective="reg:squarederror",
+                    # verbose=2, njobs=1)
+
+
+            parameters = {'learning_rate':(0.001, 0.01),
+                    'n_estimators':(100, 250, 500, 1000),
+                    'loss': ['ls'],
+                    'max_depth':(3, 6, 8, 10),
+                    'subsample':(1.0, 0.8, 0.5)}
+
+            xgb_model = GradientBoostingRegressor()
+
+            self.xgb_model = RandomizedSearchCV(xgb_model, parameters, n_jobs=-1,
+                    verbose=1)
+
+            self.xgb_model.fit(X, Y)
+
+            print("*******************BEST ESTIMATOR FOUND**************")
+            print(self.xgb_model.best_estimator_)
+            print("*******************BEST ESTIMATOR DONE**************")
+
+        else:
+            self.xgb_model = xgb.XGBRegressor(objective="reg:squarederror",
+                          verbosity=1,
+                          scale_pos_weight=0,
+                          learning_rate=self.lr,
+                          colsample_bytree = 1.0,
+                          subsample = 1.0,
+                          n_estimators=self.n_estimators,
+                          reg_alpha = 0.0,
+                          max_depth=self.max_depth,
+                          gamma=0)
+
+            print("going to call fit")
+            self.xgb_model.fit(X,Y, verbose=1)
+
+        print("model fit, going to save")
+        exp_name = self.get_exp_name()
+        exp_dir = self.result_dir + "/" + exp_name
+        self.xgb_model.save_model(exp_dir + "/xgb_model.json")
+
+
+        # TODO: gridsearch thingy
+        # params = {'n_estimators': 100,
+          # 'max_depth': 3,
+          # 'min_samples_split': 5,
+          # 'learning_rate': 0.001,
+          # 'loss': 'ls',
+          # 'verbose':1}
+
+        # self.xgb_model = GradientBoostingRegressor(**params)
+        # self.xgb_model.fit(X, Y)
+
+    def test(self, test_samples):
+        X,Y = \
+                self.init_dataset(test_samples, False, self.eval_batch_size,
+                        weighted=False)
+        pred = self.xgb_model.predict(X)
+        # pred /= self.scale_up
+        # print(pred.shape)
+
+        print(min(pred), max(pred), np.mean(pred))
+
+        all_ests = []
+        query_idx = 0
+        # FIXME: why can't we just use get_query_estimates here?
+        for sample in test_samples:
+            ests = {}
+            node_keys = list(sample["subset_graph"].nodes())
+            if SOURCE_NODE in node_keys:
+                node_keys.remove(SOURCE_NODE)
+            node_keys.sort()
+            # for subq_idx, node in enumerate(sample["subset_graph"].nodes()):
+            for subq_idx, node in enumerate(node_keys):
+                cards = sample["subset_graph"].nodes()[node]["cardinality"]
+                alias_key = node
+                idx = query_idx + subq_idx
+                if self.normalization_type == "mscn":
+                    est_card = np.exp((pred[idx] + \
+                        self.min_val)*(self.max_val-self.min_val))
+
+                elif self.normalization_type == "pg_total_selectivity":
+                    est_sel = pred[idx]
+                    est_card = est_sel*cards["total"]
+                else:
+                    est_card = pred[idx]
+
+                assert est_card > 0
+                assert est_card != np.inf
+                ests[alias_key] = est_card
+            all_ests.append(ests)
+            query_idx += len(node_keys)
+        # assert query_idx == len(dataset)
+        return all_ests
+
+    def __str__(self):
+        return "XGBoost"
+
+
+class RandomForest(NN):
+
+    def __init__(self, *args, **kwargs):
+        self.kwargs = kwargs
+        for k, val in kwargs.items():
+            self.__setattr__(k, val)
+        if self.exp_prefix != "":
+            self.exp_prefix += "-"
+
+        self.start_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+        weekno = datetime.datetime.today().weekday()
+        self.start_day = days[weekno]
+
+    def init_dataset(self, samples, shuffle, batch_size,
+            weighted=False):
+        ds = QueryDataset(samples, self.db,
+                    "combined", True,
+                    True, "mscn",
+                    False, False,
+                    True, True,
+                    True,
+                    min_val = self.min_val,
+                    max_val = self.max_val,
+                    card_key = "actual",
+                    group = None, max_sequence_len=self.max_subqs)
+
+        X = ds.X.cpu().numpy()
+        Y = ds.Y.cpu().numpy()
+        X = np.array(X, dtype=np.float64)
+        Y = np.array(Y, dtype=np.float64)
+
+        del(ds)
+        return X, Y
+
+    def set_min_max(self, training_samples):
+        y = np.array(get_all_cardinalities(training_samples))
+        y = np.log(y)
+        self.max_val = np.max(y)
+        self.min_val = np.min(y)
+        print("min val: ", self.min_val)
+        print("max val: ", self.max_val)
+
+
+    def train(self, db, training_samples, use_subqueries=False,
+            val_samples=None, join_loss_pool = None):
+        self.db = db
+        self.training_samples = training_samples
+        self.set_min_max(training_samples)
+
+        max_subqs = 0
+        for sample in training_samples:
+            num_subqs = len(sample["subset_graph"])
+            if num_subqs > max_subqs:
+                max_subqs = num_subqs
+
+        if val_samples:
+            for sample in val_samples:
+                num_subqs = len(sample["subset_graph"])
+                if num_subqs > max_subqs:
+                    max_subqs = num_subqs
+
+        # -1 because this calc would include the source node
+        self.max_subqs = max_subqs-1
+
+        X,Y = \
+                self.init_dataset(training_samples, False, None,
+                        weighted=False)
+
+        params = {'n_estimators': self.n_estimators,
+                  'max_depth': self.max_depth}
+
+        del(self.training_samples[:])
+        self.model = RandomForestRegressor(**params)
+        self.model.fit(X, Y)
+
+    def test(self, test_samples):
+        X,Y = \
+                self.init_dataset(test_samples, False, None)
+        pred = self.model.predict(X)
+
+        print(min(pred), max(pred), np.mean(pred))
+
+        all_ests = []
+        query_idx = 0
+        # FIXME: why can't we just use get_query_estimates here?
+        for sample in test_samples:
+            ests = {}
+            node_keys = list(sample["subset_graph"].nodes())
+            if SOURCE_NODE in node_keys:
+                node_keys.remove(SOURCE_NODE)
+            node_keys.sort()
+            for subq_idx, node in enumerate(node_keys):
+                cards = sample["subset_graph"].nodes()[node]["cardinality"]
+                alias_key = node
+                idx = query_idx + subq_idx
+                est_card = np.exp((pred[idx] + \
+                    self.min_val)*(self.max_val-self.min_val))
+
+                assert est_card > 0
+                assert est_card != np.inf
+                ests[alias_key] = est_card
+            all_ests.append(ests)
+            query_idx += len(node_keys)
+        # assert query_idx == len(dataset)
+        return all_ests
+
+    def get_exp_name(self):
+        '''
+        '''
+        time_hash = str(deterministic_hash(self.start_time))[0:3]
+        name = "{PREFIX}-{HASH}".format(\
+                    PREFIX = self.exp_prefix,
+                    HASH = time_hash)
+        return name
+
+    def __str__(self):
+        return "RF"
+

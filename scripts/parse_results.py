@@ -45,7 +45,7 @@ def load_qerrs(exp_dir):
 def load_jerrs(exp_dir, file_name, loss_key):
     jerrs = load_object(exp_dir + "/" + file_name)
     if jerrs is None:
-        print("jerr not found for: ", exp_dir)
+        # print("jerr not found for: ", exp_dir)
         return None
 
     stats = defaultdict(list)
@@ -206,13 +206,13 @@ def get_summary_df(results_dir):
             print("exp args None!")
             continue
 
-        print(fn)
-        print(exp_args.hidden_layer_size)
-        print(exp_args.max_epochs)
-        print("******")
-
         exp_args = vars(exp_args)
         exp_args["alg"] = get_alg_name(exp_args)
+
+        if exp_args["diff_templates_seed"] in [6, 7]:
+            print(exp_args["diff_templates_seed"])
+            print(fn)
+            print("******")
 
         if skip_exp(exp_args):
             print("skip exp!")

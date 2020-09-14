@@ -41,13 +41,161 @@ import sql_rep.query
 import multiprocessing as mp
 import psutil
 
+OVERLAP_DIR_TMP = "{RESULT_DIR}/{DIFF_TEMPLATES_TYPE}/"
+
 def get_alg(alg):
     if alg == "independent":
         return Independent()
+
     elif alg == "xgboost":
-        return XGBoost()
-    elif alg == "randomforest":
-        return RandomForest()
+        return XGBoost(grid_search = args.grid_search,
+                n_estimators = args.n_estimators,
+                max_depth = args.max_depth,
+                lr=args.xgb_lr,
+                min_qerr = args.min_qerr,
+                num_mse_anchoring = args.num_mse_anchoring,
+                mat_sparse_features = args.mat_sparse_features,
+                flow_weighted_loss = args.flow_weighted_loss,
+                eval_parallel = args.eval_parallel,
+                max_hid = args.max_hid,
+                cost_model = args.cost_model,
+                query_batch_size = args.query_batch_size,
+                flow_features = args.flow_features,
+                table_features = args.table_features,
+                join_features = args.join_features,
+                pred_features = args.pred_features,
+                normalize_flow_loss = args.normalize_flow_loss,
+                save_gradients = args.save_gradients,
+                weighted_mse = args.weighted_mse,
+                weighted_qloss = args.weighted_qloss,
+                cost_model_plan_err = args.cost_model_plan_err,
+                eval_flow_loss = args.eval_flow_loss,
+                use_val_set = args.use_val_set,
+                use_best_val_model = args.use_best_val_model,
+                start_validation = args.start_validation,
+                weight_decay = args.weight_decay,
+                num_groups = args.num_groups,
+                dropout = args.dropout,
+                num_last = args.avg_jl_num_last,
+                join_loss_data_file = args.join_loss_data_file,
+                train_card_key = args.train_card_key,
+                exp_prefix = args.exp_prefix,
+                load_query_together = args.load_query_together,
+                result_dir = args.result_dir,
+                priority_err_type = args.priority_err_type,
+                # priority_err_divide_len = args.priority_err_divide_len,
+                priority_normalize_type = args.priority_normalize_type,
+                tfboard = args.tfboard,
+                jl_indexes = args.jl_indexes,
+                normalization_type = args.normalization_type,
+                preload_features = args.preload_features,
+                reprioritize_epoch = args.reprioritize_epoch,
+                prioritize_epoch = args.prioritize_epoch,
+                heuristic_features = args.heuristic_features,
+                debug_set = args.debug_set,
+                num_hidden_layers=args.num_hidden_layers,
+                num_attention_heads = args.num_attention_heads,
+                hidden_layer_multiple=args.hidden_layer_multiple,
+                    eval_epoch = args.eval_epoch,
+                    optimizer_name=args.optimizer_name,
+                    adaptive_lr=args.adaptive_lr,
+                    # rel_qerr_loss=args.rel_qerr_loss,
+                    clip_gradient=args.clip_gradient,
+                    loss_func = args.loss_func,
+                    sampling_priority_type = args.sampling_priority_type,
+                    sampling_priority_alpha = args.sampling_priority_alpha,
+                    priority_query_len_scale = args.priority_query_len_scale,
+                    net_name = args.net_name,
+                    eval_epoch_jerr = args.eval_epoch_jerr,
+                    eval_epoch_flow_err = args.eval_epoch_flow_err,
+                    eval_epoch_plan_err = args.eval_epoch_plan_err,
+                    # eval_num_tables = args.eval_num_tables,
+                    jl_use_postgres = args.jl_use_postgres,
+                    num_tables_feature = args.num_tables_feature,
+                    max_discrete_featurizing_buckets =
+                            args.max_discrete_featurizing_buckets,
+                    nn_type = args.nn_type,
+                    group_models = args.group_models,
+                    adaptive_lr_patience = args.adaptive_lr_patience,
+                    # single_threaded_nt = args.single_threaded_nt,
+                    nn_weights_init_pg = args.nn_weights_init_pg,
+                    avg_jl_priority = args.avg_jl_priority,
+                    hidden_layer_size = args.hidden_layer_size)
+
+    elif alg == "rf":
+        return RandomForest(grid_search = args.grid_search,
+                n_estimators = args.n_estimators,
+                max_depth = args.max_depth,
+                lr = args.lr,
+                exp_prefix = args.exp_prefix)
+                # num_mse_anchoring = args.num_mse_anchoring,
+                # mat_sparse_features = args.mat_sparse_features,
+                # flow_weighted_loss = args.flow_weighted_loss,
+                # eval_parallel = args.eval_parallel,
+                # max_hid = args.max_hid,
+                # cost_model = args.cost_model,
+                # query_batch_size = args.query_batch_size,
+                # flow_features = args.flow_features,
+                # table_features = args.table_features,
+                # join_features = args.join_features,
+                # pred_features = args.pred_features,
+                # normalize_flow_loss = args.normalize_flow_loss,
+                # save_gradients = args.save_gradients,
+                # weighted_mse = args.weighted_mse,
+                # weighted_qloss = args.weighted_qloss,
+                # cost_model_plan_err = args.cost_model_plan_err,
+                # eval_flow_loss = args.eval_flow_loss,
+                # use_val_set = args.use_val_set,
+                # use_best_val_model = args.use_best_val_model,
+                # start_validation = args.start_validation,
+                # weight_decay = args.weight_decay,
+                # num_groups = args.num_groups,
+                # dropout = args.dropout,
+                # num_last = args.avg_jl_num_last,
+                # join_loss_data_file = args.join_loss_data_file,
+                # train_card_key = args.train_card_key,
+                # exp_prefix = args.exp_prefix,
+                # load_query_together = args.load_query_together,
+                # result_dir = args.result_dir,
+                # priority_err_type = args.priority_err_type,
+                # # priority_err_divide_len = args.priority_err_divide_len,
+                # priority_normalize_type = args.priority_normalize_type,
+                # tfboard = args.tfboard,
+                # jl_indexes = args.jl_indexes,
+                # normalization_type = args.normalization_type,
+                # preload_features = args.preload_features,
+                # reprioritize_epoch = args.reprioritize_epoch,
+                # prioritize_epoch = args.prioritize_epoch,
+                # heuristic_features = args.heuristic_features,
+                # debug_set = args.debug_set,
+                # num_hidden_layers=args.num_hidden_layers,
+                # num_attention_heads = args.num_attention_heads,
+                # hidden_layer_multiple=args.hidden_layer_multiple,
+                    # eval_epoch = args.eval_epoch,
+                    # optimizer_name=args.optimizer_name,
+                    # adaptive_lr=args.adaptive_lr,
+                    # # rel_qerr_loss=args.rel_qerr_loss,
+                    # clip_gradient=args.clip_gradient,
+                    # loss_func = args.loss_func,
+                    # sampling_priority_type = args.sampling_priority_type,
+                    # sampling_priority_alpha = args.sampling_priority_alpha,
+                    # priority_query_len_scale = args.priority_query_len_scale,
+                    # net_name = args.net_name,
+                    # eval_epoch_jerr = args.eval_epoch_jerr,
+                    # eval_epoch_flow_err = args.eval_epoch_flow_err,
+                    # eval_epoch_plan_err = args.eval_epoch_plan_err,
+                    # # eval_num_tables = args.eval_num_tables,
+                    # jl_use_postgres = args.jl_use_postgres,
+                    # num_tables_feature = args.num_tables_feature,
+                    # max_discrete_featurizing_buckets =
+                            # args.max_discrete_featurizing_buckets,
+                    # nn_type = args.nn_type,
+                    # group_models = args.group_models,
+                    # adaptive_lr_patience = args.adaptive_lr_patience,
+                    # # single_threaded_nt = args.single_threaded_nt,
+                    # nn_weights_init_pg = args.nn_weights_init_pg,
+                    # avg_jl_priority = args.avg_jl_priority,
+                    # hidden_layer_size = args.hidden_layer_size)
     elif alg == "linear":
         return Linear()
     elif alg == "postgres":
@@ -71,6 +219,7 @@ def get_alg(alg):
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
                 min_qerr = args.min_qerr,
+                num_mse_anchoring = args.num_mse_anchoring,
                 mat_sparse_features = args.mat_sparse_features,
                 flow_weighted_loss = args.flow_weighted_loss,
                 eval_parallel = args.eval_parallel,
@@ -168,12 +317,17 @@ def compute_subq_ids(samples):
         for subq_idx, node in enumerate(nodes):
             sorted_node = list(node)
             sorted_node.sort()
-            subq_id = deterministic_hash(str(sorted_node))
+            # subq_id = deterministic_hash(str(sorted_node))
+            subq_id = ",".join(sorted_node)
             node_ids.append(subq_id)
             cur_pred_cols = []
             for table in sorted_node:
-                cur_pred_cols.append(sample["join_graph"].nodes()[table]["pred_cols"])
-            pred_ids.append(deterministic_hash(str(cur_pred_cols)))
+                pred_cols = sample["join_graph"].nodes()[table]["pred_cols"]
+                pred_cols = list(set(pred_cols))
+                pred_cols.sort()
+                cur_pred_cols += pred_cols
+            # pred_ids.append(deterministic_hash(str(cur_pred_cols)))
+            pred_ids.append(",".join(cur_pred_cols))
 
     node_ids = np.array(list(set(node_ids)))
     pred_ids = np.array(list(set(pred_ids)))
@@ -306,8 +460,8 @@ def load_samples(qdir, db, found_db, template_name,
                     zero_query = True
                     break
                 else:
-                    print(qfn)
-                    info["cardinality"]["actual"] += 1.1
+                    if info["cardinality"]["actual"] == 0:
+                        info["cardinality"]["actual"] += 1.1
 
             if args.sampling_key is not None:
                 if wj_times is None:
@@ -418,6 +572,8 @@ def load_all_qrep_data(load_job_queries,
         wj_times = get_wj_times_dict("wanderjoin")
 
     for qi,qdir in enumerate(fns):
+        if not load_train_queries and not load_test_queries:
+            continue
         template_name = os.path.basename(qdir)
         if args.query_templates != "all":
             if template_name not in query_templates:
@@ -445,9 +601,10 @@ def load_all_qrep_data(load_job_queries,
 
         if args.test and args.use_val_set:
             cur_train_queries, cur_test_queries = train_test_split(samples,
-                    test_size=args.test_size, random_state=args.random_seed)
+                    test_size=args.test_size,
+                    random_state=args.random_seed_queries)
             cur_val_queries, cur_test_queries = train_test_split(cur_test_queries,
-                    test_size=0.6, random_state=args.random_seed)
+                    test_size=0.6, random_state=args.random_seed_queries)
 
         elif args.test_diff_templates:
             # train template, else test
@@ -478,7 +635,8 @@ def load_all_qrep_data(load_job_queries,
 
         elif args.test:
             cur_train_queries, cur_test_queries = train_test_split(samples,
-                    test_size=args.test_size, random_state=args.random_seed)
+                    test_size=args.test_size,
+                    random_state=args.random_seed_queries)
 
         else:
             cur_train_queries = samples
@@ -486,7 +644,9 @@ def load_all_qrep_data(load_job_queries,
             cur_val_queries = []
 
         train_queries += cur_train_queries
-        test_queries += cur_test_queries
+
+        if load_test_queries:
+            test_queries += cur_test_queries
         if args.use_val_set:
             val_queries += cur_val_queries
 
@@ -531,6 +691,112 @@ def load_all_qrep_data(load_job_queries,
 
     return train_queries, test_queries, val_queries, job_queries, db
 
+def compare_overlap(train_queries, test_queries, test_kind):
+    def get_overlap_percentage(train_node_ids, test_node_ids):
+        overlap_percentage = []
+        for tid in test_node_ids:
+            # what is the closest overlap in the training set for it
+            best_so_far = 0.0
+            if tid in node_common:
+                overlap_percentage.append(1.0)
+                continue
+            tid = tid.split(",")
+            for trid in train_node_ids:
+                trid = trid.split(",")
+                common = np.intersect1d(tid, trid)
+                overlap = float(len(common)) / len(tid)
+                assert overlap <= 1
+                if overlap > best_so_far:
+                    best_so_far = overlap
+                if best_so_far > 0.98:
+                    break
+            overlap_percentage.append(best_so_far)
+
+        return overlap_percentage
+
+    train_node_ids, train_pred_ids = compute_subq_ids(train_queries)
+
+    test_node_ids, test_pred_ids = compute_subq_ids(test_queries)
+    # print stats
+    node_common = np.intersect1d(train_node_ids, test_node_ids)
+    pred_common = np.intersect1d(train_pred_ids, test_pred_ids)
+    node_all = np.union1d(train_node_ids, test_node_ids)
+    pred_all = np.union1d(train_pred_ids, test_pred_ids)
+
+
+    train_tmps = set([s["template_name"] for s in train_queries])
+    test_tmps = set([s["template_name"] for s in test_queries])
+
+    print(train_tmps)
+    print(test_tmps)
+    overlap_results = defaultdict(list)
+
+    node_exact = float(len(node_common)) / len(test_node_ids)
+    pred_exact = float(len(pred_common)) / len(test_pred_ids)
+
+    overlap_results["samples_type"].append(test_kind)
+    overlap_results["seed"].append(args.diff_templates_seed)
+    overlap_results["overlap_type"].append("node_exact")
+    overlap_results["overlap_ratio"].append(node_exact)
+
+    overlap_results["samples_type"].append(test_kind)
+    overlap_results["seed"].append(args.diff_templates_seed)
+    overlap_results["overlap_type"].append("pred_exact")
+    overlap_results["overlap_ratio"].append(pred_exact)
+
+    print("""train-test intersection; test type: {} , node#: {}, common node /all: {}, common
+    node /test_nodes:
+    {}, pred#: {}, common pred/all: {}, common pred / test_preds:
+    {}""".format(test_kind, len(node_common),
+        float(len(node_common)) / len(node_all), float(len(node_common)) /
+            len(test_node_ids), len(pred_common),
+        float(len(pred_common)) / len(pred_all), float(len(pred_common)) /
+        len(test_pred_ids)))
+
+    overlap_node_percentage = get_overlap_percentage(train_node_ids,
+            test_node_ids)
+
+    print("node overlap: ", test_kind, np.mean(overlap_node_percentage),
+            np.median(overlap_node_percentage))
+
+    overlap_results["samples_type"].append(test_kind)
+    overlap_results["seed"].append(args.diff_templates_seed)
+    overlap_results["overlap_type"].append("node_overlap_mean")
+    overlap_results["overlap_ratio"].append(np.mean(overlap_node_percentage))
+
+    overlap_results["samples_type"].append(test_kind)
+    overlap_results["seed"].append(args.diff_templates_seed)
+    overlap_results["overlap_type"].append("node_overlap_median")
+    overlap_results["overlap_ratio"].append(np.median(overlap_node_percentage))
+
+    overlap_pred_percentage = get_overlap_percentage(train_pred_ids,
+            test_pred_ids)
+
+    print("pred overlap: ", test_kind, np.mean(overlap_pred_percentage),
+            np.median(overlap_pred_percentage))
+
+    overlap_results["samples_type"].append(test_kind)
+    overlap_results["seed"].append(args.diff_templates_seed)
+    overlap_results["overlap_type"].append("node_overlap_mean")
+    overlap_results["overlap_ratio"].append(np.mean(overlap_pred_percentage))
+
+    overlap_results["samples_type"].append(test_kind)
+    overlap_results["seed"].append(args.diff_templates_seed)
+    overlap_results["overlap_type"].append("node_overlap_median")
+    overlap_results["overlap_ratio"].append(np.median(overlap_pred_percentage))
+
+    df = pd.DataFrame(overlap_results)
+    rdir = OVERLAP_DIR_TMP.format(RESULT_DIR = args.result_dir,
+                                  DIFF_TEMPLATES_TYPE = args.diff_templates_type)
+    print("going to overlap at: ", rdir)
+    make_dir(rdir)
+    fn = rdir + "/overlap_info.pkl"
+    old_df = load_object(fn)
+    if old_df is not None:
+        df = pd.concat([old_df, df], ignore_index=True)
+
+    save_object(fn, df)
+
 def main():
 
     if args.max_epochs < args.eval_epoch \
@@ -542,37 +808,21 @@ def main():
     train_queries, test_queries, val_queries, job_queries, db = \
             load_all_qrep_data(False, load_test_samples, True, True)
 
-    train_node_ids, train_pred_ids = compute_subq_ids(train_queries)
+    if not load_test_samples:
+        assert len(test_queries) == 0
 
-    if len(test_queries) > 0:
-        test_node_ids, test_pred_ids = compute_subq_ids(test_queries)
-        # print stats
-        node_common = np.intersect1d(train_node_ids, test_node_ids)
-        pred_common = np.intersect1d(train_pred_ids, test_pred_ids)
-        node_all = np.union1d(train_node_ids, test_node_ids)
-        pred_all = np.union1d(train_pred_ids, test_pred_ids)
-
-        train_tmps = set([s["template_name"] for s in train_queries])
-        test_tmps = set([s["template_name"] for s in test_queries])
-
-        print(train_tmps)
-        print(test_tmps)
-        print("""train-test intersection; node#: {}, common node /all: {}, common
-        node /test_nodes:
-        {}, pred#: {}, common pred/all: {}, common pred / test_preds: {}""".format(len(node_common),
-            float(len(node_common)) / len(node_all), float(len(node_common)) /
-                len(test_node_ids), len(pred_common),
-            float(len(pred_common)) / len(pred_all), float(len(pred_common)) /
-            len(test_pred_ids)))
-
-        # pdb.set_trace()
+    if args.only_compute_overlap:
+        compare_overlap(train_queries, test_queries, "test")
 
     if len(job_queries) > 0:
-        job_node_ids, job_pred_ids = compute_subq_ids(job_queries)
+        # job_node_ids, job_pred_ids = compute_subq_ids(job_queries)
+        compare_overlap(train_queries, job_queries, "job")
     else:
         job_node_ids = []
         job_pred_ids = []
 
+    if args.only_compute_overlap:
+        exit(-1)
 
     if len(train_queries) == 0:
         # debugging, so doesn't crash
@@ -659,7 +909,7 @@ def main():
 
         # may have deleted it to save space
         if len(train_queries) == 0:
-            train_queries, _, _, _, _ = \
+            train_queries, test_queries, _, _, _ = \
                     load_all_qrep_data(False, False, False, True)
 
         start = time.time()
@@ -667,16 +917,15 @@ def main():
         eval_alg(alg, losses, train_queries, "train", join_loss_pool)
         del(train_queries[:])
 
+        if len(test_queries) == 0:
+            _, test_queries, _, _, _ = \
+                    load_all_qrep_data(False, True, False, False)
+
         # if args.test:
             # size = int(len(test_queries) / 10)
             # for i in range(10):
                 # idx = size*i
                 # eval_alg(alg, losses, test_queries[idx:idx+size], "test", join_loss_pool)
-
-        if len(test_queries) == 0:
-            _, test_queries, _, _, _ = \
-                    load_all_qrep_data(False, True, False, False)
-            # del(train_queries[:])
 
         eval_alg(alg, losses, test_queries, "test", join_loss_pool)
         del(test_queries[:])
@@ -684,24 +933,23 @@ def main():
         if args.eval_on_job:
             _, _, _, job_queries, _ = \
                     load_all_qrep_data(True, False, False, False)
-            # del(train_queries[:])
-            assert len(job_queries) > 0
-            job_node_ids, job_pred_ids = compute_subq_ids(job_queries)
-
-            node_common = np.intersect1d(train_node_ids, job_node_ids)
-            pred_common = np.intersect1d(train_pred_ids, job_pred_ids)
-            node_all = np.union1d(train_node_ids, job_node_ids)
-            pred_all = np.union1d(train_pred_ids, job_pred_ids)
-
-            print("""train-job intersection; node#: {}, node/all: {}, node/test_nodes:
-            {}, pred#: {}, pred/all: {}, pred / test_preds""".format(len(node_common),
-                float(len(node_common)) / len(node_all), float(len(node_common)) /
-                    len(job_node_ids), len(pred_common),
-                float(len(pred_common)) / len(pred_all), float(len(pred_common)) /
-                len(job_pred_ids)))
-            # pdb.set_trace()
-
             eval_alg(alg, losses, job_queries, "job", join_loss_pool)
+            # del(train_queries[:])
+            # assert len(job_queries) > 0
+            # job_node_ids, job_pred_ids = compute_subq_ids(job_queries)
+
+            # node_common = np.intersect1d(train_node_ids, job_node_ids)
+            # pred_common = np.intersect1d(train_pred_ids, job_pred_ids)
+            # node_all = np.union1d(train_node_ids, job_node_ids)
+            # pred_all = np.union1d(train_pred_ids, job_pred_ids)
+
+            # print("""train-job intersection; node#: {}, node/all: {}, node/test_nodes:
+            # {}, pred#: {}, pred/all: {}, pred / test_preds""".format(len(node_common),
+                # float(len(node_common)) / len(node_all), float(len(node_common)) /
+                    # len(job_node_ids), len(pred_common),
+                # float(len(pred_common)) / len(pred_all), float(len(pred_common)) /
+                # len(job_pred_ids)))
+            # pdb.set_trace()
 
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
@@ -722,6 +970,14 @@ def gen_samples_hash():
 
 def read_flags():
     parser = argparse.ArgumentParser()
+
+    parser.add_argument("--grid_search", type=int, required=False,
+            default=0)
+    parser.add_argument("--n_estimators", type=int, required=False,
+            default=500)
+    parser.add_argument("--max_depth", type=int, required=False,
+            default=10)
+
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
     parser.add_argument("--cost_model", type=str, required=False,
@@ -733,6 +989,10 @@ def read_flags():
     parser.add_argument("--query_templates", type=str, required=False,
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
+            default=0)
+    parser.add_argument("--num_mse_anchoring", type=int, required=False,
+            default=5)
+    parser.add_argument("--only_compute_overlap", type=int, required=False,
             default=0)
     parser.add_argument("--sample_bitmap", type=int, required=False,
             default=0)
@@ -749,7 +1009,7 @@ def read_flags():
     parser.add_argument("--add_test_features", type=int, required=False,
             default=1)
     parser.add_argument("--job_skip_zero_queries", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--flow_weighted_loss", type=int, required=False,
             default=0)
     parser.add_argument("--job_query_dir", type=str, required=False,
@@ -872,6 +1132,9 @@ def read_flags():
 
     parser.add_argument("--lr", type=float,
             required=False, default=0.0001)
+    parser.add_argument("--xgb_lr", type=float,
+            required=False, default=0.01)
+
     parser.add_argument("--clip_gradient", type=float,
             required=False, default=20.0)
     parser.add_argument("--save_gradients", type=int,
@@ -952,6 +1215,8 @@ def read_flags():
     parser.add_argument('--synth_num_vals', help='delimited list correlations',
             type=int, required=False, default=100000)
     parser.add_argument("--random_seed", type=int, required=False,
+            default=2112)
+    parser.add_argument("--random_seed_queries", type=int, required=False,
             default=2112)
     parser.add_argument("--test", type=int, required=False,
             default=1)

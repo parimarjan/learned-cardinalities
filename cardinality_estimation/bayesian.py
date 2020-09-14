@@ -2529,41 +2529,6 @@ class NumTablesNN(CardinalityEstimationAlg):
     def save_model(self, save_dir="./", suffix_name=""):
         pass
 
-class XGBoost(CardinalityEstimationAlg):
-
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def train(self, db, training_samples, **kwargs):
-        test_samples = kwargs["test_samples"]
-        X, Y = get_all_features(training_samples, db)
-        Xtest, Ytest = get_all_features(test_samples, db)
-
-        print("before training xgboost")
-        gbm = xgb.XGBRegressor(max_depth=16, n_estimators=20,
-                learning_rate=0.05, objective='reg:squarederror').fit(X, Y)
-        print("training xgboost done!")
-        yhat = gbm.predict(X)
-        train_loss = qloss(yhat, Y)
-
-        yhat = gbm.predict(Xtest)
-        test_loss = qloss(yhat, Ytest)
-        print("train loss: {}, test loss: {}".format(train_loss, test_loss))
-
-        pdb.set_trace()
-
-    def test(self, test_samples, **kwargs):
-        pass
-    def size(self):
-        '''
-        size of the parameters needed so we can compare across different algorithms.
-        '''
-        pass
-    def __str__(self):
-        return self.__class__.__name__
-    def save_model(self, save_dir="./", suffix_name=""):
-        pass
-
 class RandomForest(CardinalityEstimationAlg):
 
     def __init__(self, *args, **kwargs):

@@ -24,11 +24,13 @@ import sys
 import klepto
 import datetime
 import multiprocessing
-import xgboost as xgb
 from sklearn.ensemble import RandomForestRegressor
 from .custom_linear import CustomLinearModel
 from sqlalchemy import create_engine
 import datetime
+
+# from cardinality_estimation.query_dataset import QueryDataset
+# from cardinality_estimation.nn import NN
 
 # from scripts.get_query_cardinalities import CROSS_JOIN_CONSTANT
 
