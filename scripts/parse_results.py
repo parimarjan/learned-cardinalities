@@ -209,10 +209,10 @@ def get_summary_df(results_dir):
         exp_args = vars(exp_args)
         exp_args["alg"] = get_alg_name(exp_args)
 
-        if exp_args["diff_templates_seed"] in [6, 7]:
-            print(exp_args["diff_templates_seed"])
-            print(fn)
-            print("******")
+        # if exp_args["diff_templates_seed"] in [6, 7]:
+            # print(exp_args["diff_templates_seed"])
+            # print(fn)
+            # print("******")
 
         if skip_exp(exp_args):
             print("skip exp!")
@@ -265,6 +265,9 @@ def get_summary_df(results_dir):
         args_hash = str(deterministic_hash(str(exp_args)))[0:5]
         exp_hash = str(deterministic_hash(str(exp_args)))[0:5]
         cur_df = cur_df.assign(**exp_args)
+        cur_df["exp_hash"] = exp_hash
+        cur_df["fn"] = fn
+        cur_df["fn_hash"] = str(deterministic_hash(fn))[0:5]
         if "nn" in exp_args["algs"]:
             cur_df["alg_name"] = exp_args["loss_func"]
         else:

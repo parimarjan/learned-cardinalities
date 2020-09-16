@@ -75,7 +75,7 @@ USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
-    REGEN_COSTS = False
+    REGEN_COSTS = True
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
@@ -84,6 +84,7 @@ def update_samples(samples, flow_features, cost_model,
     for sample in samples:
         subsetg = sample["subset_graph"]
         if SOURCE_NODE not in subsetg.nodes():
+            print("SOURCE NODE {} not in graph".format(SOURCE_NODE))
             add_single_node_edges(subsetg)
 
         sample_edge = list(subsetg.edges())[0]
@@ -102,6 +103,7 @@ def update_samples(samples, flow_features, cost_model,
             final_node = [n for n,d in subsetg.in_degree() if d==0][0]
             pg_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
                     weight="pg_cost")
+
             for node in pg_path:
                 subsetg.nodes()[node][cost_model + "pg_path"] = 1
 
@@ -163,7 +165,7 @@ def percentile_help(q):
     return f
 
 DEBUG = False
-SOURCE_NODE = tuple("s")
+# SOURCE_NODE = tuple("s")
 
 def get_subq_tolerances(qrep, card_key, cost_key):
     '''
@@ -1854,6 +1856,11 @@ class NN(CardinalityEstimationAlg):
 
     def train(self, db, training_samples, use_subqueries=False,
             val_samples=None, join_loss_pool = None):
+        global SOURCE_NODE
+        if db.db_name == "so":
+            SOURCE_NODE = tuple(["SOURCE"])
+            print(SOURCE_NODE)
+
         assert isinstance(training_samples[0], dict)
         rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
         resource.setrlimit(resource.RLIMIT_NOFILE, (64000, rlimit[1]))
@@ -2163,15 +2170,16 @@ class NN(CardinalityEstimationAlg):
         # print(type(self.samples["train"]))
 
         if self.eval_epoch > self.max_epochs:
-            del(self.training_samples[:])
             if val_samples is not None:
                 del(val_samples[:])
-            # self.training_samples.__del__()
-            # val_samples.__del__()
-            self.training_samples = None
             val_samples = None
-            # del(self.db)
-            del(training_sets[0].db)
+            if self.sampling_priority_alpha == 0.0:
+                del(self.training_samples[:])
+                # self.training_samples.__del__()
+                # val_samples.__del__()
+                self.training_samples = None
+                # del(self.db)
+                del(training_sets[0].db)
 
         for self.epoch in range(0,self.max_epochs):
             if self.epoch % self.eval_epoch == 0 \
@@ -2197,6 +2205,7 @@ class NN(CardinalityEstimationAlg):
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \
                             or self.epoch == self.prioritize_epoch):
+                print("going to update priorities")
                 pred, _ = self._eval_samples(priority_loaders)
                 pred = pred.detach().numpy()
                 weights = np.zeros(self.total_training_samples)
@@ -2454,6 +2463,19 @@ class XGBoost(NN):
         del(ds)
         return X, Y
 
+    def load_model(self, model_dir):
+        # TODO: can model dir be reconstructed based on args?
+        # model_path = model_dir + "/model_weights.pt"
+        # assert os.path.exists(model_path)
+        # assert len(self.nets) == 1
+        # self.nets[0].load_state_dict(torch.load(model_path))
+        # self.nets[0].eval()
+        model_path = model_dir + "/xgb_model.json"
+        self.xgb_model = xgb.XGBRegressor(objective="reg:squarederror")
+        self.xgb_model.load_model(model_path)
+        print("*****loaded model*****")
+        pdb.set_trace()
+
     def set_min_max(self, training_samples):
         y = np.array(get_all_cardinalities(training_samples))
         y = np.log(y)
@@ -2482,6 +2504,8 @@ class XGBoost(NN):
 
         # -1 because this calc would include the source node
         self.max_subqs = max_subqs-1
+        if self.max_epochs == 0:
+            return
 
         X,Y = \
                 self.init_dataset(training_samples, False, self.eval_batch_size,
@@ -2541,7 +2565,6 @@ class XGBoost(NN):
         exp_dir = self.result_dir + "/" + exp_name
         self.xgb_model.save_model(exp_dir + "/xgb_model.json")
 
-
         # TODO: gridsearch thingy
         # params = {'n_estimators': 100,
           # 'max_depth': 3,
@@ -2592,12 +2615,10 @@ class XGBoost(NN):
                 ests[alias_key] = est_card
             all_ests.append(ests)
             query_idx += len(node_keys)
-        # assert query_idx == len(dataset)
         return all_ests
 
     def __str__(self):
         return "XGBoost"
-
 
 class RandomForest(NN):
 
@@ -2642,7 +2663,6 @@ class RandomForest(NN):
         print("min val: ", self.min_val)
         print("max val: ", self.max_val)
 
-
     def train(self, db, training_samples, use_subqueries=False,
             val_samples=None, join_loss_pool = None):
         self.db = db
@@ -2668,12 +2688,28 @@ class RandomForest(NN):
                 self.init_dataset(training_samples, False, None,
                         weighted=False)
 
-        params = {'n_estimators': self.n_estimators,
-                  'max_depth': self.max_depth}
+        if self.grid_search:
+            parameters = {'n_estimators':(100, 250, 500, 1000),
+                    'max_depth':(3, 6, 8, 10)}
 
-        del(self.training_samples[:])
-        self.model = RandomForestRegressor(**params)
-        self.model.fit(X, Y)
+            model = RandomForestRegressor()
+
+            self.model = RandomizedSearchCV(model, parameters, n_jobs=-1,
+                    verbose=1)
+
+            self.model.fit(X, Y)
+
+            print("*******************BEST ESTIMATOR FOUND**************")
+            print(self.model.best_estimator_)
+            print("*******************BEST ESTIMATOR DONE**************")
+
+        else:
+            params = {'n_estimators': self.n_estimators,
+                      'max_depth': self.max_depth}
+
+            del(self.training_samples[:])
+            self.model = RandomForestRegressor(n_jobs=-1, verbose=2, **params)
+            self.model.fit(X, Y)
 
     def test(self, test_samples):
         X,Y = \
@@ -2710,8 +2746,9 @@ class RandomForest(NN):
         '''
         '''
         time_hash = str(deterministic_hash(self.start_time))[0:3]
-        name = "{PREFIX}-{HASH}".format(\
+        name = "{PREFIX}-{NAME}-{HASH}".format(\
                     PREFIX = self.exp_prefix,
+                    NAME = self.__str__(),
                     HASH = time_hash)
         return name
 

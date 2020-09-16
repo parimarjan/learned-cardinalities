@@ -57,7 +57,7 @@ SAMPLE_TABLES = ["title", "name", "aka_name", "keyword", "movie_info",
 SOURCE_NODE = tuple("s")
 
 # TODO: FIXME
-SOURCE_NODE2 = tuple("SOURCE")
+# SOURCE_NODE2 = tuple("SOURCE")
 
 SOURCE_NODE_CONST = 100000
 OLD_TIMEOUT_COUNT_CONSTANT = 150001001
@@ -138,6 +138,7 @@ INDEX_COST_CONSTANT = 10000
 INDEX_PENALTY_MULTIPLE = 10.0
 
 def add_single_node_edges(subset_graph):
+
     source = SOURCE_NODE
     subset_graph.add_node(source)
     subset_graph.nodes()[source]["cardinality"] = {}
@@ -1392,8 +1393,12 @@ def draw_graph(g, highlight_nodes=set(), color_nodes={}, bold_edges=[],
 
     display(Image(A.draw(format="png", prog="dot")))
 
-def add_single_node_edges(subset_graph):
-    source = tuple("s")
+def add_single_node_edges(subset_graph, source=None):
+    if source is None:
+        source = tuple("s")
+    # source = SOURCE_NODE
+    # print(SOURCE_NODE)
+
     subset_graph.add_node(source)
     subset_graph.nodes()[source]["cardinality"] = {}
     subset_graph.nodes()[source]["cardinality"]["actual"] = 1.0
@@ -1445,7 +1450,7 @@ def compute_costs(subset_graph, cost_model,
         cards2 = subset_graph.nodes()[node2]["cardinality"]
         cards3 = subset_graph.nodes()[edge[0]]["cardinality"]
 
-        if "total" in cards1:
+        if "total" in cards1 and "total" in cards2:
             total1 = cards1["total"]
             total2 = cards2["total"]
         else:
@@ -1453,9 +1458,24 @@ def compute_costs(subset_graph, cost_model,
             total2 = None
 
         if isinstance(ests, str):
-            card1 = cards1[ests]
-            card2 = cards2[ests]
-            card3 = cards3[ests]
+            try:
+                card1 = cards1[ests]
+            except:
+                assert node1 == tuple("s")
+                card1 = 1.0
+
+            try:
+                card2 = cards2[ests]
+            except:
+                assert node2 == tuple("s")
+                card2 = 1.0
+
+            try:
+                card3 = cards3[ests]
+            except:
+                print(cards3)
+                pdb.set_trace()
+
         elif ests is None:
             card1 = cards1["actual"]
             card2 = cards2["actual"]

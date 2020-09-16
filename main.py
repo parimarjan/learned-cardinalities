@@ -798,6 +798,9 @@ def compare_overlap(train_queries, test_queries, test_kind):
     save_object(fn, df)
 
 def main():
+    if args.db_name == "so":
+        global SOURCE_NODE
+        SOURCE_NODE = tuple(["SOURCE"])
 
     if args.max_epochs < args.eval_epoch \
             or not args.eval_test_while_training:
@@ -821,8 +824,8 @@ def main():
         job_node_ids = []
         job_pred_ids = []
 
-    if args.only_compute_overlap:
-        exit(-1)
+    # if args.only_compute_overlap:
+        # exit(-1)
 
     if len(train_queries) == 0:
         # debugging, so doesn't crash
@@ -901,7 +904,6 @@ def main():
                     val_samples=val_queries, join_loss_pool=join_loss_pool)
             # load the model instead of training it!
             alg.load_model(args.model_dir)
-
 
         # print("after deleting training sets")
         # print(psutil.virtual_memory())
@@ -1088,7 +1090,7 @@ def read_flags():
     parser.add_argument("--priority_normalize_type", type=str, required=False,
             default="")
     parser.add_argument("--normalize_flow_loss", type=int, required=False,
-            default=0)
+            default=1)
 
     # parser.add_argument("--priority_err_divide_len", type=int, required=False,
             # default=0)
