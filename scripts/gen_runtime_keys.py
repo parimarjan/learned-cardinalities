@@ -1,5 +1,6 @@
 import sys
 import os
+sys.path.append(".")
 from utils.utils import *
 import pdb
 
@@ -26,7 +27,8 @@ def get_samples_per_plan(df, existing_keys = None):
     return keys
 
 existing_keys = load_object("all_rt_keys.pkl")
-print("num existing keys: ", len(existing_keys))
+if existing_keys is not None:
+    print("num existing keys: ", len(existing_keys))
 res_dir = sys.argv[1]
 
 print("results directory is: ", res_dir)

@@ -125,12 +125,16 @@ def get_all_objects(results_dir, obj_name):
     for fn in fns:
         cur_dir = results_dir + "/" + fn
         if os.path.exists(cur_dir + "/" + obj_name):
-            df = load_object(cur_dir + "/" + obj_name)
+            if ".csv" in obj_name:
+                df = pd.read_csv(cur_dir + "/" + obj_name)
+            else:
+                df = load_object(cur_dir + "/" + obj_name)
             if not isinstance(df, pd.DataFrame):
                 df = pd.DataFrame(df)
         else:
             print("skipping obj: ", obj_name)
             continue
+
         exp_args = load_object(cur_dir + "/args.pkl")
         exp_args = vars(exp_args)
         if "nn" in exp_args["algs"]:
@@ -171,7 +175,6 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
     fns = os.listdir(results_dir)
     rt_fn = "runtimes_" + res_fn
     rt_fn = rt_fn.replace(".pkl", ".csv")
-    print(rt_fn)
     for fn in fns:
         cur_dir = results_dir + "/" + fn + "/"
         if os.path.exists(cur_dir + rt_fn):
@@ -182,24 +185,25 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
 
         exp_args = load_object(cur_dir + "/args.pkl")
         exp_args = vars(exp_args)
-        perrs = load_object(cur_dir + "/plan_pg_err.pkl")
+        perrs = load_object(cur_dir + "/cm1_jerr.pkl")
         # perrs = perrs[perrs["samples_type"].isin(["test", "job"])]
         runtimes = runtimes.drop_duplicates("sql_key")
         all_rt_keys = set(runtimes["sql_key"])
         assert len(all_rt_keys) == len(runtimes)
         # combined_df = jerr_df.merge(true_rts, on="sql_key")
-        print(fn)
-        print("runtimes len: ", len(runtimes))
+        # print(fn)
+        # print("orig runtimes len: ", len(runtimes))
+
         runtimes = runtimes.merge(perrs[["sql_key", "template"]], on="sql_key")
         runtimes = runtimes.merge(perrs[["sql_key", "qfn"]], on="sql_key")
 
         runtimes = runtimes.merge(perrs[["sql_key", "loss"]], on="sql_key")
         runtimes = runtimes.merge(perrs[["sql_key", "cost"]], on="sql_key")
         runtimes = runtimes.merge(perrs[["sql_key", "samples_type"]], on="sql_key")
-        print("runtimes len: ", len(runtimes))
+        # print("after merging with cm1_jerr runtimes len: ", len(runtimes))
 
-        if "postgres" in fn or "true" in fn:
-            runtimes = runtimes[runtimes["samples_type"] != "job"]
+        # if "postgres" in fn or "true" in fn:
+            # runtimes = runtimes[runtimes["samples_type"] != "job"]
 
         df = runtimes
         # exp_hash = str(deterministic_hash(str(exp_args) + fn))[0:5]
@@ -214,6 +218,28 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
         print("df len: ", len(df))
         if rt_keys is not None:
             df = df[df["sql_key"].isin(rt_keys)]
+
+        if exp_args["test_diff_templates"]:
+            if exp_args["diff_templates_type"] == 1:
+                partition = "X"
+            elif exp_args["diff_templates_type"] == 2:
+                partition = "Y"
+            elif exp_args["diff_templates_type"] == 3:
+                partition = exp_args["diff_templates_seed"]
+        else:
+            partition = "0"
+        df["partition"] = partition
+
+        ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
+                "flow_features"]
+
+        for k in ARG_KEYS:
+            df[k] = exp_args[k]
+
+        # if exp_args["sample_bitmap"]:
+        print(exp_args["sample_bitmap"])
+        print(exp_args["max_epochs"])
+        print(fn)
 
         all_dfs.append(df)
     return pd.concat(all_dfs)
