@@ -13,7 +13,7 @@ class QueryDataset(data.Dataset):
             normalization_type, load_query_together,
             flow_features, table_features, join_features, pred_features,
             min_val=None, max_val=None, card_key="actual",
-            group=None, max_sequence_len=None):
+            group=None, max_sequence_len=None, log_base=10):
         '''
         @samples: [] sqlrep query dictionaries, which represent a query and all
         of its subqueries.
@@ -39,6 +39,7 @@ class QueryDataset(data.Dataset):
         self.join_features = join_features
         self.pred_features = pred_features
         self.max_sequence_len = max_sequence_len
+        self.log_base = log_base
 
         # -1 to ignore SOURCE_NODE
         total_nodes = [len(s["subset_graph"].nodes())-1 for s in samples]
@@ -100,7 +101,10 @@ class QueryDataset(data.Dataset):
 
     def normalize_val(self, val, total):
         if self.normalization_type == "mscn":
-            return (np.log(val) - self.min_val) / (self.max_val - self.min_val)
+            if self.log_base == 2:
+                return (np.log2(val) - self.min_val) / (self.max_val - self.min_val)
+            else:
+                return (np.log(val) - self.min_val) / (self.max_val - self.min_val)
         else:
             return float(val) / total
 
@@ -201,7 +205,7 @@ class QueryDataset(data.Dataset):
                     ck = self.card_key
                     true_val = info["cardinality"][ck]
 
-                if total in info["cardinality"]:
+                if "total" in info["cardinality"]:
                     total = info["cardinality"]["total"]
                 else:
                     total = None

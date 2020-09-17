@@ -72,7 +72,8 @@ class SimpleRegression(torch.nn.Module):
 
         layer1 = nn.Sequential(
             nn.Linear(input_width, n_hidden, bias=True),
-            nn.LeakyReLU()
+            # nn.LeakyReLU()
+            nn.ReLU()
         ).to(device)
         self.layers.append(layer1)
 
@@ -81,7 +82,8 @@ class SimpleRegression(torch.nn.Module):
 
             layer = nn.Sequential(
                 nn.Linear(n_hidden, n_hidden, bias=True),
-                nn.LeakyReLU()
+                # nn.LeakyReLU()
+                nn.ReLU()
             ).to(device)
             self.layers.append(layer)
 

@@ -125,9 +125,6 @@ def get_pg_cost_from_sql(sql, cur):
     explain = cur.fetchall()
     all_costs = extract_values(explain[0][0][0], "Total Cost")
     mcost = max(all_costs)
-    # cur.close()
-    # cost = all_costs[-1]
-    # pdb.set_trace()
     cost = explain[0][0][0]["Plan"]["Total Cost"]
     if cost != mcost:
         print("cost != mcost!")

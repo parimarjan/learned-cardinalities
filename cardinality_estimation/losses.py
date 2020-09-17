@@ -223,7 +223,16 @@ def compute_qerror(queries, preds, **kwargs):
         print(e)
         pdb.set_trace()
 
-    errors = np.maximum((ytrue / yhat), (yhat / ytrue))
+    # errors = np.maximum((ytrue / yhat), (yhat / ytrue))
+    errors = []
+    for i,yt in enumerate(ytrue):
+        if yt > yhat[i]:
+            errors.append(-yt / yhat[i])
+        else:
+            errors.append(yhat[i] / yt)
+
+    errors_all = copy.deepcopy(errors)
+    errors = np.abs(np.array(errors))
     df = qerr_loss_stats(queries, errors,
             samples_type, -1)
 
@@ -258,7 +267,7 @@ def compute_qerror(queries, preds, **kwargs):
         df = query_losses
     save_object(qfn, df)
 
-    for error in errors:
+    for error in errors_all:
         all_qerr_losses["loss"].append(error)
         all_qerr_losses["samples_type"].append(samples_type)
 
