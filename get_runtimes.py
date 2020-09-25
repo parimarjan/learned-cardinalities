@@ -100,9 +100,11 @@ def read_flags():
             default=1)
     parser.add_argument("--materialize", type=int, required=False,
             default=0)
+    parser.add_argument("--db_name", type=str, required=False,
+            default="imdb")
     return parser.parse_args()
 
-def execute_sql(sql, template="sql", cost_model="cm1",
+def execute_sql(db_name, sql, template="sql", cost_model="cm1",
         results_fn="jerr.pkl", explain=False, materialize=True):
     '''
     '''
@@ -116,7 +118,7 @@ def execute_sql(sql, template="sql", cost_model="cm1",
         sql = sql.replace("explain (format json)", "")
 
     # FIXME: generalize
-    con = pg.connect(port=5432,dbname="imdb",
+    con = pg.connect(port=5432,dbname=db_name,
             user="ubuntu",password="",host="localhost")
 
     # TODO: clear cache
@@ -233,13 +235,14 @@ def main():
                 print("should never have repeated for execution")
                 continue
             if "template" in row:
-                exp_analyze, rt = execute_sql(row["exec_sql"], template=row["template"],
-                        cost_model=cost_model, results_fn=args.results_fn,
-                        explain=args.explain, materialize=args.materialize)
-            else:
-                exp_analyze, rt = execute_sql(row["exec_sql"], cost_model=cost_model,
+                exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
+                        template=row["template"], cost_model=cost_model,
                         results_fn=args.results_fn, explain=args.explain,
                         materialize=args.materialize)
+            else:
+                exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
+                        cost_model=cost_model, results_fn=args.results_fn,
+                        explain=args.explain, materialize=args.materialize)
             add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]

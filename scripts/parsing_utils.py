@@ -145,7 +145,7 @@ def get_all_objects(results_dir, obj_name):
         # df = df.assign(**exp_args)
 
         ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
-                "flow_features", "nn_type"]
+                "flow_features", "nn_type", "sampling_priority_alpha"]
 
         for k in ARG_KEYS:
             df[k] = exp_args[k]
@@ -177,14 +177,20 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
     rt_fn = rt_fn.replace(".pkl", ".csv")
     for fn in fns:
         cur_dir = results_dir + "/" + fn + "/"
+        exp_args = load_object(cur_dir + "/args.pkl")
+        exp_args = vars(exp_args)
+
+        # print(exp_args["train_card_key"])
+        # print(fn)
+        # print("************")
+        # continue
         if os.path.exists(cur_dir + rt_fn):
             # runtimes = load_object(cur_dir + rt_fn)
             runtimes = pd.read_csv(cur_dir+rt_fn)
         else:
             continue
 
-        exp_args = load_object(cur_dir + "/args.pkl")
-        exp_args = vars(exp_args)
+
         perrs = load_object(cur_dir + "/cm1_jerr.pkl")
         # perrs = perrs[perrs["samples_type"].isin(["test", "job"])]
         runtimes = runtimes.drop_duplicates("sql_key")
@@ -231,7 +237,7 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
         df["partition"] = partition
 
         ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
-                "flow_features"]
+                "flow_features", "sampling_priority_alpha"]
 
         for k in ARG_KEYS:
             df[k] = exp_args[k]
