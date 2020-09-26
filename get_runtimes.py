@@ -13,8 +13,8 @@ import sys
 #import pdb
 # from cardinality_estimation.join_loss import set_cost_model
 
-# TIMEOUT_CONSTANT = 909
-RERUN_TIMEOUTS = False
+TIMEOUT_CONSTANT = 909
+RERUN_TIMEOUTS = True
 # TIMEOUT_VAL = 900000
 
 def set_indexes(cursor, val):
@@ -101,6 +101,8 @@ def read_flags():
     parser.add_argument("--timeout", type=int, required=False,
             default=900)
     parser.add_argument("--materialize", type=int, required=False,
+            default=0)
+    parser.add_argument("--rerun_timeouts", type=int, required=False,
             default=0)
     parser.add_argument("--db_name", type=str, required=False,
             default="imdb")
@@ -230,7 +232,7 @@ def main():
                 # what is the stored value for this key?
                 rt_df = runtimes[runtimes["sql_key"] == row["sql_key"]]
                 stored_rt = rt_df["runtime"].values[0]
-                if stored_rt == TIMEOUT_CONSTANT and RERUN_TIMEOUTS:
+                if stored_rt == TIMEOUT_CONSTANT and args.rerun_timeouts:
                     print("going to rerun timed out query")
                 else:
                     continue
