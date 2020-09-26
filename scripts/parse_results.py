@@ -79,8 +79,6 @@ def get_alg_name_old(exp_args):
 def get_alg_name(exp_args):
     if exp_args["algs"] == "nn":
         name = exp_args["nn_type"]
-        # if not exp_args["heuristic_features"]:
-            # name += "-no_heuristic"
         return name
     elif exp_args["algs"] == "sampling":
         return exp_args["sampling_key"]
@@ -207,12 +205,19 @@ def get_summary_df(results_dir):
             continue
 
         exp_args = vars(exp_args)
+        # if exp_args["max_discrete_featurizing_buckets"] != 10:
+            # print("skipping non-10 buckets")
+            # continue
         exp_args["alg"] = get_alg_name(exp_args)
 
-        # if exp_args["diff_templates_seed"] in [6, 7]:
+        if exp_args["diff_templates_seed"] <= 10:
+            pass
             # print(exp_args["diff_templates_seed"])
             # print(fn)
             # print("******")
+        else:
+            print("SKIPPING PARTITION OVER 10")
+            continue
 
         if skip_exp(exp_args):
             print("skip exp!")
@@ -268,12 +273,20 @@ def get_summary_df(results_dir):
         cur_df["exp_hash"] = exp_hash
         cur_df["fn"] = fn
         cur_df["fn_hash"] = str(deterministic_hash(fn))[0:5]
+
         if "nn" in exp_args["algs"]:
-            cur_df["alg_name"] = exp_args["loss_func"]
+            if exp_args["sampling_priority_alpha"] > 0:
+                cur_df["alg_name"] = "priority"
+            else:
+                cur_df["alg_name"] = exp_args["loss_func"]
         else:
             cur_df["alg_name"] = exp_args["algs"]
 
         # decide partition
+        # if exp_args["test_diff"] != 1:
+            # print("skipping non-test diff cases")
+            # continue
+
         if exp_args["test_diff_templates"]:
             if exp_args["diff_templates_type"] == 1:
                 partition = "X"
@@ -282,17 +295,10 @@ def get_summary_df(results_dir):
             elif exp_args["diff_templates_type"] == 3:
                 partition = exp_args["diff_templates_seed"]
         else:
-            partition = "0"
+            partition = 0
+
         cur_df["partition"] = partition
-
-        # if (partition == 4 or partition == 5) \
-                # and "sample_bitmaps":
-            # print("****")
-            # print(partition)
-            # print(results_dir)
-            # print(fn)
-            # print("***")
-
+        cur_df["test_diff_templates"] = exp_args["test_diff_templates"]
         all_dfs.append(cur_df)
 
     summary_df = pd.concat(all_dfs, ignore_index=True)

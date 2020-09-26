@@ -82,6 +82,7 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
             assert False
         cost = nilj_cost
     elif cost_model == "nested_loop_index7":
+
         if nilj == 1:
             nilj_cost = card2 + NILJ_CONSTANT*card1;
         elif nilj == 2:
@@ -698,6 +699,9 @@ class FlowLoss(Function):
         ctx.invGs.append(res[2])
         ctx.Qs.append(res[3])
         ctx.vs.append(res[4])
+
+        # if normalize_flow_loss == 1:
+            # loss = loss / opt_flow_loss
 
         return loss
 

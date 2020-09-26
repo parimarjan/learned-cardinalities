@@ -92,7 +92,10 @@ class CardinalityEstimationAlg():
         pass
 
     def train(self, db, training_samples, **kwargs):
-        pass
+        if db.db_name == "so":
+            global SOURCE_NODE
+            SOURCE_NODE = tuple(["SOURCE"])
+
     def test(self, test_samples, **kwargs):
         '''
         @test_samples: [sql_rep objects]
@@ -167,11 +170,16 @@ class SamplingTables(CardinalityEstimationAlg):
                 sk = self.sampling_key
 
             for alias_key, info in sample["subset_graph"].nodes().items():
+                if alias_key == SOURCE_NODE:
+                    continue
                 total += 1
                 cards = info["cardinality"]
                 if sk in cards:
                     cur_est = cards[sk]
                 else:
+                    print(sk)
+                    print(cards.keys())
+                    pdb.set_trace()
                     assert False
 
                 # if "ci" in alias_key and "n" in alias_key and len(alias_key) == 2:

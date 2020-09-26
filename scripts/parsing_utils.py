@@ -141,7 +141,7 @@ def get_all_objects(results_dir, obj_name):
         # df = df.assign(**exp_args)
 
         ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
-                "flow_features", "nn_type"]
+                "flow_features", "nn_type", "max_discrete_featurizing_buckets"]
 
         for k in ARG_KEYS:
             df[k] = exp_args[k]

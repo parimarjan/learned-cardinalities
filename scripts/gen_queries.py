@@ -57,7 +57,7 @@ def remove_doubles(query_strs):
 
 def main():
     fns = list(glob.glob(args.template_dir+"/*"))
-    qdir = "./so_new_queries/"
+    # qdir = "./so_new_queries/"
     SAVE_QUERY_SQLS = False
     # make_dir(qdir)
     for fn in fns:

@@ -181,6 +181,10 @@ class DB():
         and num_vals refers to the number of values it will occupy.
         E.g. TODO.
         '''
+        if self.db_name == "so":
+            global SOURCE_NODE
+            SOURCE_NODE = tuple(["SOURCE"])
+
         indexes = self.execute(INDEX_LIST_CMD)
         self.cost_model = cost_model
         self.heuristic_features = heuristic_features

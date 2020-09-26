@@ -137,34 +137,35 @@ CARD_DIVIDER = 0.001
 INDEX_COST_CONSTANT = 10000
 INDEX_PENALTY_MULTIPLE = 10.0
 
-def add_single_node_edges(subset_graph):
+# def add_single_node_edges(subset_graph):
 
-    source = SOURCE_NODE
-    subset_graph.add_node(source)
-    subset_graph.nodes()[source]["cardinality"] = {}
-    subset_graph.nodes()[source]["cardinality"]["actual"] = 1.0
-    subset_graph.nodes()[source]["cardinality"]["total"] = 1.0
+    # source = SOURCE_NODE
 
-    for node in subset_graph.nodes():
-        if len(node) != 1:
-            continue
-        if node[0] == source[0]:
-            continue
+    # subset_graph.add_node(source)
+    # subset_graph.nodes()[source]["cardinality"] = {}
+    # subset_graph.nodes()[source]["cardinality"]["actual"] = 1.0
+    # subset_graph.nodes()[source]["cardinality"]["total"] = 1.0
 
-        # print("going to add edge from source to node: ", node)
-        # subset_graph.add_edge(node, source, cost=0.0)
-        subset_graph.add_edge(node, source)
-        in_edges = subset_graph.in_edges(node)
-        out_edges = subset_graph.out_edges(node)
-        # print("in edges: ", in_edges)
-        # print("out edges: ", out_edges)
+    # for node in subset_graph.nodes():
+        # if len(node) != 1:
+            # continue
+        # if node[0] == source[0]:
+            # continue
 
-        # if we need to add edges between single table nodes and rest
-        for node2 in subset_graph.nodes():
-            if len(node2) != 2:
-                continue
-            if node[0] in node2:
-                subset_graph.add_edge(node2, node)
+        # # print("going to add edge from source to node: ", node)
+        # # subset_graph.add_edge(node, source, cost=0.0)
+        # subset_graph.add_edge(node, source)
+        # in_edges = subset_graph.in_edges(node)
+        # out_edges = subset_graph.out_edges(node)
+        # # print("in edges: ", in_edges)
+        # # print("out edges: ", out_edges)
+
+        # # if we need to add edges between single table nodes and rest
+        # for node2 in subset_graph.nodes():
+            # if len(node2) != 2:
+                # continue
+            # if node[0] in node2:
+                # subset_graph.add_edge(node2, node)
 
 def get_default_con_creds():
     if "user" in os.environ:
@@ -1394,8 +1395,13 @@ def draw_graph(g, highlight_nodes=set(), color_nodes={}, bold_edges=[],
     display(Image(A.draw(format="png", prog="dot")))
 
 def add_single_node_edges(subset_graph, source=None):
+
+    global SOURCE_NODE
     if source is None:
         source = tuple("s")
+    else:
+        SOURCE_NODE = source
+
     # source = SOURCE_NODE
     # print(SOURCE_NODE)
 
@@ -1432,11 +1438,13 @@ def compute_costs(subset_graph, cost_model,
     cost_key = cost_model + cost_key
     for edge in subset_graph.edges():
         if len(edge[0]) == len(edge[1]):
-            assert edge[1] == tuple("s")
+            # assert edge[1] == SOURCE_NODE
             subset_graph[edge[0]][edge[1]][cost_key] = 1.0
             continue
         assert len(edge[1]) < len(edge[0])
-        assert edge[1][0] in edge[0]
+        # print(edge[0])
+        # print(edge[1][0])
+        # assert edge[1][0] in edge[0]
         ## FIXME:
         node1 = edge[1]
         diff = set(edge[0]) - set(edge[1])
@@ -2068,13 +2076,18 @@ def construct_lp(subsetg, cost_key="cost"):
 
     return edges, c, A, b, G, h
 
-def get_subsetg_vectors(sample, cost_model):
+def get_subsetg_vectors(sample, cost_model, source_node=None):
     start = time.time()
     node_dict = {}
     # edge_dict = {}
     nodes = list(sample["subset_graph"].nodes())
+
+    # if source_node is not None:
+        # SOURCE_NODE = source_node
+
     if SOURCE_NODE in nodes:
         nodes.remove(SOURCE_NODE)
+
     nodes.sort()
 
     subsetg = sample["subset_graph"]

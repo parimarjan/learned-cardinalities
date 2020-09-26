@@ -75,7 +75,7 @@ USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
-    REGEN_COSTS = True
+    REGEN_COSTS = False
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
@@ -83,10 +83,9 @@ def update_samples(samples, flow_features, cost_model,
     new_seen = False
     for sample in samples:
         subsetg = sample["subset_graph"]
-        if SOURCE_NODE not in subsetg.nodes():
-            print("SOURCE NODE {} not in graph".format(SOURCE_NODE))
-            add_single_node_edges(subsetg)
-
+        # if SOURCE_NODE not in subsetg.nodes():
+            # print("SOURCE NODE {} not in graph".format(SOURCE_NODE))
+        add_single_node_edges(subsetg, SOURCE_NODE)
         sample_edge = list(subsetg.edges())[0]
         if (cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
                 and not debug_set) and not REGEN_COSTS:
@@ -165,7 +164,7 @@ def percentile_help(q):
     return f
 
 DEBUG = False
-# SOURCE_NODE = tuple("s")
+SOURCE_NODE = tuple("s")
 
 def get_subq_tolerances(qrep, card_key, cost_key):
     '''
@@ -773,9 +772,13 @@ class NN(CardinalityEstimationAlg):
                 mses = torch.nn.MSELoss(reduction="none")(pred,
                         ybatch)
                 random.seed(1234)
-                mse_idxs = random.sample(range(0, len(mses)), self.num_mse_anchoring)
-                mses = mses[mse_idxs]
-                mse = torch.mean(mses)
+                if self.num_mse_anchoring == -1 \
+                        or len(mses) < self.num_mse_anchoring:
+                    mse = torch.mean(mses)
+                else:
+                    mse_idxs = random.sample(range(0, len(mses)), self.num_mse_anchoring)
+                    mses = mses[mse_idxs]
+                    mse = torch.mean(mses)
 
                 # nodes = sample["subset_graph"].nodes()
                 # if SOURCE_NODE in nodes:
@@ -890,9 +893,16 @@ class NN(CardinalityEstimationAlg):
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
 
             if self.weighted_mse != 0.0:
-                assert False
-                mse = torch.nn.MSELoss(reduction="mean")(pred,
+                mses = torch.nn.MSELoss(reduction="none")(pred,
                         ybatch)
+                if self.num_mse_anchoring == -1:
+                    mse = torch.mean(mses)
+                else:
+                    random.seed(1234)
+                    mse_idxs = random.sample(range(0, len(mses)), self.num_mse_anchoring)
+                    mses = mses[mse_idxs]
+                    mse = torch.mean(mses)
+
                 loss += self.weighted_mse * mse
 
             if self.save_gradients and "flow_loss" in loss_fn_name:
@@ -1567,6 +1577,19 @@ class NN(CardinalityEstimationAlg):
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
             print(np.mean(cost_model_losses), np.mean(cost_model_ratio))
+            print("mean: {}, median: {}, 95: {}, 99: {}".format(\
+            np.round(np.mean(cost_model_losses),3),
+            np.round(np.median(cost_model_losses),3),
+            np.round(np.percentile(cost_model_losses,95),3),
+            np.round(np.percentile(cost_model_losses,99),3)))
+
+            # for p in [0.90
+            print("mean: {}, median: {}, 95: {}, 99: {}".format(\
+            np.round(np.mean(cost_model_ratio),3),
+            np.round(np.median(cost_model_ratio),3),
+            np.round(np.percentile(cost_model_ratio,95),3),
+            np.round(np.percentile(cost_model_ratio,99),3)))
+
             # pdb.set_trace()
 
         if np.mean(join_losses) < self.best_join_loss \
@@ -1859,7 +1882,6 @@ class NN(CardinalityEstimationAlg):
         global SOURCE_NODE
         if db.db_name == "so":
             SOURCE_NODE = tuple(["SOURCE"])
-            print(SOURCE_NODE)
 
         assert isinstance(training_samples[0], dict)
         rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -2487,6 +2509,10 @@ class XGBoost(NN):
     def train(self, db, training_samples, use_subqueries=False,
             val_samples=None, join_loss_pool = None):
         self.db = db
+        global SOURCE_NODE
+        if db.db_name == "so":
+            SOURCE_NODE = tuple(["SOURCE"])
+
         self.training_samples = training_samples
         self.set_min_max(training_samples)
 

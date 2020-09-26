@@ -203,6 +203,10 @@ def compute_qerror(queries, preds, **kwargs):
     assert isinstance(preds[0], dict)
 
     args = kwargs["args"]
+    if args.db_name == "so":
+        global SOURCE_NODE
+        SOURCE_NODE = tuple(["SOURCE"])
+
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
 
@@ -449,6 +453,10 @@ def compute_join_order_loss(queries, preds, **kwargs):
 
     # env = park.make('query_optimizer')
     args = kwargs["args"]
+    if args.db_name == "so":
+        global SOURCE_NODE
+        SOURCE_NODE = tuple(["SOURCE"])
+
     alg_name = kwargs["name"]
     env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
             args.port, args.db_name)

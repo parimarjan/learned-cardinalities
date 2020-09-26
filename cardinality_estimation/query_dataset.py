@@ -24,6 +24,10 @@ class QueryDataset(data.Dataset):
         The actual dataset consists of all the subqueries in all queries. Each
         index should uniquely map to a subquery.
         '''
+        if db.db_name == "so":
+            global SOURCE_NODE
+            SOURCE_NODE = tuple(["SOURCE"])
+
         self.db = db
         # self.samples = samples
         self.heuristic_features = heuristic_features
@@ -104,7 +108,7 @@ class QueryDataset(data.Dataset):
             if self.log_base == 2:
                 return (np.log2(val) - self.min_val) / (self.max_val - self.min_val)
             else:
-                return (np.log(val) - self.min_val) / (self.max_val - self.min_val)
+                return (np.log(float(val)) - self.min_val) / (self.max_val - self.min_val)
         else:
             return float(val) / total
 
@@ -196,6 +200,7 @@ class QueryDataset(data.Dataset):
 
                 info = qrep["subset_graph"].nodes()[nodes]
                 pg_est = info["cardinality"]["expected"]
+
                 if self.wj_times is not None:
                     ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
                     true_val = info["cardinality"][ck]

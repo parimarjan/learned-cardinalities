@@ -203,8 +203,10 @@ def get_pghint_modified_sql(sql, cardinalities, join_ops,
 
     @ret: sql, augmented with appropriate comments.
     '''
-    if "explain" not in sql:
+    if "explain (format json)" not in sql:
         sql = " explain (format json) " + sql
+
+    # sql = " explain (format json) " + sql
 
     comment_str = ""
     if cardinalities is not None:
@@ -223,6 +225,7 @@ def get_pghint_modified_sql(sql, cardinalities, join_ops,
 
     pg_hint_str = PG_HINT_CMNT_TMP.format(COMMENT=comment_str)
     sql = pg_hint_str + sql
+    # sql = pg_hint_str + " " + sql
     return sql
 
 def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
@@ -234,7 +237,10 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
     except:
         con = pg.connect(port=port,dbname=db_name,
                 user=user,password=pwd, host=db_host)
+
     if len(scan_types) < 0:
+        print("scan types < 0")
+        print(scan_types)
         print(sql_order)
 
     cursor = con.cursor()
@@ -252,6 +258,7 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
     explain = cursor.fetchall()
 
     # TODO: compare scan_ops w/ scan_types
+    # print("going to call get_pg_join order from join_cost_sql")
     est_join_order_sql, est_join_ops, scan_ops = get_pg_join_order(join_graph,
             explain)
     leading_hint = get_leading_hint(join_graph, explain)
@@ -265,6 +272,8 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
 
     est_cost, est_explain = get_pg_cost_from_sql(cost_sql, cursor)
     debug_leading = get_leading_hint(join_graph, est_explain)
+
+    # print("going to call get_pg_join order from join_cost_sql2")
     _, cost_join_ops, cost_scan_ops = get_pg_join_order(join_graph,
             est_explain)
 
@@ -294,9 +303,14 @@ def get_cardinalities_join_cost(query, est_cardinalities, true_cardinalities,
 
     est_card_sql = get_pghint_modified_sql(query, est_cardinalities, None,
             None, None)
-    # assert "explain" in est_card_sql.lower()
+    assert "explain" in est_card_sql.lower()
+    # if "explain" not in est_card_sql.lower():
+        # print(est_card_sql)
+
     cursor.execute(est_card_sql)
     explain = cursor.fetchall()
+
+    # print("going to call get_pg_join order from join_cost")
     est_join_order_sql, est_join_ops, scan_ops = get_pg_join_order(join_graph,
             explain)
     leading_hint = get_leading_hint(join_graph, explain)
@@ -892,8 +906,8 @@ def get_simple_shortest_path_cost(qrep, yhat, y,
         nodes = list(subsetg.nodes())
         nodes.sort(key=lambda x: len(x))
 
-        if not directed:
-            subsetg = subsetg.to_undirected()
+        # if not directed:
+            # subsetg = subsetg.to_undirected()
 
         final_node = nodes[-1]
         path = nx.shortest_path(subsetg, final_node,
@@ -944,15 +958,20 @@ def get_shortest_path_costs(samples, source_node, cost_key,
             ests = all_ests[i]
             compute_costs(subsetg, cost_model, cost_key=cost_key,
                     ests=ests)
+        # print("compute costs done")
 
         # TODO: precompute..
         nodes = list(subsetg.nodes())
         nodes.sort(key=lambda x: len(x))
         final_node = nodes[-1]
+        # if subsetg.is_directed():
+            # subsetg = subsetg.to_undirected()
+
         path = nx.shortest_path(subsetg, final_node,
                 source_node, weight=cost_model+cost_key)
         path = path[0:-1]
         paths.append(path)
+        # print("path done")
 
         cost = 0.0
         scan_types = {}
@@ -970,18 +989,20 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         costs.append(cost)
 
         join_order = [tuple(sorted(x)) for x in path_to_join_order(path)]
+        # print("path_to_join_order done")
         join_order.reverse()
         # join_order2 = copy.deepcopy(join_order)
         # join_order[0] = join_order2[1]
         # join_order[1] = join_order2[0]
         sql_to_exec = nodes_to_sql(join_order, join_graphs[i])
+        # print("nodes to sql done")
 
         cur_ests = all_ests[i]
         exec_sql, est_cost, est_explain = get_join_cost_sql(sql_to_exec,
                 cur_ests, true_cardinalities[i],
                 join_graphs[i], user, pwd, db_host, port, db_name,
                 cost_model, scan_types)
-
+        # print("get join cost sql done")
         pg_costs.append(est_cost)
         pg_sqls.append(exec_sql)
         pg_explains.append(est_explain)
@@ -993,6 +1014,10 @@ class PlanError():
     def __init__(self, cost_model, loss_type,
             user=None, pwd=None, db_host=None, port=None, db_name=None,
             compute_pg_costs=False):
+        if db_name == "so":
+            global SOURCE_NODE
+            SOURCE_NODE = tuple(["SOURCE"])
+
         self.user = user
         self.pwd = pwd
         self.db_host = db_host
@@ -1040,6 +1065,7 @@ class PlanError():
             else:
                 opt_costs.append(None)
                 new_opt_cost = True
+            nodes = list(qrep["subset_graph"].nodes())
 
         if pool is None or self.loss_type == "flow-loss":
             opt_costs = self.loss_func(qreps, self.source_node, "cost", None, opt_costs,

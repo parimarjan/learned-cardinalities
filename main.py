@@ -52,6 +52,7 @@ def get_alg(alg):
                 n_estimators = args.n_estimators,
                 max_depth = args.max_depth,
                 lr=args.xgb_lr,
+                max_epochs = args.max_epochs,
                 min_qerr = args.min_qerr,
                 num_mse_anchoring = args.num_mse_anchoring,
                 mat_sparse_features = args.mat_sparse_features,
@@ -392,7 +393,7 @@ def eval_alg(alg, loss_funcs, queries, samples_type, join_loss_pool):
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
 def load_samples(qdir, db, found_db, template_name,
-        skip_zero_queries=True, train_template=True):
+        skip_zero_queries=True, train_template=True, wj_times=None):
     start = time.time()
     # loading, or generating samples
     samples = []
@@ -430,15 +431,20 @@ def load_samples(qdir, db, found_db, template_name,
                 print("cardinality not in qrep")
                 zero_query = True
                 break
-
+            # print(info["cardinality"].keys())
+            assert len(info["cardinality"]) > 1
             if "total" not in info["cardinality"]:
                 print("total not in query ", qfn)
                 zero_query = True
                 pdb.set_trace()
                 break
 
-            if args.train_card_key not in info["cardinality"]:
-                # print("train card key not in qrep")
+            if args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+                if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
+                    zero_query = True
+                    break
+
+            elif args.train_card_key not in info["cardinality"]:
                 zero_query = True
                 break
 
@@ -474,15 +480,11 @@ def load_samples(qdir, db, found_db, template_name,
                         zero_query = True
                         break
 
-            if args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
+            # just so everyone is forced to use the wj template queries
+            if args.sampling_key is not None:
                 if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
                     zero_query = True
                     break
-
-            # just so everyone is forced to use the wj template queries
-            # if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
-                # zero_query = True
-                # break
 
         if zero_query:
             skipped += 1
@@ -492,11 +494,14 @@ def load_samples(qdir, db, found_db, template_name,
         qrep["template_name"] = template_name
         samples.append(qrep)
 
-    print(("template: {}, zeros skipped: {}, edges: {}, subqueries: {}, queries: {}"
-            ", loading time: {}").format(template_name, skipped,
-                len(samples[0]["subset_graph"].edges()),
-                len(samples[0]["subset_graph"].nodes()), len(samples),
-                time.time()-start))
+    if len(samples) != 0:
+        print(("template: {}, zeros skipped: {}, edges: {}, subqueries: {}, queries: {}"
+                ", loading time: {}").format(template_name, skipped,
+                    len(samples[0]["subset_graph"].edges()),
+                    len(samples[0]["subset_graph"].nodes()), len(samples),
+                    time.time()-start))
+    else:
+        print(("template: {}, zero queries").format(template_name))
 
     if "job" in template_name:
         update_samples(samples, args.flow_features,
@@ -562,7 +567,9 @@ def load_all_qrep_data(load_job_queries,
             sorted_fns = copy.deepcopy(fns)
             sorted_fns.sort()
             train_tmps, test_tmps = train_test_split(sorted_fns,
-                    test_size=0.5, random_state=args.diff_templates_seed)
+                    test_size=args.test_size, random_state=args.diff_templates_seed)
+            print(train_tmps)
+            print(test_tmps)
 
     if args.sampling_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
         wj_times = get_wj_times_dict(args.sampling_key)
@@ -593,11 +600,16 @@ def load_all_qrep_data(load_job_queries,
                 continue
 
             samples = load_samples(qdir, db, found_db, template_name,
-                    skip_zero_queries=True, train_template=qdir in train_tmps)
+                    skip_zero_queries=True,
+                    train_template=qdir in train_tmps,
+                    wj_times=wj_times)
         else:
             samples = load_samples(qdir, db, found_db, template_name,
-                    skip_zero_queries=True, train_template=True)
+                    skip_zero_queries=True, train_template=True, wj_times=wj_times)
 
+        if len(samples) == 0:
+            print("skipping template {} because zero queries".format(template_name))
+            continue
 
         if args.test and args.use_val_set:
             cur_train_queries, cur_test_queries = train_test_split(samples,
@@ -801,6 +813,7 @@ def main():
     if args.db_name == "so":
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
+        args.eval_on_job = False
 
     if args.max_epochs < args.eval_epoch \
             or not args.eval_test_while_training:
@@ -811,8 +824,8 @@ def main():
     train_queries, test_queries, val_queries, job_queries, db = \
             load_all_qrep_data(False, load_test_samples, True, True)
 
-    if not load_test_samples:
-        assert len(test_queries) == 0
+    # if not load_test_samples:
+        # assert len(test_queries) == 0
 
     if args.only_compute_overlap:
         compare_overlap(train_queries, test_queries, "test")
@@ -993,7 +1006,7 @@ def read_flags():
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
     parser.add_argument("--num_mse_anchoring", type=int, required=False,
-            default=5)
+            default=-1)
     parser.add_argument("--only_compute_overlap", type=int, required=False,
             default=0)
     parser.add_argument("--sample_bitmap", type=int, required=False,
@@ -1001,7 +1014,7 @@ def read_flags():
     parser.add_argument("--sample_bitmap_num", type=int, required=False,
             default=1000)
     parser.add_argument("--sample_bitmap_buckets", type=int, required=False,
-            default=1000)
+            default=500)
     parser.add_argument("--mat_sparse_features", type=int, required=False,
             default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
@@ -1130,7 +1143,7 @@ def read_flags():
     parser.add_argument("--eval_epoch_flow_err", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_plan_err", type=int,
-            required=False, default=1)
+            required=False, default=101)
 
     parser.add_argument("--lr", type=float,
             required=False, default=0.0001)
@@ -1228,9 +1241,13 @@ def read_flags():
             default=0.5)
     parser.add_argument("--algs", type=str, required=False,
             default="postgres")
+    # parser.add_argument("--losses", type=str, required=False,
+            # default="qerr,join-loss,flow-loss,plan-loss",
+            # help="comma separated list of loss names")
     parser.add_argument("--losses", type=str, required=False,
-            default="qerr,join-loss,flow-loss,plan-loss",
+            default="qerr,join-loss",
             help="comma separated list of loss names")
+
     parser.add_argument("--result_dir", type=str, required=False,
             default="./results2/")
 
