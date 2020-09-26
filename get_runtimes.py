@@ -13,9 +13,9 @@ import sys
 #import pdb
 # from cardinality_estimation.join_loss import set_cost_model
 
-TIMEOUT_CONSTANT = 909
+# TIMEOUT_CONSTANT = 909
 RERUN_TIMEOUTS = False
-TIMEOUT_VAL = 900000
+# TIMEOUT_VAL = 900000
 
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
@@ -98,6 +98,8 @@ def read_flags():
             default=None)
     parser.add_argument("--explain", type=int, required=False,
             default=1)
+    parser.add_argument("--timeout", type=int, required=False,
+            default=900)
     parser.add_argument("--materialize", type=int, required=False,
             default=0)
     parser.add_argument("--db_name", type=str, required=False,
@@ -105,7 +107,8 @@ def read_flags():
     return parser.parse_args()
 
 def execute_sql(db_name, sql, template="sql", cost_model="cm1",
-        results_fn="jerr.pkl", explain=False, materialize=True):
+        results_fn="jerr.pkl", explain=False,
+        materialize=True, timeout=900000):
     '''
     '''
     drop_cache_cmd = "./drop_cache.sh > /dev/null"
@@ -138,7 +141,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
     # cursor.execute("SET join_collapse_limit = {}".format(1))
     # cursor.execute("SET from_collapse_limit = {}".format(1))
 
-    cursor.execute("SET statement_timeout = {}".format(TIMEOUT_VAL))
+    cursor.execute("SET statement_timeout = {}".format(timeout))
 
     start = time.time()
 
@@ -153,7 +156,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
             print(sql)
             cursor.close()
             con.close()
-            return None, TIMEOUT_CONSTANT
+            return None, timeout/1000 + 9.0
         else:
             print("failed because of timeout!")
             if explain:
@@ -169,7 +172,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
             explain_output = cursor.fetchall()
             cursor.close()
             con.close()
-            return explain_output, TIMEOUT_CONSTANT
+            return explain_output, timeout/1000 + 9.0
 
     explain_output = cursor.fetchall()
     end = time.time()
@@ -238,11 +241,13 @@ def main():
                 exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
                         template=row["template"], cost_model=cost_model,
                         results_fn=args.results_fn, explain=args.explain,
-                        materialize=args.materialize)
+                        materialize=args.materialize, timeout=args.timeout)
             else:
                 exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
                         cost_model=cost_model, results_fn=args.results_fn,
-                        explain=args.explain, materialize=args.materialize)
+                        explain=args.explain, materialize=args.materialize,
+                        timeout=args.timeout)
+
             add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]
