@@ -161,6 +161,9 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
             return None, timeout/1000 + 9.0
         else:
             print("failed because of timeout!")
+            end = time.time() 
+            print("{} took {} seconds".format(template, end-start))
+
             if explain:
                 sql = sql.replace("explain (analyze,costs, format json)",
                 "explain (format json)")
@@ -174,7 +177,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
             explain_output = cursor.fetchall()
             cursor.close()
             con.close()
-            return explain_output, timeout/1000 + 9.0
+            return explain_output, (timeout/1000) + 9.0
 
     explain_output = cursor.fetchall()
     end = time.time()
@@ -228,13 +231,13 @@ def main():
 
         for i,row in costs.iterrows():
             if row["sql_key"] in runtimes["sql_key"].values:
-                print("skipping {} with stored runtime".format(row["sql_key"]))
                 # what is the stored value for this key?
                 rt_df = runtimes[runtimes["sql_key"] == row["sql_key"]]
                 stored_rt = rt_df["runtime"].values[0]
                 if stored_rt == TIMEOUT_CONSTANT and args.rerun_timeouts:
                     print("going to rerun timed out query")
                 else:
+                    print("skipping {} with stored runtime".format(row["sql_key"]))
                     continue
             if row["sql_key"] in cur_runtimes["sql_key"]:
                 print("should never have repeated for execution")
