@@ -75,7 +75,7 @@ USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
-    REGEN_COSTS = False
+    REGEN_COSTS = True
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
@@ -100,11 +100,27 @@ def update_samples(samples, flow_features, cost_model,
             subsetg.graph[cost_model + "total_cost"] = pg_total_cost
 
             final_node = [n for n,d in subsetg.in_degree() if d==0][0]
-            pg_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
-                    weight="pg_cost")
 
-            for node in pg_path:
-                subsetg.nodes()[node][cost_model + "pg_path"] = 1
+            pg_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
+                    weight=cost_model+"pg_cost")
+
+            # for node in pg_path:
+                # subsetg.nodes()[node][cost_model + "pg_path"] = 1
+
+            opt_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
+                    weight=cost_model+"cost")
+
+            all_nodes = list(subsetg.nodes())
+            for node in all_nodes:
+                if node in opt_path:
+                    subsetg.nodes()[node][cost_model + "opt_path"] = 1
+                else:
+                    subsetg.nodes()[node][cost_model + "opt_path"] = 0
+
+                if node in pg_path:
+                    subsetg.nodes()[node][cost_model + "pg_path"] = 1
+                else:
+                    subsetg.nodes()[node][cost_model + "pg_path"] = 0
 
     if not new_seen:
         return
@@ -676,9 +692,27 @@ class NN(CardinalityEstimationAlg):
                 qloss = qloss_torch(pred, ybatch)
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
 
-            if self.weighted_mse != 0.0:
-                mses = torch.nn.MSELoss(reduction="None")(pred,
+            # if self.weighted_mse != 0.0:
+                # mses = torch.nn.MSELoss(reduction="None")(pred,
+                        # ybatch)
+                # loss += self.weighted_mse * mse
+
+            if self.weighted_mse != 0.0 and \
+                "flow_loss" in loss_fn_name:
+                mses = torch.nn.MSELoss(reduction="none")(pred,
                         ybatch)
+                random.seed(1234)
+                if self.num_mse_anchoring == -1 \
+                        or len(mses) < self.num_mse_anchoring:
+                    mse = torch.mean(mses)
+                elif self.num_mse_anchoring in [-2, -3]:
+                    mse_idxs = self.node_anchoring_idxs[qidx]
+                    mses = mses[mse_idxs]
+                    mse = torch.mean(mses)
+                else:
+                    mse_idxs = random.sample(range(0, len(mses)), self.num_mse_anchoring)
+                    mses = mses[mse_idxs]
+                    mse = torch.mean(mses)
                 loss += self.weighted_mse * mse
 
             if self.save_gradients and "flow_loss" in loss_fn_name:
@@ -702,8 +736,8 @@ class NN(CardinalityEstimationAlg):
             optimizer.step()
 
             idx_time = time.time() - start
-            if idx_time > 10:
-                print("train idx took: ", idx_time)
+            # if idx_time > 10:
+                # print("train idx took: ", idx_time)
 
         if self.save_gradients and len(grad_samples) > 0 \
                 and self.epoch % self.eval_epoch == 0:
@@ -768,12 +802,17 @@ class NN(CardinalityEstimationAlg):
                 qloss = qloss_torch(pred, ybatch)
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
 
-            if self.weighted_mse != 0.0:
+            if self.weighted_mse != 0.0 and \
+                "flow_loss" in loss_fn_name:
                 mses = torch.nn.MSELoss(reduction="none")(pred,
                         ybatch)
                 random.seed(1234)
                 if self.num_mse_anchoring == -1 \
                         or len(mses) < self.num_mse_anchoring:
+                    mse = torch.mean(mses)
+                elif self.num_mse_anchoring in [-2, -3]:
+                    mse_idxs = self.node_anchoring_idxs[qidx]
+                    mses = mses[mse_idxs]
                     mse = torch.mean(mses)
                 else:
                     mse_idxs = random.sample(range(0, len(mses)), self.num_mse_anchoring)
@@ -892,10 +931,17 @@ class NN(CardinalityEstimationAlg):
                 qloss = qloss_torch(pred, ybatch)
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
 
-            if self.weighted_mse != 0.0:
+            # if self.weighted_mse != 0.0:
+            if self.weighted_mse != 0.0 and \
+                "flow_loss" in loss_fn_name:
                 mses = torch.nn.MSELoss(reduction="none")(pred,
                         ybatch)
-                if self.num_mse_anchoring == -1:
+                if self.num_mse_anchoring == -1 \
+                        or len(mses) < self.num_mse_anchoring:
+                    mse = torch.mean(mses)
+                elif self.num_mse_anchoring in [-2, -3]:
+                    mse_idxs = self.node_anchoring_idxs[qidx]
+                    mses = mses[mse_idxs]
                     mse = torch.mean(mses)
                 else:
                     random.seed(1234)
@@ -1925,6 +1971,42 @@ class NN(CardinalityEstimationAlg):
             if val_samples and not self.no_eval:
                 update_samples(val_samples, self.flow_features,
                         self.cost_model, self.debug_set)
+
+        if self.num_mse_anchoring == -2:
+            # for each training sample, select the nodes to anchor on
+            self.node_anchoring_idxs = []
+            for sample in training_samples:
+                idxs_to_anchor = []
+                subsetg = sample["subset_graph"]
+                nodes = list(subsetg.nodes())
+                if SOURCE_NODE in nodes:
+                    nodes.remove(SOURCE_NODE)
+                nodes.sort()
+
+                for i, node in enumerate(nodes):
+                    key = self.cost_model + "opt_path"
+                    if subsetg.nodes()[node][key]:
+                        idxs_to_anchor.append(i)
+
+                assert len(idxs_to_anchor) == len(sample["join_graph"].nodes())
+                self.node_anchoring_idxs.append(idxs_to_anchor)
+
+        elif self.num_mse_anchoring == -3:
+            self.node_anchoring_idxs = []
+            for sample in training_samples:
+                idxs_to_anchor = []
+                subsetg = sample["subset_graph"]
+                nodes = list(subsetg.nodes())
+                if SOURCE_NODE in nodes:
+                    nodes.remove(SOURCE_NODE)
+                nodes.sort()
+
+                for i, node in enumerate(nodes):
+                    if len(node) == 1:
+                        idxs_to_anchor.append(i)
+
+                assert len(idxs_to_anchor) == len(sample["join_graph"].nodes())
+                self.node_anchoring_idxs.append(idxs_to_anchor)
 
         if self.normalization_type == "mscn":
             y = np.array(get_all_cardinalities(training_samples))

@@ -1006,7 +1006,7 @@ def read_flags():
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
     parser.add_argument("--num_mse_anchoring", type=int, required=False,
-            default=-1)
+            default=-2)
     parser.add_argument("--only_compute_overlap", type=int, required=False,
             default=0)
     parser.add_argument("--sample_bitmap", type=int, required=False,

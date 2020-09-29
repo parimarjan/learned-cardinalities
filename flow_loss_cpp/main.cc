@@ -9,7 +9,7 @@
 #define SOURCE_NODE_CONST 100000
 #define NILJ_MIN_CARD 5.0
 #define CARD_DIVIDER 0.001
-#define SEQ_CONSTANT 5.0
+#define SEQ_CONSTANT 1.0
 
 void get_dfdg_par(int num_edges, int num_nodes,
     int *edges_head, int *edges_tail,
@@ -356,15 +356,17 @@ void get_costs17(float *ests, float *totals,
 
   if (nilj[i] == 1) {
     // using index on 1
-    cost1 = card2;
-    node_selectivity = total1 / card1;
-    joined_node_est = card3*node_selectivity;
-    cost1 += joined_node_est;
+    //cost1 = card2;
+    //node_selectivity = total1 / card1;
+    //joined_node_est = card3*node_selectivity;
+    //cost1 += joined_node_est;
+    cost1 = card2 + NILJ_CONSTANT*card1;
   } else if (nilj[i] == 2) {
-    cost1 = card1;
-    node_selectivity = total2 / card2;
-    joined_node_est = card3*node_selectivity;
-    cost1 += joined_node_est;
+    //cost1 = card1;
+    //node_selectivity = total2 / card2;
+    //joined_node_est = card3*node_selectivity;
+    //cost1 += joined_node_est;
+    cost1 = card1 + NILJ_CONSTANT*card2;
   } else if (nilj[i] == 3) {
     cost1 = SEQ_CONSTANT*card1*card2;
   } else {
@@ -381,18 +383,25 @@ void get_costs17(float *ests, float *totals,
     if (nilj[i] == 3) {
           dgdxT[node1*num_edges + i] = - SEQ_CONSTANT*max_val / costs[i];
           dgdxT[node2*num_edges + i] = - SEQ_CONSTANT*max_val / costs[i];
+          dgdxT[head_node*num_edges + i] = 0.0;
     } else {
         // index nested loop join
         if (nilj[i]  == 1) {
             // used index on node1.
             // derivative of: 1 / (c3*e^{-ax}*total + c2)
-            dgdxT[node1*num_edges + i] = (max_val*card3*total1) / (card1*cost*cost);
+            //dgdxT[node1*num_edges + i] = (max_val*card3*total1) / (card1*cost*cost);
+            //dgdxT[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
+            //dgdxT[head_node*num_edges + i] = - (max_val*card3*total1) / (card1*cost*cost);
+            dgdxT[node1*num_edges + i] = - (max_val*card1*NILJ_CONSTANT) / (cost*cost);
             dgdxT[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
-            dgdxT[head_node*num_edges + i] = - (max_val*card3*total1) / (card1*cost*cost);
+            dgdxT[head_node*num_edges + i] = 0.0;
         } else {
+            //dgdxT[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
+            //dgdxT[node2*num_edges + i] = (max_val*card3*total2) / (card2*cost*cost);
+            //dgdxT[head_node*num_edges + i] = - (max_val*card3*total2) / (card2*cost*cost);
             dgdxT[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
-            dgdxT[node2*num_edges + i] = (max_val*card3*total2) / (card2*cost*cost);
-            dgdxT[head_node*num_edges + i] = - (max_val*card3*total2) / (card2*cost*cost);
+            dgdxT[node2*num_edges + i] = - (max_val*card2*NILJ_CONSTANT) / (cost*cost);
+            dgdxT[head_node*num_edges + i] = 0.0;
         }
     }
   }
@@ -561,8 +570,8 @@ void get_costs11(float *ests, float *totals,
     //nilj_cost = card2;
   } else if (nilj[i] == 2) {
     nilj_cost = card1 + NILJ_CONSTANT*card2;
-    //nilj_cost = card1 + card3;
-    //nilj_cost = card1;
+  } else if (nilj[i] == 3) {
+    nilj_cost = card1 + card2;
   } else {
     printf("should not have happened!\n");
     exit(-1);
@@ -584,10 +593,13 @@ void get_costs11(float *ests, float *totals,
             dgdxt[node1*num_edges + i] = - (max_val*card1*NILJ_CONSTANT) / (cost*cost);
             dgdxt[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
             dgdxt[head_node*num_edges + i] = 0.0;
-        } else {
+        } else if (nilj[i] == 2) {
             dgdxt[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
             dgdxt[node2*num_edges + i] = - (max_val*card2*NILJ_CONSTANT) / (cost*cost);
-            //dgdxt[node2*num_edges + i] = 0.0;
+            dgdxt[head_node*num_edges + i] = 0.0;
+        } else {
+            dgdxt[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
+            dgdxt[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
             dgdxt[head_node*num_edges + i] = 0.0;
         }
       }

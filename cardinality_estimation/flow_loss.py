@@ -34,6 +34,7 @@ DEBUG = False
 
 def get_costs_jax(card1, card2, card3, nilj, cost_model,
         total1, total2,penalty):
+    assert cost_model == "nested_loop_index7"
     if cost_model == "cm1":
         # hash_join_cost = card1 + card2
         if nilj == 1:
@@ -87,6 +88,9 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
             nilj_cost = card2 + NILJ_CONSTANT*card1;
         elif nilj == 2:
             nilj_cost = card1 + NILJ_CONSTANT*card2;
+        elif nilj == 3:
+            # nilj_cost = card1*card2 + 100000;
+            nilj_cost = card1 + card2;
         else:
             assert False
         cost2 = card1*card2
@@ -94,6 +98,7 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
             cost = cost2
         else:
             cost = nilj_cost
+
     elif cost_model == "nested_loop_index7b":
         if nilj == 1:
             nilj_cost = card2 + NILJ_CONSTANT*card1;
@@ -214,21 +219,21 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
         # also, remove the term for index entirely
         if nilj == 1:
             # using index on node1
-            # nilj_cost = card2 + NILJ_CONSTANT*card1
-            nilj_cost = card2
+            nilj_cost = card2 + NILJ_CONSTANT*card1
+            # nilj_cost = card2
             # expected output size, if node 1 did not have predicate pushed
             # down
-            node1_selectivity = total1 / card1
-            joined_node_est = card3 * node1_selectivity
-            nilj_cost += joined_node_est
+            # node1_selectivity = total1 / card1
+            # joined_node_est = card3 * node1_selectivity
+            # nilj_cost += joined_node_est
             cost = nilj_cost
         elif nilj == 2:
             # using index on node2
-            # nilj_cost = card1 + NILJ_CONSTANT*card2
-            nilj_cost = card1
-            node2_selectivity = total2 / card2
-            joined_node_est = card3 * node2_selectivity
-            nilj_cost += joined_node_est
+            nilj_cost = card1 + NILJ_CONSTANT*card2
+            # nilj_cost = card1
+            # node2_selectivity = total2 / card2
+            # joined_node_est = card3 * node2_selectivity
+            # nilj_cost += joined_node_est
             cost = nilj_cost
         elif nilj == 3:
             cost = card1*card2
@@ -549,6 +554,10 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
             pdb.set_trace()
 
         print(np.allclose(dgdxT2, costs_grad))
+        if not np.allclose(dgdxT2, costs_grad):
+            print("cost grads not close!")
+            print("norm diff: ", np.linalg.norm(dgdxT2 - costs_grad))
+
         print(np.min(dgdxT2), np.max(dgdxT2))
         print(np.min(costs_grad), np.max(costs_grad))
 

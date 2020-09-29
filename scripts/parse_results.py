@@ -210,13 +210,14 @@ def get_summary_df(results_dir):
             # continue
         exp_args["alg"] = get_alg_name(exp_args)
 
-        if exp_args["diff_templates_seed"] <= 10:
+        if exp_args["diff_templates_seed"] <= 15:
             pass
             # print(exp_args["diff_templates_seed"])
             # print(fn)
             # print("******")
         else:
-            print("SKIPPING PARTITION OVER 10")
+            # pass
+            print("SKIPPING PARTITION OVER 15")
             continue
 
         if skip_exp(exp_args):

@@ -1510,8 +1510,8 @@ def compute_costs(subset_graph, cost_model,
         total_cost += cost
     return total_cost
 
-def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
-        total1=None, total2=None):
+def get_costs(subset_graph, card1, card2, card3, node1, node2,
+        cost_model, total1=None, total2=None):
     def update_edges_kind_with_seq(edges_kind, nilj_cost, cost2):
         if cost2 is not None and cost2 < nilj_cost:
             cost = cost2
@@ -1653,7 +1653,8 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
 
         update_edges_kind_with_seq(edges_kind, cost, cost2)
 
-    elif cost_model == "nested_loop_index7":
+    elif cost_model == "nested_loop_index7" or \
+            cost_model == "nested_loop_index8b":
         if len(node1) == 1:
             nilj_cost = card2 + NILJ_CONSTANT*card1
         elif len(node2) == 1:
@@ -1679,8 +1680,8 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2, cost_model,
         cost = nilj_cost
         update_edges_kind_with_seq(edges_kind, nilj_cost, None)
 
-    elif cost_model == "nested_loop_index8" \
-            or cost_model == "nested_loop_index8b":
+    elif cost_model == "nested_loop_index8":
+            # or cost_model == "nested_loop_index8b":
         # same as nli7 --> but consider the fact the right side of an index
         # nested loop join WILL not have predicates pushed down
         # also, remove the term for index entirely
@@ -2091,6 +2092,7 @@ def get_subsetg_vectors(sample, cost_model, source_node=None):
     nodes.sort()
 
     subsetg = sample["subset_graph"]
+    join_graph = sample["join_graph"]
     edges = list(sample["subset_graph"].edges())
     edges.sort()
     N = len(nodes)
@@ -2158,9 +2160,37 @@ def get_subsetg_vectors(sample, cost_model, source_node=None):
             edges_cost_node2[edgei+num_edges] = node_dict[node2]
 
         if len(node1) == 1:
-            nilj[edgei] = 1
+            fkey_join = True
+
+            join_edge_data = join_graph[node1[0]]
+            for other_node in node2:
+                if other_node not in join_edge_data:
+                    continue
+                jc = join_edge_data[other_node]["join_condition"]
+                if "!=" in jc:
+                    fkey_join = False
+                    break
+
+            if fkey_join:
+                nilj[edgei] = 2
+            else:
+                nilj[edgei] = 3
+
         elif len(node2) == 1:
-            nilj[edgei] = 2
+            fkey_join = True
+            join_edge_data = join_graph[node2[0]]
+            for other_node in node1:
+                if other_node not in join_edge_data:
+                    continue
+                jc = join_edge_data[other_node]["join_condition"]
+                if "!=" in jc:
+                    fkey_join = False
+                    break
+
+            if fkey_join:
+                nilj[edgei] = 2
+            else:
+                nilj[edgei] = 3
 
         if cost_model == "nested_loop_index8b":
             nilj[edgei+num_edges] = 3
