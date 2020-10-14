@@ -10,7 +10,7 @@ WEIGHTED_MSES=(0.0)
 
 DECAYS=(1.0 0.1)
 #DECAYS=(1.0)
-LRS=(0.001 0.0001)
+LRS=(0.0001)
 #LRS=(0.0001 0.00005)
 HLS=(128)
 MAX_EPOCHS=(10 20)
@@ -32,7 +32,7 @@ SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=4000
 NUM_PAR=10
-USE_SET_PADDING=1
+USE_SET_PADDING=2
 
 for i in "${!WEIGHTED_MSES[@]}";
 do
@@ -73,7 +73,7 @@ do
      --lr ${LRS[$lr]} \
      --max_discrete_featurizing_buckets $BUCKETS \
      --exp_prefix default \
-     --result_dir all_results/vldb/so/default/hyp_sweep2 \
+     --result_dir all_results/vldb/default/hyp_sweep \
      --eval_epoch $EVAL_EPOCH --join_loss_pool_num $NUM_PAR \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
      --eval_epoch_plan_err 40 \

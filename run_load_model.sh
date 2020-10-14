@@ -18,7 +18,10 @@ SAMPLE_BITMAP=0
 #MODEL_DIR=/home/pari/learned-cardinalities/all_results/vldb/test_diff/mscn/run1/runAllDiff-nested_loop_index7-NN-df:10-nn:2:128-loss:mse-0.0--D1.0-333/
 
 # 6
-MODEL_DIR=/home/pari/learned-cardinalities/all_results/vldb/test_diff/mscn/run1/runAllDiff-nested_loop_index7-NN-df:10-nn:2:128-loss:mse-0.0--D1.0-440/
+#MODEL_DIR=/home/pari/learned-cardinalities/all_results/vldb/test_diff/mscn/run1/runAllDiff-nested_loop_index7-NN-df:10-nn:2:128-loss:mse-0.0--D1.0-440/
+
+#MODEL_DIR=/home/pari/learned-cardinalities/all_results/vldb/so/default/hyp_sweep2/default-nested_loop_index7-NN-df:10-nn:2:128-loss:flow_loss2-0.0--D1.0-109
+MODEL_DIR=/home/pari/learned-cardinalities/all_results/vldb/so/default/hyp_sweep/default-nested_loop_index7-NN-df:10-nn:2:128-loss:flow_loss2-0.0--D0.1-108/
 
 
 #CMD="python3 main.py --algs nn \
@@ -29,18 +32,19 @@ MODEL_DIR=/home/pari/learned-cardinalities/all_results/vldb/test_diff/mscn/run1/
 
 CMD="time python3 main.py --algs nn -n -1 \
  --debug_set 0 \
- --loss_func mse \
+ --use_val_set 1 \
+ --loss_func flow_loss2 \
  --nn_type mscn_set \
  --exp_prefix load_model \
  --result_dir \
-  all_results/vldb/test_diff/mscn/run1_load \
+  all_results/vldb/default/mscn/fl1 \
  --max_epochs 0 --cost_model nested_loop_index7 \
  --eval_epoch 100 --join_loss_pool_num 10 \
  --losses qerr,join-loss \
  --hidden_layer_size $HLS --optimizer_name adamw \
  --num_hidden_layers 2
  --normalize_flow_loss 1 \
- --test_diff_templates 1 --diff_templates_type 3 \
+ --test_diff_templates 0 --diff_templates_type 3 \
  --diff_templates_seed 6 \
  --sample_bitmap $SAMPLE_BITMAP \
  --sample_bitmap_num 1000 \

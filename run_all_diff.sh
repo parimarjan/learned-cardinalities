@@ -1,22 +1,24 @@
 MIN_QERRS=(1.0)
-DECAY=1.0
+DECAY=0.1
 #DIFF_SEEDS=(2 6 7 8 1 3 4 5 9 10)
 #DIFF_SEEDS=(2 6 7 8 9 10 1 3 5)
 #DIFF_SEEDS=(6 7 8 9 10 1 3 5)
-DIFF_SEEDS=(9 10 1 3 5)
+#DIFF_SEEDS=(9 10 1 3 5)
+DIFF_SEEDS=(1 2 3 4 5 6 7 8 9)
 #DIFF_SEEDS=(6 8 2 7)
 PRIORITY=0.0
 MAX_EPOCHS=10
 BUCKETS=10
 FLOW_FEATS=0
 LR=0.0001
-PRELOAD_FEATURES=1
+PRELOAD_FEATURES=3
+No7=1
 
 ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
 NORM_FLOW_LOSS=1
-NUM_WORKERS=5
+NUM_WORKERS=8
 
 HLS=128
 NUM_HLS=2
@@ -49,6 +51,7 @@ do
     do
     CMD="time python3 main.py --algs $ALG -n -1 \
      --loss_func $LOSS_FUNC \
+     --no7a $No7 \
      --nn_type $NN_TYPE \
      --num_workers $NUM_WORKERS \
      --load_query_together $LOAD_QUERY_TOGETHER \
