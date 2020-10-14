@@ -857,6 +857,8 @@ def main():
     train_queries, test_queries, val_queries, job_queries, db = \
             load_all_qrep_data(True, load_test_samples, True, True)
 
+    if not load_test_samples:
+        del(val_queries[:])
     del(job_queries[:])
 
     if args.model_dir is not None:

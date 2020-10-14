@@ -20,6 +20,8 @@ import jax
 import jax.numpy as jp
 from jax import jacfwd, jacrev
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 system = platform.system()
 lib_dir = "./flow_loss_cpp"
 if system == 'Linux':
@@ -568,10 +570,10 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     Gv2[final_node] = 1.0
 
     mat_start = time.time()
-    Gv2 = to_variable(Gv2).float()
+    Gv2 = to_variable(Gv2).float().to(device)
     predC2 = to_variable(predC2).float()
     dgdxT2 = to_variable(dgdxT2).float()
-    G2 = to_variable(G2).float()
+    G2 = to_variable(G2).float().to(device)
     invG = torch.inverse(G2)
 
     # invG = scipy.linalg.inv(G2)
@@ -579,7 +581,7 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     # invG = to_variable(invG).float()
 
     v = invG @ Gv2 # vshape: Nx1
-    v = v.detach().numpy()
+    v = v.detach().cpu().numpy()
 
     # TODO: we don't even need to compute the loss here if we don't want to
     loss2 = np.zeros(1, dtype=np.float32)
@@ -588,7 +590,7 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     assert Q2.dtype == np.float32
     assert v.dtype == np.float32
     if isinstance(trueC_vec, torch.Tensor):
-        trueC_vec = trueC_vec.detach().numpy()
+        trueC_vec = trueC_vec.detach().cpu().numpy()
     assert trueC_vec.dtype == np.float32
     # just computes the loss
     fl_cpp.get_qvtqv(
@@ -603,7 +605,7 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
             )
 
     # print("forward took: ", time.time()-start)
-    return to_variable(loss2).float(), dgdxT2.detach(), invG.detach().numpy(), Q2, v
+    return to_variable(loss2).float(), dgdxT2.detach(), invG.detach().cpu().numpy(), Q2, v
     # return to_variable(loss2).float(), to_variable(dgdxT2).float(), invG, Q2, v
 
 def single_backward(Q, invG,
@@ -625,7 +627,8 @@ def single_backward(Q, invG,
             QinvG2.ctypes.data_as(c_void_p))
 
     if isinstance(trueC_vec, torch.Tensor):
-        trueC_vec = trueC_vec.detach().numpy()
+        # trueC_vec = trueC_vec.detach().numpy()
+        trueC_vec = trueC_vec.detach().cpu().numpy()
 
     assert trueC_vec.dtype == np.float32
     assert Q.dtype == np.float32

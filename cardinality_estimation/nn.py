@@ -18,6 +18,12 @@ import multiprocessing
 # from torch.multiprocessing import Pool as Pool2
 # from utils.tf_summaries import TensorboardSummaries
 from tensorflow import summary as tf_summary
+# import tensorflow as tf
+# tf.logging.set_verbosity(tf.logging.ERROR)
+# tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
+
 from multiprocessing.pool import ThreadPool
 
 # import park
@@ -2355,7 +2361,7 @@ class NN(CardinalityEstimationAlg):
             G = to_variable(G).float()
             Q = to_variable(Q).float()
 
-            trueC = torch.eye(len(trueC_vec)).float().detach().cpu()
+            trueC = torch.eye(len(trueC_vec)).float().detach()
             for i, curC in enumerate(trueC_vec):
                 trueC[i,i] = curC
 
@@ -2363,6 +2369,8 @@ class NN(CardinalityEstimationAlg):
             v = invG @ Gv
             left = (Gv @ torch.transpose(invG,0,1)) @ torch.transpose(Q, 0, 1)
             right = Q @ (v)
+            left = left.detach().cpu()
+            right = right.detach().cpu()
             opt_flow_loss = left @ trueC @ right
             del trueC
 

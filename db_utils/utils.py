@@ -2408,7 +2408,7 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         max_val = 0.0
 
     if not isinstance(ests, np.ndarray):
-        ests = ests.detach().numpy()
+        ests = ests.detach().cpu().numpy()
 
     costs2 = np.zeros(len(edges_cost_node1), dtype=np.float32)
     dgdxT2 = np.zeros((len(ests), len(edges_cost_node1)), dtype=np.float32)
