@@ -681,7 +681,7 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         invG = torch.inverse(G2)
         # invG = torch.pinverse(G2)
         v = invG @ Gv2 # vshape: Nx1
-        v = v.detach().numpy()
+        v = v.detach().cpu().numpy()
         if debug_sql:
             print("before calling fl_cpp.get_qvtqv")
             pdb.set_trace()
@@ -701,7 +701,7 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         assert Q2.dtype == np.float32
         assert v.dtype == np.float32
         if isinstance(trueC_vec, torch.Tensor):
-            trueC_vec = trueC_vec.detach().numpy()
+            trueC_vec = trueC_vec.detach().cpu().numpy()
         assert trueC_vec.dtype == np.float32
         fl_cpp.get_qvtqv(
                 c_int(len(edges_head)),
@@ -771,7 +771,7 @@ def get_flow_cost(qrep, yhat, y,
         G2 = to_variable(G2).float()
         invG = torch.inverse(G2)
         v = invG @ Gv2 # vshape: Nx1
-        v = v.detach().numpy()
+        v = v.detach().cpu().numpy()
 
         # TODO: we don't even need to compute the loss here if we don't want to
         loss2 = np.zeros(1, dtype=np.float32)
@@ -779,7 +779,7 @@ def get_flow_cost(qrep, yhat, y,
         assert v.dtype == np.float32
 
         if isinstance(true_edge_costs, torch.Tensor):
-            true_edge_costs = true_edge_costs.detach().numpy()
+            true_edge_costs = true_edge_costs.detach().cpu().numpy()
 
         # assert true_edge_costs.dtype == np.float32
         fl_cpp.get_qvtqv(
@@ -795,7 +795,7 @@ def get_flow_cost(qrep, yhat, y,
 
         flows = Q2 @ v
         if isinstance(flows, torch.Tensor):
-            flows = flows.detach().numpy()
+            flows = flows.detach().cpu().numpy()
         flow_cost = np.dot(true_edge_costs, np.power(flows, flow_loss_power))
 
         # just reuse cost key so source node edge costs are already there

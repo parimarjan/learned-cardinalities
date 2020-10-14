@@ -115,14 +115,15 @@ class PaddedMSCN(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
             hid_units, dropout=0.0, max_hid=None, num_hidden_layers=2):
         super(PaddedMSCN, self).__init__()
-        self.sample_mlp1 = nn.Linear(sample_feats, hid_units)
-        self.sample_mlp2 = nn.Linear(hid_units, hid_units)
-        self.predicate_mlp1 = nn.Linear(predicate_feats, hid_units)
-        self.predicate_mlp2 = nn.Linear(hid_units, hid_units)
-        self.join_mlp1 = nn.Linear(join_feats, hid_units)
-        self.join_mlp2 = nn.Linear(hid_units, hid_units)
-        self.out_mlp1 = nn.Linear(hid_units * 3, hid_units)
-        self.out_mlp2 = nn.Linear(hid_units, 1)
+        self.sample_mlp1 = nn.Linear(sample_feats, hid_units).to(device)
+        self.sample_mlp2 = nn.Linear(hid_units, hid_units).to(device)
+
+        self.predicate_mlp1 = nn.Linear(predicate_feats, hid_units).to(device)
+        self.predicate_mlp2 = nn.Linear(hid_units, hid_units).to(device)
+        self.join_mlp1 = nn.Linear(join_feats, hid_units).to(device)
+        self.join_mlp2 = nn.Linear(hid_units, hid_units).to(device)
+        self.out_mlp1 = nn.Linear(hid_units * 3, hid_units).to(device)
+        self.out_mlp2 = nn.Linear(hid_units, 1).to(device)
 
     def forward(self, samples, predicates, joins, flows,
                     sample_mask, predicate_mask, join_mask):

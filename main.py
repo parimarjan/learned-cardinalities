@@ -1199,7 +1199,7 @@ def read_flags():
     parser.add_argument("--switch_loss_fn_epoch", type=int,
             required=False, default=100000)
     parser.add_argument("--switch_loss_fn", type=str,
-            required=False, default="flow_loss2")
+            required=False, default="")
     parser.add_argument("--num_workers", type=int,
             required=False, default=0)
     parser.add_argument("--eval_epoch", type=int,

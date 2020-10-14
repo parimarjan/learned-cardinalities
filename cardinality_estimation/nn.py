@@ -16,7 +16,6 @@ import pandas as pd
 import json
 import multiprocessing
 # from torch.multiprocessing import Pool as Pool2
-# import torch.multiprocessing as mp
 # from utils.tf_summaries import TensorboardSummaries
 from tensorflow import summary as tf_summary
 from multiprocessing.pool import ThreadPool
@@ -48,6 +47,7 @@ from cardinality_estimation.join_loss import JoinLoss, PlanError
 from torch.multiprocessing import Pool as Pool2
 import torch.multiprocessing as mp
 # import torch.multiprocessing
+
 # mp.set_sharing_strategy('file_system')
 import resource
 
@@ -59,10 +59,13 @@ from sklearn.ensemble import GradientBoostingRegressor
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
-# try:
-    # mp.set_start_method("spawn")
-# except:
-    # pass
+import torch.multiprocessing as mp
+try:
+    mp.set_start_method("spawn")
+except:
+    pass
+
+# torch.multiprocessing.set_start_method('spawn')
 
 from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variables
 
@@ -626,8 +629,8 @@ class NN(CardinalityEstimationAlg):
     def scaled_norm_loss_wrapper(self, yhat, ytrue):
         # else convert them to preds / targets
         assert self.normalization_type == "mscn"
-        # yhat = yhat.cpu().detach().numpy()
-        # ytrue = ytrue.cpu().detach().numpy()
+        # yhat = yhat.cpu().detach().cpu().numpy()
+        # ytrue = ytrue.cpu().detach().cpu().numpy()
         yhat = torch.exp((yhat + \
             self.min_val)*(self.max_val-self.min_val))
         ytrue = torch.exp((ytrue + \
@@ -640,8 +643,8 @@ class NN(CardinalityEstimationAlg):
             return mse_losses
         # else convert them to preds / targets
         assert self.normalization_type == "mscn"
-        yhat = yhat.cpu().detach().numpy()
-        ytrue = ytrue.cpu().detach().numpy()
+        yhat = yhat.cpu().detach().cpu().numpy()
+        ytrue = ytrue.cpu().detach().cpu().numpy()
         yhat = np.exp((yhat + \
             self.min_val)*(self.max_val-self.min_val))
         ytrue = np.exp((ytrue + \
@@ -663,7 +666,7 @@ class NN(CardinalityEstimationAlg):
 
         # mse_losses -= cur_min_mse_loss
         mse_losses *= vals
-        mse_np = mse_losses.cpu().detach().numpy()
+        mse_np = mse_losses.cpu().detach().cpu().numpy()
         assert ((mse_np >= 0).sum() == mse_np.size).astype(np.int)
         assert mse_losses.shape == ytrue.shape
         return mse_losses
@@ -701,7 +704,7 @@ class NN(CardinalityEstimationAlg):
 
                 assert len(subsetg_vectors) == 8
 
-                losses = loss_fn(pred, ybatch.detach(),
+                losses = loss_fn(pred, ybatch.detach().cpu(),
                         normalization_type, min_val,
                         max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
                         self.normalize_flow_loss,
@@ -746,7 +749,7 @@ class NN(CardinalityEstimationAlg):
                 pred.retain_grad()
                 loss.backward()
                 # grads
-                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                grads.append(np.mean(np.abs(pred.grad.detach().cpu().numpy())))
                 if sample is not None:
                     grad_samples.append(sample)
                 wt_grads = net.compute_grads()
@@ -812,7 +815,7 @@ class NN(CardinalityEstimationAlg):
 
                 assert len(subsetg_vectors) == 8
 
-                losses = loss_fn(pred, ybatch.detach(),
+                losses = loss_fn(pred, ybatch.detach().cpu(),
                         normalization_type, min_val,
                         max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
                         self.normalize_flow_loss,
@@ -861,7 +864,7 @@ class NN(CardinalityEstimationAlg):
                 pred.retain_grad()
                 loss.backward()
                 # grads
-                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                grads.append(np.mean(np.abs(pred.grad.detach().cpu().numpy())))
                 if sample is not None:
                     grad_samples.append(sample)
                 wt_grads = net.compute_grads()
@@ -940,7 +943,7 @@ class NN(CardinalityEstimationAlg):
 
                 assert len(subsetg_vectors) == 8
 
-                losses = loss_fn(pred, ybatch.detach(),
+                losses = loss_fn(pred, ybatch.detach().cpu(),
                         normalization_type, min_val,
                         max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
                         self.normalize_flow_loss,
@@ -1005,7 +1008,7 @@ class NN(CardinalityEstimationAlg):
                 pred.retain_grad()
                 loss.backward()
                 # grads
-                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                grads.append(np.mean(np.abs(pred.grad.detach().cpu().numpy())))
                 if sample is not None:
                     grad_samples.append(sample)
                 wt_grads = net.compute_grads()
@@ -1077,7 +1080,7 @@ class NN(CardinalityEstimationAlg):
 
                 assert len(subsetg_vectors) == 8
 
-                losses = loss_fn(pred, ybatch.detach(),
+                losses = loss_fn(pred, ybatch.detach().cpu(),
                         normalization_type, min_val,
                         max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
                         self.normalize_flow_loss,
@@ -1142,7 +1145,7 @@ class NN(CardinalityEstimationAlg):
                 pred.retain_grad()
                 loss.backward()
                 # grads
-                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                grads.append(np.mean(np.abs(pred.grad.detach().cpu().numpy())))
                 if sample is not None:
                     grad_samples.append(sample)
                 wt_grads = net.compute_grads()
@@ -1213,7 +1216,7 @@ class NN(CardinalityEstimationAlg):
 
                 assert len(subsetg_vectors) == 8
 
-                losses = loss_fn(pred, ybatch.detach(),
+                losses = loss_fn(pred, ybatch.detach().cpu(),
                         normalization_type, min_val,
                         max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
                         self.normalize_flow_loss,
@@ -1278,7 +1281,7 @@ class NN(CardinalityEstimationAlg):
                 pred.retain_grad()
                 loss.backward()
                 # grads
-                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                grads.append(np.mean(np.abs(pred.grad.detach().cpu().numpy())))
                 if sample is not None:
                     grad_samples.append(sample)
                 wt_grads = net.compute_grads()
@@ -1493,11 +1496,11 @@ class NN(CardinalityEstimationAlg):
             all_preds.append(pred)
             all_y.append(ybatch)
 
-        pred = torch.cat(all_preds).detach().numpy()
-        y = torch.cat(all_y).detach().numpy()
+        pred = torch.cat(all_preds).detach().cpu().numpy()
+        y = torch.cat(all_y).detach().cpu().numpy()
 
         if not self.load_query_together:
-            all_idxs = torch.cat(all_idxs).detach().numpy()
+            all_idxs = torch.cat(all_idxs).detach().cpu().numpy()
         return pred, y, all_idxs
 
     def _eval_combined(self, net, loader):
@@ -1522,11 +1525,11 @@ class NN(CardinalityEstimationAlg):
             all_preds.append(pred)
             all_y.append(ybatch)
 
-        pred = torch.cat(all_preds).detach().numpy()
-        y = torch.cat(all_y).detach().numpy()
+        pred = torch.cat(all_preds).detach().cpu().numpy()
+        y = torch.cat(all_y).detach().cpu().numpy()
 
         if not self.load_query_together:
-            all_idxs = torch.cat(all_idxs).detach().numpy()
+            all_idxs = torch.cat(all_idxs).detach().cpu().numpy()
         return pred, y, all_idxs
 
     def _eval_mscn_set_padded(self, net, loader):
@@ -1561,11 +1564,11 @@ class NN(CardinalityEstimationAlg):
             all_preds.append(pred)
             all_y.append(ybatch)
 
-        pred = torch.cat(all_preds).detach().numpy()
-        y = torch.cat(all_y).detach().numpy()
+        pred = torch.cat(all_preds).detach().cpu().numpy()
+        y = torch.cat(all_y).detach().cpu().numpy()
         if not self.load_query_together:
             all_idxs = np.concatenate(all_idxs)
-            # all_idxs = torch.cat(all_idxs).detach().numpy()
+            # all_idxs = torch.cat(all_idxs).detach().cpu().numpy()
         return pred, y, all_idxs
 
     def _eval_mscn_set(self, net, loader):
@@ -1599,11 +1602,11 @@ class NN(CardinalityEstimationAlg):
             all_preds.append(pred)
             all_y.append(ybatch)
 
-        pred = torch.cat(all_preds).detach().numpy()
-        y = torch.cat(all_y).detach().numpy()
+        pred = torch.cat(all_preds).detach().cpu().numpy()
+        y = torch.cat(all_y).detach().cpu().numpy()
         if not self.load_query_together:
             all_idxs = np.concatenate(all_idxs)
-            # all_idxs = torch.cat(all_idxs).detach().numpy()
+            # all_idxs = torch.cat(all_idxs).detach().cpu().numpy()
         return pred, y, all_idxs
 
     def _eval_mscn(self, net, loader):
@@ -1635,10 +1638,10 @@ class NN(CardinalityEstimationAlg):
             all_preds.append(pred)
             all_y.append(ybatch)
 
-        pred = torch.cat(all_preds).detach().numpy()
-        y = torch.cat(all_y).detach().numpy()
+        pred = torch.cat(all_preds).detach().cpu().numpy()
+        y = torch.cat(all_y).detach().cpu().numpy()
         if not self.load_query_together:
-            all_idxs = torch.cat(all_idxs).detach().numpy()
+            all_idxs = torch.cat(all_idxs).detach().cpu().numpy()
         return pred, y, all_idxs
 
     def _eval_loaders(self, loaders):
@@ -1919,14 +1922,14 @@ class NN(CardinalityEstimationAlg):
         print("eval samples done at epoch: ", self.epoch)
         self.nets[0].train()
         if "flow_loss" not in self.loss_func:
-            losses = self.loss(pred, Y).detach().numpy()
+            losses = self.loss(pred, Y).detach().cpu().numpy()
         else:
             # FIXME: store all appropriate losses throughout...
             if self.normalization_type == "mscn":
                 losses = torch.nn.MSELoss(reduction="none")(pred,
-                        Y).detach().numpy()
+                        Y).detach().cpu().numpy()
             else:
-                losses = qloss_torch(pred, Y).detach().numpy()
+                losses = qloss_torch(pred, Y).detach().cpu().numpy()
 
         loss_avg = round(np.sum(losses) / len(losses), 6)
         print("""{}: {}, N: {}, qerr: {}""".format(
@@ -2151,7 +2154,7 @@ class NN(CardinalityEstimationAlg):
         @ret:
         '''
         if not isinstance(pred, np.ndarray):
-            pred = pred.detach().numpy()
+            pred = pred.detach().cpu().numpy()
         sqls = []
         true_cardinalities = []
         est_cardinalities = []
@@ -2352,7 +2355,7 @@ class NN(CardinalityEstimationAlg):
             G = to_variable(G).float()
             Q = to_variable(Q).float()
 
-            trueC = torch.eye(len(trueC_vec)).float().detach()
+            trueC = torch.eye(len(trueC_vec)).float().detach().cpu()
             for i, curC in enumerate(trueC_vec):
                 trueC[i,i] = curC
 
@@ -2793,7 +2796,7 @@ class NN(CardinalityEstimationAlg):
                             or self.epoch == self.prioritize_epoch):
                 print("going to update priorities")
                 pred, _ = self._eval_samples(priority_loaders)
-                pred = pred.detach().numpy()
+                pred = pred.detach().cpu().numpy()
                 weights = np.zeros(self.total_training_samples)
                 if self.sampling_priority_type == "query":
                     # TODO: decompose
@@ -2968,7 +2971,7 @@ class NN(CardinalityEstimationAlg):
             for loader in loaders:
                 del(loader)
 
-        pred = pred.detach().numpy()
+        pred = pred.detach().cpu().numpy()
         all_ests = []
         query_idx = 0
         # FIXME: why can't we just use get_query_estimates here?
