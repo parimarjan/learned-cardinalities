@@ -1175,6 +1175,7 @@ class NN(CardinalityEstimationAlg):
             load_query_together=False):
         if "flow_loss" in loss_fn_name:
             torch.set_num_threads(1)
+
         if self.save_gradients:
             grads = []
             par_grads = defaultdict(list)

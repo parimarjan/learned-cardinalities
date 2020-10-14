@@ -160,6 +160,7 @@ class DB():
 
     def init_featurizer(self, heuristic_features=True,
             num_tables_feature=False,
+            separate_regex_bins=True,
             featurization_type="combined",
             max_discrete_featurizing_buckets=10,
             flow_features = True,
@@ -193,6 +194,7 @@ class DB():
         self.flow_features = flow_features
         self.db_key = db_key
         self.featurization_type = featurization_type
+        self.separate_regex_bins = separate_regex_bins
 
         # let's figure out the feature len based on db.stats
         assert self.featurizer is None
@@ -285,11 +287,14 @@ class DB():
                         info["num_values"])
                 pred_len += num_buckets
                 continuous = False
+
                 if col in self.regex_cols:
-                    # give it more space...
+                    # give it more space for #num-chars, #number in regex or
+                    # not
                     pred_len += 2
-                    ## extra space for regex buckets
-                    pred_len += num_buckets
+                    if self.separate_regex_bins:
+                        # extra space for regex buckets
+                        pred_len += num_buckets
 
             self.featurizer[col] = (self.pred_features_len, pred_len, continuous)
             self.pred_features_len += pred_len
@@ -756,8 +761,11 @@ class DB():
                     assert len(val) == 1
                     num_buckets = min(self.max_discrete_featurizing_buckets,
                             col_info["num_values"])
+
                     # first half of spaces reserved for "IN" predicates
-                    pred_idx_start += num_buckets
+                    if self.separate_regex_bins:
+                        pred_idx_start += num_buckets
+
                     regex_val = val[0].replace("%","")
                     pred_idx = deterministic_hash(regex_val) % num_buckets
                     preds_vector[pred_idx_start+pred_idx] = 1.00
@@ -782,7 +790,7 @@ class DB():
 
                     # FIXME: not sure if we should have this feature or not,
                     # just a number in a one-hot vector might be strange..
-                    # preds_vector[pred_idx_start + num_buckets] = len(regex_val)
+                    preds_vector[pred_idx_start + num_buckets] = len(regex_val)
                     if bool(re.search(r'\d', regex_val)):
                         preds_vector[pred_idx_start + num_buckets + 1] = 1
 
@@ -863,8 +871,11 @@ class DB():
                     assert len(val) == 1
                     num_buckets = min(self.max_discrete_featurizing_buckets,
                             col_info["num_values"])
-                    # first half of spaces reserved for "IN" predicates
-                    pred_idx_start += num_buckets
+
+                    if self.separate_regex_bins:
+                        # first half of spaces reserved for "IN" predicates
+                        pred_idx_start += num_buckets
+
                     regex_val = val[0].replace("%","")
                     pred_idx = deterministic_hash(regex_val) % num_buckets
                     preds_vector[pred_idx_start+pred_idx] = 1.00

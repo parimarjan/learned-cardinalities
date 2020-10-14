@@ -580,6 +580,12 @@ def load_all_qrep_data(load_job_queries,
 
     fns = list(glob.glob(args.query_directory + "/*"))
 
+    if args.no7a:
+        for fn in fns:
+            if "7a" in fn:
+                fns.remove(fn)
+                break
+
     if args.test_diff_templates:
         # get a sorted version
         if args.diff_templates_type == 3:
@@ -714,6 +720,7 @@ def load_all_qrep_data(load_job_queries,
 
     if db is not None:
         db.init_featurizer(num_tables_feature = args.num_tables_feature,
+                separate_regex_bins = args.separate_regex_bins,
                 featurization_type = feat_type,
                 max_discrete_featurizing_buckets =
                 args.max_discrete_featurizing_buckets,
@@ -857,6 +864,7 @@ def main():
     train_queries, test_queries, val_queries, job_queries, db = \
             load_all_qrep_data(True, load_test_samples, True, True)
 
+    del(val_queries[:])
     del(job_queries[:])
 
     if args.model_dir is not None:
@@ -1038,6 +1046,8 @@ def read_flags():
 
     parser.add_argument("--grid_search", type=int, required=False,
             default=0)
+    parser.add_argument("--separate_regex_bins", type=int, required=False,
+            default=1)
     parser.add_argument("--n_estimators", type=int, required=False,
             default=500)
     parser.add_argument("--max_depth", type=int, required=False,

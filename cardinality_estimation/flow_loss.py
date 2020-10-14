@@ -19,6 +19,7 @@ import jax
 # from jax import grad, jit, vmap
 import jax.numpy as jp
 from jax import jacfwd, jacrev
+import tensorflow as tf
 
 system = platform.system()
 lib_dir = "./flow_loss_cpp"
@@ -576,7 +577,15 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
 
     # invG = scipy.linalg.inv(G2)
     # invG = np.linalg.inv(G2)
-    # invG = to_variable(invG).float()
+
+    # invG = tf.linalg.inv(G2)
+    # invG = invG.numpy()
+
+    # M=scipy.sparse.csc_matrix(G2)
+    # invG = scipy.sparse.linalg.inv(M)
+    # invG = invG.A
+
+    invG = to_variable(invG).float()
 
     v = invG @ Gv2 # vshape: Nx1
     v = v.detach().numpy()
