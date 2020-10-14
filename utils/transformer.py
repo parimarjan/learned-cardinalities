@@ -30,7 +30,7 @@ class SelfAttentionWide(nn.Module):
 
         b, t, e = x.size()
         h = self.heads
-        assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
+        # assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
 
         keys    = self.tokeys(x)   .view(b, t, h, e)
         queries = self.toqueries(x).view(b, t, h, e)
@@ -78,7 +78,7 @@ class SelfAttentionNarrow(nn.Module):
 
         super().__init__()
 
-        assert emb % heads == 0, f'Embedding dimension ({emb}) should be divisible by nr. of heads ({heads})'
+        # assert emb % heads == 0, f'Embedding dimension ({emb}) should be divisible by nr. of heads ({heads})'
 
         self.emb = emb
         self.heads = heads
@@ -97,7 +97,7 @@ class SelfAttentionNarrow(nn.Module):
 
         b, t, e = x.size()
         h = self.heads
-        assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
+        # assert e == self.emb, f'Input embedding dim ({e}) should match layer embedding dim ({self.emb})'
 
         s = e // h
         x = x.view(b, t, h, s)

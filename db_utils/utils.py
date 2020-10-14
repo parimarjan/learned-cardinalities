@@ -1368,12 +1368,15 @@ def draw_graph(g, highlight_nodes=set(), color_nodes={}, bold_edges=[],
 
     if node_attrs:
         for n in g.nodes:
-            label = f"{n}\n"
+            # label = f"{n}\n"
+            label = "{}\n".format(n)
             if len(node_attrs) == 1:
-                label += f"({g.nodes[n][node_attrs[0]]})"
+                # label += f"({g.nodes[n][node_attrs[0]]})"
+                label += "({})".format(g.nodes[n][node_attrs[0]])
             else:
                 for attr in node_attrs:
-                    label += f"{attr}: {g.nodes[n][attr]}"
+                    # label += f"{attr}: {g.nodes[n][attr]}"
+                    label += "{}: {}".format(attr,g.nodes[n][attr])
             g.nodes[n]["label"] = label
 
     if bold_edges:
