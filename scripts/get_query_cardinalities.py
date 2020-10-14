@@ -28,11 +28,12 @@ OLD_EXCEPTION_COUNT_CONSTANT = 150001002
 TIMEOUT_COUNT_CONSTANT = 150001000001
 CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
+RERUN_TIMEOUTS = 1
 
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
 
-DEBUG_CHECK_TIMES = True
+DEBUG_CHECK_TIMES = False
 CONF_ALPHA = 0.99
 
 def read_flags():
@@ -67,7 +68,7 @@ def read_flags():
     parser.add_argument("--key_name", type=str, required=False,
             default=None)
     parser.add_argument("--true_timeout", type=int,
-            required=False, default=1800000)
+            required=False, default=1800000*5)
     parser.add_argument("--pg_total", type=int,
             required=False, default=1)
     parser.add_argument("--num_proc", type=int,
@@ -102,6 +103,7 @@ def is_cross_join(sg):
     for node, data in sg2.nodes(data=True):
         if data["real_name"] == "site":
             to_remove.append(node)
+
     for node in to_remove:
         sg2.remove_node(node)
     if nx.is_connected(sg2):
@@ -217,10 +219,26 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                     # don't want to get cardinalities for zero queries
                     break
 
-            if not (sampling_percentage is not None and \
-                    cards[key_name] >= TIMEOUT_COUNT_CONSTANT):
-                existing += 1
-                continue
+                elif cards[key_name] >= TIMEOUT_COUNT_CONSTANT and not RERUN_TIMEOUTS:
+                    existing += 1
+                    continue
+
+                elif cards[key_name] == EXCEPTION_COUNT_CONSTANT:
+                    existing += 1
+                    continue
+
+                elif cards[key_name] < TIMEOUT_COUNT_CONSTANT:
+                    existing += 1
+                    continue
+
+                print("key existing: {}, but going to rerun".format(cards[key_name]))
+
+            # TODO: not sure why this here
+            # if not (sampling_percentage is not None and \
+                    # cards[key_name] >= TIMEOUT_COUNT_CONSTANT):
+                # existing += 1
+                # continue
+
 
         if card_type == "pg":
             subsql = "EXPLAIN " + subsql

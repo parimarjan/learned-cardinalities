@@ -72,11 +72,17 @@ extern "C" void get_dfdg (int num_edges, int num_nodes,
   num_batches = ceil(num_edges / batch_size);
   //printf("rem: %d\n", rem);
   if (rem != 0) num_batches += 1;
-
-  #pragma omp parallel for num_threads(num_workers)
-  for (int batch = 0; batch < num_batches; batch++) {
-    get_dfdg_par(num_edges, num_nodes, edges_head,
-        edges_tail, QinvG, v, dfdg, batch, batch_size, tQv, dcdg);
+  if (num_workers == 1) {
+      num_batches = 1;
+      batch_size = num_edges;
+      get_dfdg_par(num_edges, num_nodes, edges_head,
+          edges_tail, QinvG, v, dfdg, 0, batch_size, tQv, dcdg);
+  } else {
+    #pragma omp parallel for num_threads(num_workers)
+    for (int batch = 0; batch < num_batches; batch++) {
+      get_dfdg_par(num_edges, num_nodes, edges_head,
+          edges_tail, QinvG, v, dfdg, batch, batch_size, tQv, dcdg);
+    }
   }
 }
 

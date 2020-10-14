@@ -34,6 +34,10 @@ import datetime
 
 # from scripts.get_query_cardinalities import CROSS_JOIN_CONSTANT
 
+# TIMEOUT_COUNT_CONSTANT = 150001000001
+# CROSS_JOIN_CONSTANT = 150001000000
+# EXCEPTION_COUNT_CONSTANT = 150001000002
+
 TIMEOUT_COUNT_CONSTANT = 150001000001
 CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
@@ -139,6 +143,16 @@ class Postgres(CardinalityEstimationAlg):
                     est = true_card
                 else:
                     est = info["cardinality"]["expected"]
+
+                if est > EXCEPTION_COUNT_CONSTANT:
+                    est = TIMEOUT_COUNT_CONSTANT
+
+                # if est > EXCEPTION_COUNT_CONSTANT:
+                    # print(est)
+                    # print("postgres estimate > cj constant")
+                    # pdb.set_trace()
+                # est = info["cardinality"]["expected"]
+
                 pred_dict[(alias_key)] = est
             preds.append(pred_dict)
         return preds

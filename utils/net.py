@@ -3,6 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 import pdb
 import numpy as np
+from utils.utils import *
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -110,7 +111,142 @@ class SimpleRegression(torch.nn.Module):
             output = layer(output)
         return output
 
+class PaddedMSCN(nn.Module):
+    def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
+            hid_units, dropout=0.0, max_hid=None, num_hidden_layers=2):
+        super(PaddedMSCN, self).__init__()
+        self.sample_mlp1 = nn.Linear(sample_feats, hid_units)
+        self.sample_mlp2 = nn.Linear(hid_units, hid_units)
+        self.predicate_mlp1 = nn.Linear(predicate_feats, hid_units)
+        self.predicate_mlp2 = nn.Linear(hid_units, hid_units)
+        self.join_mlp1 = nn.Linear(join_feats, hid_units)
+        self.join_mlp2 = nn.Linear(hid_units, hid_units)
+        self.out_mlp1 = nn.Linear(hid_units * 3, hid_units)
+        self.out_mlp2 = nn.Linear(hid_units, 1)
+
+    def forward(self, samples, predicates, joins, flows,
+                    sample_mask, predicate_mask, join_mask):
+        '''
+        #TODO: describe shapes
+        '''
+        # hid_sample = F.relu(self.sample_mlp1(samples))
+        # hid_sample = F.relu(self.sample_mlp2(hid_sample))
+        hid_sample = F.relu(self.sample_mlp1(samples))
+        hid_sample = F.relu(self.sample_mlp2(hid_sample))
+
+        hid_sample = hid_sample * sample_mask
+        hid_sample = torch.sum(hid_sample, dim=1, keepdim=False)
+        sample_norm = sample_mask.sum(1, keepdim=False)
+        hid_sample = hid_sample / sample_norm
+
+        hid_predicate = F.relu(self.predicate_mlp1(predicates))
+        hid_predicate = F.relu(self.predicate_mlp2(hid_predicate))
+        hid_predicate = hid_predicate * predicate_mask
+        hid_predicate = torch.sum(hid_predicate, dim=1, keepdim=False)
+        predicate_norm = predicate_mask.sum(1, keepdim=False)
+        hid_predicate = hid_predicate / predicate_norm
+
+
+        hid_join = F.relu(self.join_mlp1(joins))
+        hid_join = F.relu(self.join_mlp2(hid_join))
+        hid_join = hid_join * join_mask
+        hid_join = torch.sum(hid_join, dim=1, keepdim=False)
+        join_norm = join_mask.sum(1, keepdim=False)
+        hid_join = hid_join / join_norm
+
+        assert hid_sample.shape == hid_predicate.shape == hid_join.shape
+        hid_sample = hid_sample.squeeze()
+        hid_predicate = hid_predicate.squeeze()
+        hid_join = hid_join.squeeze()
+        hid = torch.cat((hid_sample, hid_predicate, hid_join), 1)
+
+        hid = F.relu(self.out_mlp1(hid))
+        out = torch.sigmoid(self.out_mlp2(hid))
+        return out
+
+    def compute_grads(self):
+        wts = []
+        # wts.append(self.sample_mlp1[0].weight.grad)
+        # wts.append(self.sample_mlp2[0].weight.grad)
+        # wts.append(self.predicate_mlp1[0].weight.grad)
+        # wts.append(self.predicate_mlp2[0].weight.grad)
+        # wts.append(self.join_mlp1[0].weight.grad)
+        # wts.append(self.join_mlp2[0].weight.grad)
+
+        # wts.append(self.out_mlp1[0].weight.grad)
+        # wts.append(self.out_mlp2[0].weight.grad)
+
+        # if self.flow_feats:
+            # wts.append(self.flow_mlp1[0].weight.grad)
+            # wts.append(self.flow_mlp2[0].weight.grad)
+
+        mean_wts = []
+        for i,wt in enumerate(wts):
+            mean_wts.append(np.mean(np.abs(wt.detach().numpy())))
+
+        return mean_wts
+
 # MSCN model, kipf et al.
+class MSCN(nn.Module):
+    def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
+            hid_units, dropout=0.0, max_hid=None, num_hidden_layers=2):
+        super(MSCN, self).__init__()
+        self.sample_mlp1 = nn.Linear(sample_feats, hid_units)
+        self.sample_mlp2 = nn.Linear(hid_units, hid_units)
+        self.predicate_mlp1 = nn.Linear(predicate_feats, hid_units)
+        self.predicate_mlp2 = nn.Linear(hid_units, hid_units)
+        self.join_mlp1 = nn.Linear(join_feats, hid_units)
+        self.join_mlp2 = nn.Linear(hid_units, hid_units)
+        self.out_mlp1 = nn.Linear(hid_units * 3, hid_units)
+        self.out_mlp2 = nn.Linear(hid_units, 1)
+
+    def forward(self, samples, predicates, joins, flows):
+        '''
+        #TODO: describe shapes
+        '''
+        # samples = torch.stack(samples)
+        # joins = torch.stack(joins)
+        batch_hid_samples = []
+        for cur_sample in samples:
+            sample = F.relu(self.sample_mlp1(cur_sample))
+            sample = F.relu(self.sample_mlp2(sample))
+            sample = torch.sum(sample, dim=0, keepdim=False)
+            sample = sample / cur_sample.shape[0]
+            batch_hid_samples.append(sample)
+        hid_sample = torch.stack(batch_hid_samples)
+
+        # going to pass each batch separately since they have different shapes
+        # (number of predicates will be different in each case)
+        # want hid_predicate of shape batch x num_predicate_feats
+        batch_hid_preds = []
+        for cur_pred in predicates:
+            pred = F.relu(self.predicate_mlp1(cur_pred))
+            pred = F.relu(self.predicate_mlp2(pred))
+            # avg to create single output
+            pred = torch.sum(pred, dim=0, keepdim=False)
+            pred = pred / cur_pred.shape[0]
+            batch_hid_preds.append(pred)
+
+        hid_predicate = torch.stack(batch_hid_preds)
+
+        # hid_join = F.relu(self.join_mlp1(joins))
+        # hid_join = F.relu(self.join_mlp2(hid_join))
+
+        batch_hid_joins = []
+        for cur_join in joins:
+            join = F.relu(self.join_mlp1(cur_join))
+            join = F.relu(self.join_mlp2(join))
+            join = torch.sum(join, dim=0, keepdim=False)
+            join = join / cur_join.shape[0]
+            batch_hid_joins.append(join)
+        hid_join = torch.stack(batch_hid_joins)
+
+        hid = torch.cat((hid_sample, hid_predicate, hid_join), 1)
+        hid = F.relu(self.out_mlp1(hid))
+        out = torch.sigmoid(self.out_mlp2(hid))
+        return out
+
+# MVCN?
 class SetConv(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
             hid_units, dropout=0.0, max_hid=None, num_hidden_layers=2):
@@ -171,7 +307,7 @@ class SetConv(nn.Module):
         # ).to(device)
 
         if max_hid is not None:
-            join_hid = min(hid_units, 128)
+            join_hid = min(hid_units, max_hid)
         else:
             join_hid = hid_units
 
@@ -237,7 +373,7 @@ class SetConv(nn.Module):
                 nn.Sigmoid()
         ).to(device)
 
-        self.drop_layer = nn.Dropout(self.dropout)
+        # self.drop_layer = nn.Dropout(self.dropout)
 
     def compute_grads(self):
         wts = []

@@ -8,6 +8,7 @@ import glob
 import string
 import hashlib
 import pickle
+import gzip
 import re
 import pdb
 import random
@@ -77,6 +78,19 @@ def gen_gaussian_data(means, covs, num):
 def save_object(file_name, data):
     with open(file_name, "wb") as f:
         res = f.write(pickle.dumps(data))
+
+def save_object_gzip(file_name, data):
+    # with open(file_name, "wb") as f:
+        # res = f.write(pickle.dumps(data))
+    pickle.dump(data, gzip.open(file_name, 'wb'))
+
+def load_object_gzip(file_name):
+    res = None
+    if os.path.exists(file_name):
+        f = gzip.GzipFile(file_name, 'rb')
+        res = pickle.load(f)
+
+    return res
 
 def load_object(file_name):
     res = None

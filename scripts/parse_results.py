@@ -201,8 +201,13 @@ def get_summary_df(results_dir):
         cur_dir = results_dir + "/" + fn
         exp_args = load_object(cur_dir + "/args.pkl")
         if exp_args is None:
-            print("exp args None!")
-            continue
+            mse_fn = fn.replace("flow_loss2", "mse")
+            tmp_dir = results_dir + "/" + mse_fn
+            if os.path.exists(tmp_dir):
+                exp_args = load_object(tmp_dir + "/args.pkl")
+            else:
+                print("exp args is None!")
+                continue
 
         exp_args = vars(exp_args)
         # if exp_args["max_discrete_featurizing_buckets"] != 10:
@@ -210,15 +215,20 @@ def get_summary_df(results_dir):
             # continue
         exp_args["alg"] = get_alg_name(exp_args)
 
-        if exp_args["diff_templates_seed"] <= 15:
+        if exp_args["diff_templates_seed"] <= 10:
             pass
             # print(exp_args["diff_templates_seed"])
             # print(fn)
             # print("******")
         else:
-            # pass
-            print("SKIPPING PARTITION OVER 15")
-            continue
+            pass
+            # print("SKIPPING PARTITION OVER 10")
+            # continue
+
+        if exp_args["diff_templates_seed"] <= 5:
+            print(cur_dir)
+            print(exp_args["diff_templates_seed"])
+            print("*********")
 
         if skip_exp(exp_args):
             print("skip exp!")
@@ -263,6 +273,9 @@ def get_summary_df(results_dir):
 
         # TODO: add rts too, if it exists
 
+        if len(to_concat) == 0:
+            print("skipping: to concat, len 0")
+            continue
         cur_df = pd.concat(to_concat, ignore_index=True)
 
         # for exp_column in EXP_COLUMNS:
@@ -302,6 +315,9 @@ def get_summary_df(results_dir):
         cur_df["test_diff_templates"] = exp_args["test_diff_templates"]
         all_dfs.append(cur_df)
 
+    if len(all_dfs) == 0:
+        print("empty all dfs!")
+        return pd.DataFrame()
     summary_df = pd.concat(all_dfs, ignore_index=True)
     return summary_df
 

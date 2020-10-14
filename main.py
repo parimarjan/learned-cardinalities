@@ -49,9 +49,11 @@ def get_alg(alg):
 
     elif alg == "xgboost":
         return XGBoost(grid_search = args.grid_search,
+                tree_method = args.xgb_tree_method,
                 n_estimators = args.n_estimators,
                 max_depth = args.max_depth,
                 lr=args.xgb_lr,
+                subsample=args.xgb_subsample,
                 max_epochs = args.max_epochs,
                 min_qerr = args.min_qerr,
                 num_mse_anchoring = args.num_mse_anchoring,
@@ -219,6 +221,13 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                validation_epoch = args.validation_epoch,
+                use_set_padding = args.use_set_padding,
+                unnormalized_mse = args.unnormalized_mse,
+                num_workers = args.num_workers,
+                switch_loss_fn_epoch = args.switch_loss_fn_epoch,
+                switch_loss_fn = args.switch_loss_fn,
+                model_dir = args.model_dir,
                 min_qerr = args.min_qerr,
                 num_mse_anchoring = args.num_mse_anchoring,
                 mat_sparse_features = args.mat_sparse_features,
@@ -338,13 +347,15 @@ def compute_subq_ids(samples):
     return node_ids, pred_ids
 
 def clear_memory(ts):
-    if isinstance(ts.X, dict):
-        for k,v in ts.X.items():
-            del(v)
+    if hasattr(ts, "X"):
+        if isinstance(ts.X, dict):
+            for k,v in ts.X.items():
+                del(v)
 
-    del(ts.X)
-    del(ts.Y)
-    del(ts)
+        del(ts.X)
+
+        del(ts.Y)
+        del(ts)
 
 def remove_doubles(query_strs):
     print("remove_doubles")
@@ -410,7 +421,7 @@ def load_samples(qdir, db, found_db, template_name,
 
     if args.debug_set:
         random.seed(args.random_seed)
-        qfns = random.sample(qfns, int(len(qfns) / 10))
+        qfns = random.sample(qfns, int(len(qfns) / args.debug_ratio))
 
     skipped = 0
 
@@ -510,7 +521,10 @@ def load_samples(qdir, db, found_db, template_name,
     if not found_db:
         if "job" in template_name and \
                 not args.add_job_features:
+            return samples
 
+        elif "job" in template_name and \
+                args.nn_type == "mscn_set":
             return samples
 
         elif args.test_diff_templates and \
@@ -518,6 +532,10 @@ def load_samples(qdir, db, found_db, template_name,
                 not train_template:
                     return samples
 
+        elif args.test_diff_templates and \
+                args.nn_type == "mscn_set" and \
+                not train_template:
+                    return samples
 
         if db is not None:
             for sample in samples:
@@ -529,13 +547,14 @@ def load_samples(qdir, db, found_db, template_name,
     return samples
 
 def load_all_qrep_data(load_job_queries,
-        load_test_queries, load_db, load_train_queries):
+        load_test_queries, load_db, load_train_queries, load_val_queries=True):
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
 
     if load_db:
         db_key = deterministic_hash("db-" + args.query_directory + \
-                    args.query_templates + str(args.eval_on_job))
+                    args.query_templates + str(args.eval_on_job) + \
+                    args.nn_type)
 
         found_db = db_key in misc_cache.archive
         # found_db = False
@@ -612,12 +631,14 @@ def load_all_qrep_data(load_job_queries,
             continue
 
         if args.test and args.use_val_set:
+            cur_val_queries, samples = train_test_split(samples,
+                    test_size=1-args.val_size,
+                    random_state=args.random_seed_queries)
             cur_train_queries, cur_test_queries = train_test_split(samples,
                     test_size=args.test_size,
                     random_state=args.random_seed_queries)
-            cur_val_queries, cur_test_queries = train_test_split(cur_test_queries,
-                    test_size=0.6, random_state=args.random_seed_queries)
-
+            # cur_val_queries, cur_test_queries = train_test_split(cur_test_queries,
+                    # test_size=0.6, random_state=args.random_seed_queries)
         elif args.test_diff_templates:
             # train template, else test
             if args.diff_templates_type == 1:
@@ -659,7 +680,8 @@ def load_all_qrep_data(load_job_queries,
 
         if load_test_queries:
             test_queries += cur_test_queries
-        if args.use_val_set:
+
+        if args.use_val_set and load_val_queries:
             val_queries += cur_val_queries
 
     job_queries = []
@@ -685,8 +707,14 @@ def load_all_qrep_data(load_job_queries,
         misc_cache.archive[db_key] = db
     del(misc_cache)
 
+    if args.nn_type == "mscn_set":
+        feat_type = "set"
+    else:
+        feat_type = "combined"
+
     if db is not None:
         db.init_featurizer(num_tables_feature = args.num_tables_feature,
+                featurization_type = feat_type,
                 max_discrete_featurizing_buckets =
                 args.max_discrete_featurizing_buckets,
                 heuristic_features = args.heuristic_features,
@@ -699,7 +727,8 @@ def load_all_qrep_data(load_job_queries,
                 feat_tolerance = args.feat_tolerance,
                 cost_model = args.cost_model, sample_bitmap=args.sample_bitmap,
                 sample_bitmap_num=args.sample_bitmap_num,
-                sample_bitmap_buckets=args.sample_bitmap_buckets)
+                sample_bitmap_buckets=args.sample_bitmap_buckets,
+                db_key = db_key)
 
     return train_queries, test_queries, val_queries, job_queries, db
 
@@ -821,9 +850,20 @@ def main():
     else:
         load_test_samples = True
 
-    train_queries, test_queries, val_queries, job_queries, db = \
-            load_all_qrep_data(False, load_test_samples, True, True)
+    if args.model_dir is not None:
+        old_num_samples = args.num_samples_per_template
+        args.num_samples_per_template = 10
 
+    train_queries, test_queries, val_queries, job_queries, db = \
+            load_all_qrep_data(True, load_test_samples, True, True)
+
+    del(job_queries[:])
+
+    if args.model_dir is not None:
+        args.num_samples_per_template = old_num_samples
+
+    # train_fns = [q["name"] for q in train_queries]
+    # print(train_fns[0])
     # if not load_test_samples:
         # assert len(test_queries) == 0
 
@@ -897,40 +937,50 @@ def main():
             # print(psutil.virtual_memory())
             # pdb.set_trace()
 
-            if hasattr(alg, "training_sets"):
-                ts = alg.training_sets[0]
-                clear_memory(alg.training_sets[0])
-                del(alg.training_loaders[0])
-                del(alg.training_sets[0])
-
-                if args.eval_epoch < args.max_epochs:
-                    clear_memory(alg.eval_test_sets[0])
-                    del(alg.eval_test_sets[0])
-                    # del(alg.eval_test_sets[0])
-
-                for k,v in alg.eval_loaders.items():
-                    del(v)
         else:
             # just used to initialize the fields in the alg
-            alg.max_epochs = 0
-            alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                    val_samples=val_queries, join_loss_pool=join_loss_pool)
-            # load the model instead of training it!
-            alg.load_model(args.model_dir)
+            if alg.max_epochs == 0:
+                alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                        val_samples=val_queries, join_loss_pool=join_loss_pool)
+                # load the model instead of training it!
+                # alg.load_model(args.model_dir)
+            else:
+                # alg.load_model(args.model_dir)
+                alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                        val_samples=test_queries, join_loss_pool=join_loss_pool)
+                # alg.train(db, train_queries, use_subqueries=args.use_subqueries,
+                        # val_samples=test_queries, join_loss_pool=join_loss_pool)
 
-        # print("after deleting training sets")
-        # print(psutil.virtual_memory())
-        # pdb.set_trace()
+        if hasattr(alg, "training_sets"):
+            ts = alg.training_sets[0]
+            # clear_memory(alg.training_sets[0])
+            alg.training_sets[0].clean()
+            del(alg.training_loaders[0])
+            del(alg.training_sets[0])
+
+            if args.eval_epoch < args.max_epochs and len(alg.eval_test_sets) > 0:
+                # clear_memory(alg.eval_test_sets[0])
+                alg.eval_test_sets[0].clean()
+                del(alg.eval_test_sets[0])
+
+            for k,v in alg.eval_loaders.items():
+                del(v)
 
         # may have deleted it to save space
         if len(train_queries) == 0:
-            train_queries, test_queries, _, _, _ = \
+            train_queries, _, val_queries, _, _ = \
                     load_all_qrep_data(False, False, False, True)
+            # train_queries, test_queries, val_queries, job_queries, db = \
+                    # load_all_qrep_data(False, load_test_samples, True, True)
 
         start = time.time()
 
         eval_alg(alg, losses, train_queries, "train", join_loss_pool)
         del(train_queries[:])
+
+        if args.use_val_set:
+            eval_alg(alg, losses, val_queries, "validation", join_loss_pool)
+            del(val_queries[:])
 
         if len(test_queries) == 0:
             _, test_queries, _, _, _ = \
@@ -992,6 +1042,10 @@ def read_flags():
             default=500)
     parser.add_argument("--max_depth", type=int, required=False,
             default=10)
+    parser.add_argument("--xgb_subsample", type=float, required=False,
+            default=1.0)
+    parser.add_argument("--xgb_tree_method", type=str, required=False,
+            default="hist")
 
     parser.add_argument("--query_directory", type=str, required=False,
             default="./our_dataset/queries")
@@ -1005,6 +1059,8 @@ def read_flags():
             default="all")
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
+    parser.add_argument("--debug_ratio", type=float, required=False,
+            default=10.0)
     parser.add_argument("--num_mse_anchoring", type=int, required=False,
             default=-2)
     parser.add_argument("--only_compute_overlap", type=int, required=False,
@@ -1014,7 +1070,7 @@ def read_flags():
     parser.add_argument("--sample_bitmap_num", type=int, required=False,
             default=1000)
     parser.add_argument("--sample_bitmap_buckets", type=int, required=False,
-            default=500)
+            default=1000)
     parser.add_argument("--mat_sparse_features", type=int, required=False,
             default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
@@ -1050,9 +1106,9 @@ def read_flags():
     parser.add_argument("--feat_tolerance", type=int, required=False,
             default=0)
     parser.add_argument("--feat_pg_est_one_hot", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--feat_rel_pg_ests_onehot", type=int, required=False,
-            default=0)
+            default=1)
 
     parser.add_argument("--cost_model_plan_err", type=int, required=False,
             default=1)
@@ -1062,6 +1118,10 @@ def read_flags():
             default=0)
     parser.add_argument("--weighted_mse", type=float, required=False,
             default=0.0)
+
+    parser.add_argument("--unnormalized_mse", type=int, required=False,
+            default=0)
+
     parser.add_argument("--avg_jl_num_last", type=int, required=False,
             default=5)
     parser.add_argument("--preload_features", type=int, required=False,
@@ -1135,7 +1195,13 @@ def read_flags():
     parser.add_argument("-n", "--num_samples_per_template", type=int,
             required=False, default=-1)
     parser.add_argument("--max_epochs", type=int,
-            required=False, default=20)
+            required=False, default=10)
+    parser.add_argument("--switch_loss_fn_epoch", type=int,
+            required=False, default=100000)
+    parser.add_argument("--switch_loss_fn", type=str,
+            required=False, default="flow_loss2")
+    parser.add_argument("--num_workers", type=int,
+            required=False, default=0)
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_jerr", type=int,
@@ -1166,12 +1232,18 @@ def read_flags():
             required=False, default=1)
     parser.add_argument("--start_validation", type=int,
             required=False, default=5)
+    parser.add_argument("--validation_epoch", type=int,
+            required=False, default=100)
+
     parser.add_argument("--eval_test_while_training", type=int,
             required=False, default=1)
     parser.add_argument("--jl_use_postgres", type=int,
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
             required=False, default="mscn")
+    parser.add_argument("--use_set_padding", type=int,
+            required=False, default=2)
+
     parser.add_argument("--num_groups", type=int, required=False,
             default=1, help="""number of groups we divide the input space in.
             If we have at most M tables in a query, and N groups, then each
@@ -1239,13 +1311,15 @@ def read_flags():
             default=1)
     parser.add_argument("--test_size", type=float, required=False,
             default=0.5)
+    parser.add_argument("--val_size", type=float, required=False,
+            default=0.2)
     parser.add_argument("--algs", type=str, required=False,
             default="postgres")
     # parser.add_argument("--losses", type=str, required=False,
             # default="qerr,join-loss,flow-loss,plan-loss",
             # help="comma separated list of loss names")
     parser.add_argument("--losses", type=str, required=False,
-            default="qerr,join-loss",
+            default="qerr,join-loss,plan-loss,flow-loss",
             help="comma separated list of loss names")
 
     parser.add_argument("--result_dir", type=str, required=False,

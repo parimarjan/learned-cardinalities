@@ -258,9 +258,19 @@ def get_all_training_df(results_dir):
             # convert to same format as qerrs
             cur_dir = results_dir + "/" + fn
             exp_args = load_object(cur_dir + "/args.pkl")
+
+            # if exp_args is None:
+                # print("exp args is None!")
+                # continue
             if exp_args is None:
-                print("exp args is None!")
-                continue
+                mse_fn = fn.replace("flow_loss2", "mse")
+                tmp_dir = results_dir + "/" + mse_fn
+                if os.path.exists(tmp_dir):
+                    exp_args = load_object(tmp_dir + "/args.pkl")
+                else:
+                    print("exp args is None!")
+                    continue
+
             exp_args = vars(exp_args)
             if skip_exp(exp_args):
                 print("skip exp!")

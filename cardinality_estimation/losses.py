@@ -508,10 +508,15 @@ def compute_join_order_loss(queries, preds, **kwargs):
     return np.array(est_costs) - np.array(opt_costs)
 
 def compute_flow_loss(queries, preds, **kwargs):
+
     assert isinstance(queries, list)
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
     args = kwargs["args"]
+    if args.db_name == "so":
+        global SOURCE_NODE
+        SOURCE_NODE = tuple(["SOURCE"])
+
     env = PlanError(args.cost_model, "flow-loss")
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
@@ -555,6 +560,10 @@ def compute_plan_loss(queries, preds, **kwargs):
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
     args = kwargs["args"]
+    if args.db_name == "so":
+        global SOURCE_NODE
+        SOURCE_NODE = tuple(["SOURCE"])
+
     env = PlanError(args.cost_model, "plan-loss", args.user, args.pwd,
             args.db_host, args.port, args.db_name, compute_pg_costs=True)
     exp_name = kwargs["exp_name"]

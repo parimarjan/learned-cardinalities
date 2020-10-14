@@ -2117,7 +2117,7 @@ def get_subsetg_vectors(sample, cost_model, source_node=None):
 
     for nodei, node in enumerate(nodes):
         node_dict[node] = nodei
-        totals[nodei] = subsetg.nodes()[node]["cardinality"]["total"]
+        # totals[nodei] = subsetg.nodes()[node]["cardinality"]["total"]
         if len(node) > max_len_nodes:
             max_len_nodes = len(node)
             final_node = nodei

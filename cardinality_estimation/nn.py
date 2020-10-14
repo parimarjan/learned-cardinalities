@@ -69,6 +69,22 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
 # def collate_fn(sample):
     # return sample[0]
 
+def collate_fn(batch):
+    # print(batch)
+    # y = [b[6] for b in batch]
+    # pdb.set_trace()
+    return tuple(zip(*batch))
+
+def collate_fn_set(batch):
+    batch = batch[0]
+
+    pdb.set_trace()
+    # return batch[0]
+    # print("collate fn set!")
+    # print(len(batch))
+    # pdb.set_trace()
+    # return tuple(zip(*batch))
+
 # once we have stored them in archive, parallel just slows down stuff
 UPDATE_TOLERANCES_PAR = False
 USE_TOLERANCES = False
@@ -517,6 +533,7 @@ class NN(CardinalityEstimationAlg):
         elif self.loss_func == "flow_loss2":
             self.loss = FlowLoss.apply
             self.load_query_together = True
+            self.num_workers = 0
 
         elif self.loss_func == "rel":
             self.loss = rel_loss_torch
@@ -532,6 +549,7 @@ class NN(CardinalityEstimationAlg):
         else:
             assert False
 
+        self.collate_fn = None
         if self.nn_type == "microsoft":
             self.featurization_scheme = "combined"
             # if self.net_name == "FCNN-Query":
@@ -541,6 +559,13 @@ class NN(CardinalityEstimationAlg):
             self.featurization_scheme = "combined"
         elif self.nn_type == "mscn":
             self.featurization_scheme = "mscn"
+        elif self.nn_type == "mscn_set":
+            self.featurization_scheme = "set"
+            if not self.use_set_padding:
+                self.collate_fn = collate_fn
+            # elif self.use_set_padding == 2:
+                # self.collate_fn = collate_fn_set
+
         elif self.nn_type == "transformer":
             self.featurization_scheme = "combined"
             self.load_query_together = True
@@ -668,7 +693,8 @@ class NN(CardinalityEstimationAlg):
             assert qidx == info[1]["query_idx"]
             sample = samples[qidx]
 
-            if "flow_loss" in loss_fn_name:
+            if "flow_loss" in loss_fn_name or \
+                "flow_loss" in self.switch_loss_fn:
                 assert load_query_together
                 subsetg_vectors, trueC_vec, opt_loss = \
                         self.flow_training_info[qidx]
@@ -751,7 +777,8 @@ class NN(CardinalityEstimationAlg):
             clip_gradient, samples, normalization_type, min_val, max_val,
             load_query_together=False):
 
-        torch.set_num_threads(1)
+        if "flow_loss" in loss_fn_name:
+            torch.set_num_threads(1)
         if self.save_gradients:
             grads = []
             par_grads = defaultdict(list)
@@ -848,6 +875,150 @@ class NN(CardinalityEstimationAlg):
                 clip_grad_norm_(net.parameters(), clip_gradient)
 
             optimizer.step()
+            idx_time = time.time() - start
+            if idx_time > 10:
+                print("train idx took: ", idx_time)
+
+        if self.save_gradients and len(grad_samples) > 0 \
+                and self.epoch % self.eval_epoch == 0:
+            self.save_join_loss_stats(grads, None, grad_samples,
+                    "train", loss_key="gradients")
+            for k,v in par_grads.items():
+                self.save_join_loss_stats(v, None, grad_samples,
+                        "train", loss_key="param_gradients" + str(k))
+
+    def train_mscn_set_padded(self, net, optimizer, loader, loss_fn, loss_fn_name,
+            clip_gradient, samples, normalization_type, min_val, max_val,
+            load_query_together=False):
+
+        # because we use openmp to speed up flow-loss computations. Else, it is
+        # good to have multiple threads
+        if "flow_loss" in loss_fn_name:
+            torch.set_num_threads(1)
+
+        if self.save_gradients:
+            grads = []
+            par_grads = defaultdict(list)
+            grad_samples = []
+
+        # FIXME: requires that each sample seen in training set
+        if "flow_loss" in loss_fn_name:
+            opt_flow_costs = []
+            est_flow_costs = []
+
+        for idx, (tbatch, pbatch, jbatch,fbatch,tmask,pmask,jmask,ybatch,info) in enumerate(loader):
+            # ybatch = torch.stack(ybatch)
+            start = time.time()
+            # print(tbatch.shape)
+            # pdb.set_trace()
+            if load_query_together:
+                tbatch = tbatch.squeeze()
+                pbatch = pbatch.squeeze()
+                jbatch = jbatch.squeeze()
+
+                # FIXME:
+                if isinstance(fbatch, torch.Tensor):
+                    fbatch = fbatch.squeeze()
+                tmask = tmask.squeeze(0)
+                pmask = pmask.squeeze(0)
+                jmask = jmask.squeeze(0)
+
+                ybatch = ybatch.squeeze()
+                qidx = info[0]["query_idx"][0]
+                # sample = samples[qidx]
+                sample = None
+
+            else:
+                sample = None
+
+            pred = net(tbatch,pbatch,jbatch,fbatch,tmask,pmask,jmask).squeeze(1)
+
+            if "flow_loss" in loss_fn_name:
+                assert load_query_together
+                subsetg_vectors, trueC_vec, opt_loss = \
+                        self.flow_training_info[qidx]
+
+                assert len(subsetg_vectors) == 8
+
+                losses = loss_fn(pred, ybatch.detach(),
+                        normalization_type, min_val,
+                        max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
+                        self.normalize_flow_loss,
+                        self.join_loss_pool, self.cost_model)
+            else:
+                if self.unnormalized_mse:
+                    assert self.normalization_type == "mscn"
+                    pred = torch.exp((pred + self.min_val)*(self.max_val-self.min_val))
+                    ybatch = torch.exp((ybatch + self.min_val)*(self.max_val-self.min_val))
+
+                if self.loss_func == "mse_with_min":
+                    losses = loss_fn(pred, ybatch, self.min_qerr)
+                else:
+                    losses = loss_fn(pred, ybatch)
+
+                if self.flow_weighted_loss:
+                    assert False
+                    # which subqueries have we been using
+                    subq_idxs = info["dataset_idx"]
+                    loss_weights = np.ascontiguousarray(self.subq_imp["train"][subq_idxs])
+                    loss_weights = to_variable(loss_weights).float()
+                    assert losses.shape == loss_weights.shape
+                    losses *= loss_weights
+
+            try:
+                loss = losses.sum() / len(losses)
+            except:
+                loss = losses
+
+            if self.weighted_qloss != 0.0:
+                qloss = qloss_torch(pred, ybatch)
+                loss += self.weighted_qloss* (sum(qloss) / len(qloss))
+
+            # if self.weighted_mse != 0.0:
+            if self.weighted_mse != 0.0 and \
+                "flow_loss" in loss_fn_name:
+                if self.unnormalized_mse:
+                    assert self.normalization_type == "mscn"
+                    pred = torch.exp((pred + self.min_val)*(self.max_val-self.min_val))
+                    ybatch = torch.exp((ybatch + self.min_val)*(self.max_val-self.min_val))
+
+                mses = torch.nn.MSELoss(reduction="none")(pred,
+                        ybatch)
+                if self.num_mse_anchoring == -1 \
+                        or len(mses) < self.num_mse_anchoring:
+                    mse = torch.mean(mses)
+                elif self.num_mse_anchoring in [-2, -3]:
+                    mse_idxs = self.node_anchoring_idxs[qidx]
+                    mses = mses[mse_idxs]
+                    mse = torch.mean(mses)
+                else:
+                    random.seed(1234)
+                    mse_idxs = random.sample(range(0, len(mses)), self.num_mse_anchoring)
+                    mses = mses[mse_idxs]
+                    mse = torch.mean(mses)
+
+                loss += self.weighted_mse * mse
+
+
+            if self.save_gradients and "flow_loss" in loss_fn_name:
+                optimizer.zero_grad()
+                pred.retain_grad()
+                loss.backward()
+                # grads
+                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                if sample is not None:
+                    grad_samples.append(sample)
+                wt_grads = net.compute_grads()
+                for wi, wt in enumerate(wt_grads):
+                    par_grads[wi].append(wt)
+            else:
+                optimizer.zero_grad()
+                loss.backward()
+
+            if clip_gradient is not None:
+                clip_grad_norm_(net.parameters(), clip_gradient)
+
+            optimizer.step()
 
             idx_time = time.time() - start
             if idx_time > 10:
@@ -861,10 +1032,149 @@ class NN(CardinalityEstimationAlg):
                 self.save_join_loss_stats(v, None, grad_samples,
                         "train", loss_key="param_gradients" + str(k))
 
+
+    def train_mscn_set(self, net, optimizer, loader, loss_fn, loss_fn_name,
+            clip_gradient, samples, normalization_type, min_val, max_val,
+            load_query_together=False):
+        if "flow_loss" in loss_fn_name:
+            torch.set_num_threads(1)
+        if self.save_gradients:
+            grads = []
+            par_grads = defaultdict(list)
+            grad_samples = []
+
+        # FIXME: requires that each sample seen in training set
+        if "flow_loss" in loss_fn_name:
+            opt_flow_costs = []
+            est_flow_costs = []
+
+        for idx, (tbatch, pbatch, jbatch,fbatch, ybatch,info) in enumerate(loader):
+            ybatch = torch.stack(ybatch)
+            start = time.time()
+            if load_query_together:
+                assert tbatch.shape[0] <= self.mb_size
+                tbatch = tbatch.reshape(tbatch.shape[0]*tbatch.shape[1],
+                        tbatch.shape[2])
+                pbatch = pbatch.reshape(pbatch.shape[0]*pbatch.shape[1],
+                        pbatch.shape[2])
+                jbatch = jbatch.reshape(jbatch.shape[0]*jbatch.shape[1],
+                        jbatch.shape[2])
+                fbatch = fbatch.reshape(fbatch.shape[0]*fbatch.shape[1],
+                        fbatch.shape[2])
+                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+                qidx = info[0]["query_idx"][0]
+                # sample = samples[qidx]
+                sample = None
+            else:
+                sample = None
+
+            pred = net(tbatch,pbatch,jbatch,fbatch).squeeze(1)
+
+            if "flow_loss" in loss_fn_name:
+                assert load_query_together
+                subsetg_vectors, trueC_vec, opt_loss = \
+                        self.flow_training_info[qidx]
+
+                assert len(subsetg_vectors) == 8
+
+                losses = loss_fn(pred, ybatch.detach(),
+                        normalization_type, min_val,
+                        max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
+                        self.normalize_flow_loss,
+                        self.join_loss_pool, self.cost_model)
+            else:
+                if self.unnormalized_mse:
+                    assert self.normalization_type == "mscn"
+                    pred = torch.exp((pred + self.min_val)*(self.max_val-self.min_val))
+                    ybatch = torch.exp((ybatch + self.min_val)*(self.max_val-self.min_val))
+
+                if self.loss_func == "mse_with_min":
+                    losses = loss_fn(pred, ybatch, self.min_qerr)
+                else:
+                    losses = loss_fn(pred, ybatch)
+
+                if self.flow_weighted_loss:
+                    assert False
+                    # which subqueries have we been using
+                    subq_idxs = info["dataset_idx"]
+                    loss_weights = np.ascontiguousarray(self.subq_imp["train"][subq_idxs])
+                    loss_weights = to_variable(loss_weights).float()
+                    assert losses.shape == loss_weights.shape
+                    losses *= loss_weights
+
+            try:
+                loss = losses.sum() / len(losses)
+            except:
+                loss = losses
+
+            if self.weighted_qloss != 0.0:
+                qloss = qloss_torch(pred, ybatch)
+                loss += self.weighted_qloss* (sum(qloss) / len(qloss))
+
+            # if self.weighted_mse != 0.0:
+            if self.weighted_mse != 0.0 and \
+                "flow_loss" in loss_fn_name:
+                if self.unnormalized_mse:
+                    assert self.normalization_type == "mscn"
+                    pred = torch.exp((pred + self.min_val)*(self.max_val-self.min_val))
+                    ybatch = torch.exp((ybatch + self.min_val)*(self.max_val-self.min_val))
+
+                mses = torch.nn.MSELoss(reduction="none")(pred,
+                        ybatch)
+                if self.num_mse_anchoring == -1 \
+                        or len(mses) < self.num_mse_anchoring:
+                    mse = torch.mean(mses)
+                elif self.num_mse_anchoring in [-2, -3]:
+                    mse_idxs = self.node_anchoring_idxs[qidx]
+                    mses = mses[mse_idxs]
+                    mse = torch.mean(mses)
+                else:
+                    random.seed(1234)
+                    mse_idxs = random.sample(range(0, len(mses)), self.num_mse_anchoring)
+                    mses = mses[mse_idxs]
+                    mse = torch.mean(mses)
+
+                loss += self.weighted_mse * mse
+
+
+            if self.save_gradients and "flow_loss" in loss_fn_name:
+                optimizer.zero_grad()
+                pred.retain_grad()
+                loss.backward()
+                # grads
+                grads.append(np.mean(np.abs(pred.grad.detach().numpy())))
+                if sample is not None:
+                    grad_samples.append(sample)
+                wt_grads = net.compute_grads()
+                for wi, wt in enumerate(wt_grads):
+                    par_grads[wi].append(wt)
+            else:
+                optimizer.zero_grad()
+                loss.backward()
+
+            if clip_gradient is not None:
+                clip_grad_norm_(net.parameters(), clip_gradient)
+
+            optimizer.step()
+
+            idx_time = time.time() - start
+            if idx_time > 10:
+                print("train idx took: ", idx_time)
+
+        if self.save_gradients and len(grad_samples) > 0 \
+                and self.epoch % self.eval_epoch == 0:
+            self.save_join_loss_stats(grads, None, grad_samples,
+                    "train", loss_key="gradients")
+            for k,v in par_grads.items():
+                self.save_join_loss_stats(v, None, grad_samples,
+                        "train", loss_key="param_gradients" + str(k))
+
+
     def train_mscn(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
             load_query_together=False):
-        torch.set_num_threads(1)
+        if "flow_loss" in loss_fn_name:
+            torch.set_num_threads(1)
         if self.save_gradients:
             grads = []
             par_grads = defaultdict(list)
@@ -909,6 +1219,11 @@ class NN(CardinalityEstimationAlg):
                         self.normalize_flow_loss,
                         self.join_loss_pool, self.cost_model)
             else:
+                if self.unnormalized_mse:
+                    assert self.normalization_type == "mscn"
+                    pred = torch.exp((pred + self.min_val)*(self.max_val-self.min_val))
+                    ybatch = torch.exp((ybatch + self.min_val)*(self.max_val-self.min_val))
+
                 if self.loss_func == "mse_with_min":
                     losses = loss_fn(pred, ybatch, self.min_qerr)
                 else:
@@ -922,6 +1237,7 @@ class NN(CardinalityEstimationAlg):
                     loss_weights = to_variable(loss_weights).float()
                     assert losses.shape == loss_weights.shape
                     losses *= loss_weights
+
             try:
                 loss = losses.sum() / len(losses)
             except:
@@ -934,6 +1250,11 @@ class NN(CardinalityEstimationAlg):
             # if self.weighted_mse != 0.0:
             if self.weighted_mse != 0.0 and \
                 "flow_loss" in loss_fn_name:
+                if self.unnormalized_mse:
+                    assert self.normalization_type == "mscn"
+                    pred = torch.exp((pred + self.min_val)*(self.max_val-self.min_val))
+                    ybatch = torch.exp((ybatch + self.min_val)*(self.max_val-self.min_val))
+
                 mses = torch.nn.MSELoss(reduction="none")(pred,
                         ybatch)
                 if self.num_mse_anchoring == -1 \
@@ -950,6 +1271,7 @@ class NN(CardinalityEstimationAlg):
                     mse = torch.mean(mses)
 
                 loss += self.weighted_mse * mse
+
 
             if self.save_gradients and "flow_loss" in loss_fn_name:
                 optimizer.zero_grad()
@@ -1057,6 +1379,36 @@ class NN(CardinalityEstimationAlg):
                         self.hidden_layer_size, dropout=self.dropout,
                         max_hid = self.max_hid,
                         num_hidden_layers=self.num_hidden_layers)
+
+        elif net_name == "MSCN":
+            if self.use_set_padding:
+                if self.load_query_together:
+                    net = PaddedMSCN(len(sample[0][0][0]),
+                            len(sample[1][0][0]), len(sample[2][0][0]),
+                            len(sample[3]),
+                            self.hidden_layer_size, dropout=self.dropout,
+                            max_hid = self.max_hid,
+                            num_hidden_layers=self.num_hidden_layers)
+                else:
+                    net = PaddedMSCN(len(sample[0][0]),
+                            len(sample[1][0]), len(sample[2][0]),
+                            len(sample[3]),
+                            self.hidden_layer_size, dropout=self.dropout,
+                            max_hid = self.max_hid,
+                            num_hidden_layers=self.num_hidden_layers)
+
+            else:
+                if self.load_query_together:
+                    assert False
+                else:
+                    # print(sample[2])
+                    # pdb.set_trace()
+                    net = MSCN(len(sample[0][0]), len(sample[1][0]),
+                            len(sample[2][0]),
+                            len(sample[3]),
+                            self.hidden_layer_size, dropout=self.dropout,
+                            max_hid = self.max_hid,
+                            num_hidden_layers=self.num_hidden_layers)
         else:
             assert False
 
@@ -1101,6 +1453,10 @@ class NN(CardinalityEstimationAlg):
             if self.nn_type == "mscn":
                 net, optimizer, scheduler = \
                         self._init_net("SetConv", self.optimizer_name, sample)
+            elif self.nn_type == "mscn_set":
+                net, optimizer, scheduler = \
+                        self._init_net("MSCN", self.optimizer_name, sample)
+
             elif self.nn_type == "transformer":
                 net, optimizer, scheduler = \
                         self._init_net("Transformer", self.optimizer_name, sample)
@@ -1173,6 +1529,83 @@ class NN(CardinalityEstimationAlg):
             all_idxs = torch.cat(all_idxs).detach().numpy()
         return pred, y, all_idxs
 
+    def _eval_mscn_set_padded(self, net, loader):
+        tstart = time.time()
+        # TODO: set num threads, gradient off etc.
+        torch.set_grad_enabled(False)
+        all_preds = []
+        all_y = []
+        all_idxs = []
+
+        for idx, (tbatch, pbatch, jbatch,fbatch,
+                tmask,pmask,jmask,ybatch,info) in enumerate(loader):
+            if self.load_query_together:
+                # update the batches
+                tbatch = tbatch.squeeze()
+                pbatch = pbatch.squeeze()
+                jbatch = jbatch.squeeze()
+                if isinstance(fbatch, torch.Tensor):
+                    fbatch = fbatch.squeeze()
+                # fbatch = fbatch.squeeze()
+                tmask = tmask.squeeze(0)
+                pmask = pmask.squeeze(0)
+                jmask = jmask.squeeze(0)
+
+                ybatch = ybatch.squeeze()
+
+                all_idxs.append(0)
+            else:
+                all_idxs.append(info["dataset_idx"])
+
+            pred = net(tbatch,pbatch,jbatch,fbatch,tmask,pmask,jmask).squeeze(1)
+            all_preds.append(pred)
+            all_y.append(ybatch)
+
+        pred = torch.cat(all_preds).detach().numpy()
+        y = torch.cat(all_y).detach().numpy()
+        if not self.load_query_together:
+            all_idxs = np.concatenate(all_idxs)
+            # all_idxs = torch.cat(all_idxs).detach().numpy()
+        return pred, y, all_idxs
+
+    def _eval_mscn_set(self, net, loader):
+        tstart = time.time()
+        # TODO: set num threads, gradient off etc.
+        torch.set_grad_enabled(False)
+        all_preds = []
+        all_y = []
+        all_idxs = []
+
+        for idx, (tbatch,pbatch,jbatch,fbatch, ybatch,info) in enumerate(loader):
+            ybatch = torch.stack(ybatch)
+            if self.load_query_together:
+                # update the batches
+                tbatch = tbatch.reshape(tbatch.shape[0]*tbatch.shape[1],
+                        tbatch.shape[2])
+                pbatch = pbatch.reshape(pbatch.shape[0]*pbatch.shape[1],
+                        pbatch.shape[2])
+                jbatch = jbatch.reshape(jbatch.shape[0]*jbatch.shape[1],
+                        jbatch.shape[2])
+                fbatch = fbatch.reshape(fbatch.shape[0]*fbatch.shape[1],
+                        fbatch.shape[2])
+
+                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+                all_idxs.append(0)
+            else:
+                didxs = np.array([cinfo["dataset_idx" ]for cinfo in info])
+                all_idxs.append(didxs)
+
+            pred = net(tbatch,pbatch,jbatch,fbatch).squeeze(1)
+            all_preds.append(pred)
+            all_y.append(ybatch)
+
+        pred = torch.cat(all_preds).detach().numpy()
+        y = torch.cat(all_y).detach().numpy()
+        if not self.load_query_together:
+            all_idxs = np.concatenate(all_idxs)
+            # all_idxs = torch.cat(all_idxs).detach().numpy()
+        return pred, y, all_idxs
+
     def _eval_mscn(self, net, loader):
         tstart = time.time()
         # TODO: set num threads, gradient off etc.
@@ -1221,6 +1654,13 @@ class NN(CardinalityEstimationAlg):
                     res = self._eval_combined(net, loader)
             elif self.featurization_scheme == "mscn":
                 res = self._eval_mscn(net, loader)
+            elif self.featurization_scheme == "set":
+                if self.use_set_padding:
+                    res = self._eval_mscn_set_padded(net, loader)
+                else:
+                    res = self._eval_mscn_set(net, loader)
+            else:
+                assert False
 
             pred = to_variable(res[0]).float()
             y = to_variable(res[1]).float()
@@ -1407,6 +1847,19 @@ class NN(CardinalityEstimationAlg):
                         self.training_samples, self.normalization_type,
                         self.min_val, self.max_val,
                         self.load_query_together)
+            elif self.featurization_scheme == "set":
+                if self.use_set_padding:
+                    self.train_mscn_set_padded(net, opt, loader, self.loss,
+                            self.loss_func, self.clip_gradient,
+                            self.training_samples, self.normalization_type,
+                            self.min_val, self.max_val,
+                            self.load_query_together)
+                else:
+                    self.train_mscn_set(net, opt, loader, self.loss,
+                            self.loss_func, self.clip_gradient,
+                            self.training_samples, self.normalization_type,
+                            self.min_val, self.max_val,
+                            self.load_query_together)
             else:
                 assert False
 
@@ -1638,13 +2091,13 @@ class NN(CardinalityEstimationAlg):
 
             # pdb.set_trace()
 
-        if np.mean(join_losses) < self.best_join_loss \
-                and epoch > self.start_validation \
-                and self.use_val_set:
-            self.best_join_loss = np.mean(join_losses)
-            self.best_model_dict = copy.deepcopy(self.nets[0].state_dict())
-            print("going to save best join error at epoch: ", epoch)
-            self.save_model_dict()
+        # if np.mean(join_losses) < self.best_join_loss \
+                # and epoch > self.start_validation \
+                # and self.use_val_set:
+            # self.best_join_loss = np.mean(join_losses)
+            # self.best_model_dict = copy.deepcopy(self.nets[0].state_dict())
+            # print("going to save best join error at epoch: ", epoch)
+            # self.save_model_dict()
 
         # temporary
         if self.env2 is not None:
@@ -1767,19 +2220,23 @@ class NN(CardinalityEstimationAlg):
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = self.train_card_key,
-                    group = self.groups[i], max_sequence_len=self.max_subqs))
+                    use_set_padding = self.use_set_padding,
+                    group = self.groups[i], max_sequence_len=self.max_subqs,
+                    exp_name = self.get_exp_name()))
             if not weighted:
                 training_loaders.append(data.DataLoader(training_sets[i],
-                        batch_size=batch_size, shuffle=shuffle, num_workers=0,
-                        pin_memory=False))
+                        batch_size=batch_size, shuffle=shuffle,
+                        num_workers=self.num_workers,
+                        pin_memory=False, collate_fn=self.collate_fn))
             else:
                 weight = 1 / len(training_sets[i])
                 weights = torch.DoubleTensor([weight]*len(training_sets[i]))
                 sampler = torch.utils.data.sampler.WeightedRandomSampler(weights,
                         num_samples=len(weights))
                 training_loader = data.DataLoader(training_sets[i],
-                        batch_size=self.mb_size, shuffle=False, num_workers=0,
-                        sampler = sampler)
+                        batch_size=self.mb_size, shuffle=False,
+                        num_workers=self.num_workers,
+                        sampler = sampler, collate_fn=self.collate_fn)
                 training_loaders.append(training_loader)
                 # priority_loader = data.DataLoader(training_set,
                         # batch_size=25000, shuffle=False, num_workers=0)
@@ -1920,7 +2377,9 @@ class NN(CardinalityEstimationAlg):
         assert os.path.exists(model_path)
         assert len(self.nets) == 1
         self.nets[0].load_state_dict(torch.load(model_path))
-        self.nets[0].eval()
+        # self.nets[0].eval()
+        print(self.nets[0])
+        # pdb.set_trace()
         print("*****loaded model*****")
 
     def train(self, db, training_samples, use_subqueries=False,
@@ -2043,7 +2502,9 @@ class NN(CardinalityEstimationAlg):
             priority_loaders = []
             for i, ds in enumerate(training_sets):
                 priority_loaders.append(data.DataLoader(ds,
-                        batch_size=self.eval_batch_size, shuffle=False, num_workers=0))
+                        batch_size=self.eval_batch_size, shuffle=False,
+                        num_workers=self.num_workers,
+                        collate_fn=self.collate_fn))
         else:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
                                     True, self.mb_size, weighted=False)
@@ -2062,22 +2523,29 @@ class NN(CardinalityEstimationAlg):
         else:
             # FIXME: need to get accurate number for load_query_together
             if self.load_query_together:
+                # print(len(training_sets[0][0][0]))
+                # pdb.set_trace()
                 self.num_features = len(training_sets[0][0][0][0]) + \
                         len(training_sets[0][0][1][0]) + \
                         len(training_sets[0][0][2][0]) + \
                         len(training_sets[0][0][3][0])
             else:
+                # if self.featurization_scheme == "set":
+                    # self.num_features = 0
+                # else:
                 self.num_features = len(training_sets[0][0][0]) + \
                         len(training_sets[0][0][1]) + \
                         len(training_sets[0][0][2]) + \
                         len(training_sets[0][0][3])
+
             print("num features are: ", self.num_features)
 
         self.subq_imp = {}
         self.subq_imp["train"] = self.get_subq_imp(self.training_samples)
         self.subq_imp["test"] = self.get_subq_imp(val_samples)
 
-        if "flow" in self.loss_func:
+        if "flow" in self.loss_func or \
+                "flow" in self.switch_loss_fn:
             self.update_flow_training_info()
 
         subquery_rel_weights = None
@@ -2230,6 +2698,7 @@ class NN(CardinalityEstimationAlg):
                     self.init_dataset(eval_training_samples, False,
                             self.eval_batch_size, weighted=False)
             self.eval_loaders["train"] = eval_train_loaders
+
         elif self.eval_epoch < self.max_epochs:
             eval_training_samples = training_samples
             assert len(training_sets) == 1
@@ -2237,21 +2706,15 @@ class NN(CardinalityEstimationAlg):
             # collect stats correctly
             self.eval_loaders["train"] = [data.DataLoader(training_sets[0],
                     batch_size=self.eval_batch_size, shuffle=False,
-                    num_workers=0)]
+                    num_workers=self.num_workers, collate_fn=self.collate_fn)]
             self.samples["train"] = eval_training_samples
 
         # TODO: add separate dataset, dataloaders for evaluation
         if val_samples is not None and len(val_samples) > 0 \
                 and not self.no_eval \
                 and self.eval_epoch < self.max_epochs:
-            # val_samples = random.sample(val_samples, int(len(val_samples) /
-                    # eval_samples_size_divider))
             assert eval_samples_size_divider == 1
             val_samples = val_samples
-            # totals_test = [len(s["subset_graph"].nodes()) for s in val_samples]
-            # print("total test samples: ", sum(totals_test))
-            # pdb.set_trace()
-
             self.samples["test"] = val_samples
             eval_test_sets, eval_test_loaders = \
                     self.init_dataset(val_samples, False, self.eval_batch_size,
@@ -2277,19 +2740,36 @@ class NN(CardinalityEstimationAlg):
             if val_samples is not None:
                 del(val_samples[:])
             val_samples = None
+
             if self.sampling_priority_alpha == 0.0:
-                del(self.training_samples[:])
-                # self.training_samples.__del__()
-                # val_samples.__del__()
-                self.training_samples = None
-                # del(self.db)
-                del(training_sets[0].db)
+                if self.preload_features < 4:
+                    del(self.training_samples[:])
+                    self.training_samples = None
+
+                if self.preload_features < 3:
+                    del(training_sets[0].db)
+
+        if self.model_dir is not None:
+            print("going to load model!")
+            self.load_model(self.model_dir)
+            print("loaded model!")
 
         for self.epoch in range(0,self.max_epochs):
-            if self.epoch % self.eval_epoch == 0 \
-                and self.epoch != 0:
+            if self.epoch == self.switch_loss_fn_epoch:
+                print("*************************")
+                print("SWITCHING LOSS FUNCTIONS")
+                print("*************************")
+                if self.switch_loss_fn == "flow_loss2":
+                    self.loss = FlowLoss.apply
+                    self.load_query_together = True
+                    self.loss_func = self.switch_loss_fn
+                else:
+                    assert False
+
             # if self.epoch % self.eval_epoch == 0 and \
                     # self.eval_epoch < self.max_epochs:
+            if self.epoch % self.eval_epoch == 0 \
+                and self.epoch != 0:
 
                 eval_start = time.time()
                 self._eval_wrapper("train")
@@ -2298,9 +2778,11 @@ class NN(CardinalityEstimationAlg):
 
                 self.save_stats()
 
-            elif self.epoch > self.start_validation and self.use_val_set:
+            elif self.epoch > self.start_validation and self.use_val_set \
+                    and self.epoch % self.validation_epoch == 0:
                 if self.samples["test"] is not None:
-                    self.periodic_eval("test")
+                    # self.periodic_eval("test")
+                    self._eval_wrapper("test")
 
             start = time.time()
             self.train_one_epoch()
@@ -2455,8 +2937,9 @@ class NN(CardinalityEstimationAlg):
                     sampler = torch.utils.data.sampler.WeightedRandomSampler(gwts,
                             num_samples=len(gwts))
                     tloader = data.DataLoader(training_sets[gi],
-                            batch_size=self.eval_batch_size, shuffle=False, num_workers=0,
-                            sampler = sampler)
+                            batch_size=self.eval_batch_size, shuffle=False,
+                            num_workers=self.num_workers,
+                            sampler = sampler, collate_fn=self.collate_fn)
                     self.training_loaders[gi] = tloader
 
         if self.best_model_dict is not None and self.use_best_val_model:
@@ -2471,14 +2954,16 @@ class NN(CardinalityEstimationAlg):
         '''
         @test_samples: [] sql_representation dicts
         '''
-        self.nets[0].eval()
         datasets, loaders = \
                 self.init_dataset(test_samples, False, self.eval_batch_size,
                         weighted=False)
         self.nets[0].eval()
+        # self.nets[0].eval()
         pred, y = self._eval_samples(loaders)
+
         if self.preload_features:
             for dataset in datasets:
+                dataset.clean()
                 del(dataset)
             for loader in loaders:
                 del(loader)
@@ -2506,7 +2991,13 @@ class NN(CardinalityEstimationAlg):
                     est_card = est_sel*cards["total"]
                 else:
                     assert False
+
+                # true_card = cards["actual"]
+                # if true_card >= CROSS_JOIN_CONSTANT:
+                    # est_card = true_card
+
                 ests[alias_key] = est_card
+
             all_ests.append(ests)
             query_idx += len(node_keys)
         # assert query_idx == len(dataset)
@@ -2557,7 +3048,8 @@ class XGBoost(NN):
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = self.train_card_key,
-                    group = None, max_sequence_len=self.max_subqs)
+                    group = None, max_sequence_len=self.max_subqs,
+                    exp_name = self.get_exp_name())
 
         X = ds.X.cpu().numpy()
         Y = ds.Y.cpu().numpy()
@@ -2578,7 +3070,7 @@ class XGBoost(NN):
         self.xgb_model = xgb.XGBRegressor(objective="reg:squarederror")
         self.xgb_model.load_model(model_path)
         print("*****loaded model*****")
-        pdb.set_trace()
+        # pdb.set_trace()
 
     def set_min_max(self, training_samples):
         y = np.array(get_all_cardinalities(training_samples))
@@ -2654,12 +3146,13 @@ class XGBoost(NN):
             print("*******************BEST ESTIMATOR DONE**************")
 
         else:
-            self.xgb_model = xgb.XGBRegressor(objective="reg:squarederror",
+            self.xgb_model = xgb.XGBRegressor(tree_method=self.tree_method,
+                          objective="reg:squarederror",
                           verbosity=1,
                           scale_pos_weight=0,
                           learning_rate=self.lr,
                           colsample_bytree = 1.0,
-                          subsample = 1.0,
+                          subsample = self.subsample,
                           n_estimators=self.n_estimators,
                           reg_alpha = 0.0,
                           max_depth=self.max_depth,
@@ -2720,6 +3213,11 @@ class XGBoost(NN):
 
                 assert est_card > 0
                 assert est_card != np.inf
+
+                true_card = cards["actual"]
+                if true_card == CROSS_JOIN_CONSTANT:
+                    est_card = true_card
+
                 ests[alias_key] = est_card
             all_ests.append(ests)
             query_idx += len(node_keys)
@@ -2753,7 +3251,8 @@ class RandomForest(NN):
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = "actual",
-                    group = None, max_sequence_len=self.max_subqs)
+                    group = None, max_sequence_len=self.max_subqs,
+                    exp_name = self.get_exp_name())
 
         X = ds.X.cpu().numpy()
         Y = ds.Y.cpu().numpy()

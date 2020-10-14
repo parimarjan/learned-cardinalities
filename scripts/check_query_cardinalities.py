@@ -18,9 +18,13 @@ from networkx.readwrite import json_graph
 
 # TIMEOUT_COUNT_CONSTANT = 150001001
 # CROSS_JOIN_CONSTANT = 150001000
-TIMEOUT_COUNT_CONSTANT = 15000100001
-CROSS_JOIN_CONSTANT = 15000100000
-EXCEPTION_COUNT_CONSTANT = 15000100002
+# TIMEOUT_COUNT_CONSTANT = 15000100001
+# CROSS_JOIN_CONSTANT = 15000100000
+# EXCEPTION_COUNT_CONSTANT = 15000100002
+
+TIMEOUT_COUNT_CONSTANT = 150001000001
+CROSS_JOIN_CONSTANT = 150001000000
+EXCEPTION_COUNT_CONSTANT = 150001000002
 
 CACHE_TIMEOUT = 4
 
@@ -96,6 +100,7 @@ def main():
         if i >= args.num_queries and args.num_queries != -1:
             break
         qrep = load_sql_rep(fn)
+        cur_cards = []
         for subset, info in qrep["subset_graph"].nodes().items():
             if "cardinality" not in info:
                 info["cardinality"] = {}
@@ -109,9 +114,17 @@ def main():
                     cjs += 1
                 elif card == EXCEPTION_COUNT_CONSTANT:
                     timeouts += 1
+                cur_cards.append(card)
+
+        if len(cur_cards) > 0:
+            print(max(cur_cards), min(cur_cards))
+            assert max(cur_cards) <= EXCEPTION_COUNT_CONSTANT
+
+        # pdb.set_trace()
 
     bad_percentage = float(timeouts + cjs) / total
     print("cjs: {}, timeout percentage: {}".format(float(cjs)/total, bad_percentage))
+    pdb.set_trace()
 
     # let us save them all
     # for i, _ in enumerate(qreps):
