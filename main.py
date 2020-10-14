@@ -1062,7 +1062,7 @@ def read_flags():
     parser.add_argument("--debug_ratio", type=float, required=False,
             default=10.0)
     parser.add_argument("--num_mse_anchoring", type=int, required=False,
-            default=-2)
+            default=-1)
     parser.add_argument("--only_compute_overlap", type=int, required=False,
             default=0)
     parser.add_argument("--sample_bitmap", type=int, required=False,

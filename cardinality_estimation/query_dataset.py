@@ -68,6 +68,29 @@ class QueryDataset(data.Dataset):
         # TODO: we want to avoid this, and convert them on the fly. Just keep
         # some indexing information around.
 
+        if self.featurization_type == "set":
+            # update stats about max-predicates, max-tables etc.
+            self.max_tables = 0
+            self.max_joins = 0
+            self.max_preds = 0
+
+            for i, qrep in enumerate(samples):
+                node_data = qrep["join_graph"].nodes(data=True)
+                num_tables = len(node_data)
+                if num_tables > self.max_tables:
+                    self.max_tables = num_tables
+
+                num_preds = 0
+                for node, info in node_data:
+                    num_preds += len(info["pred_cols"])
+
+                if num_preds > self.max_preds:
+                    self.max_preds = num_preds
+
+            # TODO: estimated upper bound, need to figure out a better way to calculate this
+            self.max_joins = self.max_tables + 12
+            print(self.max_tables, self.max_joins, self.max_preds)
+
         if self.preload_features == 1:
             self.X, self.Y, self.info = self._get_feature_vectors(samples)
             assert len(self.Y) == total_expected_samples
@@ -669,29 +692,6 @@ class QueryDataset(data.Dataset):
         if self.flow_features:
             self.input_feature_len += self.db.num_flow_features
 
-        if self.featurization_type == "set":
-            # update stats about max-predicates, max-tables etc.
-            self.max_tables = 0
-            self.max_joins = 0
-            self.max_preds = 0
-
-            for i, qrep in enumerate(samples):
-                node_data = qrep["join_graph"].nodes(data=True)
-                num_tables = len(node_data)
-                if num_tables > self.max_tables:
-                    self.max_tables = num_tables
-
-                num_preds = 0
-                for node, info in node_data:
-                    num_preds += len(info["pred_cols"])
-
-                if num_preds > self.max_preds:
-                    self.max_preds = num_preds
-
-            # TODO: estimated upper bound, need to figure out a better way to calculate this
-            self.max_joins = self.max_tables + 12
-            print(self.max_tables, self.max_joins, self.max_preds)
-
         for i, qrep in enumerate(samples):
             if self.featurization_type == "set":
                 x,y,cur_info = self._get_query_features_set(qrep, qidx, i)
@@ -905,13 +905,49 @@ class QueryDataset(data.Dataset):
                 qrep = self.samples[index]
 
             start_idx = self.start_idxs[index]
-            x,y,cur_info = self._get_query_features(qrep, start_idx, index)
+
+            if self.featurization_type == "set":
+                x,y,cur_info = self._get_query_features_set(qrep, start_idx,
+                        index)
+            else:
+                x,y,cur_info = self._get_query_features(qrep, start_idx, index)
+
             assert self.load_query_together
             y = to_variable(y, requires_grad=False).float()
 
             if self.featurization_type == "combined":
                 x = to_variable(x, requires_grad=False).float()
                 return x,y,cur_info
+            elif self.featurization_type == "set":
+
+                if self.use_set_padding == 2:
+                    tf, pf, jf, tm, pm, jm = self._pad_sets(x["table"],
+                                    x["pred"],
+                                    x["join"], tensors=True)
+
+                    return tf, pf, jf, x["flow"], \
+                            tm, pm, jm, y, \
+                            cur_info
+
+                elif self.use_set_padding == 1:
+
+                    for k,v in x.items():
+                        x[k] = to_variable(v, requires_grad=False).float()
+                        x[k] = x[k].squeeze()
+                        if "mask" in k:
+                            x[k] = x[k].unsqueeze(2)
+                    # for k,v in x.items():
+                        # x[k] = to_variable(v, requires_grad=False).float()
+                    return (x["table"],
+                            x["pred"],
+                            x["join"],
+                            x["flow"],
+                            x["table_mask"],
+                            x["pred_mask"],
+                            x["join_mask"],
+                            y,
+                            cur_info)
+
             else:
                 for k,v in x.items():
                     x[k] = to_variable(v, requires_grad=False).float()
