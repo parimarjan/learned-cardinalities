@@ -91,7 +91,7 @@ USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
-    REGEN_COSTS = True
+    REGEN_COSTS = False
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here

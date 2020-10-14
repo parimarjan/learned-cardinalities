@@ -641,7 +641,7 @@ def single_backward(Q, invG,
     dfdg = np.zeros((len(edges_head), len(edges_head)), dtype=np.float32)
     dfdg_start = time.time()
     num_threads = int(len(edges_head) / 400)
-    # num_threads = max(1, num_threads)
+    num_threads = max(1, num_threads)
     num_threads = min(8, num_threads)
     # num_threads = 1
     fl_cpp.get_dfdg(
