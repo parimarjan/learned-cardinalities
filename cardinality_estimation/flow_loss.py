@@ -6,6 +6,7 @@ import time
 import pdb
 from multiprocessing import Pool
 from scipy import sparse
+import scipy
 
 import platform
 from ctypes import *
@@ -572,11 +573,18 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     dgdxT2 = to_variable(dgdxT2).float()
     G2 = to_variable(G2).float()
     invG = torch.inverse(G2)
+
+    # invG = scipy.linalg.inv(G2)
+    # invG = np.linalg.inv(G2)
+    # invG = to_variable(invG).float()
+
     v = invG @ Gv2 # vshape: Nx1
     v = v.detach().numpy()
 
     # TODO: we don't even need to compute the loss here if we don't want to
     loss2 = np.zeros(1, dtype=np.float32)
+
+    v = v.astype(np.float32)
     assert Q2.dtype == np.float32
     assert v.dtype == np.float32
     if isinstance(trueC_vec, torch.Tensor):
@@ -596,6 +604,7 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
 
     # print("forward took: ", time.time()-start)
     return to_variable(loss2).float(), dgdxT2.detach(), invG.detach().numpy(), Q2, v
+    # return to_variable(loss2).float(), to_variable(dgdxT2).float(), invG, Q2, v
 
 def single_backward(Q, invG,
         v, dgdxT, opt_flow_loss, trueC_vec,
