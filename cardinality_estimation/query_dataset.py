@@ -76,6 +76,7 @@ class QueryDataset(data.Dataset):
 
             for i, qrep in enumerate(samples):
                 node_data = qrep["join_graph"].nodes(data=True)
+
                 num_tables = len(node_data)
                 if num_tables > self.max_tables:
                     self.max_tables = num_tables
@@ -87,8 +88,12 @@ class QueryDataset(data.Dataset):
                 if num_preds > self.max_preds:
                     self.max_preds = num_preds
 
+                num_joins = len(qrep["join_graph"].edges())
+                if num_joins > self.max_joins:
+                    self.max_joins = num_joins
+
             # TODO: estimated upper bound, need to figure out a better way to calculate this
-            self.max_joins = self.max_tables + 12
+            # self.max_joins = self.max_tables + 12
             print(self.max_tables, self.max_joins, self.max_preds)
 
         if self.preload_features == 1:
