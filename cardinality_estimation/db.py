@@ -393,7 +393,7 @@ class DB():
     def get_flow_features(self, node, subsetg,
             template_name, join_graph, cmp_op):
         assert node != SOURCE_NODE
-        flow_features = np.zeros(self.num_flow_features)
+        flow_features = np.zeros(self.num_flow_features, dtype=np.float32)
         cur_idx = 0
         # incoming edges
         in_degree = subsetg.in_degree(node)

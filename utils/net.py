@@ -122,9 +122,18 @@ class PaddedMSCN(nn.Module):
 
         self.predicate_mlp1 = nn.Linear(predicate_feats, hid_units).to(device)
         self.predicate_mlp2 = nn.Linear(hid_units, hid_units).to(device)
+
         self.join_mlp1 = nn.Linear(join_feats, hid_units).to(device)
         self.join_mlp2 = nn.Linear(hid_units, hid_units).to(device)
-        self.out_mlp1 = nn.Linear(hid_units * 3, hid_units).to(device)
+
+        self.flow_mlp1 = nn.Linear(flow_feats, hid_units).to(device)
+        self.flow_mlp2 = nn.Linear(hid_units, hid_units).to(device)
+
+        if flow_feats > 0:
+            self.out_mlp1 = nn.Linear(hid_units * 4, hid_units).to(device)
+        else:
+            self.out_mlp1 = nn.Linear(hid_units * 3, hid_units).to(device)
+
         self.out_mlp2 = nn.Linear(hid_units, 1).to(device)
 
     def forward(self, samples, predicates, joins, flows,
@@ -141,16 +150,17 @@ class PaddedMSCN(nn.Module):
         samples = samples.to(device, non_blocking=True)
         predicates = predicates.to(device, non_blocking=True)
         joins = joins.to(device, non_blocking=True)
-        # flows = flows.to(device, non_blocking=True)
         sample_mask = sample_mask.to(device, non_blocking=True)
         predicate_mask = predicate_mask.to(device, non_blocking=True)
         join_mask = join_mask.to(device, non_blocking=True)
 
-        # hid_sample = F.relu(self.sample_mlp1(samples))
-        # hid_sample = F.relu(self.sample_mlp2(hid_sample))
+        if len(flows) > 0:
+            flows = flows.to(device, non_blocking=True)
+            hid_flow = F.relu(self.flow_mlp1(flows))
+            hid_flow = F.relu(self.flow_mlp2(hid_flow))
+
         hid_sample = F.relu(self.sample_mlp1(samples))
         hid_sample = F.relu(self.sample_mlp2(hid_sample))
-
         hid_sample = hid_sample * sample_mask
         hid_sample = torch.sum(hid_sample, dim=1, keepdim=False)
         sample_norm = sample_mask.sum(1, keepdim=False)
@@ -163,7 +173,6 @@ class PaddedMSCN(nn.Module):
         predicate_norm = predicate_mask.sum(1, keepdim=False)
         hid_predicate = hid_predicate / predicate_norm
 
-
         hid_join = F.relu(self.join_mlp1(joins))
         hid_join = F.relu(self.join_mlp2(hid_join))
         hid_join = hid_join * join_mask
@@ -175,7 +184,10 @@ class PaddedMSCN(nn.Module):
         hid_sample = hid_sample.squeeze()
         hid_predicate = hid_predicate.squeeze()
         hid_join = hid_join.squeeze()
-        hid = torch.cat((hid_sample, hid_predicate, hid_join), 1)
+        if len(flows) > 0:
+            hid = torch.cat((hid_sample, hid_predicate, hid_join, hid_flow), 1)
+        else:
+            hid = torch.cat((hid_sample, hid_predicate, hid_join), 1)
 
         hid = F.relu(self.out_mlp1(hid))
         out = torch.sigmoid(self.out_mlp2(hid))
