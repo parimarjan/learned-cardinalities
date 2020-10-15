@@ -358,6 +358,8 @@ class QueryDataset(data.Dataset):
 
             info = qrep["subset_graph"].nodes()[nodes]
             pg_est = info["cardinality"]["expected"]
+            # pfeats[-2] = self.normalize_val(pg_est, total)
+            sample_heuristic_est = self.normalize_val(pg_est, total)
 
             if self.wj_times is not None:
                 ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
@@ -392,14 +394,14 @@ class QueryDataset(data.Dataset):
                 if node not in pred_feat_dict:
                     continue
                 pfeats = copy.deepcopy(pred_feat_dict[node])
-                # TODO: do we need this in this config?
-                if self.heuristic_features:
-                    if pfeats[-2] != 0.00:
-                        print(pfeats)
-                        print(pfeats[-2])
-                        print(nodes)
-                        pdb.set_trace()
-                    pfeats[-2] = self.normalize_val(pg_est, total)
+
+                # if self.heuristic_features:
+                    # if pfeats[-2] != 0.00:
+                        # print(pfeats)
+                        # print(pfeats[-2])
+                        # print(nodes)
+                        # pdb.set_trace()
+                    # pfeats[-2] = self.normalize_val(pg_est, total)
 
                 pred_features.append(pfeats)
 
@@ -469,7 +471,9 @@ class QueryDataset(data.Dataset):
                         qrep["subset_graph"], qrep["template_name"],
                         qrep["join_graph"], cmp_op)
                 # heuristic estimate for the cardinality of this node
-                # flow_features[-1] = pred_features[-1]
+                if self.heuristic_features:
+                    assert flow_features[-1] == 0.0
+                    flow_features[-1] = sample_heuristic_est
             else:
                 flow_features = []
 

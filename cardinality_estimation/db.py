@@ -464,8 +464,11 @@ class DB():
             neighbors.sort()
 
             for al in neighbors:
-                # if al not in self.aliases:
-                    # continue
+                if al not in self.aliases:
+                    # possible, for instance with set featurization - we don't
+                    # reserve spots for all possible columns / tables in the
+                    # unseen set
+                    continue
                 table = self.aliases[al]
                 tidx = self.table_featurizer[table]
                 flow_features[cur_idx + tidx] = 1.0
@@ -481,8 +484,8 @@ class DB():
 
             # neighbors in join graph
             for al in neighbors:
-                # if al not in self.aliases:
-                    # continue
+                if al not in self.aliases:
+                    continue
                 table = self.aliases[al]
                 tidx = self.table_featurizer[table]
                 ncard = subsetg.nodes()[tuple([al])]["cardinality"]["expected"]
@@ -508,8 +511,8 @@ class DB():
 
             # neighbors in join graph
             for al in neighbors:
-                # if al not in self.aliases:
-                    # continue
+                if al not in self.aliases:
+                    continue
                 table = self.aliases[al]
                 tidx = self.table_featurizer[table]
                 ncard = subsetg.nodes()[tuple([al])]["cardinality"]["expected"]
