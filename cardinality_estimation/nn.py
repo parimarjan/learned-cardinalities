@@ -916,8 +916,8 @@ class NN(CardinalityEstimationAlg):
             opt_flow_costs = []
             est_flow_costs = []
 
-        for idx, (tbatch, pbatch, jbatch,fbatch,tmask,pmask,jmask,ybatch,info) in enumerate(loader):
-
+        for idx, (tbatch, pbatch, jbatch,
+                fbatch,tmask,pmask,jmask,ybatch,info) in enumerate(loader):
             ybatch = ybatch.to(device, non_blocking=True)
             # ybatch = torch.stack(ybatch)
             start = time.time()
@@ -1398,7 +1398,7 @@ class NN(CardinalityEstimationAlg):
                 if self.load_query_together:
                     net = PaddedMSCN(len(sample[0][0][0]),
                             len(sample[1][0][0]), len(sample[2][0][0]),
-                            len(sample[3]),
+                            len(sample[3][0]),
                             self.hidden_layer_size, dropout=self.dropout,
                             max_hid = self.max_hid,
                             num_hidden_layers=self.num_hidden_layers)

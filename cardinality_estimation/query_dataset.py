@@ -767,7 +767,9 @@ class QueryDataset(data.Dataset):
                                 X[k] = X[k].unsqueeze(2)
                     elif self.use_set_padding == 2:
                         # don't do anything, create arrays when accessing index
-                        pass
+                        X["flow"] = to_variable(X["flow"],
+                                requires_grad=False).float()
+                        X["flow"] = X["flow"].squeeze()
                     else:
                         assert False
 
