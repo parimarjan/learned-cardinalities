@@ -2,8 +2,9 @@ ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
 USE_VAL_SET=1
-NUM_WORKERS=5
-NO7=1
+NUM_WORKERS=0
+NO7=0
+LOSSES=qerr
 
 FLOW_FEATS=(0)
 WEIGHTED_MSES=(0.0)
@@ -32,7 +33,7 @@ SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=4000
 NUM_PAR=10
-USE_SET_PADDING=2
+USE_SET_PADDING=1
 
 for i in "${!WEIGHTED_MSES[@]}";
 do
@@ -53,6 +54,7 @@ do
     CMD="time python3 main.py --algs $ALG -n -1 \
      --debug_set 0 --debug_ratio $DEBUG_RATIO \
      --no7a $NO7 \
+     --losses $LOSSES \
      --use_set_padding $USE_SET_PADDING \
      --use_val_set $USE_VAL_SET \
      --loss_func $LOSS_FUNC \

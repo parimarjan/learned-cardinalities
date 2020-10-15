@@ -575,6 +575,7 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     predC2 = to_variable(predC2).float()
     dgdxT2 = to_variable(dgdxT2).float()
     G2 = to_variable(G2).float().to(device)
+
     invG = torch.inverse(G2)
 
     # invG = scipy.linalg.inv(G2)
@@ -761,5 +762,6 @@ class FlowLoss(Function):
                          edges_tail,
                          ctx.normalize_flow_loss)
 
+        yhat_grad = yhat_grad.to(device, non_blocking=True)
         return yhat_grad,None,None,None,None,None,None,None,None,None
 

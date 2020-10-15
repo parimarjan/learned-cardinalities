@@ -114,7 +114,9 @@ class SimpleRegression(torch.nn.Module):
 class PaddedMSCN(nn.Module):
     def __init__(self, sample_feats, predicate_feats, join_feats, flow_feats,
             hid_units, dropout=0.0, max_hid=None, num_hidden_layers=2):
+        print("device: {}".format(device))
         super(PaddedMSCN, self).__init__()
+
         self.sample_mlp1 = nn.Linear(sample_feats, hid_units).to(device)
         self.sample_mlp2 = nn.Linear(hid_units, hid_units).to(device)
 
@@ -130,6 +132,20 @@ class PaddedMSCN(nn.Module):
         '''
         #TODO: describe shapes
         '''
+        # if "cuda" in device.__str__():
+            # assert samples.is_cuda
+        # print(device)
+        # print(self.predicate_mlp1)
+        # print(type(samples))
+        # pdb.set_trace()
+        samples = samples.to(device, non_blocking=True)
+        predicates = predicates.to(device, non_blocking=True)
+        joins = joins.to(device, non_blocking=True)
+        # flows = flows.to(device, non_blocking=True)
+        sample_mask = sample_mask.to(device, non_blocking=True)
+        predicate_mask = predicate_mask.to(device, non_blocking=True)
+        join_mask = join_mask.to(device, non_blocking=True)
+
         # hid_sample = F.relu(self.sample_mlp1(samples))
         # hid_sample = F.relu(self.sample_mlp2(hid_sample))
         hid_sample = F.relu(self.sample_mlp1(samples))

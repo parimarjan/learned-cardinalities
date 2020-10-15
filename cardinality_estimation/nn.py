@@ -70,6 +70,7 @@ try:
     mp.set_start_method("spawn")
 except:
     pass
+# mp.set_start_method("spawn")
 
 # torch.multiprocessing.set_start_method('spawn')
 
@@ -902,8 +903,8 @@ class NN(CardinalityEstimationAlg):
 
         # because we use openmp to speed up flow-loss computations. Else, it is
         # good to have multiple threads
-        if "flow_loss" in loss_fn_name:
-            torch.set_num_threads(1)
+        # if "flow_loss" in loss_fn_name:
+            # torch.set_num_threads(1)
 
         if self.save_gradients:
             grads = []
@@ -916,6 +917,8 @@ class NN(CardinalityEstimationAlg):
             est_flow_costs = []
 
         for idx, (tbatch, pbatch, jbatch,fbatch,tmask,pmask,jmask,ybatch,info) in enumerate(loader):
+
+            ybatch = ybatch.to(device, non_blocking=True)
             # ybatch = torch.stack(ybatch)
             start = time.time()
             # print(tbatch.shape)
@@ -2237,7 +2240,7 @@ class NN(CardinalityEstimationAlg):
                 training_loaders.append(data.DataLoader(training_sets[i],
                         batch_size=batch_size, shuffle=shuffle,
                         num_workers=self.num_workers,
-                        pin_memory=False, collate_fn=self.collate_fn))
+                        pin_memory=True, collate_fn=self.collate_fn))
             else:
                 weight = 1 / len(training_sets[i])
                 weights = torch.DoubleTensor([weight]*len(training_sets[i]))
@@ -2245,6 +2248,7 @@ class NN(CardinalityEstimationAlg):
                         num_samples=len(weights))
                 training_loader = data.DataLoader(training_sets[i],
                         batch_size=self.mb_size, shuffle=False,
+                        pin_memory=False,
                         num_workers=self.num_workers,
                         sampler = sampler, collate_fn=self.collate_fn)
                 training_loaders.append(training_loader)
@@ -2798,6 +2802,7 @@ class NN(CardinalityEstimationAlg):
 
             start = time.time()
             self.train_one_epoch()
+            self.save_model_dict()
             print("one epoch train took: ", time.time()-start)
 
             if self.sampling_priority_alpha > 0 \

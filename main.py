@@ -851,6 +851,16 @@ def main():
         SOURCE_NODE = tuple(["SOURCE"])
         args.eval_on_job = False
 
+    if "join-loss" in args.losses or \
+            (args.sampling_priority_alpha > 0 and "nn" in args.algs):
+        if args.join_loss_pool_num == -1:
+            num_processes = int(mp.cpu_count())
+        else:
+            num_processes = args.join_loss_pool_num
+        join_loss_pool = mp.Pool(num_processes)
+    else:
+        join_loss_pool = None
+
     if args.max_epochs < args.eval_epoch \
             or not args.eval_test_while_training:
         load_test_samples = False
@@ -917,16 +927,6 @@ def main():
 
     train_times = {}
     eval_times = {}
-
-    if "join-loss" in args.losses or \
-            (args.sampling_priority_alpha > 0 and "nn" in args.algs):
-        if args.join_loss_pool_num == -1:
-            num_processes = int(mp.cpu_count())
-        else:
-            num_processes = args.join_loss_pool_num
-        join_loss_pool = mp.Pool(num_processes)
-    else:
-        join_loss_pool = None
 
     for alg in algorithms:
         start = time.time()
@@ -1240,9 +1240,9 @@ def read_flags():
     parser.add_argument("--use_val_set", type=int,
             required=False, default=0)
     parser.add_argument("--use_best_val_model", type=int,
-            required=False, default=1)
+            required=False, default=0)
     parser.add_argument("--start_validation", type=int,
-            required=False, default=5)
+            required=False, default=500)
     parser.add_argument("--validation_epoch", type=int,
             required=False, default=100)
 
