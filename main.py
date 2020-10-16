@@ -221,6 +221,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                eval_epoch_qerr = args.eval_epoch_qerr,
                 validation_epoch = args.validation_epoch,
                 use_set_padding = args.use_set_padding,
                 unnormalized_mse = args.unnormalized_mse,
@@ -1214,6 +1215,8 @@ def read_flags():
     parser.add_argument("--num_workers", type=int,
             required=False, default=0)
     parser.add_argument("--eval_epoch", type=int,
+            required=False, default=1)
+    parser.add_argument("--eval_epoch_qerr", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=1)
