@@ -88,9 +88,21 @@ def collate_fn_set_batch(batch):
             for b in batch:
                 infos.append(b[8])
             collated.append(infos)
+        # elif i == 7:
+            # # Y
+            # cur_batch = [b[i] for b in batch]
+            # collated.append(torch.stack(cur_batch))
         else:
             cur_batch = [b[i] for b in batch]
             collated.append(torch.cat(cur_batch, dim=0))
+            # try:
+                # if not len(cur_batch[0]) == 0:
+                    # collated.append(cur_batch)
+                # else:
+                    # collated.append(torch.cat(cur_batch, dim=0))
+            # except:
+                # print(cur_batch)
+                # pdb.set_trace()
 
     # print(collated[0].shape, collated[1].shape, collated[2].shape)
     return collated
@@ -590,7 +602,8 @@ class NN(CardinalityEstimationAlg):
             if not self.use_set_padding:
                 self.collate_fn = collate_fn
             else:
-                self.collate_fn = collate_fn_set_batch
+                if self.load_query_together:
+                    self.collate_fn = collate_fn_set_batch
 
             # elif self.use_set_padding == 2:
                 # self.collate_fn = collate_fn_set

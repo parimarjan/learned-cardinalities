@@ -99,7 +99,7 @@ def gen_queries(query_template, num_samples, args):
     # TODO: remove queries that evaluate to zero
     return gen_sqls
 
-def load_sql_rep(fn):
+def load_sql_rep(fn, dummy=None):
     assert ".pkl" in fn
     try:
         with open(fn, "rb") as f:

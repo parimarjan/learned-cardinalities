@@ -116,6 +116,8 @@ class PaddedMSCN(nn.Module):
             hid_units, dropout=0.0, max_hid=None, num_hidden_layers=2):
         print("device: {}".format(device))
         super(PaddedMSCN, self).__init__()
+        print("flow feats: ", flow_feats)
+        self.flow_feats = flow_feats
 
         self.sample_mlp1 = nn.Linear(sample_feats, hid_units).to(device)
         self.sample_mlp2 = nn.Linear(hid_units, hid_units).to(device)
@@ -153,7 +155,7 @@ class PaddedMSCN(nn.Module):
         predicate_mask = predicate_mask.to(device, non_blocking=True)
         join_mask = join_mask.to(device, non_blocking=True)
 
-        if len(flows) > 0:
+        if self.flow_feats:
             flows = flows.to(device, non_blocking=True)
             hid_flow = F.relu(self.flow_mlp1(flows))
             hid_flow = F.relu(self.flow_mlp2(hid_flow))
@@ -183,7 +185,7 @@ class PaddedMSCN(nn.Module):
         hid_sample = hid_sample.squeeze()
         hid_predicate = hid_predicate.squeeze()
         hid_join = hid_join.squeeze()
-        if len(flows) > 0:
+        if self.flow_feats:
             hid = torch.cat((hid_sample, hid_predicate, hid_join, hid_flow), 1)
         else:
             hid = torch.cat((hid_sample, hid_predicate, hid_join), 1)

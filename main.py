@@ -405,7 +405,9 @@ def eval_alg(alg, loss_funcs, queries, samples_type, join_loss_pool):
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
 def load_samples(qdir, db, found_db, template_name,
-        skip_zero_queries=True, train_template=True, wj_times=None):
+        skip_zero_queries=True, train_template=True, wj_times=None,
+        pool=None):
+
     start = time.time()
     # loading, or generating samples
     samples = []
@@ -426,12 +428,25 @@ def load_samples(qdir, db, found_db, template_name,
 
     skipped = 0
 
+    if pool is not None:
+        par_args = []
+    qreps = []
     for qfn in qfns:
         if ".pkl" not in qfn:
             print("skipping because qfn not .pkl file")
             continue
 
-        qrep = load_sql_rep(qfn)
+        if pool is None:
+            qrep = load_sql_rep(qfn)
+            qreps.append(qrep)
+        else:
+            par_args.append((qfn, None))
+
+    if pool is not None:
+        # print("going to call pool!")
+        qreps = pool.starmap(load_sql_rep, par_args)
+
+    for qrep in qreps:
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
         if SOURCE_NODE in nodes:
@@ -459,7 +474,6 @@ def load_samples(qdir, db, found_db, template_name,
             elif args.train_card_key not in info["cardinality"]:
                 zero_query = True
                 break
-
 
             if "actual" not in info["cardinality"]:
                 print("actual not in card")
@@ -548,7 +562,8 @@ def load_samples(qdir, db, found_db, template_name,
     return samples
 
 def load_all_qrep_data(load_job_queries,
-        load_test_queries, load_db, load_train_queries, load_val_queries=True):
+        load_test_queries, load_db, load_train_queries, load_val_queries=True,
+        pool=None):
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
 
@@ -628,10 +643,11 @@ def load_all_qrep_data(load_job_queries,
             samples = load_samples(qdir, db, found_db, template_name,
                     skip_zero_queries=True,
                     train_template=qdir in train_tmps,
-                    wj_times=wj_times)
+                    wj_times=wj_times, pool=pool)
         else:
             samples = load_samples(qdir, db, found_db, template_name,
-                    skip_zero_queries=True, train_template=True, wj_times=wj_times)
+                    skip_zero_queries=True, train_template=True,
+                    wj_times=wj_times, pool=pool)
 
         if len(samples) == 0:
             print("skipping template {} because zero queries".format(template_name))
@@ -873,7 +889,8 @@ def main():
         args.num_samples_per_template = 10
 
     train_queries, test_queries, val_queries, job_queries, db = \
-            load_all_qrep_data(True, load_test_samples, True, True)
+            load_all_qrep_data(True, load_test_samples, True, True,
+                    pool=join_loss_pool)
 
     if not load_test_samples:
         del(val_queries[:])
