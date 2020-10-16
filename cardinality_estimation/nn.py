@@ -129,7 +129,7 @@ USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
-    REGEN_COSTS = False
+    REGEN_COSTS = True
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
@@ -2466,8 +2466,8 @@ class NN(CardinalityEstimationAlg):
             SOURCE_NODE = tuple(["SOURCE"])
 
         assert isinstance(training_samples[0], dict)
-        rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-        resource.setrlimit(resource.RLIMIT_NOFILE, (64000, rlimit[1]))
+        # rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+        # resource.setrlimit(resource.RLIMIT_NOFILE, (64000, rlimit[1]))
 
         self.join_loss_pool = join_loss_pool
 

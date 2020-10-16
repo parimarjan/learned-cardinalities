@@ -404,27 +404,31 @@ def eval_alg(alg, loss_funcs, queries, samples_type, join_loss_pool):
 
     print("loss computations took: {} seconds".format(time.time()-loss_start))
 
-def load_samples(qdir, db, found_db, template_name,
+def load_samples(qfns, db, found_db, template_name,
         skip_zero_queries=True, train_template=True, wj_times=None,
         pool=None):
 
     start = time.time()
     # loading, or generating samples
     samples = []
-    qfns = list(glob.glob(qdir+"/*.pkl"))
-    qfns.sort()
-    if args.num_samples_per_template == -1 \
-            or "job" in qdir:
-        qfns = qfns
-    elif args.num_samples_per_template < len(qfns):
-        qfns = qfns[0:args.num_samples_per_template]
-    else:
-        print("queries should be generated using appropriate script")
-        assert False
+    # qfns = list(glob.glob(qdir+"/*.pkl"))
+    # qfns.sort()
+
+    # if args.num_samples_per_template == -1 \
+            # or "job" in qdir:
+        # qfns = qfns
+    # elif args.num_samples_per_template < len(qfns):
+        # qfns = qfns[0:args.num_samples_per_template]
+    # else:
+        # print("queries should be generated using appropriate script")
+        # assert False
 
     if args.debug_set:
         random.seed(args.random_seed)
         qfns = random.sample(qfns, int(len(qfns) / args.debug_ratio))
+
+    if len(qfns) == 0:
+        return samples
 
     skipped = 0
 
@@ -562,7 +566,7 @@ def load_samples(qdir, db, found_db, template_name,
     return samples
 
 def load_all_qrep_data(load_job_queries,
-        load_test_queries, load_db, load_train_queries, load_val_queries=True,
+        load_test_queries, load_db, load_train_queries, load_val_queries,
         pool=None):
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
@@ -577,9 +581,6 @@ def load_all_qrep_data(load_job_queries,
         if found_db:
             db = misc_cache.archive[db_key]
         else:
-            # assert load_job_queries
-            # assert load_test_queries
-            # assert load_train_queries
             load_train_queries = True
             load_job_queries = True
             load_test_queries = True
@@ -633,79 +634,109 @@ def load_all_qrep_data(load_job_queries,
                 print("skipping template 7a")
                 continue
 
-        if args.test_diff_templates:
-            train_template = qdir in train_tmps
-            if not train_template and not load_test_queries:
-                continue
-            elif train_template and not load_train_queries:
-                continue
+        # let's first select all the qfns we are going to load
+        qfns = list(glob.glob(qdir+"/*.pkl"))
+        qfns.sort()
 
-            samples = load_samples(qdir, db, found_db, template_name,
-                    skip_zero_queries=True,
-                    train_template=qdir in train_tmps,
-                    wj_times=wj_times, pool=pool)
+        if args.num_samples_per_template == -1 \
+                or "job" in qdir:
+            qfns = qfns
+        elif args.num_samples_per_template < len(qfns):
+            qfns = qfns[0:args.num_samples_per_template]
         else:
-            samples = load_samples(qdir, db, found_db, template_name,
-                    skip_zero_queries=True, train_template=True,
-                    wj_times=wj_times, pool=pool)
-
-        if len(samples) == 0:
-            print("skipping template {} because zero queries".format(template_name))
-            continue
-
+            print("queries should be generated using appropriate script")
+            assert False
+        # let's do the train-test split on the qfns itself
+        cur_val_fns = []
         if args.test and args.use_val_set:
-            cur_val_queries, samples = train_test_split(samples,
+            cur_val_fns, qfns = train_test_split(qfns,
                     test_size=1-args.val_size,
                     random_state=args.random_seed_queries)
-            cur_train_queries, cur_test_queries = train_test_split(samples,
+            cur_train_fns, cur_test_fns = train_test_split(qfns,
                     test_size=args.test_size,
                     random_state=args.random_seed_queries)
-            # cur_val_queries, cur_test_queries = train_test_split(cur_test_queries,
-                    # test_size=0.6, random_state=args.random_seed_queries)
         elif args.test_diff_templates:
             # train template, else test
             if args.diff_templates_type == 1:
                 if qi % 2 == 0:
-                    cur_test_queries = samples
+                    cur_test_fns = qfns
                     cur_train_queries = []
                 else:
-                    cur_train_queries = samples
+                    cur_train_fns = qfns
                     cur_test_queries = []
-            elif args.diff_templates_type == 2:
-                if not qi % 2 == 0:
-                    cur_test_queries = samples
-                    cur_train_queries = []
-                else:
-                    cur_train_queries = samples
-                    cur_test_queries = []
+
             elif args.diff_templates_type == 3:
                 if qdir in train_tmps:
-                    cur_train_queries = samples
-                    cur_test_queries = []
+                    cur_train_fns = qfns
+                    cur_test_fns = []
+                    cur_val_fns = []
                 else:
                     assert qdir in test_tmps
-                    cur_test_queries = samples
-                    cur_train_queries = []
+                    cur_test_fns = qfns
+                    cur_train_fns = []
+                    cur_val_fns = []
             else:
                 assert False
 
         elif args.test:
-            cur_train_queries, cur_test_queries = train_test_split(samples,
+            cur_train_fns, cur_test_fns = train_test_split(qfns,
                     test_size=args.test_size,
                     random_state=args.random_seed_queries)
-
+            cur_val_fns = []
         else:
-            cur_train_queries = samples
-            cur_test_queries = []
+            cur_train_fns = qfns
+            cur_test_fns = []
+            cur_val_fns = []
+
+        # if args.test_diff_templates:
+            # train_template = qdir in train_tmps
+            # if not train_template and not load_test_queries:
+                # continue
+            # elif train_template and not load_train_queries:
+                # continue
+
+            # samples = load_samples(qdir, db, found_db, template_name,
+                    # skip_zero_queries=True,
+                    # train_template=qdir in train_tmps,
+                    # wj_times=wj_times, pool=pool)
+        # else:
+            # samples = load_samples(qdir, db, found_db, template_name,
+                    # skip_zero_queries=True, train_template=True,
+                    # wj_times=wj_times, pool=pool)
+
+        if load_train_queries:
+            cur_train_queries = load_samples(cur_train_fns, db, found_db,
+                    template_name, skip_zero_queries=True, train_template=True,
+                    wj_times=wj_times, pool=pool)
+        else:
+            cur_train_queries = []
+        if load_val_queries:
+            cur_val_queries = load_samples(cur_val_fns, db, found_db,
+                    template_name, skip_zero_queries=True, train_template=True,
+                    wj_times=wj_times, pool=pool)
+        else:
             cur_val_queries = []
 
-        train_queries += cur_train_queries
-
         if load_test_queries:
-            test_queries += cur_test_queries
+            cur_test_queries = load_samples(cur_test_fns, db, found_db,
+                    template_name, skip_zero_queries=True, train_template=True,
+                    wj_times=wj_times, pool=pool)
+        else:
+            cur_test_queries = []
 
-        if args.use_val_set and load_val_queries:
-            val_queries += cur_val_queries
+        # if len(samples) == 0:
+            # print("skipping template {} because zero queries".format(template_name))
+            # continue
+
+        train_queries += cur_train_queries
+        test_queries += cur_test_queries
+        val_queries += cur_val_queries
+
+        # if load_test_queries:
+            # test_queries += cur_test_queries
+
+        # if args.use_val_set and load_val_queries:
+            # val_queries += cur_val_queries
 
     job_queries = []
     if args.eval_on_job and load_job_queries:
@@ -890,19 +921,15 @@ def main():
 
     train_queries, test_queries, val_queries, job_queries, db = \
             load_all_qrep_data(True, load_test_samples, True, True,
+                    load_test_samples,
                     pool=join_loss_pool)
 
-    if not load_test_samples:
-        del(val_queries[:])
+    # if not load_test_samples:
+        # del(val_queries[:])
     del(job_queries[:])
 
     if args.model_dir is not None:
         args.num_samples_per_template = old_num_samples
-
-    # train_fns = [q["name"] for q in train_queries]
-    # print(train_fns[0])
-    # if not load_test_samples:
-        # assert len(test_queries) == 0
 
     if args.only_compute_overlap:
         compare_overlap(train_queries, test_queries, "test")
@@ -1186,7 +1213,7 @@ def read_flags():
     parser.add_argument("--heuristic_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_loss_pool_num", type=int, required=False,
-            default=40)
+            default=10)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
     parser.add_argument("--priority_normalize_type", type=str, required=False,

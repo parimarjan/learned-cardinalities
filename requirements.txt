@@ -19,8 +19,11 @@ xgboost
 sqlalchemy
 pytest
 progressbar2
-pomegranate
 nltk
 pygtrie
 jax
+jaxlib
+nltk
+pygtrie
 cvxpy
+pomegranate

@@ -9,13 +9,15 @@ LOSSES=join-loss,qerr,plan-loss
 #FLOW_FEATS=(1 0)
 FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
+ONE_HOT_ESTS=(0 1)
+REL_ESTS=(0)
 
-DECAYS=(0.1 1.0)
+DECAYS=(1.0 0.1)
 #DECAYS=(1.0)
 #LRS=(0.001 0.0001)
-LRS=(0.0001 0.00005)
+LRS=(0.0001)
 #LRS=(0.0001 0.00005)
-HLS=(128)
+HLS=(256 64)
 #MAX_EPOCHS=(10 20)
 MAX_EPOCHS=(10)
 
@@ -40,6 +42,10 @@ USE_SET_PADDING=1
 
 for i in "${!WEIGHTED_MSES[@]}";
 do
+  for onehot in "${!ONE_HOT_ESTS[@]}";
+  do
+  for rel in "${!REL_ESTS[@]}";
+  do
   for j in "${!DECAYS[@]}";
   do
   for k in "${!NUM_MSE_ANCHORING[@]}";
@@ -76,6 +82,9 @@ do
      --normalize_flow_loss ${NORM_FLOW_LOSS[$norm]} \
      --flow_features ${FLOW_FEATS[$ff]} \
      --lr ${LRS[$lr]} \
+     --feat_rel_pg_ests  ${REL_ESTS[$rel]} \
+     --feat_rel_pg_ests_onehot  ${ONE_HOT_ESTS[$onehot]} \
+     --feat_pg_est_one_hot ${ONE_HOT_ESTS[$onehot]} \
      --max_discrete_featurizing_buckets $BUCKETS \
      --exp_prefix default \
      --result_dir all_results/vldb/default/hyp_sweep2 \
@@ -90,15 +99,14 @@ do
      --sample_bitmap_buckets $SAMPLE_BITMAP_BUCKETS \
      --min_qerr 1.00 \
      --eval_on_job 0 \
-     --feat_rel_pg_ests  1 \
-     --feat_rel_pg_ests_onehot  1 \
-     --feat_pg_est_one_hot  1 \
      --feat_tolerance 0"
     echo $CMD
     eval $CMD
     done
     done
     done
+  done
+  done
   done
   done
   done
