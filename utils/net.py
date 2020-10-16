@@ -126,10 +126,9 @@ class PaddedMSCN(nn.Module):
         self.join_mlp1 = nn.Linear(join_feats, hid_units).to(device)
         self.join_mlp2 = nn.Linear(hid_units, hid_units).to(device)
 
-        self.flow_mlp1 = nn.Linear(flow_feats, hid_units).to(device)
-        self.flow_mlp2 = nn.Linear(hid_units, hid_units).to(device)
-
         if flow_feats > 0:
+            self.flow_mlp1 = nn.Linear(flow_feats, hid_units).to(device)
+            self.flow_mlp2 = nn.Linear(hid_units, hid_units).to(device)
             self.out_mlp1 = nn.Linear(hid_units * 4, hid_units).to(device)
         else:
             self.out_mlp1 = nn.Linear(hid_units * 3, hid_units).to(device)

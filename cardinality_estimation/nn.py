@@ -903,8 +903,8 @@ class NN(CardinalityEstimationAlg):
 
         # because we use openmp to speed up flow-loss computations. Else, it is
         # good to have multiple threads
-        # if "flow_loss" in loss_fn_name:
-            # torch.set_num_threads(1)
+        if "flow_loss" in loss_fn_name:
+            torch.set_num_threads(1)
 
         if self.save_gradients:
             grads = []
