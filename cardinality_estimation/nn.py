@@ -617,7 +617,7 @@ class NN(CardinalityEstimationAlg):
             assert False
 
         if self.load_query_together:
-            self.mb_size = 8
+            self.mb_size = 4
             self.eval_batch_size = 1
         else:
             self.mb_size = 2500
@@ -987,6 +987,7 @@ class NN(CardinalityEstimationAlg):
                 ybatch = ybatch.detach().cpu()
 
                 qstart = 0
+                losses = []
                 for cur_info in info:
                     qidx = cur_info[0]["query_idx"]
                     assert qidx == cur_info[1]["query_idx"]
@@ -995,14 +996,15 @@ class NN(CardinalityEstimationAlg):
 
                     assert len(subsetg_vectors) == 8
 
-                    losses = loss_fn(pred[qstart:qstart+len(cur_info)],
+                    cur_loss = loss_fn(pred[qstart:qstart+len(cur_info)],
                             ybatch[qstart:qstart+len(cur_info)],
                             normalization_type, min_val,
                             max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
                             self.normalize_flow_loss,
                             self.join_loss_pool, self.cost_model)
-
+                    losses.append(cur_loss)
                     qstart += len(cur_info)
+                losses = torch.stack(losses)
             else:
                 if self.unnormalized_mse:
                     assert self.normalization_type == "mscn"
