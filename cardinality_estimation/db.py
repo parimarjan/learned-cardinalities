@@ -406,7 +406,7 @@ class DB():
         # num tables
         max_tables = len(self.aliases)
         nt = len(node)
-        assert nt <= max_tables
+        # assert nt <= max_tables
         flow_features[cur_idx + nt] = 1.0
         cur_idx += max_tables
 

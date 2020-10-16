@@ -411,17 +411,6 @@ def load_samples(qfns, db, found_db, template_name,
     start = time.time()
     # loading, or generating samples
     samples = []
-    # qfns = list(glob.glob(qdir+"/*.pkl"))
-    # qfns.sort()
-
-    # if args.num_samples_per_template == -1 \
-            # or "job" in qdir:
-        # qfns = qfns
-    # elif args.num_samples_per_template < len(qfns):
-        # qfns = qfns[0:args.num_samples_per_template]
-    # else:
-        # print("queries should be generated using appropriate script")
-        # assert False
 
     if args.debug_set:
         random.seed(args.random_seed)
@@ -688,22 +677,6 @@ def load_all_qrep_data(load_job_queries,
             cur_test_fns = []
             cur_val_fns = []
 
-        # if args.test_diff_templates:
-            # train_template = qdir in train_tmps
-            # if not train_template and not load_test_queries:
-                # continue
-            # elif train_template and not load_train_queries:
-                # continue
-
-            # samples = load_samples(qdir, db, found_db, template_name,
-                    # skip_zero_queries=True,
-                    # train_template=qdir in train_tmps,
-                    # wj_times=wj_times, pool=pool)
-        # else:
-            # samples = load_samples(qdir, db, found_db, template_name,
-                    # skip_zero_queries=True, train_template=True,
-                    # wj_times=wj_times, pool=pool)
-
         if load_train_queries:
             cur_train_queries = load_samples(cur_train_fns, db, found_db,
                     template_name, skip_zero_queries=True, train_template=True,
@@ -732,18 +705,16 @@ def load_all_qrep_data(load_job_queries,
         test_queries += cur_test_queries
         val_queries += cur_val_queries
 
-        # if load_test_queries:
-            # test_queries += cur_test_queries
-
-        # if args.use_val_set and load_val_queries:
-            # val_queries += cur_val_queries
-
     job_queries = []
     if args.eval_on_job and load_job_queries:
         job_fns = list(glob.glob(args.job_query_dir + "/*"))
         for qi,qdir in enumerate(job_fns):
+            qfns = list(glob.glob(qdir+"/*.pkl"))
+            qfns.sort()
+
             template_name = os.path.basename(qdir)
-            samples = load_samples(qdir, db, found_db, template_name,
+
+            samples = load_samples(qfns, db, found_db, template_name,
                     skip_zero_queries=args.job_skip_zero_queries,
                     train_template=False)
             job_queries += samples
@@ -1022,10 +993,9 @@ def main():
 
         # may have deleted it to save space
         if len(train_queries) == 0:
-            train_queries, _, val_queries, _, _ = \
-                    load_all_qrep_data(False, False, False, True)
-            # train_queries, test_queries, val_queries, job_queries, db = \
-                    # load_all_qrep_data(False, load_test_samples, True, True)
+            train_queries, _, _, _, _ = \
+                    load_all_qrep_data(False, False, False, True, False,
+                            pool=join_loss_pool)
 
         start = time.time()
 
@@ -1033,12 +1003,18 @@ def main():
         del(train_queries[:])
 
         if args.use_val_set:
+            if len(val_queries) == 0:
+                _, _, val_queries, _, _ = \
+                        load_all_qrep_data(False, False, False, False, True,
+                                pool=join_loss_pool)
+
             eval_alg(alg, losses, val_queries, "validation", join_loss_pool)
             del(val_queries[:])
 
         if len(test_queries) == 0:
             _, test_queries, _, _, _ = \
-                    load_all_qrep_data(False, True, False, False)
+                    load_all_qrep_data(False, True,
+                            False, False, False, pool=join_loss_pool)
 
         # if args.test:
             # size = int(len(test_queries) / 10)
@@ -1051,24 +1027,8 @@ def main():
 
         if args.eval_on_job:
             _, _, _, job_queries, _ = \
-                    load_all_qrep_data(True, False, False, False)
+                    load_all_qrep_data(True, False, False, False, False)
             eval_alg(alg, losses, job_queries, "job", join_loss_pool)
-            # del(train_queries[:])
-            # assert len(job_queries) > 0
-            # job_node_ids, job_pred_ids = compute_subq_ids(job_queries)
-
-            # node_common = np.intersect1d(train_node_ids, job_node_ids)
-            # pred_common = np.intersect1d(train_pred_ids, job_pred_ids)
-            # node_all = np.union1d(train_node_ids, job_node_ids)
-            # pred_all = np.union1d(train_pred_ids, job_pred_ids)
-
-            # print("""train-job intersection; node#: {}, node/all: {}, node/test_nodes:
-            # {}, pred#: {}, pred/all: {}, pred / test_preds""".format(len(node_common),
-                # float(len(node_common)) / len(node_all), float(len(node_common)) /
-                    # len(job_node_ids), len(pred_common),
-                # float(len(pred_common)) / len(pred_all), float(len(pred_common)) /
-                # len(job_pred_ids)))
-            # pdb.set_trace()
 
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
