@@ -79,6 +79,22 @@ from cardinality_estimation.flow_loss import FlowLoss, get_optimization_variable
 # def collate_fn(sample):
     # return sample[0]
 
+DEBUG_BATCH=False
+def collate_fn_set_batch(batch):
+    collated = []
+    for i in range(len(batch[0])):
+        if i == 8:
+            infos = []
+            for b in batch:
+                infos.append(b[8])
+            collated.append(infos)
+        else:
+            cur_batch = [b[i] for b in batch]
+            collated.append(torch.cat(cur_batch, dim=0))
+
+    # print(collated[0].shape, collated[1].shape, collated[2].shape)
+    return collated
+
 def collate_fn(batch):
     # print(batch)
     # y = [b[6] for b in batch]
@@ -573,8 +589,13 @@ class NN(CardinalityEstimationAlg):
             self.featurization_scheme = "set"
             if not self.use_set_padding:
                 self.collate_fn = collate_fn
+            else:
+                self.collate_fn = collate_fn_set_batch
+
             # elif self.use_set_padding == 2:
                 # self.collate_fn = collate_fn_set
+            # if DEBUG_BATCH:
+
 
         elif self.nn_type == "transformer":
             self.featurization_scheme = "combined"
@@ -583,7 +604,7 @@ class NN(CardinalityEstimationAlg):
             assert False
 
         if self.load_query_together:
-            self.mb_size = 1
+            self.mb_size = 8
             self.eval_batch_size = 1
         else:
             self.mb_size = 2500
@@ -735,6 +756,8 @@ class NN(CardinalityEstimationAlg):
 
             if self.weighted_mse != 0.0 and \
                 "flow_loss" in loss_fn_name:
+                pred = pred.to(device)
+                ybatch = ybatch.to(device)
                 mses = torch.nn.MSELoss(reduction="none")(pred,
                         ybatch)
                 random.seed(1234)
@@ -928,7 +951,6 @@ class NN(CardinalityEstimationAlg):
                 pbatch = pbatch.squeeze()
                 jbatch = jbatch.squeeze()
 
-                # FIXME:
                 if isinstance(fbatch, torch.Tensor):
                     fbatch = fbatch.squeeze()
                 tmask = tmask.squeeze(0)
@@ -936,7 +958,6 @@ class NN(CardinalityEstimationAlg):
                 jmask = jmask.squeeze(0)
 
                 ybatch = ybatch.squeeze()
-                qidx = info[0]["query_idx"][0]
                 # sample = samples[qidx]
                 sample = None
 
@@ -947,16 +968,28 @@ class NN(CardinalityEstimationAlg):
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
-                subsetg_vectors, trueC_vec, opt_loss = \
-                        self.flow_training_info[qidx]
+                # TODO: potentially can parallelize this, but would it even
+                # give any benefit - since the flow-loss is already very
+                # parallelized
+                ybatch = ybatch.detach().cpu()
 
-                assert len(subsetg_vectors) == 8
+                qstart = 0
+                for cur_info in info:
+                    qidx = cur_info[0]["query_idx"]
+                    assert qidx == cur_info[1]["query_idx"]
+                    subsetg_vectors, trueC_vec, opt_loss = \
+                            self.flow_training_info[qidx]
 
-                losses = loss_fn(pred, ybatch.detach().cpu(),
-                        normalization_type, min_val,
-                        max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
-                        self.normalize_flow_loss,
-                        self.join_loss_pool, self.cost_model)
+                    assert len(subsetg_vectors) == 8
+
+                    losses = loss_fn(pred[qstart:qstart+len(cur_info)],
+                            ybatch[qstart:qstart+len(cur_info)],
+                            normalization_type, min_val,
+                            max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
+                            self.normalize_flow_loss,
+                            self.join_loss_pool, self.cost_model)
+
+                    qstart += len(cur_info)
             else:
                 if self.unnormalized_mse:
                     assert self.normalization_type == "mscn"
@@ -994,13 +1027,21 @@ class NN(CardinalityEstimationAlg):
                     pred = torch.exp((pred + self.min_val)*(self.max_val-self.min_val))
                     ybatch = torch.exp((ybatch + self.min_val)*(self.max_val-self.min_val))
 
+                pred = pred.to(device)
+                ybatch = ybatch.to(device)
                 mses = torch.nn.MSELoss(reduction="none")(pred,
                         ybatch)
                 if self.num_mse_anchoring == -1 \
                         or len(mses) < self.num_mse_anchoring:
                     mse = torch.mean(mses)
                 elif self.num_mse_anchoring in [-2, -3]:
-                    mse_idxs = self.node_anchoring_idxs[qidx]
+                    mse_idxs = []
+                    for cur_info in info:
+                        qidx = cur_info[0]["query_idx"]
+                        cur_mse_idxs = self.node_anchoring_idxs[qidx]
+                        mse_idxs += cur_mse_idxs
+
+                    # mse_idxs = self.node_anchoring_idxs[qidx]
                     mses = mses[mse_idxs]
                     mse = torch.mean(mses)
                 else:
@@ -1009,8 +1050,10 @@ class NN(CardinalityEstimationAlg):
                     mses = mses[mse_idxs]
                     mse = torch.mean(mses)
 
+                mse = mse.to(device)
+                # self.weighted_mse = self.weighted_mse.to(device)
                 loss += self.weighted_mse * mse
-
+                loss = loss.to(device)
 
             if self.save_gradients and "flow_loss" in loss_fn_name:
                 optimizer.zero_grad()
@@ -1798,10 +1841,11 @@ class NN(CardinalityEstimationAlg):
             pickle.dump(results, fp,
                     protocol=pickle.HIGHEST_PROTOCOL)
 
-        sfn = exp_dir + "/" + "subq_summary.pkl"
-        with open(sfn, 'wb') as fp:
-            pickle.dump(self.subquery_summary_data, fp,
-                    protocol=pickle.HIGHEST_PROTOCOL)
+        if hasattr(self, "subquery_summary_data"):
+            sfn = exp_dir + "/" + "subq_summary.pkl"
+            with open(sfn, 'wb') as fp:
+                pickle.dump(self.subquery_summary_data, fp,
+                        protocol=pickle.HIGHEST_PROTOCOL)
 
     def num_parameters(self):
         def _calc_size(net):
@@ -1949,6 +1993,10 @@ class NN(CardinalityEstimationAlg):
 
         self.add_row(losses, "qerr", epoch, "all",
                 "all", samples_type)
+
+        if samples_type not in self.samples:
+            return
+
         samples = self.samples[samples_type]
         if samples is None:
             return
@@ -2715,15 +2763,18 @@ class NN(CardinalityEstimationAlg):
                             self.eval_batch_size, weighted=False)
             self.eval_loaders["train"] = eval_train_loaders
 
-        elif self.eval_epoch < self.max_epochs:
-            eval_training_samples = training_samples
+        elif self.eval_epoch < self.max_epochs or \
+                self.eval_epoch_qerr < self.max_epochs:
+            # eval_training_samples = training_samples
             assert len(training_sets) == 1
             # eval loader should maintain order of samples for periodic_eval to
             # collect stats correctly
             self.eval_loaders["train"] = [data.DataLoader(training_sets[0],
                     batch_size=self.eval_batch_size, shuffle=False,
                     num_workers=self.num_workers, collate_fn=self.collate_fn)]
-            self.samples["train"] = eval_training_samples
+
+            if self.eval_epoch < self.max_epochs:
+                self.samples["train"] = training_samples
 
         # TODO: add separate dataset, dataloaders for evaluation
         if val_samples is not None and len(val_samples) > 0 \
@@ -2784,8 +2835,9 @@ class NN(CardinalityEstimationAlg):
 
             # if self.epoch % self.eval_epoch == 0 and \
                     # self.eval_epoch < self.max_epochs:
-            if self.epoch % self.eval_epoch == 0 \
-                and self.epoch != 0:
+            if ((self.epoch % self.eval_epoch == 0 or \
+                    self.epoch % self.eval_epoch_qerr == 0)
+                and self.epoch != 0):
 
                 eval_start = time.time()
                 self._eval_wrapper("train")
