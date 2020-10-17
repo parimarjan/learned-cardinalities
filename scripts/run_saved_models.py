@@ -27,6 +27,8 @@ def read_flags():
             default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
             default=0)
+    # parser.add_argument("--query_directory", type=int, required=False,
+            # default=0)
 
     return parser.parse_args()
 
@@ -46,11 +48,12 @@ def main():
         cmd = RUN_TMP.format(MODEL_DIR = model_dir,
                 LOSSES = args.losses,
                 DEBUG_SET = args.debug_set,
-                PADDING = 2,
+                PADDING = 3,
                 JOB = args.eval_on_job,
                 RES_DIR = res_dir)
         print(cmd)
         os.system(cmd)
+        break
 
 args = read_flags()
 main()

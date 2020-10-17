@@ -97,6 +97,19 @@ class QueryDataset(data.Dataset):
             print(self.max_tables, self.max_joins, self.max_preds)
 
         if self.preload_features == 1:
+            # 3, means we will try to load the padded sets and masks from
+            # memory
+            if self.use_set_padding > 2:
+                # otherwise, no point in doing this
+                assert self.use_set_padding == 3
+
+                # self.feature_dir = "/flashrd/pari/saved_features/"
+                # self.feature_dir = "/flashrd/pari/saved_features2/"
+                self.feature_dir = "./saved_features/"
+                self.feature_dir += self.db.db_key + "/"
+                # will store each query feature dicts in there
+                make_dir(self.feature_dir)
+
             self.X, self.Y, self.info = self._get_feature_vectors(samples)
             assert len(self.Y) == total_expected_samples
             if load_query_together:
@@ -289,6 +302,48 @@ class QueryDataset(data.Dataset):
     def _get_query_features_set(self, qrep, dataset_qidx,
             query_idx):
 
+        if self.use_set_padding == 3:
+            qkey = str(deterministic_hash(qrep["sql"]))
+            qpathx = self.feature_dir + qkey + "x.pkl"
+            qpathy = self.feature_dir + qkey + "y.pkl"
+            qpathi = self.feature_dir + qkey + "i.pkl"
+
+            if os.path.exists(qpathx):
+                # load and all
+                # X = load_object(qpathx)
+                X = load_object_gzip(qpathx)
+                Y = []
+                sample_info = []
+
+                node_names = list(qrep["subset_graph"].nodes())
+                if SOURCE_NODE in node_names:
+                    node_names.remove(SOURCE_NODE)
+                node_names.sort()
+                for node_idx, nodes in enumerate(node_names):
+                    info = qrep["subset_graph"].nodes()[nodes]
+                    if self.wj_times is not None:
+                        ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
+                        true_val = info["cardinality"][ck]
+                        if true_val == 0 or true_val == 1:
+                            true_val = info["cardinality"]["expected"]
+                    else:
+                        ck = self.card_key
+                        true_val = info["cardinality"][ck]
+
+                    if "total" in info["cardinality"]:
+                        total = info["cardinality"]["total"]
+                    else:
+                        total = None
+
+                    Y.append(self.normalize_val(true_val, total))
+                    cur_info = {}
+                    cur_info["num_tables"] = len(nodes)
+                    cur_info["dataset_idx"] = dataset_qidx + node_idx
+                    cur_info["query_idx"] = query_idx
+                    sample_info.append(cur_info)
+
+                return X, Y, sample_info
+
         X = defaultdict(list)
         Y = []
         sample_info = []
@@ -379,16 +434,9 @@ class QueryDataset(data.Dataset):
             pred_features = []
             join_features = []
 
-            # FIXME:
-            # table_features = np.zeros(self.db.table_features_len)
-            # join_features = np.zeros(len(self.db.joins))
-
             # these are base tables within a join (or node) in the subset
             # graph
             for node in nodes:
-                # no overlap between these arrays
-                # TODO: fix table features
-                # table_features += table_feat_dict[node]
                 table_features.append(table_feat_dict[node])
                 if node not in pred_feat_dict:
                     continue
@@ -408,7 +456,9 @@ class QueryDataset(data.Dataset):
                 empty_feats = np.zeros(self.db.max_pred_len)
                 pred_features.append(empty_feats)
 
-            if self.use_set_padding == 1:
+            if self.use_set_padding in [1,3]:
+                # TODO: _pad_sets should also work, need to check lists / arrays
+
                 pred_features = np.vstack(pred_features)
                 num_pad = self.max_preds - pred_features.shape[0]
                 if num_pad < 0:
@@ -470,13 +520,12 @@ class QueryDataset(data.Dataset):
             X["pred"].append(pred_features)
             X["flow"].append(flow_features)
 
-            if self.use_set_padding == 1:
+            if self.use_set_padding in [1,3]:
                 X["pred_mask"].append(predicate_mask)
                 X["table_mask"].append(table_mask)
                 X["join_mask"].append(join_mask)
 
             Y.append(self.normalize_val(true_val, total))
-
             cur_info = {}
             cur_info["num_tables"] = len(nodes)
             cur_info["dataset_idx"] = dataset_qidx + node_idx
@@ -486,6 +535,13 @@ class QueryDataset(data.Dataset):
             # cur_info["total"] = total
             cur_info["total"] = 0.00
             sample_info.append(cur_info)
+
+        if self.use_set_padding == 3:
+            assert len(X) == 7
+            # save_object(qpathx, X)
+            save_object_gzip(qpathx, X)
+            # save_object(qpathy, Y)
+            # save_object(qpathi, sample_info)
 
         assert len(Y) == len(sample_info) == len(X["table"])
         return X,Y,sample_info
@@ -692,6 +748,7 @@ class QueryDataset(data.Dataset):
             if self.featurization_type == "set":
                 x,y,cur_info = self._get_query_features_set(qrep, qidx, i)
             else:
+                assert len(x) == 7
                 x,y,cur_info = self._get_query_features(qrep, qidx, i)
 
             qidx += len(y)
@@ -746,12 +803,13 @@ class QueryDataset(data.Dataset):
                             for xi, x in enumerate(X[k]):
                                 X[k][xi] = to_variable(x, requires_grad=False).float()
                 else:
-                    if self.use_set_padding == 1:
+                    if self.use_set_padding in [1,3]:
                         for k,v in X.items():
                             X[k] = to_variable(v, requires_grad=False).float()
                             X[k] = X[k].squeeze()
                             if "mask" in k:
                                 X[k] = X[k].unsqueeze(2)
+
                     elif self.use_set_padding == 2:
                         # don't do anything, create arrays when accessing index
                         X["flow"] = to_variable(X["flow"],
@@ -793,7 +851,7 @@ class QueryDataset(data.Dataset):
                                 tm, pm, jm, self.Y[start_idx:end_idx], \
                                 self.info[start_idx:end_idx]
 
-                    elif self.use_set_padding == 1:
+                    elif self.use_set_padding in [1,3]:
                         return (self.X["table"][start_idx:end_idx],
                                 self.X["pred"][start_idx:end_idx],
                                 self.X["join"][start_idx:end_idx],
@@ -834,7 +892,7 @@ class QueryDataset(data.Dataset):
                         return tf, pf, jf, self.X["flow"][index], \
                                 tm, pm, jm, self.Y[index], self.info[index]
 
-                    elif self.use_set_padding == 1:
+                    elif self.use_set_padding in [1,3]:
                         return (self.X["table"][index], self.X["pred"][index],
                                 self.X["join"][index], self.X["flow"][index],
                                 self.X["table_mask"][index],
@@ -927,7 +985,7 @@ class QueryDataset(data.Dataset):
                             tm, pm, jm, y, \
                             cur_info
 
-                elif self.use_set_padding == 1:
+                elif self.use_set_padding in [1,3]:
 
                     for k,v in x.items():
                         x[k] = to_variable(v, requires_grad=False).float()

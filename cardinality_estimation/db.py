@@ -184,6 +184,14 @@ class DB():
         and num_vals refers to the number of values it will occupy.
         E.g. TODO.
         '''
+        args = locals()
+        arg_key = ""
+        for k,v in args.items():
+            if k == "self":
+                continue
+            arg_key += str(v)
+        self.db_key = str(deterministic_hash(arg_key))
+
         if self.db_name == "so":
             global SOURCE_NODE
             SOURCE_NODE = tuple(["SOURCE"])
@@ -192,7 +200,6 @@ class DB():
         self.cost_model = cost_model
         self.heuristic_features = heuristic_features
         self.flow_features = flow_features
-        self.db_key = db_key
         self.featurization_type = featurization_type
         self.separate_regex_bins = separate_regex_bins
 

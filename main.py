@@ -131,74 +131,6 @@ def get_alg(alg):
                 max_depth = args.max_depth,
                 lr = args.lr,
                 exp_prefix = args.exp_prefix)
-                # num_mse_anchoring = args.num_mse_anchoring,
-                # mat_sparse_features = args.mat_sparse_features,
-                # flow_weighted_loss = args.flow_weighted_loss,
-                # eval_parallel = args.eval_parallel,
-                # max_hid = args.max_hid,
-                # cost_model = args.cost_model,
-                # query_batch_size = args.query_batch_size,
-                # flow_features = args.flow_features,
-                # table_features = args.table_features,
-                # join_features = args.join_features,
-                # pred_features = args.pred_features,
-                # normalize_flow_loss = args.normalize_flow_loss,
-                # save_gradients = args.save_gradients,
-                # weighted_mse = args.weighted_mse,
-                # weighted_qloss = args.weighted_qloss,
-                # cost_model_plan_err = args.cost_model_plan_err,
-                # eval_flow_loss = args.eval_flow_loss,
-                # use_val_set = args.use_val_set,
-                # use_best_val_model = args.use_best_val_model,
-                # start_validation = args.start_validation,
-                # weight_decay = args.weight_decay,
-                # num_groups = args.num_groups,
-                # dropout = args.dropout,
-                # num_last = args.avg_jl_num_last,
-                # join_loss_data_file = args.join_loss_data_file,
-                # train_card_key = args.train_card_key,
-                # exp_prefix = args.exp_prefix,
-                # load_query_together = args.load_query_together,
-                # result_dir = args.result_dir,
-                # priority_err_type = args.priority_err_type,
-                # # priority_err_divide_len = args.priority_err_divide_len,
-                # priority_normalize_type = args.priority_normalize_type,
-                # tfboard = args.tfboard,
-                # jl_indexes = args.jl_indexes,
-                # normalization_type = args.normalization_type,
-                # preload_features = args.preload_features,
-                # reprioritize_epoch = args.reprioritize_epoch,
-                # prioritize_epoch = args.prioritize_epoch,
-                # heuristic_features = args.heuristic_features,
-                # debug_set = args.debug_set,
-                # num_hidden_layers=args.num_hidden_layers,
-                # num_attention_heads = args.num_attention_heads,
-                # hidden_layer_multiple=args.hidden_layer_multiple,
-                    # eval_epoch = args.eval_epoch,
-                    # optimizer_name=args.optimizer_name,
-                    # adaptive_lr=args.adaptive_lr,
-                    # # rel_qerr_loss=args.rel_qerr_loss,
-                    # clip_gradient=args.clip_gradient,
-                    # loss_func = args.loss_func,
-                    # sampling_priority_type = args.sampling_priority_type,
-                    # sampling_priority_alpha = args.sampling_priority_alpha,
-                    # priority_query_len_scale = args.priority_query_len_scale,
-                    # net_name = args.net_name,
-                    # eval_epoch_jerr = args.eval_epoch_jerr,
-                    # eval_epoch_flow_err = args.eval_epoch_flow_err,
-                    # eval_epoch_plan_err = args.eval_epoch_plan_err,
-                    # # eval_num_tables = args.eval_num_tables,
-                    # jl_use_postgres = args.jl_use_postgres,
-                    # num_tables_feature = args.num_tables_feature,
-                    # max_discrete_featurizing_buckets =
-                            # args.max_discrete_featurizing_buckets,
-                    # nn_type = args.nn_type,
-                    # group_models = args.group_models,
-                    # adaptive_lr_patience = args.adaptive_lr_patience,
-                    # # single_threaded_nt = args.single_threaded_nt,
-                    # nn_weights_init_pg = args.nn_weights_init_pg,
-                    # avg_jl_priority = args.avg_jl_priority,
-                    # hidden_layer_size = args.hidden_layer_size)
     elif alg == "linear":
         return Linear()
     elif alg == "postgres":
@@ -371,7 +303,8 @@ def remove_doubles(query_strs):
         newq.append(q)
     return newq
 
-def eval_alg(alg, loss_funcs, queries, samples_type, join_loss_pool):
+def eval_alg(alg, loss_funcs, queries, samples_type,
+        join_loss_pool):
     '''
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
@@ -560,6 +493,7 @@ def load_all_qrep_data(load_job_queries,
     misc_cache = klepto.archives.dir_archive("./misc_cache",
             cached=True, serialized=True)
 
+    print("loading qrep data from: ", args.query_directory)
     if load_db:
         db_key = deterministic_hash("db-" + args.query_directory + \
                     args.query_templates + str(args.eval_on_job) + \
@@ -902,16 +836,17 @@ def main():
         old_args.result_dir = args.result_dir
         # so it can load the current model
         old_args.model_dir = args.model_dir
+        old_args.query_directory = args.query_directory
         old_num_samples = args.num_samples_per_template
         old_args.use_set_padding = args.use_set_padding
 
-        if args.max_epochs == 0:
-            # because we aren't actually training, this is just used for init
-            # nn etc.
-            if args.debug_set:
-                old_args.num_samples_per_template = 100
-            else:
-                old_args.num_samples_per_template = 10
+        # if args.max_epochs == 0:
+            # # because we aren't actually training, this is just used for init
+            # # nn etc.
+            # if args.debug_set:
+                # old_args.num_samples_per_template = 100
+            # else:
+                # old_args.num_samples_per_template = 10
 
         args = old_args
 
@@ -1102,7 +1037,7 @@ def read_flags():
             default="hist")
 
     parser.add_argument("--query_directory", type=str, required=False,
-            default="./our_dataset/queries")
+            default="./minified_dataset")
     parser.add_argument("--cost_model", type=str, required=False,
             default="nested_loop_index7")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
@@ -1296,7 +1231,7 @@ def read_flags():
     parser.add_argument("--jl_use_postgres", type=int,
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
-            required=False, default="mscn")
+            required=False, default="mscn_set")
     parser.add_argument("--use_set_padding", type=int,
             required=False, default=1)
 
