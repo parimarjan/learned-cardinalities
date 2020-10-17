@@ -340,6 +340,7 @@ class QueryDataset(data.Dataset):
                     cur_info["num_tables"] = len(nodes)
                     cur_info["dataset_idx"] = dataset_qidx + node_idx
                     cur_info["query_idx"] = query_idx
+                    cur_info["total"] = 0.00
                     sample_info.append(cur_info)
 
                 return X, Y, sample_info
@@ -893,6 +894,8 @@ class QueryDataset(data.Dataset):
                                 tm, pm, jm, self.Y[index], self.info[index]
 
                     elif self.use_set_padding in [1,3]:
+                        # print(self.info[index])
+                        # pdb.set_trace()
                         return (self.X["table"][index], self.X["pred"][index],
                                 self.X["join"][index], self.X["flow"][index],
                                 self.X["table_mask"][index],

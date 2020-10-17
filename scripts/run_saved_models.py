@@ -45,6 +45,9 @@ def main():
         if os.path.exists(model_dir + "/cm1_jerr.pkl"):
             continue
 
+        if not os.path.exists(model_dir + "/model_weights.pt"):
+            continue
+
         cmd = RUN_TMP.format(MODEL_DIR = model_dir,
                 LOSSES = args.losses,
                 DEBUG_SET = args.debug_set,

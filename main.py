@@ -460,6 +460,8 @@ def load_samples(qfns, db, found_db, template_name,
                 args.cost_model, False)
 
     if not found_db:
+        # print("not found db!!")
+        # pdb.set_trace()
         if "job" in template_name and \
                 not args.add_job_features:
             return samples
@@ -479,11 +481,15 @@ def load_samples(qfns, db, found_db, template_name,
                     return samples
 
         if db is not None:
+            print("db is not None!")
             for sample in samples:
                 # not all samples may share all predicates etc. so updating
                 # them all. stats will not be recomputed for repeated columns
                 # FIXME:
                 db.update_db_stats(sample, args.flow_features)
+    # else:
+        # print("found db :(")
+        # pdb.set_trace()
 
     return samples
 

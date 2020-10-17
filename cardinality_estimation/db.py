@@ -389,6 +389,9 @@ class DB():
             self.num_flow_features += len(self.cmp_ops)
             self.num_flow_features += 1
 
+            # print(self.flow_features)
+            # pdb.set_trace()
+
     def get_onehot_bucket(self, num_buckets, base, val):
         assert val >= 1.0
         for i in range(num_buckets):
@@ -1083,6 +1086,8 @@ class DB():
         '''
         @query: Query object
         '''
+        # print("update db stats!")
+        # pdb.set_trace()
         if qrep["template_name"] not in self.templates:
             self.templates.append(qrep["template_name"])
 
