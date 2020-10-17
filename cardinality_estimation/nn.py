@@ -129,7 +129,7 @@ USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
-    REGEN_COSTS = True
+    REGEN_COSTS = False
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
@@ -2455,7 +2455,8 @@ class NN(CardinalityEstimationAlg):
         model_path = model_dir + "/model_weights.pt"
         assert os.path.exists(model_path)
         assert len(self.nets) == 1
-        self.nets[0].load_state_dict(torch.load(model_path))
+        self.nets[0].load_state_dict(torch.load(model_path,
+            map_location=device))
         # self.nets[0].eval()
         print(self.nets[0])
         # pdb.set_trace()
@@ -2502,13 +2503,13 @@ class NN(CardinalityEstimationAlg):
         self.max_subqs = max_subqs-1
 
         self.groups = self.init_groups(self.num_groups)
-        if self.cost_model_plan_err or self.eval_flow_loss or \
-                self.flow_features:
-            update_samples(training_samples, self.flow_features,
-                    self.cost_model, self.debug_set)
-            if val_samples and not self.no_eval:
-                update_samples(val_samples, self.flow_features,
-                        self.cost_model, self.debug_set)
+        # if self.cost_model_plan_err or self.eval_flow_loss or \
+                # self.flow_features:
+            # update_samples(training_samples, self.flow_features,
+                    # self.cost_model, self.debug_set)
+            # if val_samples and not self.no_eval:
+                # update_samples(val_samples, self.flow_features,
+                        # self.cost_model, self.debug_set)
 
         if self.num_mse_anchoring == -2:
             # for each training sample, select the nodes to anchor on

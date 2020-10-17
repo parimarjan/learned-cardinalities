@@ -610,7 +610,8 @@ def load_all_qrep_data(load_job_queries,
         wj_times = get_wj_times_dict("wanderjoin")
 
     for qi,qdir in enumerate(fns):
-        if not load_train_queries and not load_test_queries:
+        if not load_train_queries and not load_test_queries \
+                and not load_val_queries:
             continue
         template_name = os.path.basename(qdir)
         if args.query_templates != "all":
@@ -644,6 +645,7 @@ def load_all_qrep_data(load_job_queries,
             cur_train_fns, cur_test_fns = train_test_split(qfns,
                     test_size=args.test_size,
                     random_state=args.random_seed_queries)
+
         elif args.test_diff_templates:
             # train template, else test
             if args.diff_templates_type == 1:
@@ -687,6 +689,7 @@ def load_all_qrep_data(load_job_queries,
             cur_val_queries = load_samples(cur_val_fns, db, found_db,
                     template_name, skip_zero_queries=True, train_template=True,
                     wj_times=wj_times, pool=pool)
+            print("load val queries: ", len(cur_val_queries))
         else:
             cur_val_queries = []
 
@@ -865,6 +868,7 @@ def compare_overlap(train_queries, test_queries, test_kind):
     save_object(fn, df)
 
 def main():
+    global args
     if args.db_name == "so":
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
@@ -887,16 +891,44 @@ def main():
         load_test_samples = True
 
     if args.model_dir is not None:
+        old_args = load_object(args.model_dir + "/args.pkl")
+
+        # going to keep old args for most params, except these:
+        old_args.losses = args.losses
+        old_args.eval_on_job = args.eval_on_job
+        old_args.max_epochs = args.max_epochs
+        old_args.debug_set = args.debug_set
+        old_args.eval_epoch = args.eval_epoch
+        old_args.result_dir = args.result_dir
+        # so it can load the current model
+        old_args.model_dir = args.model_dir
         old_num_samples = args.num_samples_per_template
-        args.num_samples_per_template = 10
+        old_args.use_set_padding = args.use_set_padding
+
+        if args.max_epochs == 0:
+            # because we aren't actually training, this is just used for init
+            # nn etc.
+            if args.debug_set:
+                old_args.num_samples_per_template = 100
+            else:
+                old_args.num_samples_per_template = 10
+
+        args = old_args
 
     train_queries, test_queries, val_queries, job_queries, db = \
-            load_all_qrep_data(True, load_test_samples, True, True,
+            load_all_qrep_data(False, load_test_samples, True, True,
                     load_test_samples,
                     pool=join_loss_pool)
 
-    # if not load_test_samples:
-        # del(val_queries[:])
+    update_samples(train_queries, args.flow_features,
+            args.cost_model, args.debug_set)
+    if len(test_queries) > 0:
+        update_samples(test_queries, args.flow_features,
+                args.cost_model, args.debug_set)
+    if len(val_queries) > 0:
+        update_samples(val_queries, args.flow_features,
+                args.cost_model, args.debug_set)
+
     del(job_queries[:])
 
     if args.model_dir is not None:
@@ -996,6 +1028,8 @@ def main():
             train_queries, _, _, _, _ = \
                     load_all_qrep_data(False, False, False, True, False,
                             pool=join_loss_pool)
+            update_samples(train_queries, args.flow_features,
+                    args.cost_model, args.debug_set)
 
         start = time.time()
 
@@ -1007,7 +1041,9 @@ def main():
                 _, _, val_queries, _, _ = \
                         load_all_qrep_data(False, False, False, False, True,
                                 pool=join_loss_pool)
-
+            assert len(val_queries) > 0
+            update_samples(val_queries, args.flow_features,
+                    args.cost_model, args.debug_set)
             eval_alg(alg, losses, val_queries, "validation", join_loss_pool)
             del(val_queries[:])
 
@@ -1015,6 +1051,8 @@ def main():
             _, test_queries, _, _, _ = \
                     load_all_qrep_data(False, True,
                             False, False, False, pool=join_loss_pool)
+            update_samples(test_queries, args.flow_features,
+                    args.cost_model, args.debug_set)
 
         # if args.test:
             # size = int(len(test_queries) / 10)

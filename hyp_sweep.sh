@@ -1,7 +1,7 @@
 ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
-USE_VAL_SET=1
+USE_VAL_SET=2
 NUM_WORKERS=0
 NO7=0
 LOSSES=join-loss,qerr,plan-loss
@@ -9,17 +9,18 @@ LOSSES=join-loss,qerr,plan-loss
 #FLOW_FEATS=(1 0)
 FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
-ONE_HOT_ESTS=(0 1)
+ONE_HOT_ESTS=(0)
 REL_ESTS=(0)
 
 DECAYS=(1.0 0.1)
 #DECAYS=(1.0)
 #LRS=(0.001 0.0001)
+#LRS=(0.00005)
 LRS=(0.0001)
 #LRS=(0.0001 0.00005)
-HLS=(256 64)
-#MAX_EPOCHS=(10 20)
+HLS=(128 256)
 MAX_EPOCHS=(10)
+#MAX_EPOCHS=(20)
 
 NORM_FLOW_LOSS=(1)
 NUM_MSE_ANCHORING=(-3)
@@ -34,7 +35,7 @@ LOAD_QUERY_TOGETHER=0
 JOB_FEATS=1
 TEST_FEATS=1
 
-SAMPLE_BITMAP=0
+SAMPLE_BITMAP=1
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=4000
 NUM_PAR=10
@@ -87,7 +88,7 @@ do
      --feat_pg_est_one_hot ${ONE_HOT_ESTS[$onehot]} \
      --max_discrete_featurizing_buckets $BUCKETS \
      --exp_prefix default \
-     --result_dir all_results/vldb/default/hyp_sweep2 \
+     --result_dir all_results/vldb/default/hyp_sweep_samplebitmap \
      --eval_epoch $EVAL_EPOCH --join_loss_pool_num $NUM_PAR \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
      --eval_epoch_plan_err 40 \

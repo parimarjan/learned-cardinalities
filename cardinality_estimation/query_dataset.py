@@ -390,27 +390,14 @@ class QueryDataset(data.Dataset):
                 # TODO: fix table features
                 # table_features += table_feat_dict[node]
                 table_features.append(table_feat_dict[node])
-
                 if node not in pred_feat_dict:
                     continue
                 pfeats = copy.deepcopy(pred_feat_dict[node])
-
-                # if self.heuristic_features:
-                    # if pfeats[-2] != 0.00:
-                        # print(pfeats)
-                        # print(pfeats[-2])
-                        # print(nodes)
-                        # pdb.set_trace()
-                    # pfeats[-2] = self.normalize_val(pg_est, total)
-
                 pred_features.append(pfeats)
-
 
             for node1 in nodes:
                 for node2 in nodes:
                     if (node1, node2) in edge_feat_dict:
-                        # FIXME to set syntax:
-                        # join_features += edge_feat_dict[(node1, node2)]
                         join_features.append(edge_feat_dict[(node1, node2)])
 
             if len(join_features) == 0:
