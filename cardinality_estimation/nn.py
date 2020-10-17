@@ -129,7 +129,7 @@ USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
         debug_set):
-    REGEN_COSTS = False
+    REGEN_COSTS = True
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
@@ -141,11 +141,19 @@ def update_samples(samples, flow_features, cost_model,
             # print("SOURCE NODE {} not in graph".format(SOURCE_NODE))
         add_single_node_edges(subsetg, SOURCE_NODE)
         sample_edge = list(subsetg.edges())[0]
-        if (cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
-                and not debug_set) and not REGEN_COSTS:
+        # if (cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
+                # and not debug_set) and not REGEN_COSTS:
+        if (cost_model + "cost" in subsetg.edges()[sample_edge].keys()) \
+                and not REGEN_COSTS:
             continue
         else:
+            # print(sample["name"])
+            # print("new sample in update sample")
+            # print(subsetg.edges()[sample_edge].keys())
+            # pdb.set_trace()
+
             new_seen = True
+
             pg_total_cost = compute_costs(subsetg, cost_model,
                     cost_key="pg_cost", ests="expected")
             _ = compute_costs(subsetg, cost_model, cost_key="cost",
@@ -219,7 +227,10 @@ def update_samples(samples, flow_features, cost_model,
             for j, node in enumerate(nodes):
                 subsetg.nodes()[node]["tolerance"] = tolerances[j]
 
-    if not debug_set and not REGEN_COSTS:
+    # if not debug_set and not REGEN_COSTS:
+    if not REGEN_COSTS:
+        print("going to save sample!")
+        # print(sample["name"])
         for sample in samples:
             save_sql_rep(sample["name"], sample)
 
@@ -2626,7 +2637,8 @@ class NN(CardinalityEstimationAlg):
 
         if "flow" in self.loss_func or \
                 "flow" in self.switch_loss_fn:
-            self.update_flow_training_info()
+            if not self.max_epochs == 0:
+                self.update_flow_training_info()
 
         subquery_rel_weights = None
         if self.priority_normalize_type == "paths1":

@@ -123,8 +123,8 @@ def save_sql_rep(fn, cur_qrep):
     qrep = copy.deepcopy(cur_qrep)
     qrep["join_graph"] = nx.adjacency_data(qrep["join_graph"])
     qrep["subset_graph"] = nx.adjacency_data(qrep["subset_graph"])
-    if "subset_graph_paths" in qrep:
-        qrep["subset_graph_paths"] = nx.adjacency_data(qrep["subset_graph_paths"])
+    # if "subset_graph_paths" in qrep:
+        # qrep["subset_graph_paths"] = nx.adjacency_data(qrep["subset_graph_paths"])
 
     with open(fn, "wb") as f:
         pickle.dump(qrep, f)
