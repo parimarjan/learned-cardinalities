@@ -564,7 +564,7 @@ class DB():
                 if self.sample_bitmap_key not in bitmap_dict:
                     return tables_vector
                 bitmap = bitmap_dict[self.sample_bitmap_key]
-                # start_idx, num_bins = self.sample_bitmap_featurizer[table]
+                _, num_bins = self.sample_bitmap_featurizer[table]
                 # print(start_idx, num_bins)
                 # pdb.set_trace()
 
