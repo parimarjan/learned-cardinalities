@@ -504,6 +504,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
                     np.round(np.percentile(losses2,95),3),
                     np.round(np.percentile(losses2,99),3)))
 
+    dummy = []
+    save_object("dummy.pkl", dummy)
 
     return np.array(est_costs) - np.array(opt_costs)
 

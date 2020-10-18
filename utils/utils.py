@@ -102,7 +102,7 @@ def load_object_gzip(file_name):
 def load_object(file_name):
     res = None
     if ".csv" in file_name:
-        res = pd.read_csv(file_name, sep="|")
+        res = pd.read_csv(file_name, sep="|", encoding='utf-8')
     else:
         if os.path.exists(file_name):
             with open(file_name, "rb") as f:
