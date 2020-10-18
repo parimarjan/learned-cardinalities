@@ -29,15 +29,19 @@ def main():
     model_dirs = list(glob.glob(args.base_dir + "/*"))
 
     for i, model_dir in enumerate(model_dirs):
-        fns = list(glob.glob(model_dir + "/*.pkl"))
+        fns = list(glob.glob(model_dir + "/*.csv"))
         print(model_dir)
         for fn in fns:
             try:
                 data = load_object(fn)
-            except:
+            except Exception as e:
+                print(e)
                 print(fn)
                 pdb.set_trace()
-            save_object(fn, data, use_csv=True)
+                continue
+            # data = pd.read_csv(fn, sep="|")
+            csv_name = fn.replace(".csv", ".pkl")
+            save_object(csv_name, data, use_csv=False)
 
 args = read_flags()
 main()
