@@ -1,8 +1,12 @@
 MIN_QERRS=(1.0)
 DECAY=1.0
-DIFF_SEEDS=(6 2 7 8 9 10 1 3 5)
+DIFF_SEEDS=(2 7 8 9 10 1 3 5)
+#DIFF_SEEDS=(6 9 10 1 3 5)
+
+#DIFF_SEEDS=(6)
+
 PRIORITY=0.0
-MAX_EPOCHS=10
+MAX_EPOCHS=(10)
 BUCKETS=10
 FLOW_FEATS=1
 LR=0.0001
@@ -15,7 +19,7 @@ NN_TYPE=$3
 NORM_FLOW_LOSS=1
 NUM_WORKERS=0
 
-HLS=256
+HLS=128
 NUM_HLS=2
 LOAD_QUERY_TOGETHER=0
 
@@ -39,7 +43,7 @@ EVAL_ON_JOB=0
 for i in "${!WEIGHTED_MSES[@]}";
 do
   #for j in "${!NUM_HLS[@]}";
-  for j in "${!NUM_MSE_ANCHORING[@]}";
+  for j in "${!MAX_EPOCHS[@]}";
   do
   for k in "${!DIFF_SEEDS[@]}";
     do
@@ -54,11 +58,11 @@ do
      --add_job_features $JOB_FEATS \
      --add_test_features $TEST_FEATS \
      --weighted_mse ${WEIGHTED_MSES[$i]} \
-     --num_mse_anchoring ${NUM_MSE_ANCHORING[$j]} \
      --weight_decay $DECAY \
      --exp_prefix runAllDiff \
-     --result_dir all_results/vldb/test_diff/mscn/run1
-     --max_epochs $MAX_EPOCHS --cost_model nested_loop_index7 \
+     --result_dir all_results/vldb/test_diff/mscn/run2
+     --max_epochs ${MAX_EPOCHS[$j]} \
+     --cost_model nested_loop_index7 \
      --eval_epoch $EVAL_EPOCH \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
      --eval_epoch_plan_err 40 \

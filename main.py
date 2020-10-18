@@ -1239,7 +1239,7 @@ def read_flags():
     parser.add_argument("--nn_type", type=str,
             required=False, default="mscn_set")
     parser.add_argument("--use_set_padding", type=int,
-            required=False, default=1)
+            required=False, default=3)
 
     parser.add_argument("--num_groups", type=int, required=False,
             default=1, help="""number of groups we divide the input space in.

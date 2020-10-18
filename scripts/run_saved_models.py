@@ -5,6 +5,7 @@ from utils.utils import *
 import pdb
 import random
 import os
+import subprocess as sp
 
 RUN_TMP='''export CUDA_VISIBLE_DEVICES="";python3 main.py --algs nn \
 --model_dir {MODEL_DIR} \
@@ -42,6 +43,7 @@ def main():
             res_dir = args.result_dir
 
         if os.path.exists(model_dir + "/done.pkl"):
+            print("continuing because done")
             continue
 
         if os.path.exists(model_dir + "/cm1_jerr.pkl"):
@@ -50,9 +52,10 @@ def main():
         if not os.path.exists(model_dir + "/model_weights.pt"):
             continue
 
-        if i < 3:
+        if i < 4:
             continue
 
+        print(model_dir)
         cmd = RUN_TMP.format(MODEL_DIR = model_dir,
                 LOSSES = args.losses,
                 DEBUG_SET = args.debug_set,
@@ -60,7 +63,9 @@ def main():
                 JOB = args.eval_on_job,
                 RES_DIR = res_dir)
 
-        os.system(cmd)
+        # os.system(cmd)
+        p = sp.Popen(cmd, shell=True)
+        p.wait()
 
         done = []
         save_object(model_dir + "/done.pkl", done)

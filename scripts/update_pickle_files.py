@@ -37,7 +37,7 @@ def main():
             except:
                 print(fn)
                 pdb.set_trace()
-            save_object(fn, data)
+            save_object(fn, data, use_csv=True)
 
 args = read_flags()
 main()

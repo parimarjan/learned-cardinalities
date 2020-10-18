@@ -4,6 +4,7 @@ import torch
 from torch.autograd import Variable
 import copy
 import numpy as np
+import pandas as pd
 import glob
 import string
 import hashlib
@@ -75,9 +76,14 @@ def gen_gaussian_data(means, covs, num):
         vals[i] = [int(x) for x in v]
     return list(zip(*vals))
 
-def save_object(file_name, data):
+def save_object(file_name, data, use_csv=False):
+    if isinstance(data, pd.DataFrame) and use_csv:
+        data.to_csv(file_name.replace(".pkl", ".csv"), sep="|", index=False)
+        return
+
     with open(file_name, "wb") as f:
-        res = f.write(pickle.dumps(data))
+        pickle.dump(data, f,
+                protocol=pickle.HIGHEST_PROTOCOL)
 
 def save_object_gzip(file_name, data):
     # with open(file_name, "wb") as f:
@@ -94,9 +100,12 @@ def load_object_gzip(file_name):
 
 def load_object(file_name):
     res = None
-    if os.path.exists(file_name):
-        with open(file_name, "rb") as f:
-            res = pickle.loads(f.read())
+    if ".csv" in file_name:
+        res = pd.read_csv(file_name, sep="|")
+    else:
+        if os.path.exists(file_name):
+            with open(file_name, "rb") as f:
+                res = pickle.loads(f.read())
     return res
 
 def update_list(fn, new_obj):
