@@ -5,15 +5,15 @@ LOSS_FUNC=$2
 NN_TYPE=$3
 USE_VAL_SET=1
 
-FLOW_FEATS=(0)
-WEIGHTED_MSES=(0.1)
-DECAYS=(1.0 0.1)
-LRS=(0.0001 0.001 0.01)
+FLOW_FEATS=(1)
+WEIGHTED_MSES=(0.0)
+DECAYS=(1.0 0.1 0.0)
+LRS=(0.0001 0.001)
 #LRS=(0.0001 0.00005)
-HLS=(32 64 128)
+HLS=(64 128)
 MAX_EPOCHS=(20 30 50)
 
-NORM_FLOW_LOSS=(1)
+NORM_FLOW_LOSS=(1 0)
 NUM_MSE_ANCHORING=(-3)
 
 PRIORITY=0.0
@@ -68,7 +68,7 @@ do
      --lr ${LRS[$lr]} \
      --max_discrete_featurizing_buckets $BUCKETS \
      --exp_prefix default \
-     --result_dir all_results/vldb/so/default/hyp_sweep \
+     --result_dir all_results/vldb/so/default/hyp_sweep2 \
      --eval_epoch $EVAL_EPOCH --join_loss_pool_num $NUM_PAR \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
      --eval_epoch_plan_err 40 \

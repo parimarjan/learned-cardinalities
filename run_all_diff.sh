@@ -1,12 +1,12 @@
 MIN_QERRS=(1.0)
-DECAY=1.0
-DIFF_SEEDS=(2 7 8 9 10 1 3 5)
-#DIFF_SEEDS=(6 9 10 1 3 5)
+DECAY=0.1
+#DIFF_SEEDS=(2 7 8 9)
+DIFF_SEEDS=(10 1 3 5)
 
 #DIFF_SEEDS=(6)
 
 PRIORITY=0.0
-MAX_EPOCHS=(10)
+MAX_EPOCHS=(20)
 BUCKETS=10
 FLOW_FEATS=1
 LR=0.0001
@@ -60,7 +60,7 @@ do
      --weighted_mse ${WEIGHTED_MSES[$i]} \
      --weight_decay $DECAY \
      --exp_prefix runAllDiff \
-     --result_dir all_results/vldb/test_diff/mscn/run2
+     --result_dir all_results/vldb/test_diff/mscn/best_hyp_run1/
      --max_epochs ${MAX_EPOCHS[$j]} \
      --cost_model nested_loop_index7 \
      --eval_epoch $EVAL_EPOCH \

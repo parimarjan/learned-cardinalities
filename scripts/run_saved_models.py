@@ -42,18 +42,19 @@ def main():
         else:
             res_dir = args.result_dir
 
-        if os.path.exists(model_dir + "/done.pkl"):
-            print("continuing because done")
-            continue
+        # if os.path.exists(model_dir + "/done.pkl"):
+            # print("continuing because done")
+            # continue
 
-        if os.path.exists(model_dir + "/cm1_jerr.pkl"):
-            continue
+        # if os.path.exists(model_dir + "/cm1_jerr.pkl"):
+            # continue
 
         if not os.path.exists(model_dir + "/model_weights.pt"):
+            print("no model weights")
             continue
 
-        if i < 4:
-            continue
+        # if i < 4:
+            # continue
 
         print(model_dir)
         cmd = RUN_TMP.format(MODEL_DIR = model_dir,
