@@ -99,7 +99,7 @@ def read_flags():
     parser.add_argument("--explain", type=int, required=False,
             default=1)
     parser.add_argument("--timeout", type=int, required=False,
-            default=900)
+            default=900000)
     parser.add_argument("--materialize", type=int, required=False,
             default=0)
     parser.add_argument("--rerun_timeouts", type=int, required=False,
