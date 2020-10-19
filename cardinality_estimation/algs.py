@@ -139,6 +139,11 @@ class Postgres(CardinalityEstimationAlg):
             for alias_key in nodes:
                 info = sample["subset_graph"].nodes()[alias_key]
                 true_card = info["cardinality"]["actual"]
+
+                if "expected" not in info["cardinality"]:
+                    print("no find expected :(")
+                    pdb.set_trace()
+
                 if true_card >= CROSS_JOIN_CONSTANT:
                     est = true_card
                 else:
