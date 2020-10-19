@@ -1,17 +1,20 @@
 MIN_QERRS=(1.0)
 DECAY=0.1
-#DIFF_SEEDS=(2 7 8 9)
-DIFF_SEEDS=(10 1 3 5)
+DIFF_SEEDS=(9 1 3 5)
+#DIFF_SEEDS=(10 6 2 7 8 9 1 3 5)
 
 #DIFF_SEEDS=(6)
 
 PRIORITY=0.0
-MAX_EPOCHS=(20)
+MAX_EPOCHS=(1)
+#MAX_EPOCHS=(10)
 BUCKETS=10
 FLOW_FEATS=1
 LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
+#RES_DIR=all_results/vldb/test_diff/mscn/best_hyp_run1/
+RES_DIR=debug1
 
 ALG=$1
 LOSS_FUNC=$2
@@ -40,6 +43,7 @@ SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=500
 EVAL_ON_JOB=0
 
+echo "running DEBUG version"
 for i in "${!WEIGHTED_MSES[@]}";
 do
   #for j in "${!NUM_HLS[@]}";
@@ -49,6 +53,7 @@ do
     do
     CMD="time python3 main.py --algs $ALG -n -1 \
      --loss_func $LOSS_FUNC \
+     --debug_set 1 \
      --no7a $No7 \
      --nn_type $NN_TYPE \
      --num_workers $NUM_WORKERS \
@@ -60,7 +65,7 @@ do
      --weighted_mse ${WEIGHTED_MSES[$i]} \
      --weight_decay $DECAY \
      --exp_prefix runAllDiff \
-     --result_dir all_results/vldb/test_diff/mscn/best_hyp_run1/
+     --result_dir $RES_DIR \
      --max_epochs ${MAX_EPOCHS[$j]} \
      --cost_model nested_loop_index7 \
      --eval_epoch $EVAL_EPOCH \
@@ -77,8 +82,8 @@ do
      --min_qerr 1.00 \
      --eval_on_job $EVAL_ON_JOB \
      --feat_rel_pg_ests  0 \
-     --feat_rel_pg_ests_onehot  0 \
-     --feat_pg_est_one_hot  0 \
+     --feat_rel_pg_ests_onehot 0 \
+     --feat_pg_est_one_hot 0 \
      --flow_features $FLOW_FEATS --feat_tolerance 0 \
      --max_discrete_featurizing_buckets $BUCKETS --lr $LR"
     echo $CMD

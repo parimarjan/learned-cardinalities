@@ -53,7 +53,7 @@ def main():
             print("no model weights")
             continue
 
-        # if i < 4:
+        # if i < 1:
             # continue
 
         print(model_dir)
@@ -64,9 +64,9 @@ def main():
                 JOB = args.eval_on_job,
                 RES_DIR = res_dir)
 
-        # os.system(cmd)
-        p = sp.Popen(cmd, shell=True)
-        p.wait()
+        os.system(cmd)
+        # p = sp.Popen(cmd, shell=True)
+        # p.wait()
 
         done = []
         save_object(model_dir + "/done.pkl", done)

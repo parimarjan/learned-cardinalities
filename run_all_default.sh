@@ -5,7 +5,7 @@ NN_TYPE=$3
 DECAY=$4
 SAMPLE_BITMAP_BUCKETS=1000
 SAMPLE_BITMAP=$5
-PRELOAD_FEATURES=3
+PRELOAD_FEATURES=1
 NUM_MSE_ANCHORING=$6
 MAX_EPOCHS=$8
 FLOW_FEATS=$7
@@ -23,17 +23,16 @@ COST_MODEL=nested_loop_index7
 
 NHL=2
 #RES_DIR=all_results/vldb/default/sample_bitmaps
-RES_DIR=all_results/vldb/val/default/run1
+RES_DIR=all_results/vldb/default/mscn/
 BUCKETS=10
-HLS=512
+HLS=128
 
 LOAD_QUERY_TOGTHER=0
 #BUCKETS=10
 #HLS=(512)
 #DECAYS=(0.1)
 #MIN_QERRS=(2.0 4.0 8.0 16.0 32.0 64.0)
-NUM_PAR=40
-
+NUM_PAR=20
 
 for i in "${!WEIGHTED_MSES[@]}";
   do

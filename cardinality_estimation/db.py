@@ -90,6 +90,11 @@ class DB():
         # basis (maybe we should not precompute these?)
         self.query_info = {}
 
+        # these need to be consistent across all featurizations for this db
+        self.max_tables = 0
+        self.max_joins = 0
+        self.max_preds = 0
+
     def get_entropies(self):
         '''
         pairwise entropies among all columns of the db?
@@ -1090,6 +1095,23 @@ class DB():
         # pdb.set_trace()
         if qrep["template_name"] not in self.templates:
             self.templates.append(qrep["template_name"])
+
+        node_data = qrep["join_graph"].nodes(data=True)
+
+        num_tables = len(node_data)
+        if num_tables > self.max_tables:
+            self.max_tables = num_tables
+
+        num_preds = 0
+        for node, info in node_data:
+            num_preds += len(info["pred_cols"])
+
+        if num_preds > self.max_preds:
+            self.max_preds = num_preds
+
+        num_joins = len(qrep["join_graph"].edges())
+        if num_joins > self.max_joins:
+            self.max_joins = num_joins
 
         cur_columns = []
         for node, info in qrep["join_graph"].nodes(data=True):

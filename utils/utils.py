@@ -81,14 +81,18 @@ def save_object(file_name, data, use_csv=False):
         data.to_csv(file_name.replace(".pkl", ".csv"), sep="|", index=False)
         return
 
-    with open(file_name, "wb") as f:
+    tmp_fn = file_name + ".tmp"
+    with open(tmp_fn, "wb") as f:
         pickle.dump(data, f,
-                protocol=pickle.HIGHEST_PROTOCOL)
+                protocol=4)
+    os.rename(tmp_fn, file_name)
 
 def save_object_gzip(file_name, data):
     # with open(file_name, "wb") as f:
         # res = f.write(pickle.dumps(data))
-    pickle.dump(data, gzip.open(file_name, 'wb'))
+    tmp_fn = file_name + ".tmp"
+    pickle.dump(data, gzip.open(tmp_fn, 'wb'))
+    os.rename(tmp_fn, file_name)
 
 def load_object_gzip(file_name):
     res = None
