@@ -1867,13 +1867,13 @@ class NN(CardinalityEstimationAlg):
         results["query_stats"] = self.query_stats
         results["query_qerr_stats"] = self.query_qerr_stats
 
-        with open(fn, 'wb') as fp:
-            pickle.dump(results, fp,
-                    protocol=4)
-            sfn = exp_dir + "/" + "subq_summary.pkl"
-            with open(sfn, 'wb') as fp:
-                pickle.dump(self.subquery_summary_data, fp,
-                        protocol=4)
+        # with open(fn, 'wb') as fp:
+            # pickle.dump(results, fp,
+                    # protocol=4)
+            # sfn = exp_dir + "/" + "subq_summary.pkl"
+            # with open(sfn, 'wb') as fp:
+                # pickle.dump(self.subquery_summary_data, fp,
+                        # protocol=4)
 
     def num_parameters(self):
         def _calc_size(net):

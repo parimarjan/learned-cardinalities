@@ -9,17 +9,18 @@ LOSSES=join-loss,qerr
 #FLOW_FEATS=(1 0)
 FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
-ONE_HOT_ESTS=(0)
-REL_ESTS=(1 0)
+ONE_HOT_ESTS=(1)
+REL_ESTS=(1)
+RES_DIR=all_results/vldb/default/hyp_sweep2
+EVAL_JOB=1
 
-DECAYS=(0.0 1.0 0.1)
+DECAYS=(1.0 0.1)
 #DECAYS=(1.0)
-#LRS=(0.001 0.0001)
-#LRS=(0.00005)
+#LRS=(0.0001)
 LRS=(0.0001)
 #HLS=(128 256)
 MAX_EPOCHS=(10)
-HLS=(128)
+HLS=(256)
 
 NORM_FLOW_LOSS=(1)
 NUM_MSE_ANCHORING=(-3)
@@ -87,7 +88,7 @@ do
      --feat_pg_est_one_hot ${ONE_HOT_ESTS[$onehot]} \
      --max_discrete_featurizing_buckets $BUCKETS \
      --exp_prefix default \
-     --result_dir all_results/vldb/default/hyp_sweep2 \
+     --result_dir $RES_DIR \
      --eval_epoch $EVAL_EPOCH --join_loss_pool_num $NUM_PAR \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
      --eval_epoch_plan_err 40 \
@@ -98,7 +99,7 @@ do
      --sample_bitmap_num 1000 \
      --sample_bitmap_buckets $SAMPLE_BITMAP_BUCKETS \
      --min_qerr 1.00 \
-     --eval_on_job 0 \
+     --eval_on_job $EVAL_JOB \
      --feat_tolerance 0"
     echo $CMD
     eval $CMD

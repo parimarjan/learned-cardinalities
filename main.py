@@ -46,6 +46,10 @@ OVERLAP_DIR_TMP = "{RESULT_DIR}/{DIFF_TEMPLATES_TYPE}/"
 def get_alg(alg):
     if alg == "independent":
         return Independent()
+    elif alg == "saved":
+        print("alg is saved!")
+        assert args.model_dir is not None
+        return SavedPreds(model_dir=args.model_dir)
 
     elif alg == "xgboost":
         return XGBoost(grid_search = args.grid_search,
@@ -379,7 +383,7 @@ def load_samples(qfns, db, found_db, template_name,
         # print("going to call pool!")
         qreps = pool.starmap(load_sql_rep, par_args)
 
-    for qrep in qreps:
+    for qi, qrep in enumerate(qreps):
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
         if SOURCE_NODE in nodes:
@@ -449,7 +453,7 @@ def load_samples(qfns, db, found_db, template_name,
             skipped += 1
             continue
 
-        qrep["name"] = qfn
+        qrep["name"] = qfns[qi]
         qrep["template_name"] = template_name
         samples.append(qrep)
 
@@ -838,7 +842,7 @@ def main():
     else:
         load_test_samples = True
 
-    if args.model_dir is not None:
+    if args.model_dir is not None and args.algs == "nn":
         old_args = load_object(args.model_dir + "/args.pkl")
 
         # going to keep old args for most params, except these:
@@ -880,7 +884,7 @@ def main():
 
     del(job_queries[:])
 
-    if args.model_dir is not None:
+    if args.model_dir is not None and args.algs == "nn":
         args.num_samples_per_template = old_num_samples
 
     if args.only_compute_overlap:
@@ -904,6 +908,7 @@ def main():
     losses = []
     for alg_name in args.algs.split(","):
         algorithms.append(get_alg(alg_name))
+
     for loss_name in args.losses.split(","):
         losses.append(get_loss(loss_name))
 

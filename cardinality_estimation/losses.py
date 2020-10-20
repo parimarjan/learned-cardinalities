@@ -207,14 +207,26 @@ def compute_qerror(queries, preds, **kwargs):
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
 
+    # here, we assume that the alg name is unique enough, for their results to
+    # be grouped together
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
 
-    # here, we assume that the alg name is unique enough, for their results to
-    # be grouped together
     rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
                                    ALG = exp_name)
     make_dir(rdir)
+
+    pred_fn = rdir + "/" + "preds.pkl"
+    all_preds = {}
+
+    for i, q in enumerate(queries):
+        all_preds[q["name"]] = preds[i]
+
+    old_results = load_object_gzip(pred_fn)
+    if old_results is not None:
+        all_preds.update(old_results)
+
+    save_object_gzip(pred_fn, all_preds)
 
     ytrue, yhat, _ = _get_all_cardinalities(queries, preds)
     ytrue = np.array(ytrue)
@@ -239,19 +251,6 @@ def compute_qerror(queries, preds, **kwargs):
     errors = np.abs(np.array(errors))
     df = qerr_loss_stats(queries, errors,
             samples_type, -1)
-
-    pred_fn = rdir + "/" + "preds.pkl"
-
-    all_preds = {}
-    for i, q in enumerate(queries):
-        all_preds[q["name"]] = preds[i]
-
-    old_results = load_object_gzip(pred_fn)
-    if old_results is not None:
-        # df = pd.concat([old_results, df], ignore_index=True)
-        # old_results.update(all_preds
-        all_preds.update(old_results)
-    save_object_gzip(pred_fn, all_preds)
 
     fn = rdir + "/" + "qerr.pkl"
     # args_fn = rdir + "/" + "args.pkl"

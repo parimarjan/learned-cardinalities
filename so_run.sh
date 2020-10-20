@@ -4,7 +4,7 @@ LR=0.0001
 DECAY=1.0
 HLS=128
 BUCKETS=10
-EPOCHS=30
+EPOCHS=50
 
 RES_DIR=all_results/vldb/so/test_diff/mscn/run3
 RES_DIR2=all_results/vldb/so/test_diff/mscn/run2
