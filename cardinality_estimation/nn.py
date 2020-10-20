@@ -628,7 +628,7 @@ class NN(CardinalityEstimationAlg):
             assert False
 
         if self.load_query_together:
-            self.mb_size = 4
+            self.mb_size = 8
             self.eval_batch_size = 1
         else:
             self.mb_size = 2500

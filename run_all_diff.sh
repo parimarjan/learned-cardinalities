@@ -13,8 +13,8 @@ FLOW_FEATS=1
 LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
-#RES_DIR=all_results/vldb/test_diff/mscn/best_hyp_run1/
-RES_DIR=debug1
+RES_DIR=all_results/vldb/test_diff/mscn/best_hyp_run1/
+#RES_DIR=debug1
 
 ALG=$1
 LOSS_FUNC=$2
