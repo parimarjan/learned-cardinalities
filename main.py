@@ -690,6 +690,7 @@ def load_all_qrep_data(load_job_queries,
     if db is not None:
         db.init_featurizer(num_tables_feature = args.num_tables_feature,
                 separate_regex_bins = args.separate_regex_bins,
+                separate_cont_bins = args.separate_cont_bins,
                 featurization_type = feat_type,
                 max_discrete_featurizing_buckets =
                 args.max_discrete_featurizing_buckets,
@@ -1042,6 +1043,8 @@ def read_flags():
             default=0)
     parser.add_argument("--separate_regex_bins", type=int, required=False,
             default=1)
+    parser.add_argument("--separate_cont_bins", type=int, required=False,
+            default=1)
     parser.add_argument("--n_estimators", type=int, required=False,
             default=500)
     parser.add_argument("--max_depth", type=int, required=False,
@@ -1209,7 +1212,7 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_qerr", type=int,
-            required=False, default=100)
+            required=False, default=2)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_flow_err", type=int,

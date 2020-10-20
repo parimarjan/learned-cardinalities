@@ -632,7 +632,7 @@ class NN(CardinalityEstimationAlg):
             assert False
 
         if self.load_query_together:
-            # self.mb_size = 4
+            self.mb_size = 8
             self.eval_batch_size = 1
         else:
             self.mb_size = 2500
@@ -1869,13 +1869,11 @@ class NN(CardinalityEstimationAlg):
 
         with open(fn, 'wb') as fp:
             pickle.dump(results, fp,
-                    protocol=pickle.HIGHEST_PROTOCOL)
-
-        if hasattr(self, "subquery_summary_data"):
+                    protocol=4)
             sfn = exp_dir + "/" + "subq_summary.pkl"
             with open(sfn, 'wb') as fp:
                 pickle.dump(self.subquery_summary_data, fp,
-                        protocol=pickle.HIGHEST_PROTOCOL)
+                        protocol=4)
 
     def num_parameters(self):
         def _calc_size(net):

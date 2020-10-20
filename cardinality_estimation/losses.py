@@ -240,6 +240,19 @@ def compute_qerror(queries, preds, **kwargs):
     df = qerr_loss_stats(queries, errors,
             samples_type, -1)
 
+    pred_fn = rdir + "/" + "preds.pkl"
+
+    all_preds = {}
+    for i, q in enumerate(queries):
+        all_preds[q["name"]] = preds[i]
+
+    old_results = load_object_gzip(pred_fn)
+    if old_results is not None:
+        # df = pd.concat([old_results, df], ignore_index=True)
+        # old_results.update(all_preds
+        all_preds.update(old_results)
+    save_object_gzip(pred_fn, all_preds)
+
     fn = rdir + "/" + "qerr.pkl"
     # args_fn = rdir + "/" + "args.pkl"
     # save_object(args_fn, args)

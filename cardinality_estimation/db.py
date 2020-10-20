@@ -166,6 +166,7 @@ class DB():
     def init_featurizer(self, heuristic_features=True,
             num_tables_feature=False,
             separate_regex_bins=True,
+            separate_cont_bins=True,
             featurization_type="combined",
             max_discrete_featurizing_buckets=10,
             flow_features = True,
@@ -207,6 +208,7 @@ class DB():
         self.flow_features = flow_features
         self.featurization_type = featurization_type
         self.separate_regex_bins = separate_regex_bins
+        self.separate_cont_bins = separate_cont_bins
 
         # let's figure out the feature len based on db.stats
         assert self.featurizer is None
@@ -294,6 +296,11 @@ class DB():
                 pred_len += self.continuous_feature_size
                 continuous = True
             else:
+                # so they don't clash with each other
+                if self.separate_cont_bins \
+                    and self.featurization_type == "set":
+                    pred_len += self.continuous_feature_size
+
                 # use 1-hot encoding
                 num_buckets = min(self.max_discrete_featurizing_buckets,
                         info["num_values"])
@@ -775,6 +782,9 @@ class DB():
                 preds_vector[-1] = pred_est
 
             if not continuous:
+                if self.separate_cont_bins:
+                    pred_idx_start += self.continuous_feature_size
+
                 if "like" in cmp_op:
                     assert len(val) == 1
                     num_buckets = min(self.max_discrete_featurizing_buckets,

@@ -78,7 +78,8 @@ def gen_gaussian_data(means, covs, num):
 
 def save_object(file_name, data, use_csv=False):
     if isinstance(data, pd.DataFrame) and use_csv:
-        data.to_csv(file_name.replace(".pkl", ".csv"), sep="|", index=False)
+        data.to_csv(file_name.replace(".pkl", ".csv"), sep="|", index=False,
+                encoding="utf-8")
         return
 
     tmp_fn = file_name + ".tmp"
