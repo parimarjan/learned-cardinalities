@@ -3,6 +3,9 @@ PRIORITY=0.0
 LOSS_FUNC=$1
 NN_TYPE=$2
 LR=$3
+REL=0
+ONEHOT=0
+
 TEST_SIZE=0.5
 HLS=128
 BUCKETS=25
@@ -33,9 +36,9 @@ CMD="time python3 main.py --algs $ALG -n -1 \
  --eval_epoch_plan_err 1000 \
  --hidden_layer_size $HLS --optimizer_name adamw \
  --test_diff_templates 0 \
- --feat_rel_pg_ests  1 \
- --feat_rel_pg_ests_onehot  1 \
- --feat_pg_est_one_hot  1 \
+ --feat_rel_pg_ests  $REL \
+ --feat_rel_pg_ests_onehot  $ONEHOT \
+ --feat_pg_est_one_hot  $ONEHOT \
  --flow_features $FLOW_FEATS --feat_tolerance 0 \
  --max_discrete_featurizing_buckets $BUCKETS"
 echo $CMD

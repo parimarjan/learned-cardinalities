@@ -14,6 +14,8 @@ NORM_FLOW_LOSS=$9
 
 USE_VAL_SET=1
 WEIGHTED_MSES=(0.0)
+QUERY_MB_SIZE=8
+EVAL_ON_JOB=0
 
 PRIORITY=0.0
 EVAL_EPOCH=100
@@ -39,6 +41,7 @@ for i in "${!WEIGHTED_MSES[@]}";
   CMD="time python3 main.py --algs nn -n -1 \
    --hidden_layer_size $HLS \
    --use_val_set $USE_VAL_SET \
+   --query_mb_size $QUERY_MB_SIZE \
    --weighted_mse ${WEIGHTED_MSES[$i]} \
    --num_mse_anchoring $NUM_MSE_ANCHORING \
    --num_hidden_layers $NHL \
@@ -62,10 +65,10 @@ for i in "${!WEIGHTED_MSES[@]}";
    --eval_epoch $EVAL_EPOCH --join_loss_pool_num $NUM_PAR \
    --optimizer_name adamw \
    --normalize_flow_loss $NORM_FLOW_LOSS \
-   --eval_on_job 1 \
-   --feat_rel_pg_ests  1 \
-   --feat_rel_pg_ests_onehot  1 \
-   --feat_pg_est_one_hot  1 \
+   --eval_on_job $EVAL_ON_JOB \
+   --feat_rel_pg_ests  0 \
+   --feat_rel_pg_ests_onehot  0 \
+   --feat_pg_est_one_hot  0 \
    --flow_features $FLOW_FEATS --feat_tolerance 0 \
    --lr $LR"
     echo $CMD

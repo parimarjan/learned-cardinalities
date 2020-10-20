@@ -49,6 +49,12 @@ def get_alg(alg):
 
     elif alg == "xgboost":
         return XGBoost(grid_search = args.grid_search,
+                eval_epoch_qerr = args.eval_epoch_qerr,
+                validation_epoch = args.validation_epoch,
+                use_set_padding = args.use_set_padding,
+                unnormalized_mse = args.unnormalized_mse,
+                num_workers = args.num_workers,
+                switch_loss_fn_epoch = args.switch_loss_fn_epoch,
                 tree_method = args.xgb_tree_method,
                 n_estimators = args.n_estimators,
                 max_depth = args.max_depth,
@@ -117,7 +123,7 @@ def get_alg(alg):
                     num_tables_feature = args.num_tables_feature,
                     max_discrete_featurizing_buckets =
                             args.max_discrete_featurizing_buckets,
-                    nn_type = args.nn_type,
+                    nn_type = "microsoft",
                     group_models = args.group_models,
                     adaptive_lr_patience = args.adaptive_lr_patience,
                     # single_threaded_nt = args.single_threaded_nt,
@@ -153,6 +159,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                mb_size = args.query_mb_size,
                 eval_epoch_qerr = args.eval_epoch_qerr,
                 validation_epoch = args.validation_epoch,
                 use_set_padding = args.use_set_padding,
@@ -457,7 +464,7 @@ def load_samples(qfns, db, found_db, template_name,
 
     if "job" in template_name:
         update_samples(samples, args.flow_features,
-                args.cost_model, False)
+                args.cost_model, False, args.db_name)
 
     if not found_db:
         # print("not found db!!")
@@ -862,13 +869,13 @@ def main():
                     pool=join_loss_pool)
 
     update_samples(train_queries, args.flow_features,
-            args.cost_model, args.debug_set)
+            args.cost_model, args.debug_set, args.db_name)
     if len(test_queries) > 0:
         update_samples(test_queries, args.flow_features,
-                args.cost_model, args.debug_set)
+                args.cost_model, args.debug_set, args.db_name)
     if len(val_queries) > 0:
         update_samples(val_queries, args.flow_features,
-                args.cost_model, args.debug_set)
+                args.cost_model, args.debug_set, args.db_name)
 
     del(job_queries[:])
 
@@ -970,7 +977,7 @@ def main():
                     load_all_qrep_data(False, False, False, True, False,
                             pool=join_loss_pool)
             update_samples(train_queries, args.flow_features,
-                    args.cost_model, args.debug_set)
+                    args.cost_model, args.debug_set, args.db_name)
 
         start = time.time()
 
@@ -984,7 +991,7 @@ def main():
                                 pool=join_loss_pool)
             assert len(val_queries) > 0
             update_samples(val_queries, args.flow_features,
-                    args.cost_model, args.debug_set)
+                    args.cost_model, args.debug_set, args.db_name)
             eval_alg(alg, losses, val_queries, "validation", join_loss_pool)
             del(val_queries[:])
 
@@ -993,7 +1000,7 @@ def main():
                     load_all_qrep_data(False, True,
                             False, False, False, pool=join_loss_pool)
             update_samples(test_queries, args.flow_features,
-                    args.cost_model, args.debug_set)
+                    args.cost_model, args.debug_set, args.db_name)
 
         # if args.test:
             # size = int(len(test_queries) / 10)
@@ -1029,6 +1036,8 @@ def gen_samples_hash():
 def read_flags():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--query_mb_size", type=int, required=False,
+            default=8)
     parser.add_argument("--grid_search", type=int, required=False,
             default=0)
     parser.add_argument("--separate_regex_bins", type=int, required=False,
@@ -1316,7 +1325,7 @@ def read_flags():
             # default="qerr,join-loss,flow-loss,plan-loss",
             # help="comma separated list of loss names")
     parser.add_argument("--losses", type=str, required=False,
-            default="qerr,join-loss,plan-loss,flow-loss",
+            default="qerr,join-loss",
             help="comma separated list of loss names")
 
     parser.add_argument("--result_dir", type=str, required=False,

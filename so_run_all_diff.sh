@@ -10,10 +10,12 @@ NN_TYPE=$7
 RES_DIR=$8
 FLOW_FEATS=0
 DECAY=$9
-DIFF_SEEDS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15)
+DIFF_SEEDS=(1 2 3 4 5 6 7 8 9 10)
 #MAX_EPOCHS=10
 EVAL_EPOCH=$MAX_EPOCHS
 #GRAD_CLIP=10.0
+REL=0
+ONEHOT=0
 
 #python3 main.py --algs nn --db_name so --query_dir so_workload/
 #--query_template 1,11,17,18,18b --test_diff 1 --diff_templates_type 3
@@ -40,9 +42,9 @@ for k in "${!DIFF_SEEDS[@]}";
 	 --hidden_layer_size $HLS --optimizer_name adamw \
 	 --test_diff_templates 1 --diff_templates_type 3 \
 	 --diff_templates_seed ${DIFF_SEEDS[$k]} \
-	 --feat_rel_pg_ests  1 \
-	 --feat_rel_pg_ests_onehot  1 \
-	 --feat_pg_est_one_hot  1 \
+	 --feat_rel_pg_ests  $REL \
+	 --feat_rel_pg_ests_onehot  $ONEHOT \
+	 --feat_pg_est_one_hot  $ONEHOT \
 	 --flow_features $FLOW_FEATS --feat_tolerance 0 \
 	 --max_discrete_featurizing_buckets $BUCKETS"
 	echo $CMD

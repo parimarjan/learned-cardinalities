@@ -765,7 +765,6 @@ class QueryDataset(data.Dataset):
                             use_saved=False)
 
             else:
-                assert len(x) == 7
                 x,y,cur_info = self._get_query_features(qrep, qidx, i)
 
             qidx += len(y)

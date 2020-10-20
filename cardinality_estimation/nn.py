@@ -128,7 +128,11 @@ UPDATE_TOLERANCES_PAR = False
 USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
-        debug_set):
+        debug_set, db_name):
+    global SOURCE_NODE
+    if db_name == "so":
+        SOURCE_NODE = tuple(["SOURCE"])
+
     REGEN_COSTS = True
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
@@ -628,7 +632,7 @@ class NN(CardinalityEstimationAlg):
             assert False
 
         if self.load_query_together:
-            self.mb_size = 4
+            # self.mb_size = 4
             self.eval_batch_size = 1
         else:
             self.mb_size = 2500

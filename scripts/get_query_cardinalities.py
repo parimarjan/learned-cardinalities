@@ -186,6 +186,14 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
     node_list = list(qrep["subset_graph"].nodes())
     node_list.sort(reverse=True, key = lambda x: len(x))
+    if args.db_name == "so":
+        source_node = tuple(["SOURCE"])
+        if source_node in node_list:
+            node_list.remove(source_node)
+
+    # if node_list
+    # print(node_list)
+    # pdb.set_trace()
     # for subqi, (subset, info) in enumerate(qrep["subset_graph"].nodes().items()):
     for subqi, subset in enumerate(node_list):
         info = qrep["subset_graph"].nodes()[subset]

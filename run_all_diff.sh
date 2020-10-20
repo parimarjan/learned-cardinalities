@@ -1,20 +1,21 @@
 MIN_QERRS=(1.0)
-DECAY=0.1
-DIFF_SEEDS=(9 1 3 5)
-#DIFF_SEEDS=(10 6 2 7 8 9 1 3 5)
+DECAY=1.0
+#DIFF_SEEDS=(9 1 3 5)
+DIFF_SEEDS=(1 3 5)
+#DIFF_SEEDS=(6 2 7 8 4)
 
 #DIFF_SEEDS=(6)
 
 PRIORITY=0.0
-MAX_EPOCHS=(1)
+MAX_EPOCHS=(10)
 #MAX_EPOCHS=(10)
 BUCKETS=10
 FLOW_FEATS=1
 LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
-#RES_DIR=all_results/vldb/test_diff/mscn/best_hyp_run1/
-RES_DIR=debug1
+RES_DIR=all_results/vldb/test_diff/mscn/best_hyp_run1/
+#RES_DIR=debug1
 
 ALG=$1
 LOSS_FUNC=$2
@@ -43,7 +44,6 @@ SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=500
 EVAL_ON_JOB=0
 
-echo "running DEBUG version"
 for i in "${!WEIGHTED_MSES[@]}";
 do
   #for j in "${!NUM_HLS[@]}";
@@ -53,7 +53,6 @@ do
     do
     CMD="time python3 main.py --algs $ALG -n -1 \
      --loss_func $LOSS_FUNC \
-     --debug_set 1 \
      --no7a $No7 \
      --nn_type $NN_TYPE \
      --num_workers $NUM_WORKERS \
