@@ -63,7 +63,8 @@ from sklearn.experimental import enable_hist_gradient_boosting  # noqa
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.ensemble import GradientBoostingRegressor
 
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
+# os.environ['KMP_DUPLICATE_LIB_OK']='True'
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 import torch.multiprocessing as mp
 try:
@@ -868,6 +869,8 @@ class NN(CardinalityEstimationAlg):
             else:
                 sample = None
 
+            ybatch = ybatch.to(device, non_blocking=True)
+            xbatch = xbatch.to(device, non_blocking=True)
             pred = net(xbatch).squeeze(1)
 
             if "flow_loss" in loss_fn_name:
@@ -1437,9 +1440,10 @@ class NN(CardinalityEstimationAlg):
         if net_name == "FCNN":
             # do training
             net = SimpleRegression(self.num_features,
-                    self.hidden_layer_multiple, 1,
+                    0, 1,
                     num_hidden_layers=self.num_hidden_layers,
-                    hidden_layer_size=self.hidden_layer_size)
+                    hidden_layer_size=self.hidden_layer_size,
+                    use_batch_norm = self.use_batch_norm)
         elif net_name == "FCNN-Query":
             assert self.load_query_together
             net = SimpleRegression(self.num_features*self.max_subqs,
@@ -1608,6 +1612,8 @@ class NN(CardinalityEstimationAlg):
             else:
                 all_idxs.append(info["dataset_idx"])
 
+            ybatch = ybatch.to(device, non_blocking=True)
+            xbatch = xbatch.to(device, non_blocking=True)
             pred = net(xbatch).squeeze(1)
             all_preds.append(pred)
             all_y.append(ybatch)
