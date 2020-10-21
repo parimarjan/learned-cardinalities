@@ -1,8 +1,11 @@
 MIN_QERRS=(1.0)
-DECAY=1.0
-#DIFF_SEEDS=(9 1 3 5)
-DIFF_SEEDS=(1 3 5)
-#DIFF_SEEDS=(6 2 7 8 4)
+DECAY=0.1
+#DIFF_SEEDS=(1 2 3 4 5)
+#DIFF_SEEDS=(6 7 8 9 10)
+#DIFF_SEEDS=(5 4 3 9)
+#DIFF_SEEDS=(3 9)
+#DIFF_SEEDS=(3 4)
+DIFF_SEEDS=(1 7)
 
 #DIFF_SEEDS=(6)
 
@@ -14,7 +17,7 @@ FLOW_FEATS=1
 LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
-RES_DIR=all_results/vldb/test_diff/mscn/best_hyp_run1/
+RES_DIR=all_results/vldb/test_diff/mscn/flow_final1
 #RES_DIR=debug1
 
 ALG=$1
@@ -23,7 +26,7 @@ NN_TYPE=$3
 NORM_FLOW_LOSS=1
 NUM_WORKERS=0
 
-HLS=128
+HLS=256
 NUM_HLS=2
 LOAD_QUERY_TOGETHER=0
 
@@ -80,9 +83,9 @@ do
      --sample_bitmap_buckets $SAMPLE_BITMAP_BUCKETS \
      --min_qerr 1.00 \
      --eval_on_job $EVAL_ON_JOB \
-     --feat_rel_pg_ests  0 \
-     --feat_rel_pg_ests_onehot 0 \
-     --feat_pg_est_one_hot 0 \
+     --feat_rel_pg_ests  1 \
+     --feat_rel_pg_ests_onehot 1 \
+     --feat_pg_est_one_hot 1 \
      --flow_features $FLOW_FEATS --feat_tolerance 0 \
      --max_discrete_featurizing_buckets $BUCKETS --lr $LR"
     echo $CMD

@@ -11,8 +11,8 @@ LR=0.0001
 #bash run_all_default.sh $LR mse $NN_TYPE 0.1 0 -1 $FF 10 1
 
 #bash run_all_default.sh $LR mse $NN_TYPE 0.1 0 -1 $FF 20 1
-#bash run_all_default.sh $LR mse $NN_TYPE 0.1 0 -1 $FF 20 1
+bash run_all_default.sh $LR mse $NN_TYPE 0.1 0 -1 $FF 20 1
 
 #bash run_all_default.sh $LR flow_loss2 $NN_TYPE 0.1 0 -1 $FF 10 1
 #bash run_all_default.sh $LR flow_loss2 $NN_TYPE 1.0 0 -1 $FF 10 1
-bash run_all_default.sh $LR flow_loss2 $NN_TYPE 1.0 0 -1 $FF 10 1
+#bash run_all_default.sh $LR flow_loss2 $NN_TYPE 1.0 0 -1 $FF 10 1

@@ -1,23 +1,23 @@
-ALG=nn
-LR=$1
+LR=0.0001
+ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
-DECAY=$4
+PRIORITY=0.0
+DECAY=1.0
 SAMPLE_BITMAP_BUCKETS=1000
-SAMPLE_BITMAP=$5
+SAMPLE_BITMAP=0
 PRELOAD_FEATURES=1
-NUM_MSE_ANCHORING=$6
-MAX_EPOCHS=$8
-FLOW_FEATS=$7
+NUM_MSE_ANCHORING=0
+MAX_EPOCHS=10
+FLOW_FEATS=1
 SWITCH_EPOCH=100000
-NORM_FLOW_LOSS=$9
+NORM_FLOW_LOSS=1
 
 USE_VAL_SET=1
 WEIGHTED_MSES=(0.0)
 QUERY_MB_SIZE=8
 EVAL_ON_JOB=0
 
-PRIORITY=0.0
 EVAL_EPOCH=100
 
 LOSSES=join-loss,qerr
@@ -25,7 +25,7 @@ COST_MODEL=nested_loop_index7
 
 NHL=2
 #RES_DIR=all_results/vldb/default/sample_bitmaps
-RES_DIR=all_results/vldb/default/mscn/
+RES_DIR=all_results/vldb/default/pr/
 BUCKETS=10
 HLS=128
 
@@ -66,9 +66,9 @@ for i in "${!WEIGHTED_MSES[@]}";
    --optimizer_name adamw \
    --normalize_flow_loss $NORM_FLOW_LOSS \
    --eval_on_job $EVAL_ON_JOB \
-   --feat_rel_pg_ests  0 \
-   --feat_rel_pg_ests_onehot  0 \
-   --feat_pg_est_one_hot  0 \
+   --feat_rel_pg_ests  1 \
+   --feat_rel_pg_ests_onehot  1 \
+   --feat_pg_est_one_hot  1 \
    --flow_features $FLOW_FEATS --feat_tolerance 0 \
    --lr $LR"
     echo $CMD

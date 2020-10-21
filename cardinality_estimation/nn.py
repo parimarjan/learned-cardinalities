@@ -632,7 +632,11 @@ class NN(CardinalityEstimationAlg):
             assert False
 
         if self.load_query_together:
-            self.mb_size = 8
+            if self.nn_type == "mscn_set":
+                self.mb_size = 8
+            else:
+                self.mb_size = 1
+
             self.eval_batch_size = 1
         else:
             self.mb_size = 2500
@@ -1821,7 +1825,7 @@ class NN(CardinalityEstimationAlg):
     def get_exp_name(self):
         '''
         '''
-        time_hash = str(deterministic_hash(self.start_time))[0:3]
+        time_hash = str(deterministic_hash(self.start_time))[0:6]
         name = "{PREFIX}{CM}-{NN}-{PRIORITY}-{PR_NORM}-D{DECAY}-{HASH}".format(\
                     PREFIX = self.exp_prefix,
                     NN = self.__str__(),

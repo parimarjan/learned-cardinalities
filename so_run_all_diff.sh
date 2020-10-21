@@ -8,14 +8,14 @@ BUCKETS=$5
 MAX_EPOCHS=$6
 NN_TYPE=$7
 RES_DIR=$8
-FLOW_FEATS=0
+FLOW_FEATS=1
 DECAY=$9
-DIFF_SEEDS=(1 2 3 4 5 6 7 8 9 10)
+DIFF_SEEDS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15)
 #MAX_EPOCHS=10
 EVAL_EPOCH=$MAX_EPOCHS
 #GRAD_CLIP=10.0
-REL=0
-ONEHOT=0
+REL=1
+ONEHOT=1
 
 #python3 main.py --algs nn --db_name so --query_dir so_workload/
 #--query_template 1,11,17,18,18b --test_diff 1 --diff_templates_type 3

@@ -225,10 +225,10 @@ def get_summary_df(results_dir):
             # print("SKIPPING PARTITION OVER 10")
             # continue
 
-        if exp_args["diff_templates_seed"] <= 5:
-            print(cur_dir)
-            print(exp_args["diff_templates_seed"])
-            print("*********")
+        # if exp_args["diff_templates_seed"] <= 5:
+            # print(cur_dir)
+            # print(exp_args["diff_templates_seed"])
+            # print("*********")
 
         if skip_exp(exp_args):
             print("skip exp!")
@@ -236,13 +236,18 @@ def get_summary_df(results_dir):
 
         try:
             qerrs = load_qerrs(cur_dir)
-            jerrs = load_jerrs(cur_dir, "nested_loop_index7_jerr.pkl", "jerr")
             cm1_jerrs = load_jerrs(cur_dir, "cm1_jerr.pkl", "cm1_jerr")
-            perrs = load_jerrs(cur_dir, "plan_err.pkl", "plan_err")
-            perrs_pg = load_jerrs(cur_dir, "plan_pg_err.pkl", "plan_pg_err")
-            ferrs = load_jerrs(cur_dir, "flow_err.pkl", "flow_err")
-        except:
-            print("skipping ", cur_dir)
+            # perrs = load_jerrs(cur_dir, "plan_err.pkl", "plan_err")
+            # perrs_pg = load_jerrs(cur_dir, "plan_pg_err.pkl", "plan_pg_err")
+            # ferrs = load_jerrs(cur_dir, "flow_err.pkl", "flow_err")
+            # jerrs = load_jerrs(cur_dir, "nested_loop_index7_jerr.pkl", "jerr")
+            jerrs = None
+            perrs = None
+            perrs_pg = None
+            ferrs = None
+        except Exception as e:
+            print(e)
+            print("skipping1 ", cur_dir)
             continue
 
         qerrs = qerrs[qerrs["num_tables"] == "all"]
