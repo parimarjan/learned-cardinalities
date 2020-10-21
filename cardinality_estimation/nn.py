@@ -133,7 +133,7 @@ def update_samples(samples, flow_features, cost_model,
     if db_name == "so":
         SOURCE_NODE = tuple(["SOURCE"])
 
-    REGEN_COSTS = True
+    REGEN_COSTS = False
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
@@ -3152,7 +3152,8 @@ class XGBoost(NN):
                     max_val = self.max_val,
                     card_key = self.train_card_key,
                     group = None, max_sequence_len=self.max_subqs,
-                    exp_name = self.get_exp_name())
+                    exp_name = self.get_exp_name(),
+                    use_set_padding=False)
 
         X = ds.X.cpu().numpy()
         Y = ds.Y.cpu().numpy()

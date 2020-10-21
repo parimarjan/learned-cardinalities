@@ -609,6 +609,7 @@ class QueryDataset(data.Dataset):
                 pred_features = self.db.get_pred_features(info["pred_cols"][0],
                         info["pred_vals"][0], info["pred_types"][0],
                         heuristic_est)
+            assert len(pred_features) == self.db.pred_features_len
             pred_feat_dict[node] = pred_features
 
         edge_data = qrep["join_graph"].edges(data=True)

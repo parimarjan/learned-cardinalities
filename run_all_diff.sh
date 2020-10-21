@@ -1,11 +1,11 @@
 MIN_QERRS=(1.0)
-DECAY=0.1
+DECAY=1.0
 #DIFF_SEEDS=(1 2 3 4 5)
 #DIFF_SEEDS=(6 7 8 9 10)
 #DIFF_SEEDS=(5 4 3 9)
 #DIFF_SEEDS=(3 9)
 #DIFF_SEEDS=(3 4)
-DIFF_SEEDS=(1 7)
+DIFF_SEEDS=(6 8)
 
 #DIFF_SEEDS=(6)
 
@@ -17,7 +17,7 @@ FLOW_FEATS=1
 LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
-RES_DIR=all_results/vldb/test_diff/mscn/flow_final1
+RES_DIR=all_results/vldb/test_diff/fcnn/sweep
 #RES_DIR=debug1
 
 ALG=$1

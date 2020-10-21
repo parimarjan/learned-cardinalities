@@ -686,7 +686,7 @@ def load_all_qrep_data(load_job_queries,
         misc_cache.archive[db_key] = db
     del(misc_cache)
 
-    if args.nn_type == "mscn_set":
+    if args.nn_type == "mscn_set" and args.algs == "nn":
         feat_type = "set"
     else:
         feat_type = "combined"
@@ -1217,7 +1217,7 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_qerr", type=int,
-            required=False, default=100)
+            required=False, default=2)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_flow_err", type=int,
