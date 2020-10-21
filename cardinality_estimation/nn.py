@@ -134,7 +134,7 @@ def update_samples(samples, flow_features, cost_model,
     if db_name == "so":
         SOURCE_NODE = tuple(["SOURCE"])
 
-    REGEN_COSTS = True
+    REGEN_COSTS = False
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
@@ -1440,9 +1440,10 @@ class NN(CardinalityEstimationAlg):
         if net_name == "FCNN":
             # do training
             net = SimpleRegression(self.num_features,
-                    self.hidden_layer_multiple, 1,
+                    0, 1,
                     num_hidden_layers=self.num_hidden_layers,
-                    hidden_layer_size=self.hidden_layer_size)
+                    hidden_layer_size=self.hidden_layer_size,
+                    use_batch_norm = self.use_batch_norm)
         elif net_name == "FCNN-Query":
             assert self.load_query_together
             net = SimpleRegression(self.num_features*self.max_subqs,
@@ -1611,6 +1612,8 @@ class NN(CardinalityEstimationAlg):
             else:
                 all_idxs.append(info["dataset_idx"])
 
+            ybatch = ybatch.to(device, non_blocking=True)
+            xbatch = xbatch.to(device, non_blocking=True)
             pred = net(xbatch).squeeze(1)
             all_preds.append(pred)
             all_y.append(ybatch)

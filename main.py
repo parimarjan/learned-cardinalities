@@ -163,6 +163,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                use_batch_norm = args.use_batch_norm,
                 mb_size = args.query_mb_size,
                 eval_epoch_qerr = args.eval_epoch_qerr,
                 validation_epoch = args.validation_epoch,
@@ -1217,9 +1218,11 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_qerr", type=int,
-            required=False, default=100)
+            required=False, default=2)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=1)
+    parser.add_argument("--use_batch_norm", type=int,
+            required=False, default=0)
     parser.add_argument("--eval_epoch_flow_err", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_plan_err", type=int,
