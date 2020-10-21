@@ -3,16 +3,18 @@ PRIORITY=0.0
 LOSS_FUNC=$1
 NN_TYPE=$2
 LR=$3
-REL=0
-ONEHOT=0
+HLS=128
+MAX_EPOCHS=30
+
+REL=1
+ONEHOT=1
+USE_VAL_SET=1
 
 TEST_SIZE=0.5
-HLS=128
-BUCKETS=25
-MAX_EPOCHS=50
+BUCKETS=10
 #EVAL_EPOCH=$MAX_EPOCHS
-EVAL_EPOCH=2
-RES_DIR=./vldb_results/so/default/lcs
+EVAL_EPOCH=1000
+RES_DIR=./all_results/vldb/so/default/final
 FLOW_FEATS=1
 DECAY=1.0
 #DIFF_SEEDS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15)
@@ -22,6 +24,7 @@ DECAY=1.0
 CMD="time python3 main.py --algs $ALG -n -1 \
  --loss_func $LOSS_FUNC \
  --lr $LR \
+ --use_val_set $USE_VAL_SET \
  --weight_decay $DECAY \
  --test_size $TEST_SIZE \
  --join_loss_pool_num 10 \
