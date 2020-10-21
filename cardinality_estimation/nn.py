@@ -63,7 +63,8 @@ from sklearn.experimental import enable_hist_gradient_boosting  # noqa
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.ensemble import GradientBoostingRegressor
 
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
+# os.environ['KMP_DUPLICATE_LIB_OK']='True'
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 import torch.multiprocessing as mp
 try:
@@ -864,6 +865,8 @@ class NN(CardinalityEstimationAlg):
             else:
                 sample = None
 
+            ybatch = ybatch.to(device, non_blocking=True)
+            xbatch = xbatch.to(device, non_blocking=True)
             pred = net(xbatch).squeeze(1)
 
             if "flow_loss" in loss_fn_name:
