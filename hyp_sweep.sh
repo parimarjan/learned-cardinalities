@@ -4,20 +4,22 @@ NN_TYPE=$3
 USE_VAL_SET=2
 NUM_WORKERS=0
 NO7=0
-#LOSSES=join-loss,qerr
-LOSSES=qerr
+LOSSES=qerr,flow-loss,join-loss
+#LOSSES=qerr
 
 #FLOW_FEATS=(1 0)
 FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
-ONE_HOT_ESTS=(0 1)
+ONE_HOT_ESTS=(1)
 REL_ESTS=(1)
 RES_DIR=all_results/vldb/default/hyp_sweep_fcnn
 EVAL_JOB=0
+BATCH_NORM=0
+MB_SIZE=4
 
-DECAYS=(1.0 0.1)
+DECAYS=(0.1 1.0)
 LRS=(0.0001 0.00005)
-MAX_EPOCHS=(10)
+MAX_EPOCHS=(20 10)
 HLS=(512)
 
 NORM_FLOW_LOSS=(1)
@@ -63,6 +65,8 @@ do
      --debug_set 0 --debug_ratio $DEBUG_RATIO \
      --no7a $NO7 \
      --losses $LOSSES \
+     --use_batch_norm $BATCH_NORM \
+     --query_mb_size $MB_SIZE \
      --use_set_padding $USE_SET_PADDING \
      --use_val_set $USE_VAL_SET \
      --loss_func $LOSS_FUNC \

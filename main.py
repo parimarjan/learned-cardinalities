@@ -478,9 +478,9 @@ def load_samples(qfns, db, found_db, template_name,
                 not args.add_job_features:
             return samples
 
-        elif "job" in template_name and \
-                args.nn_type == "mscn_set":
-            return samples
+        # elif "job" in template_name and \
+                # args.nn_type == "mscn_set":
+            # return samples
 
         elif args.test_diff_templates and \
                 not args.add_test_features and \
@@ -493,7 +493,8 @@ def load_samples(qfns, db, found_db, template_name,
                     return samples
 
         if db is not None:
-            print("db is not None!")
+            if "job" in template_name:
+                print("updating db w/ job features!")
             for sample in samples:
                 # not all samples may share all predicates etc. so updating
                 # them all. stats will not be recomputed for repeated columns
@@ -517,11 +518,12 @@ def load_all_qrep_data(load_job_queries,
                     args.query_templates + str(args.eval_on_job) + \
                     args.nn_type)
 
-        found_db = db_key in misc_cache.archive
+        found_db = db_key in misc_cache.archive and not args.regen_db
         # found_db = False
         if found_db:
             db = misc_cache.archive[db_key]
         else:
+            # turned on by default so we can update the db stats
             load_train_queries = True
             load_job_queries = True
             load_test_queries = True
@@ -822,6 +824,10 @@ def compare_overlap(train_queries, test_queries, test_kind):
 
 def main():
     global args
+    if args.lr == "0.001":
+        print("TEMPORARY: want to avoid 001 runs")
+        exit(0)
+
     if args.db_name == "so":
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
@@ -1043,8 +1049,10 @@ def gen_samples_hash():
 def read_flags():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--regen_db", type=int, required=False,
+            default=0)
     parser.add_argument("--query_mb_size", type=int, required=False,
-            default=8)
+            default=1)
     parser.add_argument("--grid_search", type=int, required=False,
             default=0)
     parser.add_argument("--separate_regex_bins", type=int, required=False,

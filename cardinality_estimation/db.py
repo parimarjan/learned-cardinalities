@@ -264,6 +264,11 @@ class DB():
         self.max_discrete_featurizing_buckets = max_discrete_featurizing_buckets
         self.featurizer = {}
         self.num_cols = len(self.column_stats)
+        all_cols = list(self.column_stats.keys())
+        all_cols.sort()
+        self.columns_onehot_idx = {}
+        for cidx, col_name in enumerate(all_cols):
+            self.columns_onehot_idx[col_name] = cidx
 
         self.pred_features_len = 0
         for i, cmp_op in enumerate(sorted(self.cmp_ops)):
@@ -322,6 +327,9 @@ class DB():
                 self.max_pred_len = pred_len
 
         if self.featurization_type == "set":
+            print("""adding one-hot vector to specify which column \
+                    predicate's column""")
+            self.max_pred_len += self.num_cols
             print("maximum length of single pred feature: ", self.max_pred_len)
 
         # for pg_est of all features combined
@@ -765,16 +773,24 @@ class DB():
         ## TODO: only difference is in computing pred_idx_start, otherwise both
         ## schemes seem same, so comine code + clean
         if self.featurization_type == "set":
+            feat_idx_start = 0
             preds_vector = np.zeros(self.max_pred_len)
             if col not in self.featurizer:
                 # print("col: {} not found in featurizer".format(col))
                 return preds_vector
 
+            assert col in self.column_stats
+            # column one-hot value
+            cidx = self.columns_onehot_idx[col]
+            preds_vector[cidx] = 1.0
+            feat_idx_start += len(self.columns_onehot_idx)
+
             cmp_op_idx, num_vals, continuous = self.featurizer[col]
             # set comparison operator 1-hot value, same for all types
             cmp_idx = self.cmp_ops_onehot[cmp_op]
-            preds_vector[cmp_idx] = 1.00
-            pred_idx_start = len(self.cmp_ops)
+            preds_vector[feat_idx_start + cmp_idx] = 1.00
+
+            pred_idx_start = feat_idx_start + len(self.cmp_ops)
             col_info = self.column_stats[col]
 
             # 1 additional value for pg_est feature

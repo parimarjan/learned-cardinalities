@@ -108,6 +108,20 @@ def collate_fn_set_batch(batch):
     # print(collated[0].shape, collated[1].shape, collated[2].shape)
     return collated
 
+def collate_fn_combined(batch):
+    collated = []
+    for i in range(len(batch[0])):
+        if i == 2:
+            infos = []
+            for b in batch:
+                infos.append(b[2])
+            collated.append(infos)
+        else:
+            cur_batch = [b[i] for b in batch]
+            collated.append(torch.cat(cur_batch, dim=0))
+
+    return collated
+
 def collate_fn(batch):
     # print(batch)
     # y = [b[6] for b in batch]
@@ -633,10 +647,12 @@ class NN(CardinalityEstimationAlg):
             assert False
 
         if self.load_query_together:
-            if self.nn_type == "mscn_set":
-                self.mb_size = 8
-            else:
-                self.mb_size = 1
+            # if self.nn_type == "mscn_set":
+                # self.mb_size = 8
+            # else:
+                # self.mb_size = 1
+            if self.nn_type == "microsoft" and self.mb_size > 1:
+                self.collate_fn = collate_fn_combined
 
             self.eval_batch_size = 1
         else:
@@ -860,12 +876,16 @@ class NN(CardinalityEstimationAlg):
             # TODO: add handling for num_tables
             if load_query_together:
                 # update the batches
-                xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
-                        xbatch.shape[2])
-                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
-                qidx = info[0]["query_idx"]
-                assert qidx == info[1]["query_idx"]
-                sample = None
+                if self.mb_size > 1:
+                    # TODO: should not need to be a separate thing
+                    sample = None
+                else:
+                    xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
+                            xbatch.shape[2])
+                    ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+                    qidx = info[0]["query_idx"]
+                    assert qidx == info[1]["query_idx"]
+                    sample = None
             else:
                 sample = None
 
@@ -875,16 +895,38 @@ class NN(CardinalityEstimationAlg):
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
-                subsetg_vectors, trueC_vec, opt_loss = \
-                        self.flow_training_info[qidx]
+                if self.mb_size > 1:
+                    ybatch = ybatch.detach().cpu()
+                    qstart = 0
+                    losses = []
+                    for cur_info in info:
+                        qidx = cur_info[0]["query_idx"]
+                        assert qidx == cur_info[1]["query_idx"]
+                        subsetg_vectors, trueC_vec, opt_loss = \
+                                self.flow_training_info[qidx]
 
-                assert len(subsetg_vectors) == 8
+                        assert len(subsetg_vectors) == 8
 
-                losses = loss_fn(pred, ybatch.detach().cpu(),
-                        normalization_type, min_val,
-                        max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
-                        self.normalize_flow_loss,
-                        self.join_loss_pool, self.cost_model)
+                        cur_loss = loss_fn(pred[qstart:qstart+len(cur_info)],
+                                ybatch[qstart:qstart+len(cur_info)],
+                                normalization_type, min_val,
+                                max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
+                                self.normalize_flow_loss,
+                                self.join_loss_pool, self.cost_model)
+                        losses.append(cur_loss)
+                        qstart += len(cur_info)
+                    losses = torch.stack(losses)
+                else:
+                    subsetg_vectors, trueC_vec, opt_loss = \
+                            self.flow_training_info[qidx]
+
+                    assert len(subsetg_vectors) == 8
+
+                    losses = loss_fn(pred, ybatch.detach().cpu(),
+                            normalization_type, min_val,
+                            max_val, [(subsetg_vectors, trueC_vec, opt_loss)],
+                            self.normalize_flow_loss,
+                            self.join_loss_pool, self.cost_model)
             else:
                 losses = loss_fn(pred, ybatch)
 
@@ -1605,10 +1647,15 @@ class NN(CardinalityEstimationAlg):
         for idx, (xbatch, ybatch,info) in enumerate(loader):
             if self.load_query_together:
                 # update the batches
-                xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
-                        xbatch.shape[2])
-                ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
-                all_idxs.append(0)
+                if self.mb_size == 1:
+                    xbatch = xbatch.reshape(xbatch.shape[0]*xbatch.shape[1],
+                            xbatch.shape[2])
+                    ybatch = ybatch.reshape(ybatch.shape[0]*ybatch.shape[1])
+                    all_idxs.append(0)
+                else:
+                    assert self.eval_batch_size == 1
+                    # FIXME: does it not matter at all?
+                    all_idxs.append(0)
             else:
                 all_idxs.append(info["dataset_idx"])
 
