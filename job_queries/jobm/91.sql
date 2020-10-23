@@ -1,0 +1,2 @@
+
+SELECT COUNT(*) FROM info_type AS it,keyword AS k,movie_info_idx AS mi_idx,movie_keyword AS mk,title AS t WHERE t.production_year > 2005 AND k.keyword LIKE '%sequel%' AND mi_idx.info > '5.0' AND it.info = 'rating' AND t.id = mi_idx.movie_id AND t.id = mk.movie_id AND mi_idx.movie_id = mk.movie_id AND mi_idx.info_type_id = it.id AND mk.keyword_id = k.id

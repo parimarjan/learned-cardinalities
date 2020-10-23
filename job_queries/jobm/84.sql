@@ -1,0 +1,2 @@
+
+SELECT COUNT(*) FROM keyword AS k,link_type AS lt,movie_keyword AS mk,movie_link AS ml,title AS t1 WHERE k.keyword = 'character-name-in-title' AND mk.keyword_id = k.id AND mk.movie_id = t1.id AND t1.id = ml.movie_id AND ml.link_type_id = lt.id

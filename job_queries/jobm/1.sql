@@ -1,0 +1,1 @@
+SELECT COUNT(*) FROM cast_info AS ci,company_name AS cn,company_type AS ct,movie_companies AS mc,title AS t WHERE t.production_year > 2005 AND ci.note LIKE '%(voice)%' AND ci.note LIKE '%(uncredited)%' AND cn.country_code = '[ru]' AND t.id = mc.movie_id AND t.id = ci.movie_id AND mc.movie_id = ci.movie_id AND mc.company_id = cn.id AND mc.company_type_id = ct.id

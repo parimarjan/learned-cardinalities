@@ -1,0 +1,2 @@
+
+SELECT COUNT(*) FROM cast_info AS ci,company_name AS cn,keyword AS k,movie_companies AS mc,movie_keyword AS mk,title AS t WHERE t.episode_nr >= 5 AND t.episode_nr < 100 AND k.keyword = 'character-name-in-title' AND cn.country_code = '[us]' AND ci.movie_id = t.id AND ci.movie_id = mc.movie_id AND ci.movie_id = mk.movie_id AND t.id = mk.movie_id AND t.id = mc.movie_id AND mk.keyword_id = k.id AND mk.movie_id = mc.movie_id AND mc.company_id = cn.id
