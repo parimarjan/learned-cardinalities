@@ -90,6 +90,11 @@ class DB():
         # basis (maybe we should not precompute these?)
         self.query_info = {}
 
+        # these need to be consistent across all featurizations for this db
+        self.max_tables = 0
+        self.max_joins = 0
+        self.max_preds = 0
+
     def get_entropies(self):
         '''
         pairwise entropies among all columns of the db?
@@ -161,6 +166,7 @@ class DB():
     def init_featurizer(self, heuristic_features=True,
             num_tables_feature=False,
             separate_regex_bins=True,
+            separate_cont_bins=True,
             featurization_type="combined",
             max_discrete_featurizing_buckets=10,
             flow_features = True,
@@ -202,6 +208,7 @@ class DB():
         self.flow_features = flow_features
         self.featurization_type = featurization_type
         self.separate_regex_bins = separate_regex_bins
+        self.separate_cont_bins = separate_cont_bins
 
         # let's figure out the feature len based on db.stats
         assert self.featurizer is None
@@ -257,6 +264,11 @@ class DB():
         self.max_discrete_featurizing_buckets = max_discrete_featurizing_buckets
         self.featurizer = {}
         self.num_cols = len(self.column_stats)
+        all_cols = list(self.column_stats.keys())
+        all_cols.sort()
+        self.columns_onehot_idx = {}
+        for cidx, col_name in enumerate(all_cols):
+            self.columns_onehot_idx[col_name] = cidx
 
         self.pred_features_len = 0
         for i, cmp_op in enumerate(sorted(self.cmp_ops)):
@@ -289,6 +301,11 @@ class DB():
                 pred_len += self.continuous_feature_size
                 continuous = True
             else:
+                # so they don't clash with each other
+                if self.separate_cont_bins \
+                    and self.featurization_type == "set":
+                    pred_len += self.continuous_feature_size
+
                 # use 1-hot encoding
                 num_buckets = min(self.max_discrete_featurizing_buckets,
                         info["num_values"])
@@ -310,6 +327,9 @@ class DB():
                 self.max_pred_len = pred_len
 
         if self.featurization_type == "set":
+            print("""adding one-hot vector to specify which column \
+                    predicate's column""")
+            self.max_pred_len += self.num_cols
             print("maximum length of single pred feature: ", self.max_pred_len)
 
         # for pg_est of all features combined
@@ -753,16 +773,24 @@ class DB():
         ## TODO: only difference is in computing pred_idx_start, otherwise both
         ## schemes seem same, so comine code + clean
         if self.featurization_type == "set":
+            feat_idx_start = 0
             preds_vector = np.zeros(self.max_pred_len)
             if col not in self.featurizer:
                 # print("col: {} not found in featurizer".format(col))
                 return preds_vector
 
+            assert col in self.column_stats
+            # column one-hot value
+            cidx = self.columns_onehot_idx[col]
+            preds_vector[cidx] = 1.0
+            feat_idx_start += len(self.columns_onehot_idx)
+
             cmp_op_idx, num_vals, continuous = self.featurizer[col]
             # set comparison operator 1-hot value, same for all types
             cmp_idx = self.cmp_ops_onehot[cmp_op]
-            preds_vector[cmp_idx] = 1.00
-            pred_idx_start = len(self.cmp_ops)
+            preds_vector[feat_idx_start + cmp_idx] = 1.00
+
+            pred_idx_start = feat_idx_start + len(self.cmp_ops)
             col_info = self.column_stats[col]
 
             # 1 additional value for pg_est feature
@@ -770,6 +798,9 @@ class DB():
                 preds_vector[-1] = pred_est
 
             if not continuous:
+                if self.separate_cont_bins:
+                    pred_idx_start += self.continuous_feature_size
+
                 if "like" in cmp_op:
                     assert len(val) == 1
                     num_buckets = min(self.max_discrete_featurizing_buckets,
@@ -1090,6 +1121,23 @@ class DB():
         # pdb.set_trace()
         if qrep["template_name"] not in self.templates:
             self.templates.append(qrep["template_name"])
+
+        node_data = qrep["join_graph"].nodes(data=True)
+
+        num_tables = len(node_data)
+        if num_tables > self.max_tables:
+            self.max_tables = num_tables
+
+        num_preds = 0
+        for node, info in node_data:
+            num_preds += len(info["pred_cols"])
+
+        if num_preds > self.max_preds:
+            self.max_preds = num_preds
+
+        num_joins = len(qrep["join_graph"].edges())
+        if num_joins > self.max_joins:
+            self.max_joins = num_joins
 
         cur_columns = []
         for node, info in qrep["join_graph"].nodes(data=True):

@@ -46,9 +46,19 @@ OVERLAP_DIR_TMP = "{RESULT_DIR}/{DIFF_TEMPLATES_TYPE}/"
 def get_alg(alg):
     if alg == "independent":
         return Independent()
+    elif alg == "saved":
+        print("alg is saved!")
+        assert args.model_dir is not None
+        return SavedPreds(model_dir=args.model_dir)
 
     elif alg == "xgboost":
         return XGBoost(grid_search = args.grid_search,
+                eval_epoch_qerr = args.eval_epoch_qerr,
+                validation_epoch = args.validation_epoch,
+                use_set_padding = args.use_set_padding,
+                unnormalized_mse = args.unnormalized_mse,
+                num_workers = args.num_workers,
+                switch_loss_fn_epoch = args.switch_loss_fn_epoch,
                 tree_method = args.xgb_tree_method,
                 n_estimators = args.n_estimators,
                 max_depth = args.max_depth,
@@ -117,7 +127,7 @@ def get_alg(alg):
                     num_tables_feature = args.num_tables_feature,
                     max_discrete_featurizing_buckets =
                             args.max_discrete_featurizing_buckets,
-                    nn_type = args.nn_type,
+                    nn_type = "microsoft",
                     group_models = args.group_models,
                     adaptive_lr_patience = args.adaptive_lr_patience,
                     # single_threaded_nt = args.single_threaded_nt,
@@ -153,6 +163,8 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                use_batch_norm = args.use_batch_norm,
+                mb_size = args.query_mb_size,
                 eval_epoch_qerr = args.eval_epoch_qerr,
                 validation_epoch = args.validation_epoch,
                 use_set_padding = args.use_set_padding,
@@ -372,7 +384,7 @@ def load_samples(qfns, db, found_db, template_name,
         # print("going to call pool!")
         qreps = pool.starmap(load_sql_rep, par_args)
 
-    for qrep in qreps:
+    for qi, qrep in enumerate(qreps):
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
         if SOURCE_NODE in nodes:
@@ -442,7 +454,7 @@ def load_samples(qfns, db, found_db, template_name,
             skipped += 1
             continue
 
-        qrep["name"] = qfn
+        qrep["name"] = qfns[qi]
         qrep["template_name"] = template_name
         samples.append(qrep)
 
@@ -457,7 +469,7 @@ def load_samples(qfns, db, found_db, template_name,
 
     if "job" in template_name:
         update_samples(samples, args.flow_features,
-                args.cost_model, False)
+                args.cost_model, False, args.db_name)
 
     if not found_db:
         # print("not found db!!")
@@ -466,9 +478,9 @@ def load_samples(qfns, db, found_db, template_name,
                 not args.add_job_features:
             return samples
 
-        elif "job" in template_name and \
-                args.nn_type == "mscn_set":
-            return samples
+        # elif "job" in template_name and \
+                # args.nn_type == "mscn_set":
+            # return samples
 
         elif args.test_diff_templates and \
                 not args.add_test_features and \
@@ -481,7 +493,8 @@ def load_samples(qfns, db, found_db, template_name,
                     return samples
 
         if db is not None:
-            print("db is not None!")
+            if "job" in template_name:
+                print("updating db w/ job features!")
             for sample in samples:
                 # not all samples may share all predicates etc. so updating
                 # them all. stats will not be recomputed for repeated columns
@@ -505,11 +518,12 @@ def load_all_qrep_data(load_job_queries,
                     args.query_templates + str(args.eval_on_job) + \
                     args.nn_type)
 
-        found_db = db_key in misc_cache.archive
+        found_db = db_key in misc_cache.archive and not args.regen_db
         # found_db = False
         if found_db:
             db = misc_cache.archive[db_key]
         else:
+            # turned on by default so we can update the db stats
             load_train_queries = True
             load_job_queries = True
             load_test_queries = True
@@ -675,7 +689,7 @@ def load_all_qrep_data(load_job_queries,
         misc_cache.archive[db_key] = db
     del(misc_cache)
 
-    if args.nn_type == "mscn_set":
+    if args.nn_type == "mscn_set" and args.algs == "nn":
         feat_type = "set"
     else:
         feat_type = "combined"
@@ -683,6 +697,7 @@ def load_all_qrep_data(load_job_queries,
     if db is not None:
         db.init_featurizer(num_tables_feature = args.num_tables_feature,
                 separate_regex_bins = args.separate_regex_bins,
+                separate_cont_bins = args.separate_cont_bins,
                 featurization_type = feat_type,
                 max_discrete_featurizing_buckets =
                 args.max_discrete_featurizing_buckets,
@@ -809,6 +824,10 @@ def compare_overlap(train_queries, test_queries, test_kind):
 
 def main():
     global args
+    if args.lr == "0.001":
+        print("TEMPORARY: want to avoid 001 runs")
+        exit(0)
+
     if args.db_name == "so":
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
@@ -830,7 +849,7 @@ def main():
     else:
         load_test_samples = True
 
-    if args.model_dir is not None:
+    if args.model_dir is not None and args.algs == "nn":
         old_args = load_object(args.model_dir + "/args.pkl")
 
         # going to keep old args for most params, except these:
@@ -862,17 +881,17 @@ def main():
                     pool=join_loss_pool)
 
     update_samples(train_queries, args.flow_features,
-            args.cost_model, args.debug_set)
+            args.cost_model, args.debug_set, args.db_name)
     if len(test_queries) > 0:
         update_samples(test_queries, args.flow_features,
-                args.cost_model, args.debug_set)
+                args.cost_model, args.debug_set, args.db_name)
     if len(val_queries) > 0:
         update_samples(val_queries, args.flow_features,
-                args.cost_model, args.debug_set)
+                args.cost_model, args.debug_set, args.db_name)
 
     del(job_queries[:])
 
-    if args.model_dir is not None:
+    if args.model_dir is not None and args.algs == "nn":
         args.num_samples_per_template = old_num_samples
 
     if args.only_compute_overlap:
@@ -896,6 +915,7 @@ def main():
     losses = []
     for alg_name in args.algs.split(","):
         algorithms.append(get_alg(alg_name))
+
     for loss_name in args.losses.split(","):
         losses.append(get_loss(loss_name))
 
@@ -970,7 +990,7 @@ def main():
                     load_all_qrep_data(False, False, False, True, False,
                             pool=join_loss_pool)
             update_samples(train_queries, args.flow_features,
-                    args.cost_model, args.debug_set)
+                    args.cost_model, args.debug_set, args.db_name)
 
         start = time.time()
 
@@ -984,7 +1004,7 @@ def main():
                                 pool=join_loss_pool)
             assert len(val_queries) > 0
             update_samples(val_queries, args.flow_features,
-                    args.cost_model, args.debug_set)
+                    args.cost_model, args.debug_set, args.db_name)
             eval_alg(alg, losses, val_queries, "validation", join_loss_pool)
             del(val_queries[:])
 
@@ -993,7 +1013,7 @@ def main():
                     load_all_qrep_data(False, True,
                             False, False, False, pool=join_loss_pool)
             update_samples(test_queries, args.flow_features,
-                    args.cost_model, args.debug_set)
+                    args.cost_model, args.debug_set, args.db_name)
 
         # if args.test:
             # size = int(len(test_queries) / 10)
@@ -1029,9 +1049,15 @@ def gen_samples_hash():
 def read_flags():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--regen_db", type=int, required=False,
+            default=0)
+    parser.add_argument("--query_mb_size", type=int, required=False,
+            default=1)
     parser.add_argument("--grid_search", type=int, required=False,
             default=0)
     parser.add_argument("--separate_regex_bins", type=int, required=False,
+            default=1)
+    parser.add_argument("--separate_cont_bins", type=int, required=False,
             default=1)
     parser.add_argument("--n_estimators", type=int, required=False,
             default=500)
@@ -1200,9 +1226,11 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_qerr", type=int,
-            required=False, default=1)
+            required=False, default=2)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=1)
+    parser.add_argument("--use_batch_norm", type=int,
+            required=False, default=0)
     parser.add_argument("--eval_epoch_flow_err", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_plan_err", type=int,
@@ -1316,7 +1344,7 @@ def read_flags():
             # default="qerr,join-loss,flow-loss,plan-loss",
             # help="comma separated list of loss names")
     parser.add_argument("--losses", type=str, required=False,
-            default="qerr,join-loss,plan-loss,flow-loss",
+            default="qerr,join-loss",
             help="comma separated list of loss names")
 
     parser.add_argument("--result_dir", type=str, required=False,

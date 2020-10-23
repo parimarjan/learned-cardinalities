@@ -42,18 +42,19 @@ def main():
         else:
             res_dir = args.result_dir
 
-        if os.path.exists(model_dir + "/done.pkl"):
-            print("continuing because done")
-            continue
+        # if os.path.exists(model_dir + "/done.pkl"):
+            # print("continuing because done")
+            # continue
 
-        if os.path.exists(model_dir + "/cm1_jerr.pkl"):
-            continue
+        # if os.path.exists(model_dir + "/cm1_jerr.pkl"):
+            # continue
 
         if not os.path.exists(model_dir + "/model_weights.pt"):
+            print("no model weights")
             continue
 
-        if i < 4:
-            continue
+        # if i < 1:
+            # continue
 
         print(model_dir)
         cmd = RUN_TMP.format(MODEL_DIR = model_dir,
@@ -63,9 +64,9 @@ def main():
                 JOB = args.eval_on_job,
                 RES_DIR = res_dir)
 
-        # os.system(cmd)
-        p = sp.Popen(cmd, shell=True)
-        p.wait()
+        os.system(cmd)
+        # p = sp.Popen(cmd, shell=True)
+        # p.wait()
 
         done = []
         save_object(model_dir + "/done.pkl", done)

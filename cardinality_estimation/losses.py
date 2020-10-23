@@ -207,14 +207,26 @@ def compute_qerror(queries, preds, **kwargs):
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
 
+    # here, we assume that the alg name is unique enough, for their results to
+    # be grouped together
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
 
-    # here, we assume that the alg name is unique enough, for their results to
-    # be grouped together
     rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
                                    ALG = exp_name)
     make_dir(rdir)
+
+    pred_fn = rdir + "/" + "preds.pkl"
+    all_preds = {}
+
+    for i, q in enumerate(queries):
+        all_preds[q["name"]] = preds[i]
+
+    old_results = load_object_gzip(pred_fn)
+    if old_results is not None:
+        all_preds.update(old_results)
+
+    save_object_gzip(pred_fn, all_preds)
 
     ytrue, yhat, _ = _get_all_cardinalities(queries, preds)
     ytrue = np.array(ytrue)
@@ -504,6 +516,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
                     np.round(np.percentile(losses2,95),3),
                     np.round(np.percentile(losses2,99),3)))
 
+    dummy = []
+    save_object("dummy.pkl", dummy)
 
     return np.array(est_costs) - np.array(opt_costs)
 

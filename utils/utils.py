@@ -78,17 +78,22 @@ def gen_gaussian_data(means, covs, num):
 
 def save_object(file_name, data, use_csv=False):
     if isinstance(data, pd.DataFrame) and use_csv:
-        data.to_csv(file_name.replace(".pkl", ".csv"), sep="|", index=False)
+        data.to_csv(file_name.replace(".pkl", ".csv"), sep="|", index=False,
+                encoding="utf-8")
         return
 
-    with open(file_name, "wb") as f:
+    tmp_fn = file_name + ".tmp"
+    with open(tmp_fn, "wb") as f:
         pickle.dump(data, f,
-                protocol=pickle.HIGHEST_PROTOCOL)
+                protocol=4)
+    os.rename(tmp_fn, file_name)
 
 def save_object_gzip(file_name, data):
     # with open(file_name, "wb") as f:
         # res = f.write(pickle.dumps(data))
-    pickle.dump(data, gzip.open(file_name, 'wb'))
+    tmp_fn = file_name + ".tmp"
+    pickle.dump(data, gzip.open(tmp_fn, 'wb'))
+    os.rename(tmp_fn, file_name)
 
 def load_object_gzip(file_name):
     res = None
@@ -101,7 +106,7 @@ def load_object_gzip(file_name):
 def load_object(file_name):
     res = None
     if ".csv" in file_name:
-        res = pd.read_csv(file_name, sep="|")
+        res = pd.read_csv(file_name, sep="|", encoding='utf-8')
     else:
         if os.path.exists(file_name):
             with open(file_name, "rb") as f:

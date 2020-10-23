@@ -61,7 +61,8 @@ class CostModelNet(torch.nn.Module):
 class SimpleRegression(torch.nn.Module):
     # TODO: add more stuff?
     def __init__(self, input_width, hidden_width_multiple,
-            n_output, num_hidden_layers=1, hidden_layer_size=None):
+            n_output, num_hidden_layers=1, hidden_layer_size=None,
+            use_batch_norm=False):
         super(SimpleRegression, self).__init__()
         if hidden_layer_size is None:
             n_hidden = int(input_width * hidden_width_multiple)
@@ -71,21 +72,34 @@ class SimpleRegression(torch.nn.Module):
         # self.layers = []
         self.layers = nn.ModuleList()
 
-        layer1 = nn.Sequential(
-            nn.Linear(input_width, n_hidden, bias=True),
-            # nn.LeakyReLU()
-            nn.ReLU()
-        ).to(device)
+        if use_batch_norm:
+            layer1 = nn.Sequential(
+                nn.Linear(input_width, n_hidden, bias=True),
+                nn.BatchNorm1d(n_hidden),
+                nn.ReLU()
+            ).to(device)
+        else:
+            layer1 = nn.Sequential(
+                nn.Linear(input_width, n_hidden, bias=True),
+                nn.ReLU()
+            ).to(device)
+
         self.layers.append(layer1)
 
         for i in range(0,num_hidden_layers-1,1):
-            print("initializing extra hidden layer")
+            if use_batch_norm:
+                layer = nn.Sequential(
+                    nn.Linear(n_hidden, n_hidden, bias=True),
+                    nn.BatchNorm1d(n_hidden),
+                    nn.ReLU()
+                ).to(device)
+                self.layers.append(layer)
+            else:
+                layer = nn.Sequential(
+                    nn.Linear(n_hidden, n_hidden, bias=True),
+                    nn.ReLU()
+                ).to(device)
 
-            layer = nn.Sequential(
-                nn.Linear(n_hidden, n_hidden, bias=True),
-                # nn.LeakyReLU()
-                nn.ReLU()
-            ).to(device)
             self.layers.append(layer)
 
         final_layer = nn.Sequential(
@@ -96,12 +110,12 @@ class SimpleRegression(torch.nn.Module):
 
     def compute_grads(self):
         wts = []
-        for layer in self.layers:
-            wts.append(layer[0].weight.grad)
-
         mean_wts = []
-        for i,wt in enumerate(wts):
-            mean_wts.append(np.mean(np.abs(wt.detach().numpy())))
+        # for layer in self.layers:
+            # wts.append(layer[0].weight.grad)
+
+        # for i,wt in enumerate(wts):
+            # mean_wts.append(np.mean(np.abs(wt.detach().numpy())))
 
         return mean_wts
 

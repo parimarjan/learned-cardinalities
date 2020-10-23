@@ -69,32 +69,36 @@ class QueryDataset(data.Dataset):
         # some indexing information around.
 
         if self.featurization_type == "set":
+            self.max_tables = self.db.max_tables
+            self.max_joins = self.db.max_joins
+            self.max_preds = self.db.max_preds
+
             # update stats about max-predicates, max-tables etc.
-            self.max_tables = 0
-            self.max_joins = 0
-            self.max_preds = 0
+            # self.max_tables = 0
+            # self.max_joins = 0
+            # self.max_preds = 0
 
-            for i, qrep in enumerate(samples):
-                node_data = qrep["join_graph"].nodes(data=True)
+            # for i, qrep in enumerate(samples):
+                # node_data = qrep["join_graph"].nodes(data=True)
 
-                num_tables = len(node_data)
-                if num_tables > self.max_tables:
-                    self.max_tables = num_tables
+                # num_tables = len(node_data)
+                # if num_tables > self.max_tables:
+                    # self.max_tables = num_tables
 
-                num_preds = 0
-                for node, info in node_data:
-                    num_preds += len(info["pred_cols"])
+                # num_preds = 0
+                # for node, info in node_data:
+                    # num_preds += len(info["pred_cols"])
 
-                if num_preds > self.max_preds:
-                    self.max_preds = num_preds
+                # if num_preds > self.max_preds:
+                    # self.max_preds = num_preds
 
-                num_joins = len(qrep["join_graph"].edges())
-                if num_joins > self.max_joins:
-                    self.max_joins = num_joins
+                # num_joins = len(qrep["join_graph"].edges())
+                # if num_joins > self.max_joins:
+                    # self.max_joins = num_joins
 
-            # TODO: estimated upper bound, need to figure out a better way to calculate this
-            # self.max_joins = self.max_tables + 12
-            print(self.max_tables, self.max_joins, self.max_preds)
+            # # TODO: estimated upper bound, need to figure out a better way to calculate this
+            # # self.max_joins = self.max_tables + 12
+            # print(self.max_tables, self.max_joins, self.max_preds)
 
         if self.preload_features == 1:
             # 3, means we will try to load the padded sets and masks from
@@ -107,6 +111,8 @@ class QueryDataset(data.Dataset):
                 # self.feature_dir = "/flashrd/pari/saved_features2/"
                 self.feature_dir = "./saved_features/"
                 self.feature_dir += self.db.db_key + "/"
+                print("saved features directory: ")
+                print(self.feature_dir)
                 # will store each query feature dicts in there
                 make_dir(self.feature_dir)
 
@@ -300,7 +306,7 @@ class QueryDataset(data.Dataset):
         return tf, pf, jf, tm, pm, jm
 
     def _get_query_features_set(self, qrep, dataset_qidx,
-            query_idx):
+            query_idx, use_saved=True):
 
         if self.use_set_padding == 3:
             qkey = str(deterministic_hash(qrep["sql"]))
@@ -308,7 +314,7 @@ class QueryDataset(data.Dataset):
             qpathy = self.feature_dir + qkey + "y.pkl"
             qpathi = self.feature_dir + qkey + "i.pkl"
 
-            if os.path.exists(qpathx):
+            if os.path.exists(qpathx) and use_saved:
                 # load and all
                 # X = load_object(qpathx)
                 X = load_object_gzip(qpathx)
@@ -603,6 +609,7 @@ class QueryDataset(data.Dataset):
                 pred_features = self.db.get_pred_features(info["pred_cols"][0],
                         info["pred_vals"][0], info["pred_types"][0],
                         heuristic_est)
+            assert len(pred_features) == self.db.pred_features_len
             pred_feat_dict[node] = pred_features
 
         edge_data = qrep["join_graph"].edges(data=True)
@@ -748,8 +755,17 @@ class QueryDataset(data.Dataset):
         for i, qrep in enumerate(samples):
             if self.featurization_type == "set":
                 x,y,cur_info = self._get_query_features_set(qrep, qidx, i)
+                # just checking that shape works
+                try:
+                    for k,v in x.items():
+                        to_variable(v, requires_grad=False).float()
+                except Exception as e:
+                    print(e)
+                    print("going to try w/o using saved features now")
+                    x,y,cur_info = self._get_query_features_set(qrep, qidx, i,
+                            use_saved=False)
+
             else:
-                assert len(x) == 7
                 x,y,cur_info = self._get_query_features(qrep, qidx, i)
 
             qidx += len(y)
@@ -805,11 +821,15 @@ class QueryDataset(data.Dataset):
                                 X[k][xi] = to_variable(x, requires_grad=False).float()
                 else:
                     if self.use_set_padding in [1,3]:
-                        for k,v in X.items():
-                            X[k] = to_variable(v, requires_grad=False).float()
-                            X[k] = X[k].squeeze()
-                            if "mask" in k:
-                                X[k] = X[k].unsqueeze(2)
+                        try:
+                            for k,v in X.items():
+                                X[k] = to_variable(v, requires_grad=False).float()
+                                X[k] = X[k].squeeze()
+                                if "mask" in k:
+                                    X[k] = X[k].unsqueeze(2)
+                        except Exception as e:
+                            print(e)
+                            pdb.set_trace()
 
                     elif self.use_set_padding == 2:
                         # don't do anything, create arrays when accessing index

@@ -290,15 +290,8 @@ def get_join_cost_sql(sql_order, est_cardinalities, true_cardinalities,
             # print(k, v, scan_ops[k])
     # pdb.set_trace()
 
-    # FIXME: need to do this if we are doing pg_err's etc.
-    # exec_sql = get_pghint_modified_sql(est_opt_sql, est_cardinalities,
-            # est_join_ops, leading_hint, scan_types)
-
-    # if we are doing the full pg cost model, then don't need to specify joins
-    # or scans -- just specify estimated cardinalities and let pg handle the
-    # other decisions when optimizing it before running it
     exec_sql = get_pghint_modified_sql(est_opt_sql, est_cardinalities,
-            None, None, None)
+            est_join_ops, leading_hint, scan_types)
 
     cursor.close()
     con.close()

@@ -4,22 +4,23 @@ NN_TYPE=$3
 USE_VAL_SET=2
 NUM_WORKERS=0
 NO7=0
-LOSSES=join-loss,qerr,plan-loss
+LOSSES=qerr,flow-loss,join-loss
+#LOSSES=qerr
 
 #FLOW_FEATS=(1 0)
 FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
-ONE_HOT_ESTS=(0)
-REL_ESTS=(0)
+ONE_HOT_ESTS=(1)
+REL_ESTS=(1)
+RES_DIR=all_results/vldb/default/hyp_sweep_fcnn
+EVAL_JOB=0
+BATCH_NORM=0
+MB_SIZE=4
 
 DECAYS=(1.0 0.1)
-#DECAYS=(1.0)
-#LRS=(0.001 0.0001)
-#LRS=(0.00005)
-LRS=(0.0001)
-#HLS=(128 256)
+LRS=(0.00005 0.0001)
 MAX_EPOCHS=(10)
-HLS=(64)
+HLS=(512)
 
 NORM_FLOW_LOSS=(1)
 NUM_MSE_ANCHORING=(-3)
@@ -37,8 +38,8 @@ TEST_FEATS=1
 SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=4000
-NUM_PAR=10
-USE_SET_PADDING=1
+NUM_PAR=30
+USE_SET_PADDING=0
 
 for i in "${!WEIGHTED_MSES[@]}";
 do
@@ -64,6 +65,8 @@ do
      --debug_set 0 --debug_ratio $DEBUG_RATIO \
      --no7a $NO7 \
      --losses $LOSSES \
+     --use_batch_norm $BATCH_NORM \
+     --query_mb_size $MB_SIZE \
      --use_set_padding $USE_SET_PADDING \
      --use_val_set $USE_VAL_SET \
      --loss_func $LOSS_FUNC \
@@ -87,7 +90,7 @@ do
      --feat_pg_est_one_hot ${ONE_HOT_ESTS[$onehot]} \
      --max_discrete_featurizing_buckets $BUCKETS \
      --exp_prefix default \
-     --result_dir all_results/vldb/default/hyp_sweep_samplebitmap \
+     --result_dir $RES_DIR \
      --eval_epoch $EVAL_EPOCH --join_loss_pool_num $NUM_PAR \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
      --eval_epoch_plan_err 40 \
@@ -98,7 +101,7 @@ do
      --sample_bitmap_num 1000 \
      --sample_bitmap_buckets $SAMPLE_BITMAP_BUCKETS \
      --min_qerr 1.00 \
-     --eval_on_job 0 \
+     --eval_on_job $EVAL_JOB \
      --feat_tolerance 0"
     echo $CMD
     eval $CMD

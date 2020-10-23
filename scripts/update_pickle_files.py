@@ -29,7 +29,8 @@ def main():
     model_dirs = list(glob.glob(args.base_dir + "/*"))
 
     for i, model_dir in enumerate(model_dirs):
-        fns = list(glob.glob(model_dir + "/*.csv"))
+        # fns = list(glob.glob(model_dir + "/*.csv"))
+        fns = list(glob.glob(model_dir + "/*.pkl"))
         print(model_dir)
         for fn in fns:
             try:
@@ -40,8 +41,9 @@ def main():
                 pdb.set_trace()
                 continue
             # data = pd.read_csv(fn, sep="|")
-            csv_name = fn.replace(".csv", ".pkl")
-            save_object(csv_name, data, use_csv=False)
+            # csv_name = fn.replace(".csv", ".pkl")
+            # save_object(csv_name, data, use_csv=False)
+            save_object(fn, data)
 
 args = read_flags()
 main()

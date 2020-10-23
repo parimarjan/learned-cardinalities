@@ -124,6 +124,55 @@ class CardinalityEstimationAlg():
     def save_model(self, save_dir="./", suffix_name=""):
         pass
 
+class SavedPreds(CardinalityEstimationAlg):
+
+    def __init__(self, *args, **kwargs):
+        # TODO: set each of the kwargs as variables
+        self.model_dir = kwargs["model_dir"]
+        self.max_epochs = 0
+
+    def train(self, db, training_samples, **kwargs):
+        if db.db_name == "so":
+            global SOURCE_NODE
+            SOURCE_NODE = tuple(["SOURCE"])
+
+        assert os.path.exists(self.model_dir)
+        self.saved_preds = load_object_gzip(self.model_dir + "/preds.pkl")
+        # self.saved_preds = load_object(self.model_dir + "/preds.pkl")
+
+    def test(self, test_samples, **kwargs):
+        '''
+        @test_samples: [sql_rep objects]
+        @ret: [dicts]. Each element is a dictionary with cardinality estimate
+        for each subset graph node (subquery). Each key should be ' ' separated
+        list of aliases / table names
+        '''
+        preds = []
+        for sample in test_samples:
+            # assert sample["name"] in self.saved_preds
+            if sample["name"] not in self.saved_preds:
+                print(sample["name"])
+                pdb.set_trace()
+            preds.append(self.saved_preds[sample["name"]])
+        return preds
+
+    def get_exp_name(self):
+        old_name = os.path.basename(self.model_dir)
+        name = "SavedRun-" + old_name
+        return name
+
+    def num_parameters(self):
+        '''
+        size of the parameters needed so we can compare across different algorithms.
+        '''
+        return 0
+
+    def __str__(self):
+        return "SavedAlg"
+
+    def save_model(self, save_dir="./", suffix_name=""):
+        pass
+
 class Postgres(CardinalityEstimationAlg):
     # def __init__(self, num_tables_true=0, regex_true=False):
         # pass
@@ -139,6 +188,11 @@ class Postgres(CardinalityEstimationAlg):
             for alias_key in nodes:
                 info = sample["subset_graph"].nodes()[alias_key]
                 true_card = info["cardinality"]["actual"]
+
+                if "expected" not in info["cardinality"]:
+                    print("no find expected :(")
+                    pdb.set_trace()
+
                 if true_card >= CROSS_JOIN_CONSTANT:
                     est = true_card
                 else:
