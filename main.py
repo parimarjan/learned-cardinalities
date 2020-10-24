@@ -514,9 +514,15 @@ def load_all_qrep_data(load_job_queries,
 
     print("loading qrep data from: ", args.query_directory)
     if load_db:
-        db_key = deterministic_hash("db-" + args.query_directory + \
-                    args.query_templates + str(args.eval_on_job) + \
-                    args.nn_type)
+        if args.eval_on_jobm:
+            db_key = deterministic_hash("db-" + args.query_directory + \
+                        args.query_templates + str(args.eval_on_job) + \
+                        str(args.eval_on_jobm) + \
+                        args.nn_type)
+        else:
+            db_key = deterministic_hash("db-" + args.query_directory + \
+                        args.query_templates + str(args.eval_on_job) + \
+                        args.nn_type)
 
         found_db = db_key in misc_cache.archive and not args.regen_db
         # found_db = False
@@ -635,13 +641,15 @@ def load_all_qrep_data(load_job_queries,
 
         if load_train_queries:
             cur_train_queries = load_samples(cur_train_fns, db, found_db,
-                    template_name, skip_zero_queries=True, train_template=True,
+                    template_name, skip_zero_queries=args.skip_zero_queries,
+                    train_template=True,
                     wj_times=wj_times, pool=pool)
         else:
             cur_train_queries = []
         if load_val_queries:
             cur_val_queries = load_samples(cur_val_fns, db, found_db,
-                    template_name, skip_zero_queries=True, train_template=True,
+                    template_name, skip_zero_queries=args.skip_zero_queries,
+                    train_template=True,
                     wj_times=wj_times, pool=pool)
             print("load val queries: ", len(cur_val_queries))
         else:
@@ -675,6 +683,20 @@ def load_all_qrep_data(load_job_queries,
                     skip_zero_queries=args.job_skip_zero_queries,
                     train_template=False)
             job_queries += samples
+
+    jobm_queries = []
+    if args.eval_on_jobm and load_job_queries:
+        job_fns = list(glob.glob(args.jobm_query_dir + "/*"))
+        for qi,qdir in enumerate(job_fns):
+            qfns = list(glob.glob(qdir+"/*.pkl"))
+            qfns.sort()
+
+            template_name = os.path.basename(qdir)
+
+            samples = load_samples(qfns, db, found_db, template_name,
+                    skip_zero_queries=args.job_skip_zero_queries,
+                    train_template=False)
+            jobm_queries += samples
 
     # shuffle train, test queries so join loss computation can be parallelized
     # better: otherwise all queries from templates that take a long time would
@@ -714,7 +736,7 @@ def load_all_qrep_data(load_job_queries,
                 sample_bitmap_buckets=args.sample_bitmap_buckets,
                 db_key = db_key)
 
-    return train_queries, test_queries, val_queries, job_queries, db
+    return train_queries, test_queries, val_queries, job_queries, jobm_queries, db
 
 def compare_overlap(train_queries, test_queries, test_kind):
     def get_overlap_percentage(train_node_ids, test_node_ids):
@@ -824,9 +846,6 @@ def compare_overlap(train_queries, test_queries, test_kind):
 
 def main():
     global args
-    if args.lr == "0.001":
-        print("TEMPORARY: want to avoid 001 runs")
-        exit(0)
 
     if args.db_name == "so":
         global SOURCE_NODE
@@ -875,7 +894,7 @@ def main():
 
         args = old_args
 
-    train_queries, test_queries, val_queries, job_queries, db = \
+    train_queries, test_queries, val_queries, job_queries, jobm_queries, db = \
             load_all_qrep_data(False, load_test_samples, True, True,
                     load_test_samples,
                     pool=join_loss_pool)
@@ -986,7 +1005,7 @@ def main():
 
         # may have deleted it to save space
         if len(train_queries) == 0:
-            train_queries, _, _, _, _ = \
+            train_queries, _, _, _, _, _ = \
                     load_all_qrep_data(False, False, False, True, False,
                             pool=join_loss_pool)
             update_samples(train_queries, args.flow_features,
@@ -999,7 +1018,7 @@ def main():
 
         if args.use_val_set:
             if len(val_queries) == 0:
-                _, _, val_queries, _, _ = \
+                _, _, val_queries, _, _, _ = \
                         load_all_qrep_data(False, False, False, False, True,
                                 pool=join_loss_pool)
             assert len(val_queries) > 0
@@ -1009,7 +1028,7 @@ def main():
             del(val_queries[:])
 
         if len(test_queries) == 0:
-            _, test_queries, _, _, _ = \
+            _, test_queries, _, _, _, _ = \
                     load_all_qrep_data(False, True,
                             False, False, False, pool=join_loss_pool)
             update_samples(test_queries, args.flow_features,
@@ -1025,9 +1044,10 @@ def main():
         del(test_queries[:])
 
         if args.eval_on_job:
-            _, _, _, job_queries, _ = \
+            _, _, _, job_queries, jobm_queries, _ = \
                     load_all_qrep_data(True, False, False, False, False)
             eval_alg(alg, losses, job_queries, "job", join_loss_pool)
+            eval_alg(alg, losses, jobm_queries, "jobm", join_loss_pool)
 
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
@@ -1052,6 +1072,8 @@ def read_flags():
     parser.add_argument("--regen_db", type=int, required=False,
             default=0)
     parser.add_argument("--query_mb_size", type=int, required=False,
+            default=1)
+    parser.add_argument("--skip_zero_queries", type=int, required=False,
             default=1)
     parser.add_argument("--grid_search", type=int, required=False,
             default=0)
@@ -1096,6 +1118,9 @@ def read_flags():
             default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
             default=1)
+    parser.add_argument("--eval_on_jobm", type=int, required=False,
+            default=1)
+
     parser.add_argument("--add_job_features", type=int, required=False,
             default=1)
     parser.add_argument("--add_test_features", type=int, required=False,
@@ -1106,6 +1131,8 @@ def read_flags():
             default=0)
     parser.add_argument("--job_query_dir", type=str, required=False,
             default="./job_queries/")
+    parser.add_argument("--jobm_query_dir", type=str, required=False,
+            default="./jobm_queries/")
     parser.add_argument("--test_diff_templates", type=int, required=False,
             default=0)
     parser.add_argument("--diff_templates_type", type=int, required=False,
@@ -1226,7 +1253,7 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_qerr", type=int,
-            required=False, default=2)
+            required=False, default=100)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=1)
     parser.add_argument("--use_batch_norm", type=int,
@@ -1344,7 +1371,7 @@ def read_flags():
             # default="qerr,join-loss,flow-loss,plan-loss",
             # help="comma separated list of loss names")
     parser.add_argument("--losses", type=str, required=False,
-            default="qerr,join-loss",
+            default="qerr",
             help="comma separated list of loss names")
 
     parser.add_argument("--result_dir", type=str, required=False,

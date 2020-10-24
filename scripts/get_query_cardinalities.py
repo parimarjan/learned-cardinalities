@@ -60,7 +60,7 @@ def read_flags():
     parser.add_argument("--use_tries", type=int,
             required=False, default=0)
     parser.add_argument("--skip_zero_queries", type=int,
-            required=False, default=1)
+            required=False, default=0)
     parser.add_argument("--no_parallel", type=int,
             required=False, default=0)
     parser.add_argument("--card_type", type=str, required=False,
@@ -188,6 +188,10 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     node_list.sort(reverse=True, key = lambda x: len(x))
     if args.db_name == "so":
         source_node = tuple(["SOURCE"])
+        if source_node in node_list:
+            node_list.remove(source_node)
+    elif args.db_name == "imdb":
+        source_node = tuple(["s"])
         if source_node in node_list:
             node_list.remove(source_node)
 
@@ -368,6 +372,9 @@ def main():
                     nx.OrderedDiGraph(json_graph.adjacency_graph(qrep["subset_graph"]))
             qrep["join_graph"] = json_graph.adjacency_graph(qrep["join_graph"])
             fn = fn.replace(".sql", ".pkl")
+            save_sql_rep(fn, qrep)
+            print("updated sql rep!")
+            continue
 
         if args.no_parallel:
             if args.card_type == "wanderjoin":

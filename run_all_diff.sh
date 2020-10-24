@@ -1,7 +1,8 @@
 MIN_QERRS=(1.0)
 DECAY=1.0
-DIFF_SEEDS=(1 2 3 4 5 6 7 8 9 10)
 #DIFF_SEEDS=(2 3 4 5)
+DIFF_SEEDS=(6 7 8 1)
+LOSSES=qerr
 
 #DIFF_SEEDS=(6)
 
@@ -10,10 +11,10 @@ MAX_EPOCHS=(10)
 #MAX_EPOCHS=(10)
 BUCKETS=10
 FLOW_FEATS=1
-LR=0.00005
+LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
-RES_DIR=all_results/vldb/test_diff/fcnn/final1
+RES_DIR=all_results/vldb/test_diff/mscn/flow256
 REL_ESTS=1
 ONEHOT=1
 MB_SIZE=4
@@ -24,8 +25,8 @@ NN_TYPE=$3
 NORM_FLOW_LOSS=1
 NUM_WORKERS=0
 
-HLS=512
-NUM_HLS=4
+HLS=256
+NUM_HLS=2
 LOAD_QUERY_TOGETHER=0
 
 WEIGHTED_MSES=(0.0)
@@ -38,6 +39,7 @@ SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=500
 EVAL_ON_JOB=0
+USE_SET_PADDING=1
 
 for i in "${!WEIGHTED_MSES[@]}";
 do
@@ -48,6 +50,8 @@ do
     do
     CMD="time python3 main.py --algs $ALG -n -1 \
      --loss_func $LOSS_FUNC \
+     --losses $LOSSES \
+     --use_set_padding $USE_SET_PADDING \
      --query_mb_size $MB_SIZE \
      --no7a $No7 \
      --nn_type $NN_TYPE \
