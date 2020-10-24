@@ -17,7 +17,7 @@ EVAL_JOB=0
 BATCH_NORM=0
 MB_SIZE=4
 
-DECAYS=(1.0 0.1)
+DECAYS=(0.1 1.0)
 LRS=(0.00005 0.0001)
 MAX_EPOCHS=(10)
 HLS=(512)
@@ -25,7 +25,7 @@ HLS=(512)
 NORM_FLOW_LOSS=(1)
 NUM_MSE_ANCHORING=(-3)
 
-PRIORITY=0.0
+PRIORITY=(2.0)
 BUCKETS=10
 DEBUG_RATIO=10
 
@@ -38,10 +38,10 @@ TEST_FEATS=1
 SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=4000
-NUM_PAR=30
+NUM_PAR=8
 USE_SET_PADDING=0
 
-for i in "${!WEIGHTED_MSES[@]}";
+for i in "${!PRIORITY[@]}";
 do
   for onehot in "${!ONE_HOT_ESTS[@]}";
   do
@@ -73,10 +73,10 @@ do
      --nn_type $NN_TYPE \
      --num_workers $NUM_WORKERS \
      --load_query_together $LOAD_QUERY_TOGETHER \
-     --sampling_priority_alpha $PRIORITY \
+     --sampling_priority_alpha ${PRIORITY[$i]} \
      --add_job_features $JOB_FEATS \
      --add_test_features $TEST_FEATS \
-     --weighted_mse ${WEIGHTED_MSES[$i]} \
+     --weighted_mse 0.00 \
      --max_epochs ${MAX_EPOCHS[$max_epoch]} \
      --hidden_layer_size ${HLS[$hl]} \
      --cost_model nested_loop_index7 \

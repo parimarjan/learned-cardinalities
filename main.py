@@ -533,6 +533,7 @@ def load_all_qrep_data(load_job_queries,
             load_train_queries = True
             load_job_queries = True
             load_test_queries = True
+            load_val_queries = True
             db = DB(args.user, args.pwd, args.db_host, args.port,
                     args.db_name)
     else:

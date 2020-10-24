@@ -473,9 +473,9 @@ def compute_join_order_loss(queries, preds, **kwargs):
     env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
             args.port, args.db_name)
 
-    if "nested" in args.cost_model:
-        env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
-                args.port, args.db_name)
+    # if "nested" in args.cost_model:
+        # env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
+                # args.port, args.db_name)
 
     est_cardinalities = []
     true_cardinalities = []
@@ -505,16 +505,16 @@ def compute_join_order_loss(queries, preds, **kwargs):
         true_cardinalities.append(trues)
 
     est_costs, opt_costs = run_join_loss_exp(env, args.cost_model)
-    if "nested" in args.cost_model:
-        est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
-        losses2 = est_costs2 - opt_costs2
-        print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-                .format(args.db_name, alg_name, len(queries),
-                    "join all",
-                    np.round(np.mean(losses2),3),
-                    np.round(np.median(losses2),3),
-                    np.round(np.percentile(losses2,95),3),
-                    np.round(np.percentile(losses2,99),3)))
+    # if "nested" in args.cost_model:
+        # est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
+        # losses2 = est_costs2 - opt_costs2
+        # print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+                # .format(args.db_name, alg_name, len(queries),
+                    # "join all",
+                    # np.round(np.mean(losses2),3),
+                    # np.round(np.median(losses2),3),
+                    # np.round(np.percentile(losses2,95),3),
+                    # np.round(np.percentile(losses2,99),3)))
 
     dummy = []
     save_object("dummy.pkl", dummy)
