@@ -2282,6 +2282,7 @@ class NN(CardinalityEstimationAlg):
                     samples_type, loss_key="inl_jerr_ratio", epoch=epoch)
 
     def _normalize_priorities(self, priorities):
+        priorities = np.maximum(priorities, 0.0)
         total = np.float64(np.sum(priorities))
         norm_priorities = np.zeros(len(priorities))
         norm_priorities = np.divide(priorities, total)
@@ -2806,12 +2807,6 @@ class NN(CardinalityEstimationAlg):
                 # flows, edge_dict = res[si]
 
                 for i, node in enumerate(node_list):
-                    # all_paths = nx.all_simple_paths(subsetg, dest, node)
-                    # num_paths = len(list(all_paths))
-                    # in_edges = subsetg.in_edges(node)
-                    # node_pr = 0.0
-                    # for edge in in_edges:
-                        # node_pr += flows[edge_dict[edge]]
                     subq_idx = idx = qidx + i
                     node_pr = subq_imps[subq_idx]
 
@@ -3105,8 +3100,11 @@ class NN(CardinalityEstimationAlg):
                             for i in range(1,num_past+1):
                                 new_priorities += self.past_priorities[gi][-i]
                             gwts = self._normalize_priorities(new_priorities)
+                        else:
+                            gwts = self._normalize_priorities(gwts)
 
                     gwts = torch.DoubleTensor(gwts)
+
                     sampler = torch.utils.data.sampler.WeightedRandomSampler(gwts,
                             num_samples=len(gwts))
                     tloader = data.DataLoader(training_sets[gi],

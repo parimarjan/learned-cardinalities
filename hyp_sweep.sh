@@ -4,7 +4,7 @@ NN_TYPE=$3
 USE_VAL_SET=2
 NUM_WORKERS=0
 NO7=0
-LOSSES=qerr,flow-loss,join-loss
+LOSSES=qerr,join-loss
 #LOSSES=qerr
 
 #FLOW_FEATS=(1 0)
@@ -17,19 +17,23 @@ EVAL_JOB=0
 BATCH_NORM=0
 MB_SIZE=4
 
-DECAYS=(0.1 1.0)
+DECAYS=(1.0 0.1)
 LRS=(0.00005 0.0001)
+
 MAX_EPOCHS=(10)
 HLS=(512)
 
 NORM_FLOW_LOSS=(1)
 NUM_MSE_ANCHORING=(-3)
 
-PRIORITY=(2.0)
+PRIORITY=(1.0)
+PR_NORM=flow4
+REP_EPOCH=1
+
 BUCKETS=10
 DEBUG_RATIO=10
 
-NUM_HLS=2
+NUM_HLS=4
 LOAD_QUERY_TOGETHER=0
 
 JOB_FEATS=1
@@ -38,7 +42,7 @@ TEST_FEATS=1
 SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=4000
-NUM_PAR=8
+NUM_PAR=16
 USE_SET_PADDING=0
 
 for i in "${!PRIORITY[@]}";
@@ -74,6 +78,8 @@ do
      --num_workers $NUM_WORKERS \
      --load_query_together $LOAD_QUERY_TOGETHER \
      --sampling_priority_alpha ${PRIORITY[$i]} \
+     --priority_normalize_type $PR_NORM \
+     --reprioritize_epoch $REP_EPOCH \
      --add_job_features $JOB_FEATS \
      --add_test_features $TEST_FEATS \
      --weighted_mse 0.00 \

@@ -387,6 +387,9 @@ def load_samples(qfns, db, found_db, template_name,
     for qi, qrep in enumerate(qreps):
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
+        # if train_template and "job" in template_name:
+            # pdb.set_trace()
+
         if SOURCE_NODE in nodes:
             nodes.remove(SOURCE_NODE)
         for node in nodes:
@@ -658,7 +661,8 @@ def load_all_qrep_data(load_job_queries,
 
         if load_test_queries:
             cur_test_queries = load_samples(cur_test_fns, db, found_db,
-                    template_name, skip_zero_queries=True, train_template=True,
+                    template_name, skip_zero_queries=args.skip_zero_queries,
+                    train_template=True,
                     wj_times=wj_times, pool=pool)
         else:
             cur_test_queries = []
@@ -869,7 +873,7 @@ def main():
     else:
         load_test_samples = True
 
-    if args.model_dir is not None and args.algs == "nn":
+    if args.model_dir is not None:
         old_args = load_object(args.model_dir + "/args.pkl")
 
         # going to keep old args for most params, except these:
@@ -884,6 +888,9 @@ def main():
         old_args.query_directory = args.query_directory
         old_num_samples = args.num_samples_per_template
         old_args.use_set_padding = args.use_set_padding
+        old_args.eval_on_jobm = args.eval_on_jobm
+        old_args.jobm_query_dir = args.jobm_query_dir
+        old_args.skip_zero_queries = args.skip_zero_queries
 
         # if args.max_epochs == 0:
             # # because we aren't actually training, this is just used for init
@@ -892,6 +899,9 @@ def main():
                 # old_args.num_samples_per_template = 100
             # else:
                 # old_args.num_samples_per_template = 10
+
+        if args.algs == "saved":
+            old_args.algs = args.algs
 
         args = old_args
 
@@ -1120,7 +1130,7 @@ def read_flags():
     parser.add_argument("--eval_on_job", type=int, required=False,
             default=1)
     parser.add_argument("--eval_on_jobm", type=int, required=False,
-            default=1)
+            default=0)
 
     parser.add_argument("--add_job_features", type=int, required=False,
             default=1)
@@ -1372,7 +1382,7 @@ def read_flags():
             # default="qerr,join-loss,flow-loss,plan-loss",
             # help="comma separated list of loss names")
     parser.add_argument("--losses", type=str, required=False,
-            default="qerr",
+            default="qerr,join-loss",
             help="comma separated list of loss names")
 
     parser.add_argument("--result_dir", type=str, required=False,
