@@ -2,10 +2,11 @@ LR=0.00005
 ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
-QUERY_MB_SIZE=1
+DECAY=$4
+#DECAY=0.1
+QUERY_MB_SIZE=4
 
 PRIORITY=0.0
-DECAY=1.0
 SAMPLE_BITMAP_BUCKETS=1000
 SAMPLE_BITMAP=0
 PRELOAD_FEATURES=1
@@ -19,16 +20,17 @@ ONEHOT=1
 
 USE_VAL_SET=1
 WEIGHTED_MSES=(0.0)
-EVAL_ON_JOB=0
+EVAL_ON_JOB=1
+EVAL_ON_JOBM=1
 
 EVAL_EPOCH=100
 
-LOSSES=join-loss,qerr,flow-loss
+LOSSES=qerr,flow-loss
 COST_MODEL=nested_loop_index7
 
 NHL=4
 #RES_DIR=all_results/vldb/default/sample_bitmaps
-RES_DIR=all_results/vldb/default/fcnn/final2
+RES_DIR=all_results/vldb/default/fcnn/final_jobm
 BUCKETS=10
 HLS=512
 
@@ -69,6 +71,7 @@ for i in "${!WEIGHTED_MSES[@]}";
    --optimizer_name adamw \
    --normalize_flow_loss $NORM_FLOW_LOSS \
    --eval_on_job $EVAL_ON_JOB \
+   --eval_on_jobm $EVAL_ON_JOBM \
    --feat_rel_pg_ests  $REL_ESTS \
    --feat_rel_pg_ests_onehot  $ONEHOT \
    --feat_pg_est_one_hot  $ONEHOT \

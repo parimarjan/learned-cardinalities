@@ -384,13 +384,25 @@ def load_samples(qfns, db, found_db, template_name,
         # print("going to call pool!")
         qreps = pool.starmap(load_sql_rep, par_args)
 
+    max_edges = 0
     for qi, qrep in enumerate(qreps):
+        if train_template and "job" in template_name:
+            if "29" in qfns[qi] and "flow_loss" in args.loss_func:
+                print("29 query, skipping for training set")
+                continue
+
+            num_edges = len(qrep["subset_graph"].edges())
+            if num_edges > max_edges:
+                max_edges = num_edges
+
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
         if SOURCE_NODE in nodes:
             nodes.remove(SOURCE_NODE)
+
         for node in nodes:
             info = qrep["subset_graph"].nodes()[node]
+
 
             if "cardinality" not in info:
                 print("cardinality not in qrep")
@@ -470,6 +482,10 @@ def load_samples(qfns, db, found_db, template_name,
     if "job" in template_name:
         update_samples(samples, args.flow_features,
                 args.cost_model, False, args.db_name)
+
+        # if train_template:
+            # print("max edges: ", max_edges)
+            # pdb.set_trace()
 
     if not found_db:
         # print("not found db!!")

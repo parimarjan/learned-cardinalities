@@ -267,12 +267,28 @@ def compute_qerror(queries, preds, **kwargs):
     query_losses = defaultdict(list)
     query_idx = 0
     for sample in queries:
+        nodes = list(sample["subset_graph"].nodes())
+        if SOURCE_NODE in nodes:
+            nodes.remove(SOURCE_NODE)
+
         template = sample["template_name"]
-        cur_err = np.mean(errors[query_idx:query_idx+len(sample["subset_graph"].nodes())])
+        cur_err = np.mean(errors[query_idx:query_idx+len(nodes)])
         query_losses["name"].append(sample["name"])
         query_losses["qerr"].append(cur_err)
         query_losses["samples_type"].append(samples_type)
-        query_idx += len(sample["subset_graph"].nodes())
+        query_idx += len(nodes)
+
+    qlosses_list = [ql for ql in query_losses["qerr"]]
+    qlosses_list = np.array(qlosses_list)
+    print(qlosses_list)
+    print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+            .format(args.db_name, args.algs, len(queries),
+                "query avg qerr",
+                np.round(np.mean(qlosses_list),3),
+                np.round(np.median(qlosses_list),3),
+                np.round(np.percentile(qlosses_list,95),3),
+                np.round(np.percentile(qlosses_list,99),3)))
+    pdb.set_trace()
 
     query_losses = pd.DataFrame(query_losses)
     qfn = rdir + "/" + "query_qerr.pkl"
@@ -282,6 +298,8 @@ def compute_qerror(queries, preds, **kwargs):
     else:
         df = query_losses
     save_object(qfn, df)
+
+    # query_avg_loss =
 
     for error in errors_all:
         all_qerr_losses["loss"].append(error)
