@@ -40,6 +40,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import sql_rep.query
 import multiprocessing as mp
 import psutil
+import gc
 
 OVERLAP_DIR_TMP = "{RESULT_DIR}/{DIFF_TEMPLATES_TYPE}/"
 
@@ -1026,6 +1027,7 @@ def main():
 
         eval_alg(alg, losses, train_queries, "train", join_loss_pool)
         del(train_queries[:])
+        gc.collect()
 
         if args.use_val_set:
             if len(val_queries) == 0:
@@ -1037,6 +1039,7 @@ def main():
                     args.cost_model, args.debug_set, args.db_name)
             eval_alg(alg, losses, val_queries, "validation", join_loss_pool)
             del(val_queries[:])
+            gc.collect()
 
         if len(test_queries) == 0:
             _, test_queries, _, _, _, _ = \
@@ -1053,6 +1056,7 @@ def main():
 
         eval_alg(alg, losses, test_queries, "test", join_loss_pool)
         del(test_queries[:])
+        gc.collect()
 
         if args.eval_on_job:
             _, _, _, job_queries, jobm_queries, _ = \
@@ -1128,7 +1132,7 @@ def read_flags():
     parser.add_argument("--mat_sparse_features", type=int, required=False,
             default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--eval_on_jobm", type=int, required=False,
             default=0)
 

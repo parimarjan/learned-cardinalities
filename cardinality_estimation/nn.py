@@ -3089,6 +3089,7 @@ class NN(CardinalityEstimationAlg):
 
                 for gi, gwts in enumerate(group_weights):
                     assert len(gwts) == len(training_sets[gi])
+                    gwts = np.maximum(gwts, 0.0)
                     gwts = self._update_sampling_weights(gwts)
 
                     if self.avg_jl_priority:
