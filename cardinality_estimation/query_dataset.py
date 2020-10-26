@@ -7,6 +7,8 @@ from collections import defaultdict
 import numpy as np
 from cardinality_estimation.algs import get_wj_times_dict
 import shutil
+import psutil
+import gc
 
 class QueryDataset(data.Dataset):
     def __init__(self, samples, db, featurization_type,
@@ -173,12 +175,20 @@ class QueryDataset(data.Dataset):
     def clean(self):
         # TODO: add for others too
         if self.preload_features == 1:
-            if isinstance(self.X, dict):
-                for k,v in self.X.items():
-                    del(v)
+            if self.use_set_padding == 3:
+                if isinstance(self.X, dict):
+                    for k,v in self.X.items():
+                        del(v)
+                gc.collect()
+                del(self.info[:])
+
+            else:
+                if isinstance(self.X, dict):
+                    for k,v in self.X.items():
+                        del(v)
+
 
             del(self.X)
-
             del(self.Y)
             del(self)
 

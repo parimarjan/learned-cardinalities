@@ -518,8 +518,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
         SOURCE_NODE = tuple(["SOURCE"])
 
     alg_name = kwargs["name"]
-    env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
-            args.port, args.db_name)
+    # env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
+            # args.port, args.db_name)
 
     if "nested" in args.cost_model:
         env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
@@ -552,22 +552,25 @@ def compute_join_order_loss(queries, preds, **kwargs):
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)
 
-    est_costs, opt_costs = run_join_loss_exp(env, args.cost_model)
-    if "nested" in args.cost_model:
-        est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
-        losses2 = est_costs2 - opt_costs2
-        print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-                .format(args.db_name, alg_name, len(queries),
-                    "join all",
-                    np.round(np.mean(losses2),3),
-                    np.round(np.median(losses2),3),
-                    np.round(np.percentile(losses2,95),3),
-                    np.round(np.percentile(losses2,99),3)))
+    # FIXME: avoiding nested_loop_index
+    # est_costs, opt_costs = run_join_loss_exp(env, args.cost_model)
+
+    # if "nested" in args.cost_model:
+    assert "nested" in args.cost_model
+    est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
+    losses2 = est_costs2 - opt_costs2
+    print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+            .format(args.db_name, alg_name, len(queries),
+                "join all",
+                np.round(np.mean(losses2),3),
+                np.round(np.median(losses2),3),
+                np.round(np.percentile(losses2,95),3),
+                np.round(np.percentile(losses2,99),3)))
 
     dummy = []
     save_object("dummy.pkl", dummy)
 
-    return np.array(est_costs) - np.array(opt_costs)
+    return np.array(est_costs2) - np.array(opt_costs2)
 
 def compute_flow_loss(queries, preds, **kwargs):
 

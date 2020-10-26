@@ -40,6 +40,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import sql_rep.query
 import multiprocessing as mp
 import psutil
+import gc
 
 OVERLAP_DIR_TMP = "{RESULT_DIR}/{DIFF_TEMPLATES_TYPE}/"
 
@@ -397,6 +398,9 @@ def load_samples(qfns, db, found_db, template_name,
 
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
+        # if train_template and "job" in template_name:
+            # pdb.set_trace()
+
         if SOURCE_NODE in nodes:
             nodes.remove(SOURCE_NODE)
 
@@ -549,6 +553,7 @@ def load_all_qrep_data(load_job_queries,
             load_train_queries = True
             load_job_queries = True
             load_test_queries = True
+            load_val_queries = True
             db = DB(args.user, args.pwd, args.db_host, args.port,
                     args.db_name)
     else:
@@ -673,7 +678,8 @@ def load_all_qrep_data(load_job_queries,
 
         if load_test_queries:
             cur_test_queries = load_samples(cur_test_fns, db, found_db,
-                    template_name, skip_zero_queries=True, train_template=True,
+                    template_name, skip_zero_queries=args.skip_zero_queries,
+                    train_template=True,
                     wj_times=wj_times, pool=pool)
         else:
             cur_test_queries = []
@@ -884,7 +890,7 @@ def main():
     else:
         load_test_samples = True
 
-    if args.model_dir is not None and args.algs == "nn":
+    if args.model_dir is not None:
         old_args = load_object(args.model_dir + "/args.pkl")
 
         # going to keep old args for most params, except these:
@@ -899,6 +905,9 @@ def main():
         old_args.query_directory = args.query_directory
         old_num_samples = args.num_samples_per_template
         old_args.use_set_padding = args.use_set_padding
+        old_args.eval_on_jobm = args.eval_on_jobm
+        old_args.jobm_query_dir = args.jobm_query_dir
+        old_args.skip_zero_queries = args.skip_zero_queries
 
         # if args.max_epochs == 0:
             # # because we aren't actually training, this is just used for init
@@ -907,6 +916,9 @@ def main():
                 # old_args.num_samples_per_template = 100
             # else:
                 # old_args.num_samples_per_template = 10
+
+        if args.algs == "saved":
+            old_args.algs = args.algs
 
         args = old_args
 
@@ -1031,6 +1043,7 @@ def main():
 
         eval_alg(alg, losses, train_queries, "train", join_loss_pool)
         del(train_queries[:])
+        gc.collect()
 
         if args.use_val_set:
             if len(val_queries) == 0:
@@ -1042,6 +1055,7 @@ def main():
                     args.cost_model, args.debug_set, args.db_name)
             eval_alg(alg, losses, val_queries, "validation", join_loss_pool)
             del(val_queries[:])
+            gc.collect()
 
         if len(test_queries) == 0:
             _, test_queries, _, _, _, _ = \
@@ -1058,6 +1072,7 @@ def main():
 
         eval_alg(alg, losses, test_queries, "test", join_loss_pool)
         del(test_queries[:])
+        gc.collect()
 
         if args.eval_on_job:
             _, _, _, job_queries, jobm_queries, _ = \
@@ -1133,9 +1148,9 @@ def read_flags():
     parser.add_argument("--mat_sparse_features", type=int, required=False,
             default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--eval_on_jobm", type=int, required=False,
-            default=1)
+            default=0)
 
     parser.add_argument("--add_job_features", type=int, required=False,
             default=1)
@@ -1387,7 +1402,7 @@ def read_flags():
             # default="qerr,join-loss,flow-loss,plan-loss",
             # help="comma separated list of loss names")
     parser.add_argument("--losses", type=str, required=False,
-            default="qerr",
+            default="qerr,join-loss",
             help="comma separated list of loss names")
 
     parser.add_argument("--result_dir", type=str, required=False,

@@ -42,6 +42,7 @@ from sqlalchemy import create_engine
 from .algs import *
 import sys
 import gc
+import psutil
 import copy
 import cvxpy as cp
 import networkx as nx
@@ -1166,6 +1167,22 @@ class NN(CardinalityEstimationAlg):
                 self.save_join_loss_stats(v, None, grad_samples,
                         "train", loss_key="param_gradients" + str(k))
 
+    def clean_memory(self):
+        # TODO: add dataset cleaning here
+        # self.flow_training_info[qidx]
+
+        if hasattr(self, "flow_training_info"):
+            # for k,v in self.flow_training_info.items():
+            for v in self.flow_training_info:
+                if isinstance(v, list) or isinstance(v, tuple):
+                    for v0 in v:
+                        if isinstance(v0, list) or isinstance(v0, tuple):
+                            del(v0[:])
+                        del(v0)
+                else:
+                    print(type(v))
+                    del(v)
+            gc.collect()
 
     def train_mscn_set(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
@@ -2265,6 +2282,7 @@ class NN(CardinalityEstimationAlg):
                     samples_type, loss_key="inl_jerr_ratio", epoch=epoch)
 
     def _normalize_priorities(self, priorities):
+        priorities = np.maximum(priorities, 0.0)
         total = np.float64(np.sum(priorities))
         norm_priorities = np.zeros(len(priorities))
         norm_priorities = np.divide(priorities, total)
@@ -2789,12 +2807,6 @@ class NN(CardinalityEstimationAlg):
                 # flows, edge_dict = res[si]
 
                 for i, node in enumerate(node_list):
-                    # all_paths = nx.all_simple_paths(subsetg, dest, node)
-                    # num_paths = len(list(all_paths))
-                    # in_edges = subsetg.in_edges(node)
-                    # node_pr = 0.0
-                    # for edge in in_edges:
-                        # node_pr += flows[edge_dict[edge]]
                     subq_idx = idx = qidx + i
                     node_pr = subq_imps[subq_idx]
 
@@ -3077,6 +3089,7 @@ class NN(CardinalityEstimationAlg):
 
                 for gi, gwts in enumerate(group_weights):
                     assert len(gwts) == len(training_sets[gi])
+                    gwts = np.maximum(gwts, 0.0)
                     gwts = self._update_sampling_weights(gwts)
 
                     if self.avg_jl_priority:
@@ -3088,8 +3101,11 @@ class NN(CardinalityEstimationAlg):
                             for i in range(1,num_past+1):
                                 new_priorities += self.past_priorities[gi][-i]
                             gwts = self._normalize_priorities(new_priorities)
+                        else:
+                            gwts = self._normalize_priorities(gwts)
 
                     gwts = torch.DoubleTensor(gwts)
+
                     sampler = torch.utils.data.sampler.WeightedRandomSampler(gwts,
                             num_samples=len(gwts))
                     tloader = data.DataLoader(training_sets[gi],
@@ -3098,6 +3114,7 @@ class NN(CardinalityEstimationAlg):
                             sampler = sampler, collate_fn=self.collate_fn)
                     self.training_loaders[gi] = tloader
 
+        self.clean_memory()
         if self.best_model_dict is not None and self.use_best_val_model:
             print("""training done, will update our model based on validation set
             errors now""")
@@ -3105,6 +3122,7 @@ class NN(CardinalityEstimationAlg):
             self.nets[0].eval()
         else:
             self.save_model_dict()
+
 
     def test(self, test_samples):
         '''
