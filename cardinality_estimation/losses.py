@@ -170,9 +170,14 @@ def _get_all_cardinalities(queries, preds):
     yhat = []
     # totals = []
     for i, pred_subsets in enumerate(preds):
-        assert pred_subsets != SOURCE_NODE
         qrep = queries[i]["subset_graph"].nodes()
-        for alias, pred in pred_subsets.items():
+        keys = list(pred_subsets.keys())
+        keys.sort()
+
+        # for alias, pred in pred_subsets.items():
+        for alias in keys:
+            assert alias != SOURCE_NODE
+            pred = pred_subsets[alias]
             actual = qrep[alias]["cardinality"]["actual"]
             # total = qrep[alias]["cardinality"]["total"]
             # totals.append(total)
@@ -266,29 +271,54 @@ def compute_qerror(queries, preds, **kwargs):
     all_qerr_losses = defaultdict(list)
     query_losses = defaultdict(list)
     query_idx = 0
-    for sample in queries:
+    full_query_qerrs = defaultdict(list)
+
+    for si, sample in enumerate(queries):
         nodes = list(sample["subset_graph"].nodes())
         if SOURCE_NODE in nodes:
             nodes.remove(SOURCE_NODE)
 
+        nodes.sort()
+        max_len = len(sample["join_graph"].nodes())
+
         template = sample["template_name"]
-        cur_err = np.mean(errors[query_idx:query_idx+len(nodes)])
+        # cur_err = np.mean(errors[query_idx:query_idx+len(nodes)])
+        cur_errs = errors[query_idx:query_idx+len(nodes)]
+        assert len(cur_errs) == len(nodes)
+
+        for ci, cerr in enumerate(cur_errs):
+            if len(nodes[ci]) == max_len:
+                full_query_qerrs["qerr"].append(cerr)
+                full_query_qerrs["samples_type"].append(samples_type)
+                full_query_qerrs["name"].append(sample["name"])
+                break
+
         query_losses["name"].append(sample["name"])
-        query_losses["qerr"].append(cur_err)
+        query_losses["qerr_mean"].append(np.mean(cur_errs))
+        query_losses["qerr50"].append(np.median(cur_errs))
+        query_losses["qerr90"].append(np.percentile(cur_errs,90))
+        query_losses["qerr95"].append(np.percentile(cur_errs, 95))
+        query_losses["qerr99"].append(np.percentile(cur_errs, 99))
         query_losses["samples_type"].append(samples_type)
         query_idx += len(nodes)
 
-    qlosses_list = [ql for ql in query_losses["qerr"]]
-    qlosses_list = np.array(qlosses_list)
-    print(qlosses_list)
     print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
             .format(args.db_name, args.algs, len(queries),
-                "query avg qerr",
-                np.round(np.mean(qlosses_list),3),
-                np.round(np.median(qlosses_list),3),
-                np.round(np.percentile(qlosses_list,95),3),
-                np.round(np.percentile(qlosses_list,99),3)))
-    pdb.set_trace()
+                "full query qerr",
+                np.round(np.mean(full_query_qerrs["qerr"]),3),
+                np.round(np.median(full_query_qerrs["qerr"]), 3),
+                np.round(np.percentile(full_query_qerrs["qerr"], 95), 3),
+                np.round(np.percentile(full_query_qerrs["qerr"], 99), 3),
+                ))
+
+    qfn = rdir + "/" + "full_query_qerr.pkl"
+    full_query_qerrs = pd.DataFrame(full_query_qerrs)
+    old_results = load_object(qfn)
+    if old_results is not None:
+        df = pd.concat([old_results, full_query_qerrs], ignore_index=True)
+    else:
+        df = full_query_qerrs
+    save_object(qfn, df)
 
     query_losses = pd.DataFrame(query_losses)
     qfn = rdir + "/" + "query_qerr.pkl"
