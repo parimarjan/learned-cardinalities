@@ -188,24 +188,25 @@ class Postgres(CardinalityEstimationAlg):
             for alias_key in nodes:
                 info = sample["subset_graph"].nodes()[alias_key]
                 true_card = info["cardinality"]["actual"]
+                est = info["cardinality"]["expected"]
 
                 if "expected" not in info["cardinality"]:
                     print("no find expected :(")
                     pdb.set_trace()
 
-                if true_card >= CROSS_JOIN_CONSTANT:
-                    est = true_card
-                else:
-                    est = info["cardinality"]["expected"]
+                # if true_card >= CROSS_JOIN_CONSTANT:
+                    # est = true_card
+                # else:
+                    # est = info["cardinality"]["expected"]
 
-                if est > EXCEPTION_COUNT_CONSTANT:
-                    est = TIMEOUT_COUNT_CONSTANT
+                # if est > EXCEPTION_COUNT_CONSTANT:
+                    # pdb.set_trace()
+                    # est = TIMEOUT_COUNT_CONSTANT
 
                 # if est > EXCEPTION_COUNT_CONSTANT:
                     # print(est)
                     # print("postgres estimate > cj constant")
                     # pdb.set_trace()
-                # est = info["cardinality"]["expected"]
 
                 pred_dict[(alias_key)] = est
             preds.append(pred_dict)

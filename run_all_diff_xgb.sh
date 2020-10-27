@@ -1,12 +1,10 @@
 MIN_QERRS=(1.0)
-DECAY=0.1
-#DIFF_SEEDS=(1 2 3 4 5)
-#DIFF_SEEDS=(1 6 8 7 9 10)
-DIFF_SEEDS=(7 9 10 1 2 3 4 5)
+DECAY=1.0
+DIFF_SEEDS=(10 9 8 7 6 1 2 3 4 5)
 
 #DIFF_SEEDS=(6)
 
-PRIORITY=0.0
+PRIORITY=0.5
 MAX_EPOCHS=(10)
 #MAX_EPOCHS=(10)
 BUCKETS=10
@@ -14,7 +12,8 @@ FLOW_FEATS=1
 LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
-RES_DIR=all_results/vldb/test_diff/mscn/final1
+RES_DIR=all_results/vldb/test_diff/xgb/
+LOSSES=join-loss,qerr
 
 REL_ESTS=1
 ONEHOT=1
@@ -41,6 +40,7 @@ SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=500
 EVAL_ON_JOB=0
 USE_SET_PADDING=3
+
 for i in "${!WEIGHTED_MSES[@]}";
 do
   #for j in "${!NUM_HLS[@]}";
@@ -48,31 +48,10 @@ do
   do
   for k in "${!DIFF_SEEDS[@]}";
     do
-    CMD="time python3 main.py --algs $ALG -n -1 \
-     --loss_func $LOSS_FUNC \
+    CMD="time python3 main.py --algs xgboost -n -1 \
      --losses $LOSSES \
-     --use_set_padding $USE_SET_PADDING \
-     --query_mb_size $MB_SIZE \
-     --no7a $No7 \
-     --nn_type $NN_TYPE \
-     --num_workers $NUM_WORKERS \
-     --load_query_together $LOAD_QUERY_TOGETHER \
-     --sampling_priority_alpha $PRIORITY \
-     --preload_features $PRELOAD_FEATURES \
-     --add_job_features $JOB_FEATS \
-     --add_test_features $TEST_FEATS \
-     --weighted_mse ${WEIGHTED_MSES[$i]} \
-     --weight_decay $DECAY \
-     --exp_prefix runAllDiff \
      --result_dir $RES_DIR \
-     --max_epochs ${MAX_EPOCHS[$j]} \
      --cost_model nested_loop_index7 \
-     --eval_epoch $EVAL_EPOCH \
-     --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
-     --eval_epoch_plan_err 40 \
-     --hidden_layer_size $HLS --optimizer_name adamw \
-     --num_hidden_layers $NUM_HLS \
-     --normalize_flow_loss $NORM_FLOW_LOSS \
      --test_diff_templates 1 --diff_templates_type 3 \
      --diff_templates_seed ${DIFF_SEEDS[$k]} \
      --sample_bitmap $SAMPLE_BITMAP \

@@ -110,6 +110,9 @@ def qerr_loss_stats(samples, losses, samples_type,
         for subq_idx, node in enumerate(nodes):
             num_tables = len(node)
             idx = query_idx + subq_idx
+            if idx >= len(losses):
+                print("idx > losses")
+                continue
             loss = losses[idx]
             summary_data["loss"].append(loss)
             summary_data["num_tables"].append(num_tables)
@@ -170,9 +173,14 @@ def _get_all_cardinalities(queries, preds):
     yhat = []
     # totals = []
     for i, pred_subsets in enumerate(preds):
-        assert pred_subsets != SOURCE_NODE
         qrep = queries[i]["subset_graph"].nodes()
-        for alias, pred in pred_subsets.items():
+        keys = list(pred_subsets.keys())
+        keys.sort()
+
+        # for alias, pred in pred_subsets.items():
+        for alias in keys:
+            assert alias != SOURCE_NODE
+            pred = pred_subsets[alias]
             actual = qrep[alias]["cardinality"]["actual"]
             # total = qrep[alias]["cardinality"]["total"]
             # totals.append(total)
@@ -266,13 +274,54 @@ def compute_qerror(queries, preds, **kwargs):
     all_qerr_losses = defaultdict(list)
     query_losses = defaultdict(list)
     query_idx = 0
-    for sample in queries:
+    full_query_qerrs = defaultdict(list)
+
+    for si, sample in enumerate(queries):
+        nodes = list(sample["subset_graph"].nodes())
+        if SOURCE_NODE in nodes:
+            nodes.remove(SOURCE_NODE)
+
+        nodes.sort()
+        max_len = len(sample["join_graph"].nodes())
+
         template = sample["template_name"]
-        cur_err = np.mean(errors[query_idx:query_idx+len(sample["subset_graph"].nodes())])
+        # cur_err = np.mean(errors[query_idx:query_idx+len(nodes)])
+        cur_errs = errors[query_idx:query_idx+len(nodes)]
+        assert len(cur_errs) == len(nodes)
+
+        for ci, cerr in enumerate(cur_errs):
+            if len(nodes[ci]) == max_len:
+                full_query_qerrs["qerr"].append(cerr)
+                full_query_qerrs["samples_type"].append(samples_type)
+                full_query_qerrs["name"].append(sample["name"])
+                break
+
         query_losses["name"].append(sample["name"])
-        query_losses["qerr"].append(cur_err)
+        query_losses["qerr_mean"].append(np.mean(cur_errs))
+        query_losses["qerr50"].append(np.median(cur_errs))
+        query_losses["qerr90"].append(np.percentile(cur_errs,90))
+        query_losses["qerr95"].append(np.percentile(cur_errs, 95))
+        query_losses["qerr99"].append(np.percentile(cur_errs, 99))
         query_losses["samples_type"].append(samples_type)
-        query_idx += len(sample["subset_graph"].nodes())
+        query_idx += len(nodes)
+
+    print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+            .format(args.db_name, args.algs, len(queries),
+                "full query qerr",
+                np.round(np.mean(full_query_qerrs["qerr"]),3),
+                np.round(np.median(full_query_qerrs["qerr"]), 3),
+                np.round(np.percentile(full_query_qerrs["qerr"], 95), 3),
+                np.round(np.percentile(full_query_qerrs["qerr"], 99), 3),
+                ))
+
+    qfn = rdir + "/" + "full_query_qerr.pkl"
+    full_query_qerrs = pd.DataFrame(full_query_qerrs)
+    old_results = load_object(qfn)
+    if old_results is not None:
+        df = pd.concat([old_results, full_query_qerrs], ignore_index=True)
+    else:
+        df = full_query_qerrs
+    save_object(qfn, df)
 
     query_losses = pd.DataFrame(query_losses)
     qfn = rdir + "/" + "query_qerr.pkl"
@@ -282,6 +331,8 @@ def compute_qerror(queries, preds, **kwargs):
     else:
         df = query_losses
     save_object(qfn, df)
+
+    # query_avg_loss =
 
     for error in errors_all:
         all_qerr_losses["loss"].append(error)
@@ -470,8 +521,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
         SOURCE_NODE = tuple(["SOURCE"])
 
     alg_name = kwargs["name"]
-    env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
-            args.port, args.db_name)
+    # env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
+            # args.port, args.db_name)
 
     if "nested" in args.cost_model:
         env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
@@ -504,22 +555,25 @@ def compute_join_order_loss(queries, preds, **kwargs):
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)
 
-    est_costs, opt_costs = run_join_loss_exp(env, args.cost_model)
-    if "nested" in args.cost_model:
-        est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
-        losses2 = est_costs2 - opt_costs2
-        print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-                .format(args.db_name, alg_name, len(queries),
-                    "join all",
-                    np.round(np.mean(losses2),3),
-                    np.round(np.median(losses2),3),
-                    np.round(np.percentile(losses2,95),3),
-                    np.round(np.percentile(losses2,99),3)))
+    # FIXME: avoiding nested_loop_index
+    # est_costs, opt_costs = run_join_loss_exp(env, args.cost_model)
+
+    # if "nested" in args.cost_model:
+    assert "nested" in args.cost_model
+    est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
+    losses2 = est_costs2 - opt_costs2
+    print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+            .format(args.db_name, alg_name, len(queries),
+                "join all",
+                np.round(np.mean(losses2),3),
+                np.round(np.median(losses2),3),
+                np.round(np.percentile(losses2,95),3),
+                np.round(np.percentile(losses2,99),3)))
 
     dummy = []
     save_object("dummy.pkl", dummy)
 
-    return np.array(est_costs) - np.array(opt_costs)
+    return np.array(est_costs2) - np.array(opt_costs2)
 
 def compute_flow_loss(queries, preds, **kwargs):
 

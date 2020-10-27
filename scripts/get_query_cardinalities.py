@@ -58,9 +58,9 @@ def read_flags():
     parser.add_argument("-n", "--num_queries", type=int,
             required=False, default=-1)
     parser.add_argument("--use_tries", type=int,
-            required=False, default=0)
-    parser.add_argument("--skip_zero_queries", type=int,
             required=False, default=1)
+    parser.add_argument("--skip_zero_queries", type=int,
+            required=False, default=0)
     parser.add_argument("--no_parallel", type=int,
             required=False, default=0)
     parser.add_argument("--card_type", type=str, required=False,
@@ -119,6 +119,8 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
         cards = info["cardinality"]
         if key_name in cards:
             return
+        if "actual" not in cards:
+            return
 
     if idx % 10 == 0:
         print("query: ", idx)
@@ -126,6 +128,10 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
     wj = WanderJoin(user, pwd, db_host, port,
             db_name, verbose=True, walks_timeout=wj_walk_timeout, seed =
             seed, use_tries=use_tries, trie_cache=trie_cache)
+
+    if SOURCE_NODE in list(qrep["subset_graph"].nodes()):
+        qrep["subset_graph"].remove_node(SOURCE_NODE)
+
     data = wj.get_counts(qrep)
 
     # save wj data
@@ -188,6 +194,10 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     node_list.sort(reverse=True, key = lambda x: len(x))
     if args.db_name == "so":
         source_node = tuple(["SOURCE"])
+        if source_node in node_list:
+            node_list.remove(source_node)
+    elif args.db_name == "imdb":
+        source_node = tuple(["s"])
         if source_node in node_list:
             node_list.remove(source_node)
 
@@ -368,6 +378,9 @@ def main():
                     nx.OrderedDiGraph(json_graph.adjacency_graph(qrep["subset_graph"]))
             qrep["join_graph"] = json_graph.adjacency_graph(qrep["join_graph"])
             fn = fn.replace(".sql", ".pkl")
+            save_sql_rep(fn, qrep)
+            print("updated sql rep!")
+            continue
 
         if args.no_parallel:
             if args.card_type == "wanderjoin":
@@ -376,12 +389,10 @@ def main():
                 if not os.path.exists(wj_dir):
                     make_dir(wj_dir)
                 wj_fn = wj_dir + base_name
-                print(wj_fn)
-                pdb.set_trace()
                 get_cardinality_wj(qrep, args.card_type, args.key_name, args.db_host,
                         args.db_name, args.user, args.pwd, args.port,
-                        fn, wj_fn, args.wj_walk_timeout, i, None,
-                        args.use_tries)
+                         fn, wj_fn, args.wj_walk_timeout, i, args.seed, None,
+                         args.use_tries)
                 print("done!")
                 pdb.set_trace()
             else:
@@ -390,7 +401,7 @@ def main():
                         args.true_timeout, args.pg_total, args.card_cache_dir, fn,
                         args.wj_walk_timeout, i, args.sampling_percentage,
                         args.sampling_type, True)
-                pdb.set_trace()
+
             continue
 
         if args.card_type == "wanderjoin":
