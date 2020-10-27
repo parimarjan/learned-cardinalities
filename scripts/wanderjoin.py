@@ -253,7 +253,12 @@ class WanderJoin():
                 exec_sql = NEXT_HOP_TMP.format(FKEY_CONDS = fkey_cond,
                                                 TABLE = table,
                                                 SELS = sels)
-                assert path_execs[-1] is None
+                # assert path_execs[-1] is None
+                if path_execs[-1] is not None:
+                    print(exec_sql)
+                    print(path_execs)
+                    pdb.set_trace()
+
                 path_execs[-1] = exec_sql
 
         return path_execs, path_join_keys, path_tries
@@ -384,6 +389,11 @@ class WanderJoin():
                             nodes = tuple(nodes)
                             est = round(card_ests[nodes] / card_samples[nodes], 2)
                             std = round(np.sqrt(card_vars[nodes] / float((card_samples[nodes]-1))), 2)
+                            if "actual" not in subset_graph.nodes()[nodes]["cardinality"]:
+                                print("badddddd node")
+                                print(nodes)
+                                pdb.set_trace()
+
                             true = subset_graph.nodes()[nodes]["cardinality"]["actual"]
                             alpha = st.norm.ppf((CONF_ALPHA+1)/2)
                             half_interval = std*alpha / np.sqrt(card_samples[nodes])

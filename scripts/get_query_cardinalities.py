@@ -58,7 +58,7 @@ def read_flags():
     parser.add_argument("-n", "--num_queries", type=int,
             required=False, default=-1)
     parser.add_argument("--use_tries", type=int,
-            required=False, default=0)
+            required=False, default=1)
     parser.add_argument("--skip_zero_queries", type=int,
             required=False, default=0)
     parser.add_argument("--no_parallel", type=int,
@@ -119,6 +119,8 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
         cards = info["cardinality"]
         if key_name in cards:
             return
+        if "actual" not in cards:
+            return
 
     if idx % 10 == 0:
         print("query: ", idx)
@@ -126,6 +128,10 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
     wj = WanderJoin(user, pwd, db_host, port,
             db_name, verbose=True, walks_timeout=wj_walk_timeout, seed =
             seed, use_tries=use_tries, trie_cache=trie_cache)
+
+    if SOURCE_NODE in list(qrep["subset_graph"].nodes()):
+        qrep["subset_graph"].remove_node(SOURCE_NODE)
+
     data = wj.get_counts(qrep)
 
     # save wj data
@@ -383,12 +389,10 @@ def main():
                 if not os.path.exists(wj_dir):
                     make_dir(wj_dir)
                 wj_fn = wj_dir + base_name
-                print(wj_fn)
-                pdb.set_trace()
                 get_cardinality_wj(qrep, args.card_type, args.key_name, args.db_host,
                         args.db_name, args.user, args.pwd, args.port,
-                        fn, wj_fn, args.wj_walk_timeout, i, None,
-                        args.use_tries)
+                         fn, wj_fn, args.wj_walk_timeout, i, args.seed, None,
+                         args.use_tries)
                 print("done!")
                 pdb.set_trace()
             else:
@@ -397,7 +401,7 @@ def main():
                         args.true_timeout, args.pg_total, args.card_cache_dir, fn,
                         args.wj_walk_timeout, i, args.sampling_percentage,
                         args.sampling_type, True)
-                pdb.set_trace()
+
             continue
 
         if args.card_type == "wanderjoin":

@@ -12,7 +12,7 @@ FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
 ONE_HOT_ESTS=(1)
 REL_ESTS=(1)
-RES_DIR=all_results/vldb/default/hyp_sweep_samplebitmap
+RES_DIR=all_results/vldb/default/hyp_sweep_mscn
 EVAL_JOB=0
 BATCH_NORM=0
 MB_SIZE=4
@@ -21,9 +21,9 @@ DECAYS=(1.0 0.1)
 LRS=(0.00005 0.0001)
 
 MAX_EPOCHS=(10)
-HLS=(512)
+HLS=(256)
 
-NORM_FLOW_LOSS=(1)
+NORM_FLOW_LOSS=(0)
 NUM_MSE_ANCHORING=(-3)
 
 PRIORITY=(0.0)

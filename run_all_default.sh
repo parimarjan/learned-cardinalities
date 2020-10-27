@@ -29,7 +29,7 @@ COST_MODEL=nested_loop_index7
 
 NHL=4
 #RES_DIR=all_results/vldb/default/sample_bitmaps
-RES_DIR=all_results/vldb/default/fcnn/final2
+RES_DIR=all_results/vldb/default/fcnn/final_jobm
 BUCKETS=10
 HLS=512
 
@@ -70,6 +70,7 @@ for i in "${!WEIGHTED_MSES[@]}";
    --optimizer_name adamw \
    --normalize_flow_loss $NORM_FLOW_LOSS \
    --eval_on_job $EVAL_ON_JOB \
+   --eval_on_jobm $EVAL_ON_JOBM \
    --feat_rel_pg_ests  $REL_ESTS \
    --feat_rel_pg_ests_onehot  $ONEHOT \
    --feat_pg_est_one_hot  $ONEHOT \
