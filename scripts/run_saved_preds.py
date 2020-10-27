@@ -8,7 +8,7 @@ import os
 import subprocess as sp
 
 RUN_TMP='''export CUDA_VISIBLE_DEVICES="";python3 main.py --algs saved \
---model_dir {MODEL_DIR} --result_dir {RES_DIR}
+--model_dir {MODEL_DIR} --result_dir {RES_DIR} --debug_set {DEBUG}
 '''
 
 def read_flags():
@@ -51,7 +51,8 @@ def main():
 
         print(model_dir)
         cmd = RUN_TMP.format(MODEL_DIR = model_dir,
-                             RES_DIR = res_dir)
+                             RES_DIR = res_dir,
+                             DEBUG = args.debug_set)
 
         print(cmd)
         p = sp.Popen(cmd, shell=True)

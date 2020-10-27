@@ -110,6 +110,9 @@ def qerr_loss_stats(samples, losses, samples_type,
         for subq_idx, node in enumerate(nodes):
             num_tables = len(node)
             idx = query_idx + subq_idx
+            if idx >= len(losses):
+                print("idx > losses")
+                continue
             loss = losses[idx]
             summary_data["loss"].append(loss)
             summary_data["num_tables"].append(num_tables)
