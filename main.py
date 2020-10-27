@@ -1182,7 +1182,7 @@ def read_flags():
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
     parser.add_argument("--priority_normalize_type", type=str, required=False,
-            default="")
+            default="flow4")
     parser.add_argument("--normalize_flow_loss", type=int, required=False,
             default=1)
 
@@ -1226,7 +1226,7 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_qerr", type=int,
-            required=False, default=2)
+            required=False, default=100)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=1)
     parser.add_argument("--use_batch_norm", type=int,

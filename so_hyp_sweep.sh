@@ -3,25 +3,26 @@
 ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
+PRIORITY=$4
+
 USE_VAL_SET=1
 
 FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
-DECAYS=(1.0 0.1 0.0)
+DECAYS=(1.0 0.1)
 #LRS=(0.00005 0.0001)
-LRS=(0.0001 0.00005)
-HLS=(128)
+LRS=(0.00005 0.0001)
+HLS=(256)
 MAX_EPOCHS=(30 20 50)
 
 #NORM_FLOW_LOSS=(1 0)
-NORM_FLOW_LOSS=(1)
+NORM_FLOW_LOSS=(0)
 NUM_MSE_ANCHORING=(-3)
 
-PRIORITY=0.0
 BUCKETS=10
 DEBUG_RATIO=10
 
-NUM_HLS=2
+NUM_HLS=4
 LOAD_QUERY_TOGETHER=0
 
 JOB_FEATS=1
@@ -69,7 +70,7 @@ do
      --lr ${LRS[$lr]} \
      --max_discrete_featurizing_buckets $BUCKETS \
      --exp_prefix default \
-     --result_dir all_results/vldb/so/default/hyp_sweep3 \
+     --result_dir all_results/vldb/so/default/hyp_sweep4 \
      --eval_epoch $EVAL_EPOCH --join_loss_pool_num $NUM_PAR \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
      --eval_epoch_plan_err 40 \
