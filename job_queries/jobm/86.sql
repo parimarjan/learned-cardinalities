@@ -1,2 +1,0 @@
-
-SELECT COUNT(*) FROM company_name AS cn1,info_type AS it1,kind_type AS kt1,link_type AS lt,movie_companies AS mc1,movie_info_idx AS mi_idx1,movie_link AS ml,title AS t1 WHERE cn1.country_code = '[nl]' AND it1.info = 'rating' AND lt.link LIKE '%follow%' AND kt1.kind IN ('tv series') AND lt.id = ml.link_type_id AND ml.movie_id = t1.id AND ml.movie_id = mi_idx1.movie_id AND ml.movie_id = mc1.movie_id AND t1.id = mi_idx1.movie_id AND t1.kind_id = kt1.id AND t1.id = mc1.movie_id AND it1.id = mi_idx1.info_type_id AND mi_idx1.movie_id = mc1.movie_id AND cn1.id = mc1.company_id

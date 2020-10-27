@@ -1061,8 +1061,8 @@ def main():
         if args.eval_on_job:
             _, _, _, job_queries, jobm_queries, _ = \
                     load_all_qrep_data(True, False, False, False, False)
-            eval_alg(alg, losses, job_queries, "job", join_loss_pool)
             eval_alg(alg, losses, jobm_queries, "jobm", join_loss_pool)
+            eval_alg(alg, losses, job_queries, "job", join_loss_pool)
 
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
@@ -1107,6 +1107,8 @@ def read_flags():
 
     parser.add_argument("--query_directory", type=str, required=False,
             default="./minified_dataset")
+    # parser.add_argument("--query_directory", type=str, required=False,
+            # default="./our_dataset/queries")
     parser.add_argument("--cost_model", type=str, required=False,
             default="nested_loop_index7")
     parser.add_argument("--join_loss_data_file", type=str, required=False,
@@ -1220,7 +1222,7 @@ def read_flags():
     parser.add_argument("--heuristic_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_loss_pool_num", type=int, required=False,
-            default=10)
+            default=16)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
     parser.add_argument("--priority_normalize_type", type=str, required=False,
