@@ -65,7 +65,8 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.ensemble import GradientBoostingRegressor
 
 # os.environ['KMP_DUPLICATE_LIB_OK']='True'
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = "cpu"
 
 import torch.multiprocessing as mp
 try:
@@ -862,6 +863,7 @@ class NN(CardinalityEstimationAlg):
 
         if "flow_loss" in loss_fn_name:
             torch.set_num_threads(1)
+
         if self.save_gradients:
             grads = []
             par_grads = defaultdict(list)
@@ -874,6 +876,7 @@ class NN(CardinalityEstimationAlg):
 
         for idx, (xbatch, ybatch,info) in enumerate(loader):
             start = time.time()
+            print(idx)
             # TODO: add handling for num_tables
             if load_query_together:
                 # update the batches
@@ -893,6 +896,7 @@ class NN(CardinalityEstimationAlg):
             ybatch = ybatch.to(device, non_blocking=True)
             xbatch = xbatch.to(device, non_blocking=True)
             pred = net(xbatch).squeeze(1)
+            print("pred done")
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
@@ -930,11 +934,13 @@ class NN(CardinalityEstimationAlg):
                             self.join_loss_pool, self.cost_model)
             else:
                 losses = loss_fn(pred, ybatch)
+            print("losses done")
 
             try:
                 loss = losses.sum() / len(losses)
             except:
                 loss = losses
+            print("loss done")
 
             if self.weighted_qloss != 0.0:
                 qloss = qloss_torch(pred, ybatch)
@@ -980,12 +986,18 @@ class NN(CardinalityEstimationAlg):
                     par_grads[wi].append(wt)
             else:
                 optimizer.zero_grad()
+                print("opt zero grad done")
+                print(loss)
+                pdb.set_trace()
                 loss.backward()
+                print("loss backward done")
 
             if clip_gradient is not None:
                 clip_grad_norm_(net.parameters(), clip_gradient)
+                print("clip grad done")
 
             optimizer.step()
+            print("opt step done")
             idx_time = time.time() - start
             if idx_time > 10:
                 print("train idx took: ", idx_time)
@@ -1182,7 +1194,7 @@ class NN(CardinalityEstimationAlg):
                 else:
                     print(type(v))
                     del(v)
-            gc.collect()
+            # gc.collect()
 
     def train_mscn_set(self, net, optimizer, loader, loss_fn, loss_fn_name,
             clip_gradient, samples, normalization_type, min_val, max_val,
@@ -2900,8 +2912,6 @@ class NN(CardinalityEstimationAlg):
                     self.max_discrete_featurizing_buckets,
                     self.hidden_layer_size))
 
-        # print(type(self.samples["train"]))
-
         if self.eval_epoch > self.max_epochs:
             if val_samples is not None:
                 del(val_samples[:])
@@ -2914,6 +2924,7 @@ class NN(CardinalityEstimationAlg):
 
                 if self.preload_features < 3:
                     del(training_sets[0].db)
+            print("deleted training / test qrep samples")
 
         if self.model_dir is not None:
             print("going to load model!")
@@ -2952,6 +2963,7 @@ class NN(CardinalityEstimationAlg):
                     self._eval_wrapper("test")
 
             start = time.time()
+            print("going to call trian one epoch")
             self.train_one_epoch()
             self.save_model_dict()
             print("one epoch train took: ", time.time()-start)
@@ -3167,7 +3179,7 @@ class NN(CardinalityEstimationAlg):
                     assert False
 
                 # true_card = cards["actual"]
-                # if true_card >= CROSS_JOIN_CONSTANT:
+                # if true_card == CROSS_JOIN_CONSTANT:
                     # est_card = true_card
 
                 ests[alias_key] = est_card
@@ -3389,9 +3401,9 @@ class XGBoost(NN):
                 assert est_card > 0
                 assert est_card != np.inf
 
-                true_card = cards["actual"]
-                if true_card == CROSS_JOIN_CONSTANT:
-                    est_card = true_card
+                # true_card = cards["actual"]
+                # if true_card == CROSS_JOIN_CONSTANT:
+                    # est_card = true_card
 
                 ests[alias_key] = est_card
             all_ests.append(ests)

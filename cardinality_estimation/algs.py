@@ -54,7 +54,7 @@ WJ_TIMES["3a"] = 0.25
 WJ_TIMES["4a"] = 0.1
 WJ_TIMES["5a"] = 0.1
 WJ_TIMES["6a"] = 1.0
-WJ_TIMES["7a"] = 10.0
+WJ_TIMES["7a"] = 5.0
 WJ_TIMES["8a"] = 5.0
 WJ_TIMES["9a"] = 5.0
 WJ_TIMES["9b"] = 5.0
@@ -72,7 +72,7 @@ WJ_TIMES0["3a"] = 0.12
 WJ_TIMES0["4a"] = 0.05
 WJ_TIMES0["5a"] = 0.05
 WJ_TIMES0["6a"] = 0.5
-WJ_TIMES0["7a"] = 5.0
+WJ_TIMES0["7a"] = 2.5
 WJ_TIMES0["8a"] = 2.5
 WJ_TIMES0["9a"] = 5.0
 WJ_TIMES0["9b"] = 5.0
@@ -194,13 +194,13 @@ class Postgres(CardinalityEstimationAlg):
                     print("no find expected :(")
                     pdb.set_trace()
 
-                # if true_card >= CROSS_JOIN_CONSTANT:
-                    # est = true_card
-                # else:
-                    # est = info["cardinality"]["expected"]
+                if true_card >= CROSS_JOIN_CONSTANT:
+                    est = true_card
+                else:
+                    est = info["cardinality"]["expected"]
 
                 # if est > EXCEPTION_COUNT_CONSTANT:
-                    # pdb.set_trace()
+                    # # pdb.set_trace()
                     # est = TIMEOUT_COUNT_CONSTANT
 
                 # if est > EXCEPTION_COUNT_CONSTANT:
@@ -229,6 +229,7 @@ class SamplingTables(CardinalityEstimationAlg):
         if self.sampling_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
             wj_times = get_wj_times_dict(self.sampling_key)
         else:
+            # assert False
             wj_times = None
 
         for sample in test_samples:
@@ -258,7 +259,9 @@ class SamplingTables(CardinalityEstimationAlg):
                 if cur_est == 0 or cur_est == 1:
                 # if cur_est == 0:
                     bad_ests += 1
-                    cur_est = cards["expected"]
+                    # cur_est = cards["expected"]
+                    # cur_est = TIMEOUT_COUNT_CONSTANT
+                    cur_est = 1
 
                 if cur_est == 0:
                     cur_est += 1

@@ -3,7 +3,8 @@
 ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
-PRIORITY=$4
+PRIORITY=0.0
+PR_NORM=no
 
 USE_VAL_SET=1
 
@@ -11,9 +12,9 @@ FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
 DECAYS=(1.0 0.1)
 #LRS=(0.00005 0.0001)
-LRS=(0.00005 0.0001)
+LRS=(0.0001 0.00001 0.00005)
 HLS=(256)
-MAX_EPOCHS=(30 20 50)
+MAX_EPOCHS=(20 30 50)
 
 #NORM_FLOW_LOSS=(1 0)
 NORM_FLOW_LOSS=(0)
@@ -57,6 +58,7 @@ do
      --nn_type $NN_TYPE \
      --load_query_together $LOAD_QUERY_TOGETHER \
      --sampling_priority_alpha $PRIORITY \
+     --priority_normalize_type $PR_NORM \
      --add_job_features $JOB_FEATS \
      --add_test_features $TEST_FEATS \
      --weighted_mse ${WEIGHTED_MSES[$i]} \
@@ -70,7 +72,7 @@ do
      --lr ${LRS[$lr]} \
      --max_discrete_featurizing_buckets $BUCKETS \
      --exp_prefix default \
-     --result_dir all_results/vldb/so/default/hyp_sweep4 \
+     --result_dir all_results/vldb/so/default2/hyp_sweep \
      --eval_epoch $EVAL_EPOCH --join_loss_pool_num $NUM_PAR \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
      --eval_epoch_plan_err 40 \
@@ -82,9 +84,9 @@ do
      --sample_bitmap_buckets $SAMPLE_BITMAP_BUCKETS \
      --min_qerr 1.00 \
      --eval_on_job 0 \
-     --feat_rel_pg_ests  0 \
-     --feat_rel_pg_ests_onehot  0 \
-     --feat_pg_est_one_hot  0 \
+     --feat_rel_pg_ests 1  \
+     --feat_rel_pg_ests_onehot  1 \
+     --feat_pg_est_one_hot  1 \
      --feat_tolerance 0"
     echo $CMD
     eval $CMD

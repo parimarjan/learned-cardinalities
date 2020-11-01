@@ -386,9 +386,11 @@ def compute_join_order_loss_pg_single(queries, join_graphs, true_cardinalities,
 
     if use_archive:
         if cost_model == "cm1":
-            archive_fn = "/tmp/sql_costs"
+            archive_fn = "./sql_costs"
         else:
-            archive_fn = "/tmp/sql_costs_" + cost_model
+            # archive_fn = "/tmp/sql_costs_" + cost_model
+            archive_fn = "./sql_costs_" + cost_model
+
         sql_costs_archive = klepto.archives.dir_archive(archive_fn,
                 cached=True, serialized=True)
     else:

@@ -179,7 +179,7 @@ class QueryDataset(data.Dataset):
                 if isinstance(self.X, dict):
                     for k,v in self.X.items():
                         del(v)
-                gc.collect()
+                # gc.collect()
                 del(self.info[:])
 
             else:
@@ -862,7 +862,6 @@ class QueryDataset(data.Dataset):
     def __getitem__(self, index):
         '''
         '''
-        # print(index)
         # pdb.set_trace()
         if self.preload_features == 1:
             if self.load_query_together:

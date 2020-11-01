@@ -22,6 +22,10 @@ from networkx.readwrite import json_graph
 # CROSS_JOIN_CONSTANT = 15000100000
 # EXCEPTION_COUNT_CONSTANT = 15000100002
 
+OLD_TIMEOUT_COUNT_CONSTANT = 150001001
+OLD_CROSS_JOIN_CONSTANT = 150001000
+OLD_EXCEPTION_COUNT_CONSTANT = 150001002
+
 TIMEOUT_COUNT_CONSTANT = 150001000001
 CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
@@ -94,6 +98,8 @@ def main():
     total = 0
     timeouts = 0
     cjs = 0
+    largest_num = 0
+
     for i, fn in enumerate(fns):
         if ".pkl" not in fn:
             continue
@@ -110,10 +116,20 @@ def main():
                 card = cards[args.key_name]
                 if card == TIMEOUT_COUNT_CONSTANT:
                     timeouts += 1
+                elif card == OLD_TIMEOUT_COUNT_CONSTANT:
+                    timeouts += 1
                 elif card == CROSS_JOIN_CONSTANT:
                     cjs += 1
+                elif card == OLD_CROSS_JOIN_CONSTANT:
+                    cjs += 1
+                elif card == OLD_EXCEPTION_COUNT_CONSTANT:
+                    timeouts += 1
                 elif card == EXCEPTION_COUNT_CONSTANT:
                     timeouts += 1
+                else:
+                    if card > largest_num:
+                        largest_num = card
+
                 cur_cards.append(card)
 
         if len(cur_cards) > 0:
@@ -123,6 +139,8 @@ def main():
         # pdb.set_trace()
 
     bad_percentage = float(timeouts + cjs) / total
+    print("largest: ", largest_num)
+    print("diff w/ largest: ", TIMEOUT_COUNT_CONSTANT - largest_num)
     print("cjs: {}, timeout percentage: {}".format(float(cjs)/total, bad_percentage))
     pdb.set_trace()
 

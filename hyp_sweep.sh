@@ -12,7 +12,8 @@ FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
 ONE_HOT_ESTS=(1)
 REL_ESTS=(1)
-RES_DIR=all_results/vldb/default/hyp_sweep_mscn
+RES_DIR=all_results/vldb/default/sample_bitmap/hyp_sweep1
+#RES_DIR=all_results/vldb/default/pr/hyp_sweep1
 EVAL_JOB=0
 BATCH_NORM=0
 MB_SIZE=4
@@ -21,13 +22,14 @@ DECAYS=(1.0 0.1)
 LRS=(0.00005 0.0001)
 
 MAX_EPOCHS=(10)
-HLS=(256)
+HLS=(512)
 
 NORM_FLOW_LOSS=(0)
 NUM_MSE_ANCHORING=(-3)
 
-PRIORITY=(1.0)
-PR_NORM=flow4
+#PRIORITY=(1.0 2.0)
+PRIORITY=(0.0)
+PR_NORM=no
 REP_EPOCH=1
 
 BUCKETS=10
@@ -39,17 +41,19 @@ LOAD_QUERY_TOGETHER=0
 JOB_FEATS=1
 TEST_FEATS=1
 
-SAMPLE_BITMAP=0
+SAMPLE_BITMAP=1
+PRELOAD_FEATURES=2
+QUERY_DIR=./our_dataset/queries/
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=4000
 NUM_PAR=16
-USE_SET_PADDING=0
+USE_SET_PADDING=3
 
 for i in "${!PRIORITY[@]}";
 do
   for onehot in "${!ONE_HOT_ESTS[@]}";
   do
-  for rel in "${!REL_ESTS[@]}";
+    for rel in "${!REL_ESTS[@]}";
   do
   for j in "${!DECAYS[@]}";
   do
@@ -78,6 +82,8 @@ do
      --num_workers $NUM_WORKERS \
      --load_query_together $LOAD_QUERY_TOGETHER \
      --sampling_priority_alpha ${PRIORITY[$i]} \
+     --query_dir $QUERY_DIR \
+     --preload_features $PRELOAD_FEATURES \
      --priority_normalize_type $PR_NORM \
      --reprioritize_epoch $REP_EPOCH \
      --add_job_features $JOB_FEATS \

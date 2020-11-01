@@ -5,7 +5,8 @@ import pdb
 import numpy as np
 from utils.utils import *
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = "cpu"
 
 class LinearRegression(torch.nn.Module):
     # TODO: add more stuff?
