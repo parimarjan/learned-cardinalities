@@ -19,9 +19,7 @@ REL_ESTS=1
 ONEHOT=1
 MB_SIZE=4
 
-ALG=$1
-LOSS_FUNC=$2
-NN_TYPE=$3
+DEPTH=$1
 NORM_FLOW_LOSS=0
 NUM_WORKERS=0
 
@@ -51,6 +49,7 @@ do
     CMD="time python3 main.py --algs xgboost -n -1 \
      --losses $LOSSES \
      --result_dir $RES_DIR \
+     --max_depth $DEPTH \
      --cost_model nested_loop_index7 \
      --test_diff_templates 1 --diff_templates_type 3 \
      --diff_templates_seed ${DIFF_SEEDS[$k]} \

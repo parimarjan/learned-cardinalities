@@ -2,7 +2,8 @@ MIN_QERRS=(1.0)
 DECAY=0.1
 #DIFF_SEEDS=(1 2 3 4 5)
 #DIFF_SEEDS=(1 6 8 7 9 10)
-DIFF_SEEDS=(7 9 10 1 2 3 4 5)
+#DIFF_SEEDS=(6 7 8 9 10 1 2 3 4 5)
+DIFF_SEEDS=(7 6)
 
 #DIFF_SEEDS=(6)
 
@@ -14,7 +15,8 @@ FLOW_FEATS=1
 LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
-RES_DIR=all_results/vldb/test_diff/mscn/final1
+RES_DIR=all_results/vldb/test_diff/fcnn/final_fcnn_pr_params
+LOSSES=qerr,join-loss
 
 REL_ESTS=1
 ONEHOT=1
@@ -26,8 +28,8 @@ NN_TYPE=$3
 NORM_FLOW_LOSS=0
 NUM_WORKERS=0
 
-HLS=256
-NUM_HLS=2
+HLS=512
+NUM_HLS=4
 LOAD_QUERY_TOGETHER=0
 
 WEIGHTED_MSES=(0.0)
@@ -41,6 +43,7 @@ SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=500
 EVAL_ON_JOB=0
 USE_SET_PADDING=3
+
 for i in "${!WEIGHTED_MSES[@]}";
 do
   #for j in "${!NUM_HLS[@]}";

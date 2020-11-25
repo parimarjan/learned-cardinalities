@@ -1,12 +1,13 @@
 ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
-DECAY=$4
+DECAY=1.0
 NORM_FLOW_LOSS=0
 
 LR=0.00005
 QUERY_MB_SIZE=4
 PRIORITY=0.0
+PR_NORM=no
 SAMPLE_BITMAP_BUCKETS=1000
 SAMPLE_BITMAP=0
 PRELOAD_FEATURES=1
@@ -20,6 +21,7 @@ ONEHOT=1
 USE_VAL_SET=1
 WEIGHTED_MSES=(0.0)
 EVAL_ON_JOB=1
+EVAL_ON_JOBM=1
 
 EVAL_EPOCH=100
 
@@ -28,7 +30,8 @@ COST_MODEL=nested_loop_index7
 
 NHL=4
 #RES_DIR=all_results/vldb/default/sample_bitmaps
-RES_DIR=all_results/vldb/default/fcnn/final_jobm
+RES_DIR=all_results/vldb/job/fcnn/final1
+
 BUCKETS=10
 HLS=512
 
@@ -50,6 +53,7 @@ for i in "${!WEIGHTED_MSES[@]}";
    --num_hidden_layers $NHL \
    --max_discrete_featurizing_buckets $BUCKETS \
    --sampling_priority_alpha $PRIORITY \
+   --priority_normalize_type $PR_NORM \
    --weight_decay $DECAY \
    --alg $ALG \
    --load_query_together $LOAD_QUERY_TOGTHER \
