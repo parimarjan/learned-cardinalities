@@ -537,7 +537,7 @@ def load_all_qrep_data(load_job_queries,
         if args.eval_on_jobm:
             db_key = deterministic_hash("db-" + args.query_directory + \
                         args.query_templates + str(args.eval_on_job) + \
-                        str(args.eval_on_jobm) + \
+                        str(args.eval_on_jobm) + str(args.add_job_features) + \
                         args.nn_type)
         else:
             db_key = deterministic_hash("db-" + args.query_directory + \
@@ -935,6 +935,12 @@ def main():
     if len(val_queries) > 0:
         update_samples(val_queries, args.flow_features,
                 args.cost_model, args.debug_set, args.db_name)
+
+    if args.eval_on_job and not args.add_job_features \
+            and args.nn_type == "mscn_set":
+        print("updating db.max_joins and db.max_tables based on job")
+        db.max_joins = max(db.max_joins, 28)
+        db.max_tables = max(db.max_tables, 17)
 
     del(job_queries[:])
 
