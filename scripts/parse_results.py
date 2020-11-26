@@ -201,14 +201,17 @@ def get_summary_df(results_dir):
         cur_dir = results_dir + "/" + fn
         exp_args = load_object(cur_dir + "/args.pkl")
         if exp_args is None:
-            mse_fn = fn.replace("flow_loss2", "mse")
-            tmp_dir = results_dir + "/" + mse_fn
-            if os.path.exists(tmp_dir):
-                exp_args = load_object(tmp_dir + "/args.pkl")
-            else:
-                print("exp args is None!")
-                continue
+            continue
+            # mse_fn = fn.replace("flow_loss2", "mse")
+            # tmp_dir = results_dir + "/" + mse_fn
+            # if os.path.exists(tmp_dir):
+                # exp_args = load_object(tmp_dir + "/args.pkl")
+            # else:
+                # print("exp args is None!")
+                # continue
 
+        # print(fn)
+        # print(exp_args)
         exp_args = vars(exp_args)
         # if exp_args["max_discrete_featurizing_buckets"] != 10:
             # print("skipping non-10 buckets")
