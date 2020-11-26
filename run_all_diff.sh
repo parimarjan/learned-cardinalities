@@ -1,21 +1,25 @@
 MIN_QERRS=(1.0)
-ALG=$1
-LOSS_FUNC=$2
-NN_TYPE=$3
-DECAY=$4
+ALG=nn
+NN_TYPE=microsoft
+
+LOSS_FUNC=$1
+DECAY=$2
+LR=$3
+MAX_EPOCHS=$4
+
+#DIFF_SEEDS=(6 7 8 9 10 1 2 3 4 5)
+DIFF_SEEDS=(2)
 
 DIFF_SEEDS=(7)
 
 PRIORITY=0.0
-MAX_EPOCHS=(10)
 #MAX_EPOCHS=(10)
 BUCKETS=10
 FLOW_FEATS=1
-LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
-RES_DIR=all_results/vldb/test_diff/mscn/subq_imps
-LOSSES=join-loss,qerr
+RES_DIR=all_results/vldb/test_diff/fcnn/imp_subqs2
+LOSSES=qerr,join-loss,flow-loss
 
 REL_ESTS=1
 ONEHOT=1
@@ -24,8 +28,8 @@ MB_SIZE=4
 NORM_FLOW_LOSS=0
 NUM_WORKERS=0
 
-HLS=256
-NUM_HLS=2
+HLS=512
+NUM_HLS=4
 LOAD_QUERY_TOGETHER=0
 
 WEIGHTED_MSES=(0.0)
@@ -42,8 +46,8 @@ USE_SET_PADDING=3
 
 for i in "${!WEIGHTED_MSES[@]}";
 do
-  #for j in "${!NUM_HLS[@]}";
-  for j in "${!MAX_EPOCHS[@]}";
+  for j in "${!WEIGHTED_MSES[@]}";
+  #for j in "${!MAX_EPOCHS[@]}";
   do
   for k in "${!DIFF_SEEDS[@]}";
     do
@@ -64,7 +68,7 @@ do
      --weight_decay $DECAY \
      --exp_prefix runAllDiff \
      --result_dir $RES_DIR \
-     --max_epochs ${MAX_EPOCHS[$j]} \
+     --max_epochs $MAX_EPOCHS \
      --cost_model nested_loop_index7 \
      --eval_epoch $EVAL_EPOCH \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \

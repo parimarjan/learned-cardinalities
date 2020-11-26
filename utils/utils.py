@@ -122,9 +122,9 @@ def update_list(fn, new_obj):
 
 def save_or_update(obj_name, obj):
     # TODO: generalize this functionality
-    dir_name = os.path.dirname(obj_name)
-    if not os.path.exists(dir_name):
-        make_dir(dir_name)
+    # dir_name = os.path.dirname(obj_name)
+    # if not os.path.exists(dir_name):
+        # make_dir(dir_name)
     saved_obj = load_object(obj_name)
     if saved_obj is None:
         saved_obj = obj
