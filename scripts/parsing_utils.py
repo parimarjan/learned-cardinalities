@@ -183,6 +183,9 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
     for fn in fns:
         cur_dir = results_dir + "/" + fn + "/"
         exp_args = load_object(cur_dir + "/args.pkl")
+        if exp_args is None:
+            print("missing args")
+            continue
         exp_args = vars(exp_args)
 
         # print(exp_args["train_card_key"])
@@ -246,7 +249,7 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
 
         ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
                 "flow_features", "nn_type", "max_discrete_featurizing_buckets",
-                "sampling_priority_alpha"]
+                "sampling_priority_alpha", "loss_func", "db_name"]
 
         for k in ARG_KEYS:
             df[k] = exp_args[k]
@@ -257,7 +260,7 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
     if len(all_dfs) > 0:
         return pd.concat(all_dfs)
     else:
-        return all_dfs
+        return None
     return pd.concat(all_dfs)
 
 def get_all_training_df(results_dir):
