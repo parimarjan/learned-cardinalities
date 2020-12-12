@@ -1,36 +1,47 @@
 MIN_QERRS=(1.0)
-DECAY=0.1
 #DIFF_SEEDS=(1 2 3 4 5)
 #DIFF_SEEDS=(1 6 8 7 9 10)
-DIFF_SEEDS=(7 9 10 1 2 3 4 5)
+#DIFF_SEEDS=(1 2 3 4 5 6 7 8 9 10)
+#DIFF_SEEDS=(7 6 8 9 10 1 2 3 4 5)
+DIFF_SEEDS=(2 5 9 10 1 3 4)
+#DIFF_SEEDS=(3 4 5)
 
 #DIFF_SEEDS=(6)
 
-PRIORITY=0.0
-MAX_EPOCHS=(10)
+ALG=$1
+LOSS_FUNC=$2
+NN_TYPE=$3
+PRIORITY=0.5
+DECAYS=(0.1)
+
+LOSSES=qerr,join-loss
+#PR_NORMS=(flow4 flow1)
+PR_NORM=flow4
+REP_EPOCH=1
+
+#MAX_EPOCHS=(10)
+MAX_EPOCHS=10
 #MAX_EPOCHS=(10)
 BUCKETS=10
 FLOW_FEATS=1
-LR=0.0001
+#LRS=(0.00005 0.0001)
+LRS=(0.0001)
 PRELOAD_FEATURES=1
 No7=0
-RES_DIR=all_results/vldb/test_diff/mscn/final1
+RES_DIR=all_results/vldb/test_diff/fcnn/final_pr
 
 REL_ESTS=1
 ONEHOT=1
 MB_SIZE=4
 
-ALG=$1
-LOSS_FUNC=$2
-NN_TYPE=$3
 NORM_FLOW_LOSS=0
 NUM_WORKERS=0
 
-HLS=256
-NUM_HLS=2
+HLS=512
+NUM_HLS=4
 LOAD_QUERY_TOGETHER=0
 
-WEIGHTED_MSES=(0.0)
+WEIGHTED_MSE=0.0
 NUM_MSE_ANCHORING=(-1)
 
 JOB_FEATS=1
@@ -40,13 +51,15 @@ SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=500
 EVAL_ON_JOB=0
-USE_SET_PADDING=3
-for i in "${!WEIGHTED_MSES[@]}";
-do
+USE_SET_PADDING=2
+NUM_PAR=16
+
   #for j in "${!NUM_HLS[@]}";
-  for j in "${!MAX_EPOCHS[@]}";
-  do
   for k in "${!DIFF_SEEDS[@]}";
+    do
+  for j in "${!LRS[@]}";
+    do
+    for i in "${!DECAYS[@]}";
     do
     CMD="time python3 main.py --algs $ALG -n -1 \
      --loss_func $LOSS_FUNC \
@@ -55,17 +68,20 @@ do
      --query_mb_size $MB_SIZE \
      --no7a $No7 \
      --nn_type $NN_TYPE \
+     --join_loss_pool_num $NUM_PAR \
      --num_workers $NUM_WORKERS \
      --load_query_together $LOAD_QUERY_TOGETHER \
      --sampling_priority_alpha $PRIORITY \
+     --priority_normalize_type $PR_NORM \
+     --reprioritize_epoch $REP_EPOCH \
      --preload_features $PRELOAD_FEATURES \
      --add_job_features $JOB_FEATS \
      --add_test_features $TEST_FEATS \
-     --weighted_mse ${WEIGHTED_MSES[$i]} \
-     --weight_decay $DECAY \
+     --weight_decay ${DECAYS[$i]} \
      --exp_prefix runAllDiff \
      --result_dir $RES_DIR \
-     --max_epochs ${MAX_EPOCHS[$j]} \
+     --max_epochs $MAX_EPOCHS \
+     --lr ${LRS[$j]} \
      --cost_model nested_loop_index7 \
      --eval_epoch $EVAL_EPOCH \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
@@ -84,7 +100,7 @@ do
      --feat_rel_pg_ests_onehot $ONEHOT \
      --feat_pg_est_one_hot $ONEHOT \
      --flow_features $FLOW_FEATS --feat_tolerance 0 \
-     --max_discrete_featurizing_buckets $BUCKETS --lr $LR"
+     --max_discrete_featurizing_buckets $BUCKETS"
     echo $CMD
     eval $CMD
     done

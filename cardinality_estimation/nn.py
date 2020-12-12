@@ -2371,9 +2371,14 @@ class NN(CardinalityEstimationAlg):
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
 
     def init_dataset(self, samples, shuffle, batch_size,
-            weighted=False):
+            weighted=False, testing=False):
         training_sets = []
         training_loaders = []
+        if testing:
+            use_padding = 2
+        else:
+            use_padding = self.use_set_padding
+
         for i in range(len(self.groups)):
             training_sets.append(QueryDataset(samples, self.db,
                     self.featurization_scheme, self.heuristic_features,
@@ -2384,7 +2389,7 @@ class NN(CardinalityEstimationAlg):
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = self.train_card_key,
-                    use_set_padding = self.use_set_padding,
+                    use_set_padding = use_padding,
                     group = self.groups[i], max_sequence_len=self.max_subqs,
                     exp_name = self.get_exp_name()))
             if not weighted:
@@ -2920,6 +2925,9 @@ class NN(CardinalityEstimationAlg):
             self.load_model(self.model_dir)
             print("loaded model!")
 
+        if self.sampling_priority_alpha > 0:
+            self.clean_memory()
+
         for self.epoch in range(0,self.max_epochs):
             if self.epoch == self.switch_loss_fn_epoch:
                 print("*************************")
@@ -3130,7 +3138,7 @@ class NN(CardinalityEstimationAlg):
         '''
         datasets, loaders = \
                 self.init_dataset(test_samples, False, self.eval_batch_size,
-                        weighted=False)
+                        weighted=False, testing=True)
         self.nets[0].eval()
         # self.nets[0].eval()
         pred, y = self._eval_samples(loaders)

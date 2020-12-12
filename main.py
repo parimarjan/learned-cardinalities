@@ -883,6 +883,8 @@ def main():
         join_loss_pool = mp.Pool(num_processes)
     else:
         join_loss_pool = None
+    if args.no_join_loss_pool:
+        join_loss_pool = None
 
     if args.max_epochs < args.eval_epoch \
             or not args.eval_test_while_training:
@@ -1077,8 +1079,8 @@ def main():
         if args.eval_on_job:
             _, _, _, job_queries, jobm_queries, _ = \
                     load_all_qrep_data(True, False, False, False, False)
-            eval_alg(alg, losses, job_queries, "job", join_loss_pool)
             eval_alg(alg, losses, jobm_queries, "jobm", join_loss_pool)
+            eval_alg(alg, losses, job_queries, "job", join_loss_pool)
 
         eval_times[alg.__str__()] = round(time.time() - start, 2)
 
@@ -1151,7 +1153,6 @@ def read_flags():
             default=0)
     parser.add_argument("--eval_on_jobm", type=int, required=False,
             default=0)
-
     parser.add_argument("--add_job_features", type=int, required=False,
             default=1)
     parser.add_argument("--add_test_features", type=int, required=False,
@@ -1237,6 +1238,8 @@ def read_flags():
             default=1)
     parser.add_argument("--join_loss_pool_num", type=int, required=False,
             default=10)
+    parser.add_argument("--no_join_loss_pool", type=int, required=False,
+            default=0)
     parser.add_argument("--group_models", type=int, required=False,
             default=0)
     parser.add_argument("--priority_normalize_type", type=str, required=False,
