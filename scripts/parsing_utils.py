@@ -145,7 +145,8 @@ def get_all_objects(results_dir, obj_name):
         # df = df.assign(**exp_args)
 
         ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
-                "flow_features", "nn_type", "max_discrete_featurizing_buckets"]
+                "flow_features", "nn_type", "max_discrete_featurizing_buckets",
+                "sampling_priority_alpha"]
 
         for k in ARG_KEYS:
             df[k] = exp_args[k]
@@ -168,7 +169,11 @@ def get_all_objects(results_dir, obj_name):
         df["partition"] = partition
 
         all_dfs.append(df)
-    return pd.concat(all_dfs)
+
+    if len(all_dfs) > 0:
+        return pd.concat(all_dfs)
+    else:
+        return all_dfs
 
 def get_all_runtimes(results_dir, res_fn, rt_keys=None):
     all_dfs = []
@@ -178,6 +183,9 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
     for fn in fns:
         cur_dir = results_dir + "/" + fn + "/"
         exp_args = load_object(cur_dir + "/args.pkl")
+        if exp_args is None:
+            print("missing args")
+            continue
         exp_args = vars(exp_args)
 
         # print(exp_args["train_card_key"])
@@ -236,18 +244,23 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
             partition = "0"
         df["partition"] = partition
 
+        # ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
+                # "flow_features", "sampling_priority_alpha"]
+
         ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
-                "flow_features", "sampling_priority_alpha"]
+                "flow_features", "nn_type", "max_discrete_featurizing_buckets",
+                "sampling_priority_alpha", "loss_func", "db_name"]
 
         for k in ARG_KEYS:
             df[k] = exp_args[k]
 
-        # if exp_args["sample_bitmap"]:
-        print(exp_args["sample_bitmap"])
-        print(exp_args["max_epochs"])
-        print(fn)
-
+        df["fn"] = fn
         all_dfs.append(df)
+
+    if len(all_dfs) > 0:
+        return pd.concat(all_dfs)
+    else:
+        return None
     return pd.concat(all_dfs)
 
 def get_all_training_df(results_dir):

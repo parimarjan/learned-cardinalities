@@ -2416,6 +2416,10 @@ class NN(CardinalityEstimationAlg):
 
     def get_subq_imp(self, samples):
         # FIXME: avoid repetition
+        subq_hash_imp = {}
+        subq_hash_id = {}
+        subq_hash_pred_id = {}
+
         imps = []
         for sample in samples:
             subsetg_vectors = list(get_subsetg_vectors(sample,
@@ -2467,8 +2471,34 @@ class NN(CardinalityEstimationAlg):
                 for edge in in_edges:
                     node_pr += flows[edge_dict[edge]]
                 node_importances.append(node_pr)
+                imps += node_importances
 
-            imps += node_importances
+                # subsql_hash = deterministic_hash(sample["sql"] + str(nodes[ci]))
+                subsql_hash = deterministic_hash(sample["sql"] + str(nodes[i]))
+                subq_hash_imp[subsql_hash] = node_pr
+
+                sorted_node = list(node)
+                sorted_node.sort()
+
+                # subq_id = deterministic_hash(str(sorted_node))
+                subq_id = ",".join(sorted_node)
+                subq_hash_id[subsql_hash] = subq_id
+
+                cur_pred_cols = []
+                for table in sorted_node:
+                    pred_cols = sample["join_graph"].nodes()[table]["pred_cols"]
+                    pred_cols = list(set(pred_cols))
+                    pred_cols.sort()
+                    cur_pred_cols += pred_cols
+                # pred_ids.append(deterministic_hash(str(cur_pred_cols)))
+                pred_id = ",".join(cur_pred_cols)
+                subq_hash_pred_id[subsql_hash] = pred_id
+
+        # lets save things
+
+        save_or_update("subq_hash_imp.pkl", subq_hash_imp)
+        save_or_update("subq_hash_id.pkl", subq_hash_id)
+        save_or_update("subq_hash_pred_id.pkl", subq_hash_pred_id)
 
         return np.array(imps)
 

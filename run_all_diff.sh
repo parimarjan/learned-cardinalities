@@ -1,34 +1,25 @@
 MIN_QERRS=(1.0)
-#DIFF_SEEDS=(1 2 3 4 5)
-#DIFF_SEEDS=(1 6 8 7 9 10)
-#DIFF_SEEDS=(1 2 3 4 5 6 7 8 9 10)
-#DIFF_SEEDS=(7 6 8 9 10 1 2 3 4 5)
-DIFF_SEEDS=(2 5 9 10 1 3 4)
-#DIFF_SEEDS=(3 4 5)
+ALG=nn
+NN_TYPE=microsoft
+
+LOSS_FUNC=$1
+DECAY=$2
+LR=$3
+MAX_EPOCHS=$4
+
+#DIFF_SEEDS=(6 7 8 9 10 1 2 3 4 5)
+DIFF_SEEDS=(2)
 
 #DIFF_SEEDS=(6)
 
-ALG=$1
-LOSS_FUNC=$2
-NN_TYPE=$3
-PRIORITY=0.5
-DECAYS=(0.1)
-
-LOSSES=qerr,join-loss
-#PR_NORMS=(flow4 flow1)
-PR_NORM=flow4
-REP_EPOCH=1
-
-#MAX_EPOCHS=(10)
-MAX_EPOCHS=10
+PRIORITY=0.0
 #MAX_EPOCHS=(10)
 BUCKETS=10
 FLOW_FEATS=1
-#LRS=(0.00005 0.0001)
-LRS=(0.0001)
 PRELOAD_FEATURES=1
 No7=0
-RES_DIR=all_results/vldb/test_diff/fcnn/final_pr
+RES_DIR=all_results/vldb/test_diff/fcnn/imp_subqs2
+LOSSES=qerr,join-loss,flow-loss
 
 REL_ESTS=1
 ONEHOT=1
@@ -44,17 +35,20 @@ LOAD_QUERY_TOGETHER=0
 WEIGHTED_MSE=0.0
 NUM_MSE_ANCHORING=(-1)
 
-JOB_FEATS=1
+JOB_FEATS=0
 TEST_FEATS=1
 
 SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=500
 EVAL_ON_JOB=0
-USE_SET_PADDING=2
-NUM_PAR=16
+USE_SET_PADDING=3
 
-  #for j in "${!NUM_HLS[@]}";
+for i in "${!WEIGHTED_MSES[@]}";
+do
+  for j in "${!WEIGHTED_MSES[@]}";
+  #for j in "${!MAX_EPOCHS[@]}";
+  do
   for k in "${!DIFF_SEEDS[@]}";
     do
   for j in "${!LRS[@]}";
@@ -81,7 +75,6 @@ NUM_PAR=16
      --exp_prefix runAllDiff \
      --result_dir $RES_DIR \
      --max_epochs $MAX_EPOCHS \
-     --lr ${LRS[$j]} \
      --cost_model nested_loop_index7 \
      --eval_epoch $EVAL_EPOCH \
      --eval_epoch_jerr $EVAL_EPOCH --eval_epoch_flow_err $EVAL_EPOCH \
