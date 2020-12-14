@@ -29,19 +29,19 @@ EVAL_EPOCH=100
 LOSSES=join-loss,qerr
 COST_MODEL=nested_loop_index7
 
-NHL=4
+NHL=2
 #RES_DIR=all_results/vldb/default/sample_bitmaps
 RES_DIR=all_results/vldb/default/fcnn_subq_imp
 
 BUCKETS=10
-HLS=512
+HLS=256
 
 LOAD_QUERY_TOGTHER=0
 #BUCKETS=10
 #HLS=(512)
 #DECAYS=(0.1)
 #MIN_QERRS=(2.0 4.0 8.0 16.0 32.0 64.0)
-NUM_PAR=8
+NUM_PAR=16
 
 for i in "${!WEIGHTED_MSES[@]}";
   do
@@ -75,6 +75,7 @@ for i in "${!WEIGHTED_MSES[@]}";
    --normalize_flow_loss $NORM_FLOW_LOSS \
    --eval_on_job $EVAL_ON_JOB \
    --eval_on_jobm $EVAL_ON_JOBM \
+   --add_job_features $JOB_FEATS \
    --feat_rel_pg_ests  $REL_ESTS \
    --feat_rel_pg_ests_onehot  $ONEHOT \
    --feat_pg_est_one_hot  $ONEHOT \
