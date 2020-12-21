@@ -10,7 +10,7 @@ MAX_EPOCHS=$4
 #DIFF_SEEDS=(6 7 8 9 10 1 2 3 4 5)
 DIFF_SEEDS=(2)
 
-#DIFF_SEEDS=(6)
+DIFF_SEEDS=(7)
 
 PRIORITY=0.0
 #MAX_EPOCHS=(10)
@@ -32,7 +32,7 @@ HLS=512
 NUM_HLS=4
 LOAD_QUERY_TOGETHER=0
 
-WEIGHTED_MSES=(0.0)
+WEIGHTED_MSE=0.0
 NUM_MSE_ANCHORING=(-1)
 
 JOB_FEATS=0
@@ -51,6 +51,10 @@ do
   do
   for k in "${!DIFF_SEEDS[@]}";
     do
+  for j in "${!LRS[@]}";
+    do
+    for i in "${!DECAYS[@]}";
+    do
     CMD="time python3 main.py --algs $ALG -n -1 \
      --loss_func $LOSS_FUNC \
      --losses $LOSSES \
@@ -58,14 +62,16 @@ do
      --query_mb_size $MB_SIZE \
      --no7a $No7 \
      --nn_type $NN_TYPE \
+     --join_loss_pool_num $NUM_PAR \
      --num_workers $NUM_WORKERS \
      --load_query_together $LOAD_QUERY_TOGETHER \
      --sampling_priority_alpha $PRIORITY \
+     --priority_normalize_type $PR_NORM \
+     --reprioritize_epoch $REP_EPOCH \
      --preload_features $PRELOAD_FEATURES \
      --add_job_features $JOB_FEATS \
      --add_test_features $TEST_FEATS \
-     --weighted_mse ${WEIGHTED_MSES[$i]} \
-     --weight_decay $DECAY \
+     --weight_decay ${DECAYS[$i]} \
      --exp_prefix runAllDiff \
      --result_dir $RES_DIR \
      --max_epochs $MAX_EPOCHS \
@@ -87,7 +93,7 @@ do
      --feat_rel_pg_ests_onehot $ONEHOT \
      --feat_pg_est_one_hot $ONEHOT \
      --flow_features $FLOW_FEATS --feat_tolerance 0 \
-     --max_discrete_featurizing_buckets $BUCKETS --lr $LR"
+     --max_discrete_featurizing_buckets $BUCKETS"
     echo $CMD
     eval $CMD
     done

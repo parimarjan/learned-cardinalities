@@ -335,6 +335,7 @@ class QueryDataset(data.Dataset):
                 if SOURCE_NODE in node_names:
                     node_names.remove(SOURCE_NODE)
                 node_names.sort()
+
                 for node_idx, nodes in enumerate(node_names):
                     info = qrep["subset_graph"].nodes()[nodes]
                     if self.wj_times is not None:
@@ -353,11 +354,14 @@ class QueryDataset(data.Dataset):
                         total = None
 
                     Y.append(self.normalize_val(true_val, total))
+
+                    ## temporary
                     cur_info = {}
-                    cur_info["num_tables"] = len(nodes)
+                    # cur_info["num_tables"] = len(nodes)
                     cur_info["dataset_idx"] = dataset_qidx + node_idx
-                    cur_info["query_idx"] = query_idx
-                    cur_info["total"] = 0.00
+                    # cur_info["query_idx"] = query_idx
+                    # cur_info["total"] = 0.00
+                    # cur_info = []
                     sample_info.append(cur_info)
 
                 return X, Y, sample_info
@@ -769,14 +773,15 @@ class QueryDataset(data.Dataset):
             if self.featurization_type == "set":
                 x,y,cur_info = self._get_query_features_set(qrep, qidx, i)
                 # just checking that shape works
-                try:
-                    for k,v in x.items():
-                        to_variable(v, requires_grad=False).float()
-                except Exception as e:
-                    print(e)
-                    print("going to try w/o using saved features now")
-                    x,y,cur_info = self._get_query_features_set(qrep, qidx, i,
-                            use_saved=False)
+                if self.use_set_padding == 3:
+                    try:
+                        for k,v in x.items():
+                            to_variable(v, requires_grad=False).float()
+                    except Exception as e:
+                        print(e)
+                        print("going to try w/o using saved features now")
+                        x,y,cur_info = self._get_query_features_set(qrep, qidx, i,
+                                use_saved=False)
 
             else:
                 x,y,cur_info = self._get_query_features(qrep, qidx, i)
@@ -1013,6 +1018,8 @@ class QueryDataset(data.Dataset):
             elif self.featurization_type == "set":
 
                 if self.use_set_padding == 2:
+                    print("going to call pad sets!")
+                    pdb.set_trace()
                     tf, pf, jf, tm, pm, jm = self._pad_sets(x["table"],
                                     x["pred"],
                                     x["join"], tensors=True)
