@@ -4,11 +4,13 @@ NN_TYPE=$3
 DECAY=$4
 LR=$5
 MAX_EPOCHS=$6
+QUERY_MB_SIZE=4
+EVAL_ON_JOB=0
+EVAL_ON_JOBM=0
 
 NORM_FLOW_LOSS=0
 
-QUERY_MB_SIZE=4
-PRIORITY=0.0
+PRIORITY=2.0
 PR_NORM=no
 SAMPLE_BITMAP_BUCKETS=1000
 SAMPLE_BITMAP=0
@@ -21,8 +23,6 @@ ONEHOT=1
 
 USE_VAL_SET=1
 WEIGHTED_MSES=(0.0)
-EVAL_ON_JOB=0
-EVAL_ON_JOBM=0
 
 EVAL_EPOCH=100
 
@@ -31,7 +31,8 @@ COST_MODEL=nested_loop_index7
 
 NHL=4
 #RES_DIR=all_results/vldb/default/sample_bitmaps
-RES_DIR=all_results/vldb/default/fcnn_subq_imp
+#RES_DIR=all_results/vldb/default/fcnn_subq_imp2
+RES_DIR=all_results/vldb/default/pr2
 
 BUCKETS=10
 HLS=512

@@ -2171,6 +2171,7 @@ class NN(CardinalityEstimationAlg):
                     samples_type, loss_key="flow_ratio")
 
         opt_plan_pg_costs = None
+        print("should compute cost model err next")
         if self.cost_model_plan_err and \
                 epoch % self.eval_epoch_plan_err == 0:
             opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
@@ -2203,6 +2204,7 @@ class NN(CardinalityEstimationAlg):
                     cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
                 print("min plan pg ratio: {}, name: {}".format(
                     cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
+
 
         if not epoch % self.eval_epoch_jerr == 0:
             return
@@ -2252,7 +2254,7 @@ class NN(CardinalityEstimationAlg):
             np.round(np.percentile(cost_model_ratio,95),3),
             np.round(np.percentile(cost_model_ratio,99),3)))
 
-            # pdb.set_trace()
+            pdb.set_trace()
 
         # if np.mean(join_losses) < self.best_join_loss \
                 # and epoch > self.start_validation \
@@ -2676,7 +2678,9 @@ class NN(CardinalityEstimationAlg):
             assert self.normalization_type == "pg_total_selectivity"
             self.min_val, self.max_val = None, None
 
-        self.env = JoinLoss("cm1", self.db.user, self.db.pwd,
+        # self.env = JoinLoss("cm1", self.db.user, self.db.pwd,
+                # self.db.db_host, self.db.port, self.db.db_name)
+        self.env = JoinLoss("nested_loop_index7", self.db.user, self.db.pwd,
                 self.db.db_host, self.db.port, self.db.db_name)
 
         if self.cost_model != "cm1":
