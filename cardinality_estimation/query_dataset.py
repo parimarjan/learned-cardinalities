@@ -359,7 +359,7 @@ class QueryDataset(data.Dataset):
                     cur_info = {}
                     # cur_info["num_tables"] = len(nodes)
                     cur_info["dataset_idx"] = dataset_qidx + node_idx
-                    # cur_info["query_idx"] = query_idx
+                    cur_info["query_idx"] = query_idx
                     # cur_info["total"] = 0.00
                     # cur_info = []
                     sample_info.append(cur_info)
