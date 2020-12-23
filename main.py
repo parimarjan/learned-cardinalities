@@ -542,7 +542,7 @@ def load_all_qrep_data(load_job_queries,
         else:
             db_key = deterministic_hash("db-" + args.query_directory + \
                         args.query_templates + str(args.eval_on_job) + \
-                        args.nn_type)
+                        args.nn_type + str(args.sampling_key))
 
         found_db = db_key in misc_cache.archive and not args.regen_db
         # found_db = False
@@ -1304,7 +1304,7 @@ def read_flags():
     parser.add_argument("--eval_epoch_flow_err", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_plan_err", type=int,
-            required=False, default=101)
+            required=False, default=1)
 
     parser.add_argument("--lr", type=float,
             required=False, default=0.0001)

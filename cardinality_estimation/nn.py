@@ -2177,12 +2177,16 @@ class NN(CardinalityEstimationAlg):
                             est_cardinalities, pool = self.join_loss_pool)
             opt_flow_losses = est_flow_costs - opt_flow_costs
             opt_flow_ratios = est_flow_costs / opt_flow_costs
+
+            self.save_join_loss_stats(est_flow_costs, None, samples,
+                    samples_type, loss_key="flow_cost")
             self.save_join_loss_stats(opt_flow_losses, None, samples,
                     samples_type, loss_key="flow_err")
             self.save_join_loss_stats(opt_flow_ratios, None, samples,
                     samples_type, loss_key="flow_ratio")
 
         opt_plan_pg_costs = None
+        print("should compute cost model err next")
         if self.cost_model_plan_err and \
                 epoch % self.eval_epoch_plan_err == 0:
             opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
@@ -2194,6 +2198,8 @@ class NN(CardinalityEstimationAlg):
 
             cm_plan_losses = est_plan_costs - opt_plan_costs
             cm_plan_losses_ratio = est_plan_costs / opt_plan_costs
+            self.save_join_loss_stats(est_plan_costs, None, samples,
+                    samples_type, loss_key="mm1_plan_cost")
             self.save_join_loss_stats(cm_plan_losses, None, samples,
                     samples_type, loss_key="mm1_plan_err")
             self.save_join_loss_stats(cm_plan_losses_ratio, None, samples,
@@ -2215,6 +2221,7 @@ class NN(CardinalityEstimationAlg):
                     cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
                 print("min plan pg ratio: {}, name: {}".format(
                     cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
+
 
         if not epoch % self.eval_epoch_jerr == 0:
             return
@@ -2239,6 +2246,8 @@ class NN(CardinalityEstimationAlg):
 
         # join_losses = np.maximum(join_losses, 0.00)
 
+        self.save_join_loss_stats(est_costs, est_plans, samples,
+                samples_type, epoch=epoch, loss_key="pp_cost")
         self.save_join_loss_stats(join_losses, est_plans, samples,
                 samples_type, epoch=epoch)
         self.save_join_loss_stats(join_losses_ratio, est_plans, samples,
@@ -2246,7 +2255,7 @@ class NN(CardinalityEstimationAlg):
 
         print("periodic eval took: ", time.time()-start)
         # if opt_plan_pg_costs is not None and self.debug_set:
-        if opt_plan_pg_costs is not None:
+        if opt_plan_pg_costs is not None and False:
             cost_model_losses = opt_plan_pg_costs - opt_costs
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
@@ -2706,6 +2715,8 @@ class NN(CardinalityEstimationAlg):
 
         self.env = JoinLoss("cm1", self.db.user, self.db.pwd,
                 self.db.db_host, self.db.port, self.db.db_name)
+        # self.env = JoinLoss("nested_loop_index7", self.db.user, self.db.pwd,
+                # self.db.db_host, self.db.port, self.db.db_name)
 
         if self.cost_model != "cm1":
             # self.env2 = JoinLoss(self.cost_model, self.db.user, self.db.pwd,

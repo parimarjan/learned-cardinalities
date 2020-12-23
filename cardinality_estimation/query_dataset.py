@@ -342,7 +342,8 @@ class QueryDataset(data.Dataset):
                         ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
                         true_val = info["cardinality"][ck]
                         if true_val == 0 or true_val == 1:
-                            true_val = info["cardinality"]["expected"]
+                            # true_val = info["cardinality"]["expected"]
+                            true_val = 1.0
                     else:
                         ck = self.card_key
                         true_val = info["cardinality"][ck]
@@ -442,7 +443,8 @@ class QueryDataset(data.Dataset):
                 ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
                 true_val = info["cardinality"][ck]
                 if true_val == 0 or true_val == 1:
-                    true_val = info["cardinality"]["expected"]
+                    # true_val = info["cardinality"]["expected"]
+                    true_val = 1.0
             else:
                 ck = self.card_key
                 true_val = info["cardinality"][ck]
@@ -655,7 +657,8 @@ class QueryDataset(data.Dataset):
                 ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
                 true_val = info["cardinality"][ck]
                 if true_val == 0 or true_val == 1:
-                    true_val = info["cardinality"]["expected"]
+                    # true_val = info["cardinality"]["expected"]
+                    true_val = 1.0
             else:
                 ck = self.card_key
                 true_val = info["cardinality"][ck]
