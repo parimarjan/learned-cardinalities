@@ -33,7 +33,7 @@ RERUN_TIMEOUTS = 1
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
 
-DEBUG_CHECK_TIMES = False
+DEBUG_CHECK_TIMES = True
 CONF_ALPHA = 0.99
 
 def read_flags():

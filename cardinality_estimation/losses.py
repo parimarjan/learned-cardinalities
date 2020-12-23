@@ -532,10 +532,10 @@ def compute_join_order_loss(queries, preds, **kwargs):
             # args.port, args.db_name)
 
     if "nested" in args.cost_model:
-        # env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
-                # args.port, args.db_name)
-        env2 = JoinLoss("nested_loop_index7", args.user, args.pwd, args.db_host,
+        env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
                 args.port, args.db_name)
+        # env2 = JoinLoss("nested_loop_index7", args.user, args.pwd, args.db_host,
+                # args.port, args.db_name)
 
 
     est_cardinalities = []

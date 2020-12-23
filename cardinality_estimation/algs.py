@@ -59,10 +59,10 @@ WJ_TIMES["8a"] = 2.5
 # WJ_TIMES["9a"] = 0.5
 WJ_TIMES["9a"] = 3.0
 # WJ_TIMES["9a"] = 1.0
-WJ_TIMES["9b"] = 5.0
-WJ_TIMES["10a"] = 5.0
-WJ_TIMES["11a"] = 5.0
-WJ_TIMES["11b"] = 5.0
+WJ_TIMES["9b"] = 1.0
+WJ_TIMES["10a"] = 1.0
+WJ_TIMES["11a"] = 2.0
+WJ_TIMES["11b"] = 2.0
 WJ_TIMES["3b"] = 5.0
 
 WJ_TIMES0 = {}
