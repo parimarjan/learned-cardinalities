@@ -1062,6 +1062,9 @@ class NN(CardinalityEstimationAlg):
                 qstart = 0
                 losses = []
                 for cur_info in info:
+                    if "query_idx" not in cur_info[0]:
+                        print(cur_info)
+                        pdb.set_trace()
                     qidx = cur_info[0]["query_idx"]
                     assert qidx == cur_info[1]["query_idx"]
                     subsetg_vectors, trueC_vec, opt_loss = \

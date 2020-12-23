@@ -435,6 +435,7 @@ class QueryDataset(data.Dataset):
             info = qrep["subset_graph"].nodes()[nodes]
             pg_est = info["cardinality"]["expected"]
             # pfeats[-2] = self.normalize_val(pg_est, total)
+            total = 0.0
             sample_heuristic_est = self.normalize_val(pg_est, total)
 
             if self.wj_times is not None:
