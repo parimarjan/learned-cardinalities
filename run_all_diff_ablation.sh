@@ -2,6 +2,9 @@ MIN_QERRS=(1.0)
 ALG=nn
 NN_TYPE=microsoft
 
+DEBUG_SET=1
+DEBUG_RATIO=5.0
+
 LOSS_FUNC=$1
 DECAY=$2
 LR=$3
@@ -9,11 +12,13 @@ MAX_EPOCHS=$4
 DEBUG_RATIO=$5
 DEBUG_SET=1
 
-#DIFF_SEEDS=(6 7 8 9 10 1 2 3 4 5)
-#DIFF_SEEDS=(2)
+DIFF_SEEDS=(6 7 8 10 1 2)
 
-DIFF_SEEDS=(6 7 2 10)
-#DIFF_SEEDS=(2 10)
+#DIFF_SEEDS=(9 3 4 5)
+
+#DIFF_SEEDS=(2 6 7 8 10)
+#DIFF_SEEDS=(6)
+#DIFF_SEEDS=(1 3 4 5 9)
 
 PRIORITY=0.0
 #MAX_EPOCHS=(10)
@@ -21,8 +26,12 @@ BUCKETS=10
 #FLOW_FEATS=1
 PRELOAD_FEATURES=1
 No7=0
-RES_DIR=all_results/vldb/test_diff/fcnn/lc_debug_set
-LOSSES=qerr,join-loss,flow-loss
+#RES_DIR=all_results/vldb/test_diff/fcnn/debug
+#RES_DIR=all_results/vldb/test_diff/fcnn/ablation
+RES_DIR=all_results/vldb/test_diff/fcnn/ablation-20p
+
+
+LOSSES=qerr,join-loss
 
 REL_ESTS=1
 ONEHOT=1
@@ -56,6 +65,8 @@ do
   for k in "${!DIFF_SEEDS[@]}";
     do
     CMD="time python3 main.py --algs $ALG -n -1 \
+     --debug_set $DEBUG_SET \
+     --debug_ratio $DEBUG_RATIO \
      --loss_func $LOSS_FUNC \
      --losses $LOSSES \
      --lr $LR \
