@@ -24,7 +24,7 @@ class QueryDataset(data.Dataset):
         of its subqueries.
         @featurization_type:
             - combined: generates a single vector combining all features
-            - mscn: generates 3 vectors, as described in the mscn paper
+            - mscn: as in the mscn paper.
 
         The actual dataset consists of all the subqueries in all queries. Each
         index should uniquely map to a subquery.

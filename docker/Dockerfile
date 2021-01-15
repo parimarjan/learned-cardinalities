@@ -9,9 +9,12 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     postgresql-server-dev-12
 
-#ENV POSTGRES_USER="$LCARD_USER"
-ENV POSTGRES_USER=arthurfleck
-ENV POSTGRES_PASSWORD=password
+# this will be passed in from the command line
+ARG LCARD_USER
+#ENV LCARD_USER=$LCARD_USER
+ENV POSTGRES_USER=$LCARD_USER
+ENV POSTGRES_PASSWORD="password"
+
 # scripts in this directory will be run by the postgres docker init script
 
 #COPY ./_test.sh /docker-entrypoint-initdb.d/
