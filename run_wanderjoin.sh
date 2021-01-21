@@ -1,20 +1,28 @@
-ALG=$1
-LOSS_FUNC=$2
-TRAIN_CARD_KEY=$3
-SAMPLING_KEY=$4
-PRIORITY=$5
-NN_TYPE=mscn
+#ALG=$1
+#LOSS_FUNC=$2
+#DECAY=$3
+#MAX_EPOCHS=$4
+LOSS_FUNC=$1
+DECAY=$2
+LR=$3
+MAX_EPOCHS=$4
+TRAIN_CARD_KEY=$5
+
+ALG=nn
+VAL=1
+SAMPLING_KEY=wanderjoin
+PRIORITY=0.0
+NN_TYPE=microsoft
 SAMPLE_BITMAP=0
-MAX_EPOCHS=10
 LOSSES=join-loss,qerr
+QDIR=our_dataset/queries
 
 HLS=512
-NHL=2
-RES_DIR=all_results/inl_fixed_scan_ops/nested_loop_index7/wj/results1
+NHL=4
+RES_DIR=all_results/vldb/default/wanderjoin_fcnn3
 
 LOAD_QUERY_TOGTHER=0
 BUCKETS=10
-DECAY=0.1
 NUM_PAR=40
 
 FLOW_FEATS=1
@@ -25,6 +33,9 @@ EVAL_EPOCH=40
 
 CMD="time python3 main.py --algs nn -n -1 \
  --hidden_layer_size $HLS \
+ --no7a 0 \
+ --use_val_set $VAL \
+ --query_dir $QDIR \
  --num_hidden_layers $NHL \
  --train_card_key $TRAIN_CARD_KEY \
  --sampling_key $SAMPLING_KEY \
@@ -49,6 +60,6 @@ CMD="time python3 main.py --algs nn -n -1 \
  --feat_rel_pg_ests_onehot  1 \
  --feat_pg_est_one_hot  1 \
  --flow_features $FLOW_FEATS --feat_tolerance 0 \
- --lr 0.0001"
+ --lr $LR"
 echo $CMD
 eval $CMD

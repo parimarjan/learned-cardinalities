@@ -37,7 +37,8 @@ def main():
             except Exception as e:
                 print(e)
                 print(fn)
-                pdb.set_trace()
+                # pdb.set_trace()
+                continue
 
             save_object(fn, data, use_csv=True)
 

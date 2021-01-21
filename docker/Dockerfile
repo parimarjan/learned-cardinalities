@@ -1,9 +1,34 @@
-# pg_restore for the imdb db we have doesn't seem to work with the latest
-# postgres
-FROM postgres:9.4
-RUN apt-get update
-RUN apt-get install -y wget tar
-ENV POSTGRES_USER=card_est
-ENV POSTGRES_PASSWORD=card_est
+#FROM postgres:9.4
+FROM postgres:12
+
+RUN apt-get update && apt-get install -y \
+    wget \
+    tar \
+    git \
+    gcc \
+    build-essential \
+    postgresql-server-dev-12
+
+# this will be passed in from the command line
+ARG LCARD_USER
+#ENV LCARD_USER=$LCARD_USER
+ENV POSTGRES_USER=$LCARD_USER
+ENV POSTGRES_PASSWORD="password"
+
 # scripts in this directory will be run by the postgres docker init script
-COPY ./init_db.sh /docker-entrypoint-initdb.d/
+
+#COPY ./_test.sh /docker-entrypoint-initdb.d/
+COPY ./init_db.sh /docker-entrypoint-initdb.d/_init_db.sh
+
+#RUN sed -i 's/max_wal_size = 1GB/max_wal_size = 50GB/g' /var/lib/postgresql/data/postgresql.conf
+
+USER root
+ADD install_pg_hint.sh /
+RUN chmod +x /install_pg_hint.sh
+RUN /install_pg_hint.sh
+
+ADD imdb_setup.sh /
+RUN chmod +x /imdb_setup.sh
+# not running it right away because we want to restart docker container so
+# postgresql conf variables take effect
+

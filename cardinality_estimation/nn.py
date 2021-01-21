@@ -149,12 +149,15 @@ def update_samples(samples, flow_features, cost_model,
     if db_name == "so":
         SOURCE_NODE = tuple(["SOURCE"])
 
-    REGEN_COSTS = False
+    REGEN_COSTS = True
+    subq_hash_opt_path = {}
+
     if REGEN_COSTS:
         print("going to regenerate {} estimates for all samples".format(cost_model))
     # FIXME: need to use correct cost_model here
     start = time.time()
     new_seen = False
+
     for sample in samples:
         subsetg = sample["subset_graph"]
         # if SOURCE_NODE not in subsetg.nodes():
@@ -194,10 +197,13 @@ def update_samples(samples, flow_features, cost_model,
 
             all_nodes = list(subsetg.nodes())
             for node in all_nodes:
+                subsql_hash = deterministic_hash(sample["sql"] + str(node))
                 if node in opt_path:
                     subsetg.nodes()[node][cost_model + "opt_path"] = 1
+                    subq_hash_opt_path[subsql_hash] = 1
                 else:
                     subsetg.nodes()[node][cost_model + "opt_path"] = 0
+                    subq_hash_opt_path[subsql_hash] = 0
 
                 if node in pg_path:
                     subsetg.nodes()[node][cost_model + "pg_path"] = 1
@@ -206,6 +212,8 @@ def update_samples(samples, flow_features, cost_model,
 
     if not new_seen:
         return
+
+    save_or_update("subq_hash_opt_path.pkl", subq_hash_opt_path)
     num_proc = 16
 
     if USE_TOLERANCES:
@@ -1054,6 +1062,9 @@ class NN(CardinalityEstimationAlg):
                 qstart = 0
                 losses = []
                 for cur_info in info:
+                    if "query_idx" not in cur_info[0]:
+                        print(cur_info)
+                        pdb.set_trace()
                     qidx = cur_info[0]["query_idx"]
                     assert qidx == cur_info[1]["query_idx"]
                     subsetg_vectors, trueC_vec, opt_loss = \
@@ -1941,13 +1952,14 @@ class NN(CardinalityEstimationAlg):
         results["query_stats"] = self.query_stats
         results["query_qerr_stats"] = self.query_qerr_stats
 
-        # with open(fn, 'wb') as fp:
-            # pickle.dump(results, fp,
-                    # protocol=4)
-            # sfn = exp_dir + "/" + "subq_summary.pkl"
-            # with open(sfn, 'wb') as fp:
-                # pickle.dump(self.subquery_summary_data, fp,
-                        # protocol=4)
+        with open(fn, 'wb') as fp:
+            pickle.dump(results, fp,
+                    protocol=4)
+
+        sfn = exp_dir + "/" + "subq_summary.pkl"
+        with open(sfn, 'wb') as fp:
+            pickle.dump(self.subquery_summary_data, fp,
+                    protocol=4)
 
     def num_parameters(self):
         def _calc_size(net):
@@ -2165,12 +2177,16 @@ class NN(CardinalityEstimationAlg):
                             est_cardinalities, pool = self.join_loss_pool)
             opt_flow_losses = est_flow_costs - opt_flow_costs
             opt_flow_ratios = est_flow_costs / opt_flow_costs
+
+            self.save_join_loss_stats(est_flow_costs, None, samples,
+                    samples_type, loss_key="flow_cost")
             self.save_join_loss_stats(opt_flow_losses, None, samples,
                     samples_type, loss_key="flow_err")
             self.save_join_loss_stats(opt_flow_ratios, None, samples,
                     samples_type, loss_key="flow_ratio")
 
         opt_plan_pg_costs = None
+        print("should compute cost model err next")
         if self.cost_model_plan_err and \
                 epoch % self.eval_epoch_plan_err == 0:
             opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
@@ -2182,6 +2198,8 @@ class NN(CardinalityEstimationAlg):
 
             cm_plan_losses = est_plan_costs - opt_plan_costs
             cm_plan_losses_ratio = est_plan_costs / opt_plan_costs
+            self.save_join_loss_stats(est_plan_costs, None, samples,
+                    samples_type, loss_key="mm1_plan_cost")
             self.save_join_loss_stats(cm_plan_losses, None, samples,
                     samples_type, loss_key="mm1_plan_err")
             self.save_join_loss_stats(cm_plan_losses_ratio, None, samples,
@@ -2203,6 +2221,7 @@ class NN(CardinalityEstimationAlg):
                     cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
                 print("min plan pg ratio: {}, name: {}".format(
                     cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
+
 
         if not epoch % self.eval_epoch_jerr == 0:
             return
@@ -2227,6 +2246,8 @@ class NN(CardinalityEstimationAlg):
 
         # join_losses = np.maximum(join_losses, 0.00)
 
+        self.save_join_loss_stats(est_costs, est_plans, samples,
+                samples_type, epoch=epoch, loss_key="pp_cost")
         self.save_join_loss_stats(join_losses, est_plans, samples,
                 samples_type, epoch=epoch)
         self.save_join_loss_stats(join_losses_ratio, est_plans, samples,
@@ -2234,7 +2255,7 @@ class NN(CardinalityEstimationAlg):
 
         print("periodic eval took: ", time.time()-start)
         # if opt_plan_pg_costs is not None and self.debug_set:
-        if opt_plan_pg_costs is not None:
+        if opt_plan_pg_costs is not None and False:
             cost_model_losses = opt_plan_pg_costs - opt_costs
             cost_model_ratio = opt_plan_pg_costs / opt_costs
             print("cost model losses: ")
@@ -2371,9 +2392,14 @@ class NN(CardinalityEstimationAlg):
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
 
     def init_dataset(self, samples, shuffle, batch_size,
-            weighted=False):
+            weighted=False, testing=False):
         training_sets = []
         training_loaders = []
+        if testing:
+            use_padding = 2
+        else:
+            use_padding = self.use_set_padding
+
         for i in range(len(self.groups)):
             training_sets.append(QueryDataset(samples, self.db,
                     self.featurization_scheme, self.heuristic_features,
@@ -2384,7 +2410,7 @@ class NN(CardinalityEstimationAlg):
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = self.train_card_key,
-                    use_set_padding = self.use_set_padding,
+                    use_set_padding = use_padding,
                     group = self.groups[i], max_sequence_len=self.max_subqs,
                     exp_name = self.get_exp_name()))
             if not weighted:
@@ -2411,6 +2437,12 @@ class NN(CardinalityEstimationAlg):
 
     def get_subq_imp(self, samples):
         # FIXME: avoid repetition
+        subq_hash_imp = {}
+        subq_hash_imp_avg = {}
+
+        subq_hash_id = {}
+        subq_hash_pred_id = {}
+
         imps = []
         for sample in samples:
             subsetg_vectors = list(get_subsetg_vectors(sample,
@@ -2457,13 +2489,48 @@ class NN(CardinalityEstimationAlg):
             # graph
             node_importances = []
             for i, node in enumerate(nodes):
+                if node == SOURCE_NODE:
+                    continue
+
                 in_edges = sample["subset_graph"].in_edges(node)
                 node_pr = 0.0
+                node_pr_avg = 0.0
                 for edge in in_edges:
                     node_pr += flows[edge_dict[edge]]
+                    node_pr_avg += (flows[edge_dict[edge]] / len(in_edges))
+
                 node_importances.append(node_pr)
 
-            imps += node_importances
+                imps += node_importances
+
+                # subsql_hash = deterministic_hash(sample["sql"] + str(nodes[ci]))
+                subsql_hash = deterministic_hash(sample["sql"] + str(nodes[i]))
+                subq_hash_imp[subsql_hash] = node_pr
+                subq_hash_imp_avg[subsql_hash] = node_pr_avg
+
+                sorted_node = list(node)
+                sorted_node.sort()
+
+                # subq_id = deterministic_hash(str(sorted_node))
+                subq_id = ",".join(sorted_node)
+                subq_hash_id[subsql_hash] = subq_id
+
+                cur_pred_cols = []
+                for table in sorted_node:
+                    pred_cols = sample["join_graph"].nodes()[table]["pred_cols"]
+                    pred_cols = list(set(pred_cols))
+                    pred_cols.sort()
+                    cur_pred_cols += pred_cols
+                # pred_ids.append(deterministic_hash(str(cur_pred_cols)))
+                pred_id = ",".join(cur_pred_cols)
+                subq_hash_pred_id[subsql_hash] = pred_id
+
+        # lets save things
+
+        save_or_update("subq_hash_imp_avg.pkl", subq_hash_imp_avg)
+        # save_or_update("subq_hash_imp.pkl", subq_hash_imp)
+        # save_or_update("subq_hash_id.pkl", subq_hash_id)
+        # save_or_update("subq_hash_pred_id.pkl", subq_hash_pred_id)
 
         return np.array(imps)
 
@@ -2648,6 +2715,8 @@ class NN(CardinalityEstimationAlg):
 
         self.env = JoinLoss("cm1", self.db.user, self.db.pwd,
                 self.db.db_host, self.db.port, self.db.db_name)
+        # self.env = JoinLoss("nested_loop_index7", self.db.user, self.db.pwd,
+                # self.db.db_host, self.db.port, self.db.db_name)
 
         if self.cost_model != "cm1":
             # self.env2 = JoinLoss(self.cost_model, self.db.user, self.db.pwd,
@@ -2920,6 +2989,9 @@ class NN(CardinalityEstimationAlg):
             self.load_model(self.model_dir)
             print("loaded model!")
 
+        if self.sampling_priority_alpha > 0:
+            self.clean_memory()
+
         for self.epoch in range(0,self.max_epochs):
             if self.epoch == self.switch_loss_fn_epoch:
                 print("*************************")
@@ -2932,11 +3004,11 @@ class NN(CardinalityEstimationAlg):
                 else:
                     assert False
 
-            # if self.epoch % self.eval_epoch == 0 and \
-                    # self.eval_epoch < self.max_epochs:
-            if ((self.epoch % self.eval_epoch == 0 or \
-                    self.epoch % self.eval_epoch_qerr == 0)
-                and self.epoch != 0):
+            if self.epoch % self.eval_epoch == 0 and \
+                    self.eval_epoch < self.max_epochs:
+            # if ((self.epoch % self.eval_epoch == 0 or \
+                    # self.epoch % self.eval_epoch_qerr == 0)
+                # and self.epoch != 0):
 
                 eval_start = time.time()
                 self._eval_wrapper("train")
@@ -3130,7 +3202,7 @@ class NN(CardinalityEstimationAlg):
         '''
         datasets, loaders = \
                 self.init_dataset(test_samples, False, self.eval_batch_size,
-                        weighted=False)
+                        weighted=False, testing=True)
         self.nets[0].eval()
         # self.nets[0].eval()
         pred, y = self._eval_samples(loaders)

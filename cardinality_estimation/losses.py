@@ -276,6 +276,7 @@ def compute_qerror(queries, preds, **kwargs):
     query_idx = 0
     full_query_qerrs = defaultdict(list)
 
+    all_hashes = []
     for si, sample in enumerate(queries):
         nodes = list(sample["subset_graph"].nodes())
         if SOURCE_NODE in nodes:
@@ -295,6 +296,10 @@ def compute_qerror(queries, preds, **kwargs):
                 full_query_qerrs["samples_type"].append(samples_type)
                 full_query_qerrs["name"].append(sample["name"])
                 break
+
+        for ci, cerr in enumerate(cur_errs):
+            subsql_hash = deterministic_hash(sample["sql"] + str(nodes[ci]))
+            all_hashes.append(subsql_hash)
 
         query_losses["name"].append(sample["name"])
         query_losses["qerr_mean"].append(np.mean(cur_errs))
@@ -334,9 +339,11 @@ def compute_qerror(queries, preds, **kwargs):
 
     # query_avg_loss =
 
-    for error in errors_all:
+    assert len(all_hashes) == len(errors_all)
+    for ei, error in enumerate(errors_all):
         all_qerr_losses["loss"].append(error)
         all_qerr_losses["samples_type"].append(samples_type)
+        all_qerr_losses["subq_hash"].append(all_hashes[ei])
 
     all_qerr_losses = pd.DataFrame(all_qerr_losses)
     qfn = rdir + "/" + "all_qerr.pkl"
@@ -525,8 +532,11 @@ def compute_join_order_loss(queries, preds, **kwargs):
             # args.port, args.db_name)
 
     if "nested" in args.cost_model:
-        env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
+        # env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
+                # args.port, args.db_name)
+        env2 = JoinLoss("nested_loop_index7", args.user, args.pwd, args.db_host,
                 args.port, args.db_name)
+
 
     est_cardinalities = []
     true_cardinalities = []

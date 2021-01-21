@@ -60,7 +60,7 @@ def read_flags():
     parser.add_argument("--use_tries", type=int,
             required=False, default=1)
     parser.add_argument("--skip_zero_queries", type=int,
-            required=False, default=0)
+            required=False, default=1)
     parser.add_argument("--no_parallel", type=int,
             required=False, default=0)
     parser.add_argument("--card_type", type=str, required=False,

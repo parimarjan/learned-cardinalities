@@ -451,7 +451,7 @@ class DB():
             flow_features[cur_idx] = num_paths / self.max_paths
             cur_idx += 1
 
-        if self.feat_pg_costs:
+        if self.feat_pg_costs and self.heuristic_features:
             in_edges = subsetg.in_edges(node)
             in_cost = 0.0
             for edge in in_edges:
@@ -467,7 +467,7 @@ class DB():
             flow_features[cur_idx + tol_idx-1] = 1.0
             cur_idx += 4
 
-        if self.feat_flows:
+        if self.feat_flows and self.heuristic_features:
             in_edges = subsetg.in_edges(node)
             in_flows = 0.0
             for edge in in_edges:
@@ -504,7 +504,7 @@ class DB():
                 flow_features[cur_idx + tidx] = 1.0
             cur_idx += len(self.table_featurizer)
 
-        if self.feat_rel_pg_ests:
+        if self.feat_rel_pg_ests and self.heuristic_features:
             total_cost = subsetg.graph[self.cost_model+"total_cost"]
             pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
             flow_features[cur_idx] = pg_est / total_cost
@@ -525,7 +525,8 @@ class DB():
 
             cur_idx += len(self.table_featurizer)
 
-        if self.feat_rel_pg_ests_onehot:
+        if self.feat_rel_pg_ests_onehot \
+            and self.heuristic_features:
             total_cost = subsetg.graph[self.cost_model+"total_cost"]
             pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
             # flow_features[cur_idx] = pg_est / total_cost
@@ -561,7 +562,7 @@ class DB():
 
                 cur_idx += 2*self.PG_EST_BUCKETS
 
-        if self.feat_pg_est_one_hot:
+        if self.feat_pg_est_one_hot and self.heuristic_features:
             pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
 
             for i in range(self.PG_EST_BUCKETS):
@@ -883,7 +884,7 @@ class DB():
                 # print(pred_est)
                 # print("no match pred est")
                 # pdb.set_trace()
-            assert preds_vector[-1] == pred_est
+            # assert preds_vector[-1] == pred_est
 
         else:
             preds_vector = np.zeros(self.pred_features_len)

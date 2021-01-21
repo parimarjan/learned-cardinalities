@@ -54,9 +54,11 @@ WJ_TIMES["3a"] = 0.25
 WJ_TIMES["4a"] = 0.1
 WJ_TIMES["5a"] = 0.1
 WJ_TIMES["6a"] = 1.0
-WJ_TIMES["7a"] = 10.0
-WJ_TIMES["8a"] = 5.0
-WJ_TIMES["9a"] = 5.0
+WJ_TIMES["7a"] = 0.5
+WJ_TIMES["8a"] = 2.5
+# WJ_TIMES["9a"] = 0.5
+WJ_TIMES["9a"] = 3.0
+# WJ_TIMES["9a"] = 1.0
 WJ_TIMES["9b"] = 5.0
 WJ_TIMES["10a"] = 5.0
 WJ_TIMES["11a"] = 5.0
@@ -258,7 +260,8 @@ class SamplingTables(CardinalityEstimationAlg):
                 if cur_est == 0 or cur_est == 1:
                 # if cur_est == 0:
                     bad_ests += 1
-                    cur_est = cards["expected"]
+                    # cur_est = cards["expected"]
+                    cur_est = 1
 
                 if cur_est == 0:
                     cur_est += 1
