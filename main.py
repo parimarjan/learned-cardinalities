@@ -388,9 +388,9 @@ def load_samples(qfns, db, found_db, template_name,
     max_edges = 0
     for qi, qrep in enumerate(qreps):
         if train_template and "job" in template_name:
-            if "29" in qfns[qi] and "flow_loss" in args.loss_func:
-                print("29 query, skipping for training set")
-                continue
+            # if "29" in qfns[qi] and "flow_loss" in args.loss_func:
+                # print("29 query, skipping for training set")
+                # continue
 
             num_edges = len(qrep["subset_graph"].edges())
             if num_edges > max_edges:
@@ -572,6 +572,12 @@ def load_all_qrep_data(load_job_queries,
             if "7a" in fn:
                 fns.remove(fn)
                 break
+
+    # if args.no9a:
+        # for fn in fns:
+            # if "9a" in fn:
+                # fns.remove(fn)
+                # break
 
     if args.test_diff_templates:
         # get a sorted version
@@ -1078,9 +1084,10 @@ def main():
                 # idx = size*i
                 # eval_alg(alg, losses, test_queries[idx:idx+size], "test", join_loss_pool)
 
-        eval_alg(alg, losses, test_queries, "test", join_loss_pool)
-        del(test_queries[:])
-        gc.collect()
+        if len(test_queries) > 0:
+            eval_alg(alg, losses, test_queries, "test", join_loss_pool)
+            del(test_queries[:])
+            gc.collect()
 
         if args.eval_on_job:
             _, _, _, job_queries, jobm_queries, _ = \
