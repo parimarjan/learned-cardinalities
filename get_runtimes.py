@@ -19,10 +19,10 @@ RERUN_TIMEOUTS = True
 
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
-    cursor.execute("SET enable_seqscan = {}".format("off"))
-    cursor.execute("SET enable_indexonlyscan = {}".format("off"))
-    cursor.execute("SET enable_bitmapscan = {}".format("off"))
-    cursor.execute("SET enable_tidscan = {}".format("off"))
+    cursor.execute("SET enable_seqscan = {}".format("on"))
+    cursor.execute("SET enable_indexonlyscan = {}".format(val))
+    cursor.execute("SET enable_bitmapscan = {}".format(val))
+    cursor.execute("SET enable_tidscan = {}".format(val))
 
 def set_cost_model(cursor, cost_model, materialize):
     # makes things easier to understand
