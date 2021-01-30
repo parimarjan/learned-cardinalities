@@ -245,7 +245,6 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         if key_name in cards \
                 and not DEBUG_CHECK_TIMES:
-        # if False:
             if key_name == "actual":
                 if cards[key_name] == 0 and skip_zero_queries:
                     # don't want to get cardinalities for zero queries
@@ -369,6 +368,8 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         update_qrep(qrep)
         save_sql_rep(fn, qrep)
         print("updated sql rep!")
+
+    sys.stdout.flush()
     return qrep
 
 def main():

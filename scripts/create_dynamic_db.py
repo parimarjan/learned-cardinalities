@@ -201,6 +201,7 @@ def main():
             print("number of rows in {} after deleting: {}".format(table,
                 cursor.fetchone()[0]))
             print("Batch: {} took {} seconds".format(i, time.time()-start))
+            sys.stdout.flush()
 
         count_sql = "SELECT COUNT(*) FROM {}".format(table)
         cursor.execute(count_sql)
