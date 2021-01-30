@@ -256,6 +256,8 @@ def get_alg(alg):
                     num_bins = args.num_bins, recompute = args.cl_recompute)
     elif alg == "sampling":
         return SamplingTables(args.sampling_key)
+    elif alg == "olddb":
+        return OldDB(args.db_year_train)
     else:
         assert False
 
@@ -412,7 +414,14 @@ def load_samples(qfns, db, found_db, template_name,
                 print("cardinality not in qrep")
                 zero_query = True
                 break
-            # print(info["cardinality"].keys())
+
+            if args.db_year_train is not None:
+                db_card_key = str(args.db_year_train) + "cardinality"
+                if db_card_key not in info:
+                    # won't be able to use the old estimates for these, so skip
+                    zero_query = True
+                    break
+
             assert len(info["cardinality"]) > 1
             if "total" not in info["cardinality"]:
                 print("total not in query ", qfn)
@@ -1116,6 +1125,10 @@ def gen_samples_hash():
 def read_flags():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--db_year_train", type=int, required=False,
+            default=None)
+    parser.add_argument("--db_year_test", type=int, required=False,
+            default=None)
     parser.add_argument("--regen_db", type=int, required=False,
             default=0)
     parser.add_argument("--query_mb_size", type=int, required=False,

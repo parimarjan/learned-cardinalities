@@ -33,7 +33,7 @@ RERUN_TIMEOUTS = 1
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
 
-DEBUG_CHECK_TIMES = True
+DEBUG_CHECK_TIMES = False
 CONF_ALPHA = 0.99
 
 def read_flags():
@@ -78,6 +78,8 @@ def read_flags():
     parser.add_argument("--sampling_percentage", type=int,
             required=False, default=None)
     parser.add_argument("--sampling_type", type=str,
+            required=False, default=None)
+    parser.add_argument("--db_year", type=int,
             required=False, default=None)
 
     return parser.parse_args()
@@ -162,19 +164,24 @@ def get_cardinality_wj(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
 def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         port, true_timeout, pg_total, cache_dir, fn, wj_walk_timeout, idx,
-        sampling_percentage, sampling_type, skip_zero_queries):
+        sampling_percentage, sampling_type, skip_zero_queries, db_year):
     '''
     updates qrep's fields with the needed cardinality estimates, and returns
     the qrep.
     '''
+    print("get cardinality!")
     if key_name is None:
         key_name = card_type
+
+    if db_year is not None:
+        db_name = db_name + str(db_year)
 
     if sampling_percentage is not None:
         key_name = str(sampling_type) + str(sampling_percentage) + "_" + key_name
 
         con = pg.connect(user=user, host=db_host, port=port,
                 password=pwd, database=db_name)
+
         cursor = con.cursor()
 
     if idx % 10 == 0:
@@ -205,14 +212,20 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     # print(node_list)
     # pdb.set_trace()
     # for subqi, (subset, info) in enumerate(qrep["subset_graph"].nodes().items()):
+
+    card_key = "cardinality"
+    if db_year is not None:
+        card_key = str(db_year) + card_key
+
     for subqi, subset in enumerate(node_list):
         info = qrep["subset_graph"].nodes()[subset]
-        if "cardinality" not in info:
-            info["cardinality"] = {}
+        if card_key not in info:
+            info[card_key] = {}
+
         if "exec_time" not in info:
             info["exec_time"] = {}
 
-        cards = info["cardinality"]
+        cards = info[card_key]
         execs = info["exec_time"]
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg)
@@ -232,6 +245,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         if key_name in cards \
                 and not DEBUG_CHECK_TIMES:
+        # if False:
             if key_name == "actual":
                 if cards[key_name] == 0 and skip_zero_queries:
                     # don't want to get cardinalities for zero queries
@@ -400,7 +414,7 @@ def main():
                         args.db_name, args.user, args.pwd, args.port,
                         args.true_timeout, args.pg_total, args.card_cache_dir, fn,
                         args.wj_walk_timeout, i, args.sampling_percentage,
-                        args.sampling_type, True)
+                        args.sampling_type, True, args.db_year)
 
             continue
 
@@ -428,7 +442,7 @@ def main():
                     args.db_name, args.user, args.pwd, args.port,
                     args.true_timeout, args.pg_total, args.card_cache_dir, fn,
                     args.wj_walk_timeout, i, args.sampling_percentage,
-                    args.sampling_type, args.skip_zero_queries))
+                    args.sampling_type, args.skip_zero_queries, args.db_year))
 
     assert not args.no_parallel
     start = time.time()

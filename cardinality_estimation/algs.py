@@ -217,6 +217,36 @@ class Postgres(CardinalityEstimationAlg):
     def __str__(self):
         return "postgres"
 
+class OldDB(CardinalityEstimationAlg):
+    def __init__(self, db_year):
+        self.db_year = db_year
+        self.card_key = str(db_year) + "cardinality"
+
+    def test(self, test_samples):
+        assert isinstance(test_samples[0], dict)
+        bad_ests = 0
+        preds = []
+        for sample in test_samples:
+            pred_dict = {}
+
+            for alias_key, info in sample["subset_graph"].nodes().items():
+                if alias_key == SOURCE_NODE:
+                    continue
+                cards = info[self.card_key]
+                cur_est = cards["actual"]
+
+                if cur_est == 0:
+                    bad_ests += 1
+                    cur_est = 1
+
+                pred_dict[(alias_key)] = cur_est
+            preds.append(pred_dict)
+        print("bad ests: {}, total: {}".format(bad_ests, 0))
+        return preds
+
+    def __str__(self):
+        return self.card_key
+
 class SamplingTables(CardinalityEstimationAlg):
     def __init__(self, sampling_key):
         self.sampling_key = sampling_key
