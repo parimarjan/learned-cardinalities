@@ -319,7 +319,7 @@ def remove_doubles(query_strs):
     return newq
 
 def eval_alg(alg, loss_funcs, queries, samples_type,
-        join_loss_pool):
+        join_loss_pool, db_years):
     '''
     Applies alg to each query, and measures loss using `loss_func`.
     Records each estimate, and loss in the query object.
@@ -336,21 +336,25 @@ def eval_alg(alg, loss_funcs, queries, samples_type,
     loss_start = time.time()
     alg_name = alg.__str__()
     exp_name = alg.get_exp_name()
-    for loss_func in loss_funcs:
-        losses = loss_func(queries, yhats, name=alg_name,
-                args=args, samples_type=samples_type, exp_name = exp_name,
-                pool = join_loss_pool)
 
-        # TODO: set global printoptions to round digits
-        print("db: {}, samples_type: {}, alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-                .format(args.db_name, samples_type, alg, len(queries),
-                    get_loss_name(loss_func.__name__),
-                    np.round(np.mean(losses),3),
-                    np.round(np.median(losses),3),
-                    np.round(np.percentile(losses,95),3),
-                    np.round(np.percentile(losses,99),3)))
+    for db_year in db_years:
+        cardinality_key = str(db_year) + "cardinality"
+        for loss_func in loss_funcs:
+            losses = loss_func(queries, yhats, name=alg_name,
+                    args=args, samples_type=samples_type, exp_name = exp_name,
+                    pool = join_loss_pool, cardinality_key=cardinality_key)
 
-    print("loss computations took: {} seconds".format(time.time()-loss_start))
+            # TODO: set global printoptions to round digits
+            print("db: {}, db_year: {}, samples_type: {}, alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+                    .format(args.db_name, db_year,
+                        samples_type, alg, len(queries),
+                        get_loss_name(loss_func.__name__),
+                        np.round(np.mean(losses),3),
+                        np.round(np.median(losses),3),
+                        np.round(np.percentile(losses,95),3),
+                        np.round(np.percentile(losses,99),3)))
+
+        print("loss computations took: {} seconds".format(time.time()-loss_start))
 
 def load_samples(qfns, db, found_db, template_name,
         skip_zero_queries=True, train_template=True, wj_times=None,
@@ -581,12 +585,6 @@ def load_all_qrep_data(load_job_queries,
             if "7a" in fn:
                 fns.remove(fn)
                 break
-
-    # if args.no9a:
-        # for fn in fns:
-            # if "9a" in fn:
-                # fns.remove(fn)
-                # break
 
     if args.test_diff_templates:
         # get a sorted version
@@ -1064,7 +1062,15 @@ def main():
 
         start = time.time()
 
-        eval_alg(alg, losses, train_queries, "train", join_loss_pool)
+        if args.db_year_test is None:
+            db_years = []
+        else:
+            db_years = args.db_year_test.split(",")
+        db_years.append("")
+        print("db_years are: ", db_years)
+
+        eval_alg(alg, losses, train_queries, "train", join_loss_pool,
+                db_years)
         del(train_queries[:])
         gc.collect()
 
@@ -1076,7 +1082,8 @@ def main():
             assert len(val_queries) > 0
             update_samples(val_queries, args.flow_features,
                     args.cost_model, args.debug_set, args.db_name)
-            eval_alg(alg, losses, val_queries, "validation", join_loss_pool)
+            eval_alg(alg, losses, val_queries, "validation", join_loss_pool,
+                    db_years)
             del(val_queries[:])
             gc.collect()
 
@@ -1094,7 +1101,8 @@ def main():
                 # eval_alg(alg, losses, test_queries[idx:idx+size], "test", join_loss_pool)
 
         if len(test_queries) > 0:
-            eval_alg(alg, losses, test_queries, "test", join_loss_pool)
+            eval_alg(alg, losses, test_queries, "test", join_loss_pool,
+                    db_years)
             del(test_queries[:])
             gc.collect()
 
@@ -1127,8 +1135,8 @@ def read_flags():
 
     parser.add_argument("--db_year_train", type=int, required=False,
             default=None)
-    parser.add_argument("--db_year_test", type=int, required=False,
-            default=None)
+    parser.add_argument("--db_year_test", type=str, required=False,
+            default=None, help="1950,1960,... OR all")
     parser.add_argument("--regen_db", type=int, required=False,
             default=0)
     parser.add_argument("--query_mb_size", type=int, required=False,

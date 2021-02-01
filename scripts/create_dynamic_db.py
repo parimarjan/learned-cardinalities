@@ -300,7 +300,7 @@ def main():
                 password=args.pwd, database=args.db_name)
         con2.set_isolation_level(pg.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         cursor2 = con2.cursor()
-        cursor2.execute("VACUUM {}".format(table))
+        cursor2.execute("VACUUM ANALYZE {}".format(table))
         cursor2.close()
         con2.close()
         print("index + vacuuming done for: ", table)

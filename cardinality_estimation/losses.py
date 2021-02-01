@@ -168,12 +168,19 @@ def get_loss_name(loss_name):
     elif "flow" in loss_name:
         return "flow-loss"
 
-def _get_all_cardinalities(queries, preds):
+def _get_all_cardinalities(queries, preds, cardinality_key="cardinality"):
     ytrue = []
     yhat = []
+    cur_queries = []
     # totals = []
     for i, pred_subsets in enumerate(preds):
+        # one of pred_subsets could be None --> if the alg does not have a
+        # valid prediction for this query (e.g., when using old-db predictions)
+        if pred_subsets is None:
+            continue
+
         qrep = queries[i]["subset_graph"].nodes()
+        query_used = True
         keys = list(pred_subsets.keys())
         keys.sort()
 
@@ -181,14 +188,20 @@ def _get_all_cardinalities(queries, preds):
         for alias in keys:
             assert alias != SOURCE_NODE
             pred = pred_subsets[alias]
-            actual = qrep[alias]["cardinality"]["actual"]
-            # total = qrep[alias]["cardinality"]["total"]
-            # totals.append(total)
+            if cardinality_key not in qrep[alias].keys():
+                query_used = False
+                break
+
+            actual = qrep[alias][cardinality_key]["actual"]
             if actual == 0:
                 actual += 1
             ytrue.append(float(actual))
             yhat.append(float(pred))
-    return ytrue, yhat, None
+
+        if query_used:
+            cur_queries.append(queries[i])
+
+    return ytrue, yhat, cur_queries
 
 # TODO: put the yhat, ytrue parts in db_utils
 def compute_relative_loss(queries, preds, **kwargs):
@@ -214,6 +227,7 @@ def compute_qerror(queries, preds, **kwargs):
     if args.db_name == "so":
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
+    cardinality_key = kwargs["cardinality_key"]
 
     # here, we assume that the alg name is unique enough, for their results to
     # be grouped together
@@ -236,7 +250,7 @@ def compute_qerror(queries, preds, **kwargs):
 
     save_object_gzip(pred_fn, all_preds)
 
-    ytrue, yhat, _ = _get_all_cardinalities(queries, preds)
+    ytrue, yhat, cur_queries = _get_all_cardinalities(queries, preds, cardinality_key)
     ytrue = np.array(ytrue)
     yhat = np.array(yhat)
     assert len(ytrue) == len(yhat)
@@ -257,7 +271,7 @@ def compute_qerror(queries, preds, **kwargs):
 
     errors_all = copy.deepcopy(errors)
     errors = np.abs(np.array(errors))
-    df = qerr_loss_stats(queries, errors,
+    df = qerr_loss_stats(cur_queries, errors,
             samples_type, -1)
 
     fn = rdir + "/" + "qerr.pkl"
@@ -277,7 +291,7 @@ def compute_qerror(queries, preds, **kwargs):
     full_query_qerrs = defaultdict(list)
 
     all_hashes = []
-    for si, sample in enumerate(queries):
+    for si, sample in enumerate(cur_queries):
         nodes = list(sample["subset_graph"].nodes())
         if SOURCE_NODE in nodes:
             nodes.remove(SOURCE_NODE)
@@ -311,7 +325,7 @@ def compute_qerror(queries, preds, **kwargs):
         query_idx += len(nodes)
 
     print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-            .format(args.db_name, args.algs, len(queries),
+            .format(args.db_name, args.algs, len(cur_queries),
                 "full query qerr",
                 np.round(np.mean(full_query_qerrs["qerr"]),3),
                 np.round(np.median(full_query_qerrs["qerr"]), 3),
@@ -492,24 +506,20 @@ def compute_join_order_loss(queries, preds, **kwargs):
         cur_costs = defaultdict(list)
         assert isinstance(costs, pd.DataFrame)
 
-        if args.jl_use_postgres:
-            est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
-                            join_loss_pg(sqls, join_graphs, true_cardinalities,
-                                    est_cardinalities, env, use_indexes, pdf=None,
-                                    pool = pool, join_loss_data_file =
-                                    args.join_loss_data_file)
-            losses = est_costs - opt_costs
-            for i, qrep in enumerate(queries):
-                sql_key = str(deterministic_hash(qrep["sql"]))
-                add_query_result_row(sql_key, samples_type,
-                        est_sqls[i], est_costs[i],
-                        losses[i],
-                        get_leading_hint(est_plans[i]),
-                        qrep["template_name"], cur_costs, costs,
-                        qrep["name"])
-        else:
-            print("TODO: add calcite based cost model")
-            assert False
+        est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
+                        join_loss_pg(sqls, join_graphs, true_cardinalities,
+                                est_cardinalities, env, use_indexes, pdf=None,
+                                pool = pool, join_loss_data_file =
+                                args.join_loss_data_file)
+        losses = est_costs - opt_costs
+        for i, qrep in enumerate(eval_queries):
+            sql_key = str(deterministic_hash(qrep["sql"]))
+            add_query_result_row(sql_key, samples_type,
+                    est_sqls[i], est_costs[i],
+                    losses[i],
+                    get_leading_hint(est_plans[i]),
+                    qrep["template_name"], cur_costs, costs,
+                    qrep["name"])
 
         cur_df = pd.DataFrame(cur_costs)
         combined_df = pd.concat([costs, cur_df], ignore_index=True)
@@ -528,40 +538,51 @@ def compute_join_order_loss(queries, preds, **kwargs):
         SOURCE_NODE = tuple(["SOURCE"])
 
     alg_name = kwargs["name"]
-    # env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
-            # args.port, args.db_name)
+    cardinality_key = kwargs["cardinality_key"]
 
-    if "nested" in args.cost_model:
-        env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
-                args.port, args.db_name)
-        # env2 = JoinLoss("nested_loop_index7", args.user, args.pwd, args.db_host,
-                # args.port, args.db_name)
-
+    assert "nested" in args.cost_model
+    env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
+            args.port, args.db_name)
 
     est_cardinalities = []
     true_cardinalities = []
     sqls = []
     join_graphs = []
+    # FIXME: wasting a lot of memory
+    eval_queries = []
 
     # TODO: save alg based predictions too
     for i, qrep in enumerate(queries):
-        sqls.append(qrep["sql"])
-        join_graphs.append(qrep["join_graph"])
+        # TODO: check if this prediction is valid from both predictor / and for
+        # the ground truth
+        if preds[i] is None:
+            continue
+
         ests = {}
         trues = {}
         predq = preds[i]
+        no_ground_truth_data = False
 
         for node, node_info in qrep["subset_graph"].nodes().items():
             if node == SOURCE_NODE:
                 continue
             est_card = predq[node]
             alias_key = ' '.join(node)
-            trues[alias_key] = node_info["cardinality"]["actual"]
-            # ests[alias_key] = int(est_card)
+            if cardinality_key not in node_info:
+                no_ground_truth_data = True
+                break
+            trues[alias_key] = node_info[cardinality_key]["actual"]
             if est_card == 0:
                 print("bad est card")
                 est_card += 1
             ests[alias_key] = est_card
+
+        if no_ground_truth_data:
+            continue
+
+        eval_queries.append(qrep)
+        sqls.append(qrep["sql"])
+        join_graphs.append(qrep["join_graph"])
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)
 
@@ -572,16 +593,16 @@ def compute_join_order_loss(queries, preds, **kwargs):
     assert "nested" in args.cost_model
     est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
     losses2 = est_costs2 - opt_costs2
-    print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-            .format(args.db_name, alg_name, len(queries),
-                "join all",
-                np.round(np.mean(losses2),3),
-                np.round(np.median(losses2),3),
-                np.round(np.percentile(losses2,95),3),
-                np.round(np.percentile(losses2,99),3)))
+    # print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+            # .format(args.db_name, alg_name, len(queries),
+                # "join all",
+                # np.round(np.mean(losses2),3),
+                # np.round(np.median(losses2),3),
+                # np.round(np.percentile(losses2,95),3),
+                # np.round(np.percentile(losses2,99),3)))
 
-    dummy = []
-    save_object("dummy.pkl", dummy)
+    # dummy = []
+    # save_object("dummy.pkl", dummy)
 
     return np.array(est_costs2) - np.array(opt_costs2)
 
