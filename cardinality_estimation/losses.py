@@ -38,7 +38,7 @@ for q in PERCENTILES_TO_SAVE:
 RESULTS_DIR_TMP = "{RESULT_DIR}/{ALG}/"
 
 def add_query_result_row(sql_key, samples_type, exec_sql, cost,
-        loss, plan, template, cur_costs, costs, qfn):
+        loss, plan, template, cur_costs, costs, qfn, card_key):
     '''
     '''
     # FIXME: is this needed / what situation is it for?
@@ -72,7 +72,7 @@ def node_match(n1, n2):
     return n1 == n2
 
 def add_row(losses, loss_type, epoch, template,
-        num_tables, samples_type, stats):
+        num_tables, samples_type, stats, ck):
     for i, func in enumerate(summary_funcs):
         loss = func(losses)
         # row = [epoch, loss_type, loss, summary_types[i],
@@ -85,9 +85,10 @@ def add_row(losses, loss_type, epoch, template,
         stats["num_tables"].append(num_tables)
         stats["num_samples"].append(len(losses))
         stats["samples_type"].append(samples_type)
+        stats["card_key"].append(ck)
 
 def qerr_loss_stats(samples, losses, samples_type,
-        epoch):
+        epoch, ckey):
     '''
     @samples: [] qrep objects.
     @preds: selectivity predictions for each
@@ -99,7 +100,7 @@ def qerr_loss_stats(samples, losses, samples_type,
     assert isinstance(samples[0]["subset_graph"], nx.OrderedDiGraph)
 
     add_row(losses, "qerr", epoch, "all", "all", samples_type,
-            stats)
+            stats, ckey)
     summary_data = defaultdict(list)
     query_idx = 0
     for sample in samples:
@@ -125,16 +126,16 @@ def qerr_loss_stats(samples, losses, samples_type,
     for template in set(df["template"]):
         tvals = df[df["template"] == template]
         add_row(tvals["loss"].values, "qerr", epoch,
-                template, "all", samples_type, stats)
+                template, "all", samples_type, stats, ckey)
         for nt in set(tvals["num_tables"]):
             nt_losses = tvals[tvals["num_tables"] == nt]
             add_row(nt_losses["loss"].values, "qerr", epoch, template, str(nt),
-                    samples_type, stats)
+                    samples_type, stats, ckey)
 
     for nt in set(df["num_tables"]):
         nt_losses = df[df["num_tables"] == nt]
         add_row(nt_losses["loss"].values, "qerr", epoch, "all", str(nt),
-                samples_type, stats)
+                samples_type, stats, ckey)
 
     return pd.DataFrame(stats)
 
@@ -278,7 +279,7 @@ def compute_qerror(queries, preds, **kwargs):
     errors_all = copy.deepcopy(errors)
     errors = np.abs(np.array(errors))
     df = qerr_loss_stats(cur_queries, errors,
-            samples_type, -1)
+            samples_type, -1, cardinality_key)
 
     fn = rdir + "/" + "qerr.pkl"
     # args_fn = rdir + "/" + "args.pkl"
@@ -315,6 +316,7 @@ def compute_qerror(queries, preds, **kwargs):
                 full_query_qerrs["qerr"].append(cerr)
                 full_query_qerrs["samples_type"].append(samples_type)
                 full_query_qerrs["name"].append(sample["name"])
+                full_query_qerrs["card_key"].append(cardinality_key)
                 break
 
         for ci, cerr in enumerate(cur_errs):
@@ -330,14 +332,14 @@ def compute_qerror(queries, preds, **kwargs):
         query_losses["samples_type"].append(samples_type)
         query_idx += len(nodes)
 
-    print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-            .format(args.db_name, args.algs, len(cur_queries),
-                "full query qerr",
-                np.round(np.mean(full_query_qerrs["qerr"]),3),
-                np.round(np.median(full_query_qerrs["qerr"]), 3),
-                np.round(np.percentile(full_query_qerrs["qerr"], 95), 3),
-                np.round(np.percentile(full_query_qerrs["qerr"], 99), 3),
-                ))
+    # print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+            # .format(args.db_name, args.algs, len(cur_queries),
+                # "full query qerr",
+                # np.round(np.mean(full_query_qerrs["qerr"]),3),
+                # np.round(np.median(full_query_qerrs["qerr"]), 3),
+                # np.round(np.percentile(full_query_qerrs["qerr"], 95), 3),
+                # np.round(np.percentile(full_query_qerrs["qerr"], 99), 3),
+                # ))
 
     qfn = rdir + "/" + "full_query_qerr.pkl"
     full_query_qerrs = pd.DataFrame(full_query_qerrs)
@@ -364,6 +366,7 @@ def compute_qerror(queries, preds, **kwargs):
         all_qerr_losses["loss"].append(error)
         all_qerr_losses["samples_type"].append(samples_type)
         all_qerr_losses["subq_hash"].append(all_hashes[ei])
+        all_qerr_losses["card_key"].append(cardinality_key)
 
     all_qerr_losses = pd.DataFrame(all_qerr_losses)
     qfn = rdir + "/" + "all_qerr.pkl"
@@ -506,7 +509,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
         costs = load_object(costs_fn)
         if costs is None:
             columns = ["sql_key", "explain","plan","exec_sql","cost", "loss",
-                    "postgresql_conf", "samples_type", "template", "qfn"]
+                    "postgresql_conf", "samples_type", "template", "qfn",
+                    "card_key"]
             costs = pd.DataFrame(columns=columns)
 
         cur_costs = defaultdict(list)
@@ -520,12 +524,16 @@ def compute_join_order_loss(queries, preds, **kwargs):
         losses = est_costs - opt_costs
         for i, qrep in enumerate(eval_queries):
             sql_key = str(deterministic_hash(qrep["sql"]))
+            if save_exec_sql:
+                exec_sql = est_sqls[i]
+            else:
+                exec_sql = None
             add_query_result_row(sql_key, samples_type,
-                    est_sqls[i], est_costs[i],
+                    exec_sql, est_costs[i],
                     losses[i],
                     get_leading_hint(est_plans[i]),
                     qrep["template_name"], cur_costs, costs,
-                    qrep["name"])
+                    qrep["name"], cardinality_key)
 
         cur_df = pd.DataFrame(cur_costs)
         combined_df = pd.concat([costs, cur_df], ignore_index=True)
@@ -539,6 +547,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
 
     # env = park.make('query_optimizer')
     args = kwargs["args"]
+    save_exec_sql = args.save_exec_sql
     if args.db_name == "so":
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
@@ -655,7 +664,7 @@ def compute_flow_loss(queries, preds, **kwargs):
         assert qrep["name"] is not None
         add_query_result_row(sql_key, samples_type, None, est_costs[i],
                 losses[i], None, qrep["template_name"], cur_costs, costs,
-                qrep["name"])
+                qrep["name"], cardinality_key)
 
     cur_df = pd.DataFrame(cur_costs)
     combined_df = pd.concat([costs, cur_df], ignore_index=True)
@@ -751,11 +760,11 @@ def compute_plan_loss(queries, preds, **kwargs):
         assert qrep["name"] is not None
         add_query_result_row(sql_key, samples_type, None, est_costs[i], losses[i],
                 None, qrep["template_name"], cur_costs, costs,
-                qrep["name"])
+                qrep["name"], cardinality_key)
         add_query_result_row(sql_key, samples_type, exec_sqls_pg[i],
                 est_costs_pg[i], losses_pg[i],
                 get_leading_hint(explains_pg[i]), qrep["template_name"],
-                cur_costs_pg, costs_pg, qrep["name"])
+                cur_costs_pg, costs_pg, qrep["name"], cardinality_key)
 
     cur_df = pd.DataFrame(cur_costs)
     combined_df = pd.concat([costs, cur_df], ignore_index=True)

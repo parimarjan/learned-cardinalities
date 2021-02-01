@@ -144,11 +144,11 @@ UPDATE_TOLERANCES_PAR = False
 USE_TOLERANCES = False
 
 def update_samples(samples, flow_features, cost_model,
-        debug_set, db_name):
+        debug_set, db_name, db_year):
     global SOURCE_NODE
     if db_name == "so":
         SOURCE_NODE = tuple(["SOURCE"])
-
+    cardinality_key = str(db_year) + "cardinality"
     REGEN_COSTS = True
     subq_hash_opt_path = {}
 
@@ -178,8 +178,11 @@ def update_samples(samples, flow_features, cost_model,
             new_seen = True
 
             pg_total_cost = compute_costs(subsetg, cost_model,
+                    cardinality_key,
                     cost_key="pg_cost", ests="expected")
-            _ = compute_costs(subsetg, cost_model, cost_key="cost",
+            _ = compute_costs(subsetg, cost_model,
+                    cardinality_key,
+                    cost_key="cost",
                     ests=None)
 
             subsetg.graph[cost_model + "total_cost"] = pg_total_cost
@@ -2624,7 +2627,7 @@ class NN(CardinalityEstimationAlg):
         global SOURCE_NODE
         if db.db_name == "so":
             SOURCE_NODE = tuple(["SOURCE"])
-
+        self.ckey = db_year + "cardinality"
         assert isinstance(training_samples[0], dict)
         # rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
         # resource.setrlimit(resource.RLIMIT_NOFILE, (64000, rlimit[1]))
@@ -2698,10 +2701,13 @@ class NN(CardinalityEstimationAlg):
                 self.node_anchoring_idxs.append(idxs_to_anchor)
 
         if self.normalization_type == "mscn":
-            y = np.array(get_all_cardinalities(training_samples))
+            y = np.array(get_all_cardinalities(training_samples, self.ckey))
             y = np.log(y)
             self.max_val = np.max(y)
             self.min_val = np.min(y)
+            # if self.min_val == 0:
+                # print("there was 0 as min val")
+                # self.min_val += 1
             print("min val: ", self.min_val)
             print("max val: ", self.max_val)
         else:
@@ -3190,13 +3196,13 @@ class NN(CardinalityEstimationAlg):
             self.save_model_dict()
 
 
-    def test(self, test_samples):
+    def test(self, test_samples, test_year=""):
         '''
         @test_samples: [] sql_representation dicts
         '''
         datasets, loaders = \
                 self.init_dataset(test_samples, False, self.eval_batch_size,
-                        db_year, weighted=False, testing=True)
+                        test_year, weighted=False, testing=True)
         self.nets[0].eval()
         # self.nets[0].eval()
         pred, y = self._eval_samples(loaders)
@@ -3314,7 +3320,7 @@ class XGBoost(NN):
         # pdb.set_trace()
 
     def set_min_max(self, training_samples):
-        y = np.array(get_all_cardinalities(training_samples))
+        y = np.array(get_all_cardinalities(training_samples, self.ckey))
         y = np.log(y)
         self.max_val = np.max(y)
         self.min_val = np.min(y)

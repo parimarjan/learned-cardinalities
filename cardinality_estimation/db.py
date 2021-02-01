@@ -18,7 +18,7 @@ SUBQUERY_TIMEOUT = 3*60000
 class DB():
 
     def __init__(self, user, pwd, db_host, port, db_name,
-            cache_dir="./sql_cache"):
+            db_years, cache_dir="./sql_cache"):
         '''
         Creates a conn to the db, and then will continue to reuse that.
         Provides the following:
@@ -29,6 +29,7 @@ class DB():
         self.db_host = db_host
         self.port = port
         self.db_name = db_name
+        self.db_years = db_years
 
         # In seconds. If query execution takes longer, then the results are
         # cached for the future
@@ -47,7 +48,11 @@ class DB():
         #   e.g., stats["title"]["id"]["max_value"] = 1010112
         #         stats["title"]["id"]["type"] = int
         #         stats["title"]["id"]["num_values"] = x
-        self.column_stats = OrderedDict()
+        self.column_stats = {}
+        for dby in self.db_years:
+            self.column_stats[dby] = OrderedDict()
+
+
         # self.max_discrete_featurizing_buckets = 100
         # self.max_discrete_featurizing_buckets = 20
         # self.max_discrete_featurizing_buckets = 10
@@ -95,13 +100,7 @@ class DB():
         self.max_joins = 0
         self.max_preds = 0
 
-    def get_entropies(self):
-        '''
-        pairwise entropies among all columns of the db?
-        '''
-        pass
-
-    def execute(self, sql, timeout=None):
+    def execute(self, sql, db_year, timeout=None):
         '''
         executes the given sql on the DB, and caches the results in a
         persistent store if it took longer than self.execution_cache_threshold.
@@ -126,7 +125,7 @@ class DB():
 
         # works on chunky
         con = pg.connect(user=self.user, host=self.db_host, port=self.port,
-                password=self.pwd, database=self.db_name)
+                password=self.pwd, database=self.db_name+str(db_year))
         cursor = con.cursor()
         if timeout is not None:
             cursor.execute("SET statement_timeout = {}".format(timeout))
@@ -202,7 +201,7 @@ class DB():
             global SOURCE_NODE
             SOURCE_NODE = tuple(["SOURCE"])
 
-        indexes = self.execute(INDEX_LIST_CMD)
+        indexes = self.execute(INDEX_LIST_CMD, "")
         self.cost_model = cost_model
         self.heuristic_features = heuristic_features
         self.flow_features = flow_features
@@ -263,8 +262,8 @@ class DB():
 
         self.max_discrete_featurizing_buckets = max_discrete_featurizing_buckets
         self.featurizer = {}
-        self.num_cols = len(self.column_stats)
-        all_cols = list(self.column_stats.keys())
+        self.num_cols = len(self.column_stats[""])
+        all_cols = list(self.column_stats[""].keys())
         all_cols.sort()
         self.columns_onehot_idx = {}
         for cidx, col_name in enumerate(all_cols):
@@ -276,13 +275,13 @@ class DB():
 
         # to find the number of features, need to go over every column, and
         # choose how many spots to keep for them
-        col_keys = list(self.column_stats.keys())
+        col_keys = list(self.column_stats[""].keys())
         col_keys.sort()
 
         self.max_pred_len = 0
 
         for col in col_keys:
-            info = self.column_stats[col]
+            info = self.column_stats[""][col]
             pred_len = 0
             # for operator type
             pred_len += len(self.cmp_ops)
@@ -421,8 +420,9 @@ class DB():
         return num_buckets
 
     def get_flow_features(self, node, subsetg,
-            template_name, join_graph, cmp_op):
+            template_name, join_graph, cmp_op, dby):
         assert node != SOURCE_NODE
+        ckey = "cardinality" + str(dby)
         flow_features = np.zeros(self.num_flow_features, dtype=np.float32)
         cur_idx = 0
         # incoming edges
@@ -506,7 +506,7 @@ class DB():
 
         if self.feat_rel_pg_ests and self.heuristic_features:
             total_cost = subsetg.graph[self.cost_model+"total_cost"]
-            pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
+            pg_est = subsetg.nodes()[node][ckey]["expected"]
             flow_features[cur_idx] = pg_est / total_cost
             cur_idx += 1
             neighbors = list(nx.node_boundary(join_graph, node))
@@ -518,7 +518,7 @@ class DB():
                     continue
                 table = self.aliases[al]
                 tidx = self.table_featurizer[table]
-                ncard = subsetg.nodes()[tuple([al])]["cardinality"]["expected"]
+                ncard = subsetg.nodes()[tuple([al])][ckey]["expected"]
                 # TODO: should this be normalized? how?
                 flow_features[cur_idx + tidx] = pg_est / ncard
                 flow_features[cur_idx + tidx] /= 1e5
@@ -528,7 +528,7 @@ class DB():
         if self.feat_rel_pg_ests_onehot \
             and self.heuristic_features:
             total_cost = subsetg.graph[self.cost_model+"total_cost"]
-            pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
+            pg_est = subsetg.nodes()[node][ckey]["expected"]
             # flow_features[cur_idx] = pg_est / total_cost
             pg_ratio = total_cost / float(pg_est)
 
@@ -546,7 +546,7 @@ class DB():
                     continue
                 table = self.aliases[al]
                 tidx = self.table_featurizer[table]
-                ncard = subsetg.nodes()[tuple([al])]["cardinality"]["expected"]
+                ncard = subsetg.nodes()[tuple([al])][ckey]["expected"]
                 # TODO: should this be normalized? how?
                 # flow_features[cur_idx + tidx] = pg_est / ncard
                 # flow_features[cur_idx + tidx] /= 1e5
@@ -563,7 +563,7 @@ class DB():
                 cur_idx += 2*self.PG_EST_BUCKETS
 
         if self.feat_pg_est_one_hot and self.heuristic_features:
-            pg_est = subsetg.nodes()[node]["cardinality"]["expected"]
+            pg_est = subsetg.nodes()[node][ckey]["expected"]
 
             for i in range(self.PG_EST_BUCKETS):
                 if pg_est > 10**i and pg_est < 10**(i+1):
@@ -667,106 +667,106 @@ class DB():
             joins_vector[self.join_featurizer[keys]] = 1.00
             return joins_vector
 
-    def get_pred_features_map(self):
-        '''
-        @ret: df with columns:
-            idx, descr, pg_est, type=pred
-        '''
-        preds_vector = np.zeros(self.pred_features_len)
-        # self.featurizer keys are col names for predicate features
-        # each block of features start with one of the columns, and then:
-        #   continuous OR discrete?
-        #   we know how many values it covers, so we should be able to fill in
-        #   all those indices.
-        # Subparts:
-        #   First few for comparison op
-        #   Last one will be reserved for postgres estimate,
-        #   Middle ones for representing feature, which will vary from discrete
-        #   to continuous to regex
-        DESCR_TMP = "{COL}-{TYPE}"
-        maps = defaultdict(list)
-        for col in self.featurizer:
-            cmp_op_idx, num_vals, continuous = self.featurizer[col]
+    # def get_pred_features_map(self):
+        # '''
+        # @ret: df with columns:
+            # idx, descr, pg_est, type=pred
+        # '''
+        # preds_vector = np.zeros(self.pred_features_len)
+        # # self.featurizer keys are col names for predicate features
+        # # each block of features start with one of the columns, and then:
+        # #   continuous OR discrete?
+        # #   we know how many values it covers, so we should be able to fill in
+        # #   all those indices.
+        # # Subparts:
+        # #   First few for comparison op
+        # #   Last one will be reserved for postgres estimate,
+        # #   Middle ones for representing feature, which will vary from discrete
+        # #   to continuous to regex
+        # DESCR_TMP = "{COL}-{TYPE}"
+        # maps = defaultdict(list)
+        # for col in self.featurizer:
+            # cmp_op_idx, num_vals, continuous = self.featurizer[col]
 
-            for cmp_op, i in self.cmp_ops_onehot.items():
-                maps["idx"].append(cmp_op_idx+i)
-                maps["descr"].append(DESCR_TMP.format(COL = col, TYPE = cmp_op))
-                maps["continuous"].append(continuous)
-                maps["pg"].append(False)
+            # for cmp_op, i in self.cmp_ops_onehot.items():
+                # maps["idx"].append(cmp_op_idx+i)
+                # maps["descr"].append(DESCR_TMP.format(COL = col, TYPE = cmp_op))
+                # maps["continuous"].append(continuous)
+                # maps["pg"].append(False)
 
-            ## pg est
-            maps["idx"].append(cmp_op_idx+num_vals-1)
-            # print("FIXME: pg obob")
-            # maps["idx"].append(cmp_op_idx+num_vals)
-            maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="pg"))
-            maps["pg"].append(True)
-            maps["continuous"].append(continuous)
+            # ## pg est
+            # maps["idx"].append(cmp_op_idx+num_vals-1)
+            # # print("FIXME: pg obob")
+            # # maps["idx"].append(cmp_op_idx+num_vals)
+            # maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="pg"))
+            # maps["pg"].append(True)
+            # maps["continuous"].append(continuous)
 
-            ## rest
-            num_pred_vals = num_vals - len(self.cmp_ops)
-            pred_idx_start = cmp_op_idx + len(self.cmp_ops)
-            info = self.column_stats[col]
-            if continuous:
-                for i in range(2):
-                    maps["idx"].append(pred_idx_start+i)
-                    maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="range"))
-                    maps["pg"].append(False)
-                    maps["continuous"].append(continuous)
-            else:
-                num_buckets = min(self.max_discrete_featurizing_buckets,
-                        info["num_values"])
-                for i in range(num_buckets):
-                    maps["idx"].append(pred_idx_start+i)
-                    maps["descr"].append(DESCR_TMP.format(COL=col,
-                        TYPE="feat_buckets"))
-                    maps["pg"].append(False)
-                    maps["continuous"].append(continuous)
+            # ## rest
+            # num_pred_vals = num_vals - len(self.cmp_ops)
+            # pred_idx_start = cmp_op_idx + len(self.cmp_ops)
+            # info = self.column_stats[col]
+            # if continuous:
+                # for i in range(2):
+                    # maps["idx"].append(pred_idx_start+i)
+                    # maps["descr"].append(DESCR_TMP.format(COL=col, TYPE="range"))
+                    # maps["pg"].append(False)
+                    # maps["continuous"].append(continuous)
+            # else:
+                # num_buckets = min(self.max_discrete_featurizing_buckets,
+                        # info["num_values"])
+                # for i in range(num_buckets):
+                    # maps["idx"].append(pred_idx_start+i)
+                    # maps["descr"].append(DESCR_TMP.format(COL=col,
+                        # TYPE="feat_buckets"))
+                    # maps["pg"].append(False)
+                    # maps["continuous"].append(continuous)
 
-                if col in self.regex_cols:
-                    # give it more space...
-                    # pred_len += 2
-                    pred_idx_start += num_buckets
-                    for i in range(num_buckets):
-                        maps["idx"].append(pred_idx_start+i)
-                        maps["descr"].append(DESCR_TMP.format(COL=col,
-                            TYPE="regex"))
-                        maps["pg"].append(False)
-                        maps["continuous"].append(continuous)
+                # if col in self.regex_cols:
+                    # # give it more space...
+                    # # pred_len += 2
+                    # pred_idx_start += num_buckets
+                    # for i in range(num_buckets):
+                        # maps["idx"].append(pred_idx_start+i)
+                        # maps["descr"].append(DESCR_TMP.format(COL=col,
+                            # TYPE="regex"))
+                        # maps["pg"].append(False)
+                        # maps["continuous"].append(continuous)
 
-                    maps["idx"].append(pred_idx_start+i+1)
-                    maps["descr"].append(DESCR_TMP.format(COL=col,
-                        TYPE="regex_len"))
-                    maps["pg"].append(False)
-                    maps["continuous"].append(continuous)
+                    # maps["idx"].append(pred_idx_start+i+1)
+                    # maps["descr"].append(DESCR_TMP.format(COL=col,
+                        # TYPE="regex_len"))
+                    # maps["pg"].append(False)
+                    # maps["continuous"].append(continuous)
 
-                    maps["idx"].append(pred_idx_start+i+2)
-                    maps["descr"].append(DESCR_TMP.format(COL=col,
-                        TYPE="regex_num"))
-                    maps["pg"].append(False)
-                    maps["continuous"].append(continuous)
+                    # maps["idx"].append(pred_idx_start+i+2)
+                    # maps["descr"].append(DESCR_TMP.format(COL=col,
+                        # TYPE="regex_num"))
+                    # maps["pg"].append(False)
+                    # maps["continuous"].append(continuous)
 
-        # assert last idx should still not be accounted for
-        unaccounted_idxs = []
-        for i in range(self.pred_features_len):
-            if i not in maps["idx"]:
-                unaccounted_idxs.append(i)
+        # # assert last idx should still not be accounted for
+        # unaccounted_idxs = []
+        # for i in range(self.pred_features_len):
+            # if i not in maps["idx"]:
+                # unaccounted_idxs.append(i)
 
-        assert self.pred_features_len-1 not in maps["idx"]
-        assert self.pred_features_len not in maps["idx"]
-        # print(unaccounted_idxs)
+        # assert self.pred_features_len-1 not in maps["idx"]
+        # assert self.pred_features_len not in maps["idx"]
+        # # print(unaccounted_idxs)
 
-        maps["idx"].append(self.pred_features_len-1)
-        maps["descr"].append(DESCR_TMP.format(COL="all",
-            TYPE="pg"))
-        maps["pg"].append(True)
-        maps["continuous"].append(False)
-        df = pd.DataFrame(maps)
-        df["feature_type"] = "pred"
+        # maps["idx"].append(self.pred_features_len-1)
+        # maps["descr"].append(DESCR_TMP.format(COL="all",
+            # TYPE="pg"))
+        # maps["pg"].append(True)
+        # maps["continuous"].append(False)
+        # df = pd.DataFrame(maps)
+        # df["feature_type"] = "pred"
 
-        return df
+        # return df
 
     def get_pred_features(self, col, val, cmp_op,
-            pred_est=None):
+            dby, pred_est=None):
 
         if pred_est is not None:
             assert self.heuristic_features
@@ -780,7 +780,7 @@ class DB():
                 # print("col: {} not found in featurizer".format(col))
                 return preds_vector
 
-            assert col in self.column_stats
+            assert col in self.column_stats[dby]
             # column one-hot value
             cidx = self.columns_onehot_idx[col]
             preds_vector[cidx] = 1.0
@@ -792,7 +792,7 @@ class DB():
             preds_vector[feat_idx_start + cmp_idx] = 1.00
 
             pred_idx_start = feat_idx_start + len(self.cmp_ops)
-            col_info = self.column_stats[col]
+            col_info = self.column_stats[dby][col]
 
             # 1 additional value for pg_est feature
             if pred_est:
@@ -900,7 +900,7 @@ class DB():
 
             pred_idx_start = cmp_op_idx + len(self.cmp_ops)
             num_pred_vals = num_vals - len(self.cmp_ops)
-            col_info = self.column_stats[col]
+            col_info = self.column_stats[dby][col]
             # assert num_pred_vals >= 2
 
             # 1 additional value for pg_est feature
@@ -990,7 +990,7 @@ class DB():
 
         return preds_vector
 
-    def get_features(self, subgraph, true_sel=None):
+    def get_features(self, subgraph, dby, true_sel=None):
         '''
         @subgraph:
         '''
@@ -1012,7 +1012,7 @@ class DB():
 
                 pred_idx_start = cmp_op_idx + len(self.cmp_ops)
                 num_pred_vals = num_vals - len(self.cmp_ops)
-                col_info = self.column_stats[col]
+                col_info = self.column_stats[dby][col]
                 # assert num_pred_vals >= 2
                 assert num_pred_vals <= col_info["num_values"]
                 if cmp_op == "in" or \
@@ -1201,48 +1201,55 @@ class DB():
                 print("generated stats for flows in: ", time.time()-flow_start)
 
         updated_cols = []
-        for column in cur_columns:
-            if column in self.column_stats:
-                continue
-            # need to load it. first check if it is in the cache, else
-            # regenerate it.
-            hashed_stats = deterministic_hash(column)
-            updated_cols.append(column)
-            column_stats = {}
-            table = column[0:column.find(".")]
-            if table in self.aliases:
-                table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
-                                    ALIAS = table)
-            min_query = MIN_TEMPLATE.format(TABLE = table,
-                                            COL   = column)
-            max_query = MAX_TEMPLATE.format(TABLE = table,
-                                            COL   = column)
-            unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
-                                                      COL = column)
-            total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
-            unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
-                                                            COL = column)
 
-            # TODO: move to using cached_execute
-            column_stats[column] = {}
-            column_stats[column]["min_value"] = self.execute(min_query)[0][0]
-            column_stats[column]["max_value"] = self.execute(max_query)[0][0]
-            column_stats[column]["num_values"] = \
-                    self.execute(unique_count_query)[0][0]
-            column_stats[column]["total_values"] = \
-                    self.execute(total_count_query)[0][0]
+        for dby in self.db_years:
+            dby_col_stats = self.column_stats[dby]
+            for column in cur_columns:
+                # if column in self.column_stats:
+                    # continue
+                if column in dby_col_stats:
+                    continue
+                # need to load it. first check if it is in the cache, else
+                # regenerate it.
+                # hashed_stats = deterministic_hash(column)
+                updated_cols.append(column)
+                column_stats = {}
+                table = column[0:column.find(".")]
+                if table in self.aliases:
+                    table = ALIAS_FORMAT.format(TABLE = self.aliases[table],
+                                        ALIAS = table)
+                min_query = MIN_TEMPLATE.format(TABLE = table,
+                                                COL   = column)
+                max_query = MAX_TEMPLATE.format(TABLE = table,
+                                                COL   = column)
+                unique_count_query = UNIQUE_COUNT_TEMPLATE.format(FROM_CLAUSE = table,
+                                                          COL = column)
+                total_count_query = COUNT_SIZE_TEMPLATE.format(FROM_CLAUSE = table)
+                unique_vals_query = UNIQUE_VALS_TEMPLATE.format(FROM_CLAUSE = table,
+                                                                COL = column)
 
-            # only store all the values for tables with small alphabet
-            # sizes (so we can use them for things like the PGM).
-            # Otherwise, it bloats up the cache.
-            if column_stats[column]["num_values"] <= 5000:
-                column_stats[column]["unique_values"] = \
-                        self.execute(unique_vals_query)
-            else:
-                column_stats[column]["unique_values"] = None
+                # TODO: move to using cached_execute
+                column_stats[column] = {}
+                column_stats[column]["min_value"] = self.execute(min_query, dby)[0][0]
+                column_stats[column]["max_value"] = self.execute(max_query, dby)[0][0]
+                column_stats[column]["num_values"] = \
+                        self.execute(unique_count_query, dby)[0][0]
+                column_stats[column]["total_values"] = \
+                        self.execute(total_count_query, dby)[0][0]
 
-            self.sql_cache.archive[hashed_stats] = column_stats
-            self.column_stats.update(column_stats)
+                # only store all the values for tables with small alphabet
+                # sizes (so we can use them for things like the PGM).
+                # Otherwise, it bloats up the cache.
+                if column_stats[column]["num_values"] <= 5000:
+                    column_stats[column]["unique_values"] = \
+                            self.execute(unique_vals_query, dby)
+                else:
+                    column_stats[column]["unique_values"] = None
 
-        if len(updated_cols) > 0:
-            print("generated statistics for:", ",".join(updated_cols))
+                # self.sql_cache.archive[hashed_stats] = column_stats
+                # self.column_stats.update(column_stats)
+                dby_col_stats.update(column_stats)
+
+            if len(updated_cols) > 0:
+                print("generated statistics for:" + ",".join(updated_cols))
+                print("updated statistics for year: ", dby)

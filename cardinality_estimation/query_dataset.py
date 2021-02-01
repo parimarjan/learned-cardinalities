@@ -53,7 +53,8 @@ class QueryDataset(data.Dataset):
         self.exp_name = exp_name
         self.use_set_padding = use_set_padding
         self.db_year = db_year
-        self.cardinality_key = str(self.db_year) + "cardinality"
+        self.cinfo_key = str(self.db_year) + "cardinality"
+        print("FIXME: handle if cinfo key not in info")
 
         # -1 to ignore SOURCE_NODE
         total_nodes = [len(s["subset_graph"].nodes())-1 for s in samples]
@@ -411,7 +412,8 @@ class QueryDataset(data.Dataset):
             else:
                 pred_features = self.db.get_pred_features(info["pred_cols"][0],
                         info["pred_vals"][0], info["pred_types"][0],
-                        heuristic_est)
+                        self.db_year,
+                        pred_est=heuristic_est)
 
             pred_feat_dict[node] = pred_features
 
@@ -533,7 +535,7 @@ class QueryDataset(data.Dataset):
                     cmp_op = None
                 flow_features = self.db.get_flow_features(nodes,
                         qrep["subset_graph"], qrep["template_name"],
-                        qrep["join_graph"], cmp_op)
+                        qrep["join_graph"], cmp_op, self.db_year)
                 # heuristic estimate for the cardinality of this node
                 if self.heuristic_features:
                     assert flow_features[-1] == 0.0
@@ -615,7 +617,7 @@ class QueryDataset(data.Dataset):
             heuristic_est = None
             if self.heuristic_features:
                 node_key = tuple([node])
-                cards = qrep["subset_graph"].nodes()[node_key]["cardinality"]
+                cards = qrep["subset_graph"].nodes()[node_key][self.cinfo_key]
                 if "total" in cards:
                     total = cards["total"]
                 else:
@@ -628,7 +630,8 @@ class QueryDataset(data.Dataset):
             else:
                 pred_features = self.db.get_pred_features(info["pred_cols"][0],
                         info["pred_vals"][0], info["pred_types"][0],
-                        heuristic_est)
+                        self.db_year,
+                        pred_est=heuristic_est)
             assert len(pred_features) == self.db.pred_features_len
             pred_feat_dict[node] = pred_features
 
@@ -664,7 +667,10 @@ class QueryDataset(data.Dataset):
                     true_val = 1.0
             else:
                 ck = self.card_key
-                true_val = info["cardinality"][ck]
+                if ck == "actual" and ck not in info[self.cinfo_key]:
+                    true_val = info[self.cinfo_key]["expected"]
+                else:
+                    true_val = info[self.cinfo_key][ck]
 
             if "total" in info["cardinality"]:
                 total = info["cardinality"]["total"]
@@ -701,7 +707,7 @@ class QueryDataset(data.Dataset):
                     cmp_op = None
                 flow_features = self.db.get_flow_features(nodes,
                         qrep["subset_graph"], qrep["template_name"],
-                        qrep["join_graph"], cmp_op)
+                        qrep["join_graph"], cmp_op, self.db_year)
                 # heuristic estimate for the cardinality of this node
                 flow_features[-1] = pred_features[-1]
             else:

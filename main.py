@@ -499,7 +499,7 @@ def load_samples(qfns, db, found_db, template_name,
 
     if "job" in template_name:
         update_samples(samples, args.flow_features,
-                args.cost_model, False, args.db_name)
+                args.cost_model, False, args.db_name, args.db_year_train)
 
         # if train_template:
             # print("max edges: ", max_edges)
@@ -540,6 +540,18 @@ def load_samples(qfns, db, found_db, template_name,
 
     return samples
 
+def get_db_years():
+    if args.db_year_test is None:
+        db_years = []
+    else:
+        db_years = args.db_year_test.split(",")
+    db_years.append("")
+    if args.db_year_train not in db_years:
+        db_years.append(args.db_year_train)
+
+    print("db_years are: ", db_years)
+    return db_years
+
 def load_all_qrep_data(load_job_queries,
         load_test_queries, load_db, load_train_queries, load_val_queries,
         pool=None):
@@ -556,7 +568,8 @@ def load_all_qrep_data(load_job_queries,
         else:
             db_key = deterministic_hash("db-" + args.query_directory + \
                         args.query_templates + str(args.eval_on_job) + \
-                        args.nn_type + str(args.sampling_key))
+                        args.nn_type + str(args.sampling_key) +
+                        str(args.db_year_test))
 
         found_db = db_key in misc_cache.archive and not args.regen_db
         # found_db = False
@@ -564,12 +577,13 @@ def load_all_qrep_data(load_job_queries,
             db = misc_cache.archive[db_key]
         else:
             # turned on by default so we can update the db stats
+            db_years = get_db_years()
             load_train_queries = True
             load_job_queries = True
             load_test_queries = True
             load_val_queries = True
             db = DB(args.user, args.pwd, args.db_host, args.port,
-                    args.db_name)
+                    args.db_name, db_years)
     else:
         db = None
         found_db = False
@@ -944,13 +958,15 @@ def main():
                     pool=join_loss_pool)
 
     update_samples(train_queries, args.flow_features,
-            args.cost_model, args.debug_set, args.db_name)
+            args.cost_model, args.debug_set, args.db_name, args.db_year_train)
     if len(test_queries) > 0:
         update_samples(test_queries, args.flow_features,
-                args.cost_model, args.debug_set, args.db_name)
+                args.cost_model, args.debug_set, args.db_name,
+                args.db_year_train)
     if len(val_queries) > 0:
         update_samples(val_queries, args.flow_features,
-                args.cost_model, args.debug_set, args.db_name)
+                args.cost_model, args.debug_set, args.db_name,
+                args.db_year_train)
 
     if args.eval_on_job and not args.add_job_features \
             and args.nn_type == "mscn_set":
@@ -1059,17 +1075,12 @@ def main():
                     load_all_qrep_data(False, False, False, True, False,
                             pool=join_loss_pool)
             update_samples(train_queries, args.flow_features,
-                    args.cost_model, args.debug_set, args.db_name)
+                    args.cost_model, args.debug_set, args.db_name,
+                    args.db_year_train)
 
         start = time.time()
 
-        if args.db_year_test is None:
-            db_years = []
-        else:
-            db_years = args.db_year_test.split(",")
-        db_years.append("")
-        print("db_years are: ", db_years)
-
+        db_years = get_db_years()
         eval_alg(alg, losses, train_queries, "train", join_loss_pool,
                 db_years)
         del(train_queries[:])
@@ -1082,7 +1093,8 @@ def main():
                                 pool=join_loss_pool)
             assert len(val_queries) > 0
             update_samples(val_queries, args.flow_features,
-                    args.cost_model, args.debug_set, args.db_name)
+                    args.cost_model, args.debug_set, args.db_name,
+                    args.db_year_train)
             eval_alg(alg, losses, val_queries, "validation", join_loss_pool,
                     db_years)
             del(val_queries[:])
@@ -1093,7 +1105,8 @@ def main():
                     load_all_qrep_data(False, True,
                             False, False, False, pool=join_loss_pool)
             update_samples(test_queries, args.flow_features,
-                    args.cost_model, args.debug_set, args.db_name)
+                    args.cost_model, args.debug_set, args.db_name,
+                    args.db_year_train)
 
         # if args.test:
             # size = int(len(test_queries) / 10)
@@ -1139,6 +1152,8 @@ def read_flags():
     parser.add_argument("--db_year_test", type=str, required=False,
             default=None, help="1950,1960,... OR all")
     parser.add_argument("--regen_db", type=int, required=False,
+            default=0)
+    parser.add_argument("--save_exec_sql", type=int, required=False,
             default=0)
     parser.add_argument("--query_mb_size", type=int, required=False,
             default=1)

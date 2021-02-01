@@ -1433,7 +1433,7 @@ def add_single_node_edges(subset_graph, source=None):
                 subset_graph.add_edge(node2, node)
 
 def compute_costs(subset_graph, cost_model,
-        cost_key="cost", ests=None):
+        cardinality_key, cost_key="cost", ests=None):
     '''
     @computes costs based on the MM1 cost model.
     '''
@@ -1457,9 +1457,12 @@ def compute_costs(subset_graph, cost_model,
         assert node2 in subset_graph.nodes()
         # joined node
         node3 = edge[0]
-        cards1 = subset_graph.nodes()[node1]["cardinality"]
-        cards2 = subset_graph.nodes()[node2]["cardinality"]
-        cards3 = subset_graph.nodes()[edge[0]]["cardinality"]
+        cards1 = subset_graph.nodes()[node1][cardinality_key]
+        cards2 = subset_graph.nodes()[node2][cardinality_key]
+        cards3 = subset_graph.nodes()[edge[0]][cardinality_key]
+        # if cards2["actual"] == 0:
+            # print(cards2)
+            # pdb.set_trace()
 
         if "total" in cards1 and "total" in cards2:
             total1 = cards1["total"]
@@ -1532,6 +1535,15 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
                 edges_kind["".join(node2)] = "Index Scan"
                 if len(node1) == 1:
                     edges_kind["".join(node1)] = "Seq Scan"
+
+    # assert card1 != 0.0
+    # assert card2 != 0.0
+    if card1 == 0:
+        print(node1)
+        pdb.set_trace()
+    if card2 == 0:
+        print(node2)
+        pdb.set_trace()
 
     edges_kind = {}
     if cost_model == "cm1":

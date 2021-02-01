@@ -9,7 +9,8 @@ echo "card_type: $CARD_TYPE, key_name: $KEY_NAME, num_processes: $NUM_PROC , num
 
 #TEMPLATES=(1a 2a 2b 2c 3a 4a 5a 9a 9b 10a 11a 11b)
 #TEMPLATES=(1a 2a 2c)
-TEMPLATES=(1a)
+#TEMPLATES=(1a 2a 2b)
+TEMPLATES=(2a)
 DBYEARS=(1950 1960 1970 1980 1990 2000)
 
 for i in "${TEMPLATES[@]}";

@@ -13,11 +13,13 @@ from networkx.readwrite import json_graph
 from sql_rep.utils import execute_query
 import copy
 
-def get_all_cardinalities(samples):
+def get_all_cardinalities(samples, ckey):
     cards = []
     for qrep in samples:
         for node, info in qrep["subset_graph"].nodes().items():
-            cards.append(info["cardinality"]["actual"])
+            if node == SOURCE_NODE:
+                continue
+            cards.append(info[ckey]["actual"])
             if cards[-1] == 0:
                 # print(qrep["sql"])
                 # print(node)
