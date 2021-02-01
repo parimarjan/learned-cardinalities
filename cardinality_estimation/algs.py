@@ -222,7 +222,8 @@ class OldDB(CardinalityEstimationAlg):
         self.db_year = db_year
         self.card_key = str(db_year) + "cardinality"
 
-    def test(self, test_samples):
+    def test(self, test_samples, test_year=None):
+        # ignore test_year
         assert isinstance(test_samples[0], dict)
         bad_ests = 0
         preds = []

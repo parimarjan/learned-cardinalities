@@ -191,8 +191,14 @@ def _get_all_cardinalities(queries, preds, cardinality_key="cardinality"):
             if cardinality_key not in qrep[alias].keys():
                 query_used = False
                 break
+            cards = qrep[alias][cardinality_key]
 
-            actual = qrep[alias][cardinality_key]["actual"]
+            if "actual" not in cards:
+                query_used = False
+                break
+
+            actual = cards["actual"]
+
             if actual == 0:
                 actual += 1
             ytrue.append(float(actual))
@@ -556,6 +562,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
         # TODO: check if this prediction is valid from both predictor / and for
         # the ground truth
         if preds[i] is None:
+            print("preds None!")
+            pdb.set_trace()
             continue
 
         ests = {}
@@ -568,9 +576,11 @@ def compute_join_order_loss(queries, preds, **kwargs):
                 continue
             est_card = predq[node]
             alias_key = ' '.join(node)
-            if cardinality_key not in node_info:
+            if cardinality_key not in node_info \
+                    or "actual" not in node_info[cardinality_key]:
                 no_ground_truth_data = True
                 break
+
             trues[alias_key] = node_info[cardinality_key]["actual"]
             if est_card == 0:
                 print("bad est card")
@@ -578,6 +588,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
             ests[alias_key] = est_card
 
         if no_ground_truth_data:
+            # print("no ground truth data!!! " + cardinality_key)
+            # pdb.set_trace()
             continue
 
         eval_queries.append(qrep)

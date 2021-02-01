@@ -327,17 +327,18 @@ def eval_alg(alg, loss_funcs, queries, samples_type,
     np.set_printoptions(formatter={'float': lambda x: "{0:0.3f}".format(x)})
 
     # first, just evaluate them all, and save results in queries
-    start = time.time()
-    yhats = alg.test(queries)
-    # assert isinstance(yhats[0], dict)
-    eval_time = round(time.time() - start, 2)
-    print("evaluating alg took: {} seconds".format(eval_time))
 
     loss_start = time.time()
     alg_name = alg.__str__()
     exp_name = alg.get_exp_name()
 
     for db_year in db_years:
+        start = time.time()
+        yhats = alg.test(queries, test_year=db_year)
+        # assert isinstance(yhats[0], dict)
+        eval_time = round(time.time() - start, 2)
+        print("evaluating alg took: {} seconds".format(eval_time))
+
         cardinality_key = str(db_year) + "cardinality"
         for loss_func in loss_funcs:
             losses = loss_func(queries, yhats, name=alg_name,
@@ -347,7 +348,7 @@ def eval_alg(alg, loss_funcs, queries, samples_type,
             # TODO: set global printoptions to round digits
             print("db: {}, db_year: {}, samples_type: {}, alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
                     .format(args.db_name, db_year,
-                        samples_type, alg, len(queries),
+                        samples_type, alg, len(losses),
                         get_loss_name(loss_func.__name__),
                         np.round(np.mean(losses),3),
                         np.round(np.median(losses),3),
@@ -412,70 +413,70 @@ def load_samples(qfns, db, found_db, template_name,
 
         for node in nodes:
             info = qrep["subset_graph"].nodes()[node]
+            cardinality_key = args.db_year_train + "cardinality"
 
-
-            if "cardinality" not in info:
-                print("cardinality not in qrep")
+            if cardinality_key not in info:
+                # print("cardinality not in qrep")
                 zero_query = True
                 break
 
-            if args.db_year_train is not None:
-                db_card_key = str(args.db_year_train) + "cardinality"
-                if db_card_key not in info:
-                    # won't be able to use the old estimates for these, so skip
-                    zero_query = True
-                    break
+            # if args.db_year_train is not None:
+                # db_card_key = str(args.db_year_train) + "cardinality"
+                # if db_card_key not in info:
+                    # # won't be able to use the old estimates for these, so skip
+                    # zero_query = True
+                    # break
 
-            assert len(info["cardinality"]) > 1
-            if "total" not in info["cardinality"]:
-                print("total not in query ", qfn)
-                zero_query = True
-                pdb.set_trace()
-                break
+            # assert len(info[cardinality_key]) > 1
+            # if "total" not in info[cardinality_key]:
+                # print("total not in query ", qfn)
+                # zero_query = True
+                # pdb.set_trace()
+                # break
 
             if args.train_card_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
-                if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
+                if not "wanderjoin-" + str(wj_times[template_name]) in info[cardinality_key]:
                     zero_query = True
                     break
 
-            elif args.train_card_key not in info["cardinality"]:
+            elif args.train_card_key not in info[cardinality_key]:
                 zero_query = True
                 break
 
-            if "actual" not in info["cardinality"]:
-                print("actual not in card")
+            if "actual" not in info[cardinality_key]:
+                # print("actual not in card")
                 zero_query = True
                 break
 
-            if "expected" not in info["cardinality"]:
+            if "expected" not in info[cardinality_key]:
                 print("expected not in card")
                 zero_query = True
                 break
 
             # ugh FIXME
-            elif info["cardinality"]["actual"] == 0 or \
-                    info["cardinality"]["actual"] == 1.1:
+            elif info[cardinality_key]["actual"] == 0 or \
+                    info[cardinality_key]["actual"] == 1.1:
                 if skip_zero_queries:
                     zero_query = True
                     break
                 else:
-                    if info["cardinality"]["actual"] == 0:
-                        info["cardinality"]["actual"] += 1.1
+                    if info[cardinality_key]["actual"] == 0:
+                        info[cardinality_key]["actual"] += 1.1
 
             if args.sampling_key is not None:
                 if wj_times is None:
-                    if not (args.sampling_key in info["cardinality"]):
+                    if not (args.sampling_key in info[cardinality_key]):
                         zero_query = True
                         break
                 else:
                     if not ("wanderjoin-" + str(wj_times[template_name])
-                                in info["cardinality"]):
+                                in info[cardinality_key]):
                         zero_query = True
                         break
 
             # just so everyone is forced to use the wj template queries
             if args.sampling_key is not None:
-                if not "wanderjoin-" + str(wj_times[template_name]) in info["cardinality"]:
+                if not "wanderjoin-" + str(wj_times[template_name]) in info[cardinality_key]:
                     zero_query = True
                     break
 
@@ -1013,17 +1014,17 @@ def main():
                         val_samples=val_queries, join_loss_pool=join_loss_pool)
             elif args.eval_test_while_training:
                 alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                        val_samples=test_queries, join_loss_pool=join_loss_pool)
+                        val_samples=test_queries,
+                        join_loss_pool=join_loss_pool,
+                        db_year=args.db_year_train)
             else:
                 alg.train(db, train_queries, use_subqueries=args.use_subqueries,
-                        val_samples=None, join_loss_pool=join_loss_pool)
+                        val_samples=None, join_loss_pool=join_loss_pool,
+                        db_year = args.db_year_train)
 
             train_times[alg.__str__()] = round(time.time() - start, 2)
-            # print("before deleting training sets")
-            # print(psutil.virtual_memory())
-            # pdb.set_trace()
-
         else:
+            assert False
             # just used to initialize the fields in the alg
             if alg.max_epochs == 0:
                 alg.train(db, train_queries, use_subqueries=args.use_subqueries,
@@ -1133,8 +1134,8 @@ def gen_samples_hash():
 def read_flags():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--db_year_train", type=int, required=False,
-            default=None)
+    parser.add_argument("--db_year_train", type=str, required=False,
+            default="")
     parser.add_argument("--db_year_test", type=str, required=False,
             default=None, help="1950,1960,... OR all")
     parser.add_argument("--regen_db", type=int, required=False,

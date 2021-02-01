@@ -2392,7 +2392,7 @@ class NN(CardinalityEstimationAlg):
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
 
     def init_dataset(self, samples, shuffle, batch_size,
-            weighted=False, testing=False):
+            db_year, weighted=False, testing=False):
         training_sets = []
         training_loaders = []
         if testing:
@@ -2410,6 +2410,7 @@ class NN(CardinalityEstimationAlg):
                     min_val = self.min_val,
                     max_val = self.max_val,
                     card_key = self.train_card_key,
+                    db_year = db_year,
                     use_set_padding = use_padding,
                     group = self.groups[i], max_sequence_len=self.max_subqs,
                     exp_name = self.get_exp_name()))
@@ -2618,7 +2619,8 @@ class NN(CardinalityEstimationAlg):
         print("*****loaded model*****")
 
     def train(self, db, training_samples, use_subqueries=False,
-            val_samples=None, join_loss_pool = None):
+            val_samples=None, join_loss_pool = None,
+            db_year=""):
         global SOURCE_NODE
         if db.db_name == "so":
             SOURCE_NODE = tuple(["SOURCE"])
@@ -2658,13 +2660,6 @@ class NN(CardinalityEstimationAlg):
         self.max_subqs = max_subqs-1
 
         self.groups = self.init_groups(self.num_groups)
-        # if self.cost_model_plan_err or self.eval_flow_loss or \
-                # self.flow_features:
-            # update_samples(training_samples, self.flow_features,
-                    # self.cost_model, self.debug_set)
-            # if val_samples and not self.no_eval:
-                # update_samples(val_samples, self.flow_features,
-                        # self.cost_model, self.debug_set)
 
         if self.num_mse_anchoring == -2:
             # for each training sample, select the nodes to anchor on
@@ -2715,8 +2710,6 @@ class NN(CardinalityEstimationAlg):
 
         self.env = JoinLoss("cm1", self.db.user, self.db.pwd,
                 self.db.db_host, self.db.port, self.db.db_name)
-        # self.env = JoinLoss("nested_loop_index7", self.db.user, self.db.pwd,
-                # self.db.db_host, self.db.port, self.db.db_name)
 
         if self.cost_model != "cm1":
             # self.env2 = JoinLoss(self.cost_model, self.db.user, self.db.pwd,
@@ -2734,7 +2727,7 @@ class NN(CardinalityEstimationAlg):
         self.training_samples = training_samples
         if self.sampling_priority_alpha > 0.00:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
-                                    False, self.mb_size, weighted=True)
+                                    False, self.mb_size, db_year, weighted=True)
             self.training_sets = training_sets
             priority_loaders = []
             for i, ds in enumerate(training_sets):
@@ -2744,7 +2737,7 @@ class NN(CardinalityEstimationAlg):
                         collate_fn=self.collate_fn))
         else:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
-                                    True, self.mb_size, weighted=False)
+                                    True, self.mb_size, db_year, weighted=False)
             self.training_sets = training_sets
 
         assert len(self.training_loaders) == len(self.groups)
@@ -2928,7 +2921,7 @@ class NN(CardinalityEstimationAlg):
                     int(len(training_samples) / eval_samples_size_divider))
             eval_train_sets, eval_train_loaders = \
                     self.init_dataset(eval_training_samples, False,
-                            self.eval_batch_size, weighted=False)
+                            self.eval_batch_size, db_year, weighted=False)
             self.eval_loaders["train"] = eval_train_loaders
 
         elif self.eval_epoch < self.max_epochs or \
@@ -2953,6 +2946,7 @@ class NN(CardinalityEstimationAlg):
             self.samples["test"] = val_samples
             eval_test_sets, eval_test_loaders = \
                     self.init_dataset(val_samples, False, self.eval_batch_size,
+                            db_year,
                             weighted=False)
             self.eval_test_sets = eval_test_sets
             self.eval_loaders["test"] = eval_test_loaders
@@ -3202,7 +3196,7 @@ class NN(CardinalityEstimationAlg):
         '''
         datasets, loaders = \
                 self.init_dataset(test_samples, False, self.eval_batch_size,
-                        weighted=False, testing=True)
+                        db_year, weighted=False, testing=True)
         self.nets[0].eval()
         # self.nets[0].eval()
         pred, y = self._eval_samples(loaders)

@@ -15,6 +15,7 @@ class QueryDataset(data.Dataset):
             heuristic_features, preload_features,
             normalization_type, load_query_together,
             flow_features, table_features, join_features, pred_features,
+            db_year = "",
             min_val=None, max_val=None, card_key="actual",
             use_set_padding=True,
             group=None, max_sequence_len=None, log_base=10,
@@ -51,6 +52,8 @@ class QueryDataset(data.Dataset):
         self.log_base = log_base
         self.exp_name = exp_name
         self.use_set_padding = use_set_padding
+        self.db_year = db_year
+        self.cardinality_key = str(self.db_year) + "cardinality"
 
         # -1 to ignore SOURCE_NODE
         total_nodes = [len(s["subset_graph"].nodes())-1 for s in samples]
