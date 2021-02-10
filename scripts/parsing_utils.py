@@ -142,14 +142,18 @@ def get_all_objects(results_dir, obj_name):
         else:
             df["alg"] = exp_args["algs"]
 
-        # df = df.assign(**exp_args)
+        df = df.assign(**exp_args)
+        df["fn"] = fn
 
-        ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
-                "flow_features", "nn_type", "max_discrete_featurizing_buckets",
-                "sampling_priority_alpha"]
+        # ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
+                # "flow_features", "nn_type", "max_discrete_featurizing_buckets",
+                # "sampling_priority_alpha", "db_year_train"]
 
-        for k in ARG_KEYS:
-            df[k] = exp_args[k]
+        # for k in ARG_KEYS:
+            # if k in exp_args:
+                # df[k] = exp_args[k]
+            # else:
+                # df[k] = None
 
         if "nn" in exp_args["algs"]:
             df["alg_name"] = exp_args["loss_func"]

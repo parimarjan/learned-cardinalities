@@ -1,33 +1,35 @@
 ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
-USE_VAL_SET=2
+DBY_TRAIN="1950"
+DBY_TEST="1950,2000"
+
+USE_VAL_SET=0
 NUM_WORKERS=0
 NO7=0
 LOSSES=qerr,join-loss
-#LOSSES=qerr
 
 #FLOW_FEATS=(1 0)
-FLOW_FEATS=(1)
+FLOW_FEATS=(1 0)
 WEIGHTED_MSES=(0.0)
 ONE_HOT_ESTS=(1)
 REL_ESTS=(1)
-RES_DIR=all_results/vldb/default/hyp_sweep_mscn
+RES_DIR=all_results/dynamic-imdb/hyp_sweep
 EVAL_JOB=0
 BATCH_NORM=0
 MB_SIZE=4
 
-DECAYS=(0.1)
-LRS=(0.0001)
+DECAYS=(0.1 1.0)
+LRS=(0.0001 0.00001 0.00005)
 
-MAX_EPOCHS=(10)
-HLS=(256)
+MAX_EPOCHS=(10 15)
+HLS=(256 512)
 
-NORM_FLOW_LOSS=(0)
+NORM_FLOW_LOSS=(0 1)
 NUM_MSE_ANCHORING=(-3)
 
 PRIORITY=(0.0)
-PR_NORM=flow4
+PR_NORM=no
 REP_EPOCH=1
 
 BUCKETS=10
@@ -36,10 +38,10 @@ DEBUG_RATIO=10
 NUM_HLS=4
 LOAD_QUERY_TOGETHER=0
 
-JOB_FEATS=1
+JOB_FEATS=0
 TEST_FEATS=1
 
-SAMPLE_BITMAP=1
+SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=4000
 NUM_PAR=16
@@ -67,6 +69,9 @@ do
     do
     CMD="time python3 main.py --algs $ALG -n -1 \
      --debug_set 0 --debug_ratio $DEBUG_RATIO \
+     --db_year_train $DBY_TRAIN \
+     --db_year_test $DBY_TEST \
+     --query_template 1a,2a,3a,4a,9a,9b,10a,11a \
      --no7a $NO7 \
      --losses $LOSSES \
      --use_batch_norm $BATCH_NORM \

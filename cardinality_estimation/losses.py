@@ -42,8 +42,9 @@ def add_query_result_row(sql_key, samples_type, exec_sql, cost,
     '''
     '''
     # FIXME: is this needed / what situation is it for?
-    if sql_key in costs["sql_key"].values:
-        return
+    # removing it for db_year scenario
+    # if sql_key in costs["sql_key"].values:
+        # return
 
     arg_names = inspect.getfullargspec(add_query_result_row).args
     for arg in arg_names:
@@ -228,7 +229,7 @@ def compute_relative_loss(queries, preds, **kwargs):
 
 def compute_qerror(queries, preds, **kwargs):
     assert len(preds) == len(queries)
-    assert isinstance(preds[0], dict)
+    # assert isinstance(preds[0], dict)
 
     args = kwargs["args"]
     if args.db_name == "so":
@@ -268,7 +269,6 @@ def compute_qerror(queries, preds, **kwargs):
         print(e)
         pdb.set_trace()
 
-    # errors = np.maximum((ytrue / yhat), (yhat / ytrue))
     errors = []
     for i,yt in enumerate(ytrue):
         if yt > yhat[i]:
@@ -359,23 +359,20 @@ def compute_qerror(queries, preds, **kwargs):
         df = query_losses
     save_object(qfn, df)
 
-    # query_avg_loss =
-
-    assert len(all_hashes) == len(errors_all)
-    for ei, error in enumerate(errors_all):
-        all_qerr_losses["loss"].append(error)
-        all_qerr_losses["samples_type"].append(samples_type)
-        all_qerr_losses["subq_hash"].append(all_hashes[ei])
-        all_qerr_losses["card_key"].append(cardinality_key)
-
-    all_qerr_losses = pd.DataFrame(all_qerr_losses)
-    qfn = rdir + "/" + "all_qerr.pkl"
-    old_results = load_object(qfn)
-    if old_results is not None:
-        df = pd.concat([old_results, all_qerr_losses], ignore_index=True)
-    else:
-        df = all_qerr_losses
-    save_object(qfn, df)
+    # assert len(all_hashes) == len(errors_all)
+    # for ei, error in enumerate(errors_all):
+        # all_qerr_losses["loss"].append(error)
+        # all_qerr_losses["samples_type"].append(samples_type)
+        # all_qerr_losses["subq_hash"].append(all_hashes[ei])
+        # all_qerr_losses["card_key"].append(cardinality_key)
+    # all_qerr_losses = pd.DataFrame(all_qerr_losses)
+    # qfn = rdir + "/" + "all_qerr.pkl"
+    # old_results = load_object(qfn)
+    # if old_results is not None:
+        # df = pd.concat([old_results, all_qerr_losses], ignore_index=True)
+    # else:
+        # df = all_qerr_losses
+    # save_object(qfn, df)
 
     return errors
 
@@ -535,6 +532,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
                     qrep["template_name"], cur_costs, costs,
                     qrep["name"], cardinality_key)
 
+        print("cardinality key after add_query_result row: ", cardinality_key)
         cur_df = pd.DataFrame(cur_costs)
         combined_df = pd.concat([costs, cur_df], ignore_index=True)
         save_object(costs_fn, combined_df)
@@ -571,8 +569,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
         # TODO: check if this prediction is valid from both predictor / and for
         # the ground truth
         if preds[i] is None:
-            print("preds None!")
-            pdb.set_trace()
+            # print("preds None!")
+            # pdb.set_trace()
             continue
 
         ests = {}

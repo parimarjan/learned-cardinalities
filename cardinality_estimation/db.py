@@ -6,6 +6,7 @@ from db_utils.utils import *
 from db_utils.query_generator import QueryGenerator
 from utils.utils import *
 from cardinality_estimation.query import Query
+# from cardinality_estimation.nn import update_pg_stats
 import klepto
 import time
 from collections import OrderedDict, defaultdict
@@ -13,6 +14,28 @@ from multiprocessing import Pool
 import concurrent.futures
 import re
 import pandas as pd
+
+def update_pg_stats(subsetg, cost_key, cost_model, dby):
+    # FIXME: repetition in update_samples of same thing
+    cardinality_key = str(dby) + "cardinality"
+    pg_total_cost = compute_costs(subsetg, cost_model,
+            cardinality_key,
+            cost_key=cost_key+"pg_cost",
+            ests="expected")
+    subsetg.graph[cost_key + "total_cost"] = pg_total_cost
+
+    final_node = [n for n,d in subsetg.in_degree() if d==0][0]
+
+    # print("FIXME: pg_path not working")
+    # pg_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
+            # weight=cost_key+"pg_cost")
+
+    # all_nodes = list(subsetg.nodes())
+    # for node in all_nodes:
+        # if node in pg_path:
+            # subsetg.nodes()[node][cost_key + "pg_path"] = 1
+        # else:
+            # subsetg.nodes()[node][cost_key + "pg_path"] = 0
 
 SUBQUERY_TIMEOUT = 3*60000
 class DB():
@@ -162,7 +185,9 @@ class DB():
         print("saved cache to disk")
         self.sql_cache.dump()
 
-    def init_featurizer(self, heuristic_features=True,
+    def init_featurizer(self,
+            column_stats_key,
+            heuristic_features=True,
             num_tables_feature=False,
             separate_regex_bins=True,
             separate_cont_bins=True,
@@ -196,6 +221,7 @@ class DB():
                 continue
             arg_key += str(v)
         self.db_key = str(deterministic_hash(arg_key))
+        self.column_stats_key = column_stats_key
 
         if self.db_name == "so":
             global SOURCE_NODE
@@ -239,7 +265,7 @@ class DB():
             for i, table in enumerate(bitmap_tables):
                 # how many elements in the current table
                 count_str = "SELECT COUNT(*) FROM {}".format(table)
-                output = self.execute(count_str)
+                output = self.execute(count_str, self.db_year)
                 count = output[0][0]
                 feat_count = min(count, sample_bitmap_buckets)
                 self.sample_bitmap_featurizer[table] = (table_idx, feat_count)
@@ -422,7 +448,7 @@ class DB():
     def get_flow_features(self, node, subsetg,
             template_name, join_graph, cmp_op, dby):
         assert node != SOURCE_NODE
-        ckey = "cardinality" + str(dby)
+        ckey = str(dby) + "cardinality"
         flow_features = np.zeros(self.num_flow_features, dtype=np.float32)
         cur_idx = 0
         # incoming edges
@@ -451,13 +477,24 @@ class DB():
             flow_features[cur_idx] = num_paths / self.max_paths
             cur_idx += 1
 
+        cost_prefix = self.cost_model+dby
+        if dby == "":
+            cost_prefix += "default"
+
         if self.feat_pg_costs and self.heuristic_features:
             in_edges = subsetg.in_edges(node)
             in_cost = 0.0
+
             for edge in in_edges:
-                in_cost += subsetg[edge[0]][edge[1]][self.cost_model + "pg_cost"]
+                einfo = subsetg[edge[0]][edge[1]]
+                if cost_prefix+"pg_cost" not in einfo:
+                    update_pg_stats(subsetg, cost_prefix, self.cost_model, dby)
+
+                # in_cost += subsetg[edge[0]][edge[1]][cost_prefix + "pg_cost"]
+                in_cost += einfo[cost_prefix + "pg_cost"]
+
             # normalized pg cost
-            flow_features[cur_idx] = in_cost / subsetg.graph[self.cost_model + "total_cost"]
+            flow_features[cur_idx] = in_cost / (subsetg.graph[cost_prefix +"total_cost"])
             cur_idx += 1
 
         if self.feat_tolerance:
@@ -468,6 +505,7 @@ class DB():
             cur_idx += 4
 
         if self.feat_flows and self.heuristic_features:
+            assert False
             in_edges = subsetg.in_edges(node)
             in_flows = 0.0
             for edge in in_edges:
@@ -485,7 +523,7 @@ class DB():
             cur_idx += len(self.templates)
 
         if self.feat_pg_path:
-            if "pg_path" in subsetg.nodes()[node]:
+            if cost_prefix+"pg_path" in subsetg.nodes()[node]:
                 flow_features[cur_idx] = 1.0
 
         if self.feat_join_graph_neighbors:
@@ -505,7 +543,7 @@ class DB():
             cur_idx += len(self.table_featurizer)
 
         if self.feat_rel_pg_ests and self.heuristic_features:
-            total_cost = subsetg.graph[self.cost_model+"total_cost"]
+            total_cost = subsetg.graph[cost_prefix+"total_cost"]
             pg_est = subsetg.nodes()[node][ckey]["expected"]
             flow_features[cur_idx] = pg_est / total_cost
             cur_idx += 1
@@ -527,12 +565,20 @@ class DB():
 
         if self.feat_rel_pg_ests_onehot \
             and self.heuristic_features:
-            total_cost = subsetg.graph[self.cost_model+"total_cost"]
+            total_cost = subsetg.graph[cost_prefix+"total_cost"]
             pg_est = subsetg.nodes()[node][ckey]["expected"]
             # flow_features[cur_idx] = pg_est / total_cost
             pg_ratio = total_cost / float(pg_est)
-
             bucket = self.get_onehot_bucket(self.PG_EST_BUCKETS, 10, pg_ratio)
+
+            # try:
+                # bucket = self.get_onehot_bucket(self.PG_EST_BUCKETS, 10, pg_ratio)
+            # except:
+                # print(cost_prefix)
+                # print(total_cost)
+                # print(pg_est)
+                # pdb.set_trace()
+
             flow_features[cur_idx+bucket] = 1.0
             cur_idx += self.PG_EST_BUCKETS
 
@@ -792,7 +838,11 @@ class DB():
             preds_vector[feat_idx_start + cmp_idx] = 1.00
 
             pred_idx_start = feat_idx_start + len(self.cmp_ops)
-            col_info = self.column_stats[dby][col]
+            # col_info = self.column_stats[dby][col]
+            if self.column_stats_key is None:
+                col_info = self.column_stats[""][col]
+            else:
+                col_info = self.column_stats[dby][col]
 
             # 1 additional value for pg_est feature
             if pred_est:
@@ -900,7 +950,11 @@ class DB():
 
             pred_idx_start = cmp_op_idx + len(self.cmp_ops)
             num_pred_vals = num_vals - len(self.cmp_ops)
-            col_info = self.column_stats[dby][col]
+            if self.column_stats_key is None:
+                col_info = self.column_stats[""][col]
+            else:
+                col_info = self.column_stats[dby][col]
+
             # assert num_pred_vals >= 2
 
             # 1 additional value for pg_est feature
@@ -1012,7 +1066,10 @@ class DB():
 
                 pred_idx_start = cmp_op_idx + len(self.cmp_ops)
                 num_pred_vals = num_vals - len(self.cmp_ops)
-                col_info = self.column_stats[dby][col]
+                if self.column_stats_key is None:
+                    col_info = self.column_stats[""][col]
+                else:
+                    col_info = self.column_stats[dby][col]
                 # assert num_pred_vals >= 2
                 assert num_pred_vals <= col_info["num_values"]
                 if cmp_op == "in" or \

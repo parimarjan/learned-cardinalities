@@ -1,49 +1,8 @@
-NORMALIZATION_TYPE=$1
-LOSS_FUNC=$2
-NN_TYPE=$3
-echo $NORMALIZATION_TYPE $LOSS_FUNC $NN_TYPE
-
-#python3 main.py --algs nn --test 1 --max_epochs 20 --train_card_key actual \
-#--eval_test_while_training 1 --sampling_priority_alpha 0.0 \
-#--exp_prefix baseline \
-#--normalization_type $NORMALIZATION_TYPE \
-#--loss_func $LOSS_FUNC \
-#--nn_type $NN_TYPE \
-#--join_loss_pool_num 40
-
-#python3 main.py --algs nn --test 1 --max_epochs 20 --train_card_key actual \
-#--eval_test_while_training 1 --sampling_priority_alpha 2.0 \
-#--exp_prefix baselinePriority \
-#--normalization_type $NORMALIZATION_TYPE \
-#--loss_func $LOSS_FUNC \
-#--nn_type $NN_TYPE \
-#--join_loss_pool_num 40
-
-python3 main.py --algs nn --test 1 --max_epochs 20 --train_card_key wanderjoin \
---eval_test_while_training 1 --sampling_priority_alpha 2.0 \
---exp_prefix wj \
---normalization_type $NORMALIZATION_TYPE \
---loss_func $LOSS_FUNC \
---nn_type $NN_TYPE \
---join_loss_pool_num 40
-
-python3 main.py --algs nn --test 1 --max_epochs 20 --train_card_key wanderjoin0.5 \
---eval_test_while_training 1 --sampling_priority_alpha 2.0 \
---exp_prefix wj0.5 \
---normalization_type $NORMALIZATION_TYPE \
---loss_func $LOSS_FUNC \
---nn_type $NN_TYPE \
---join_loss_pool_num 40
-
-python3 main.py --algs nn --test 1 --max_epochs 50 --train_card_key actual \
---eval_test_while_training 1 --sampling_priority_alpha 2.0 \
---exp_prefix divideLenPriority --priority_err_divide_len 1 \
---normalization_type $NORMALIZATION_TYPE \
---loss_func $LOSS_FUNC \
---nn_type $NN_TYPE \
---join_loss_pool_num 40
-
-python3 main.py --algs nn --test 1 --max_epochs 50 --train_card_key
- actual --sampling_priority_alpha 2.0 --exp_prefix divPrAvgJL20
- --priority_err_divide_len 1 --avg_jl_num
- _last 20
+python3 main.py --algs nn --nn_type microsoft \
+--db_year_train 1950 \
+--db_year_test 1950,1960,1970,1980,1990,2000 \
+--query_template 1a,2a,3a,4a,9a,9b,10a,11a,6a \
+--num_hidden_layers 4 --hidden_layer_size 256 \
+--loss_func flow_loss2 --normalize_flow_loss 1 \
+--max_epochs 15 --lr 0.00005 --eval_epoch 100 \
+--query_mb_size 4 --flow_features 0

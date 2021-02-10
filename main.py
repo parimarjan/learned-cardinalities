@@ -164,6 +164,7 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                use_updated_pg_stats = args.use_updated_pg_stats,
                 use_batch_norm = args.use_batch_norm,
                 mb_size = args.query_mb_size,
                 eval_epoch_qerr = args.eval_epoch_qerr,
@@ -450,6 +451,7 @@ def load_samples(qfns, db, found_db, template_name,
 
             if "expected" not in info[cardinality_key]:
                 print("expected not in card")
+                pdb.set_trace()
                 zero_query = True
                 break
 
@@ -480,7 +482,7 @@ def load_samples(qfns, db, found_db, template_name,
                     zero_query = True
                     break
 
-        if zero_query:
+        if zero_query and skip_zero_queries:
             skipped += 1
             continue
 
@@ -568,7 +570,8 @@ def load_all_qrep_data(load_job_queries,
         else:
             db_key = deterministic_hash("db-" + args.query_directory + \
                         args.query_templates + str(args.eval_on_job) + \
-                        args.nn_type + str(args.sampling_key) +
+                        args.nn_type + str(args.sampling_key) + \
+                        str(args.db_year_train) + \
                         str(args.db_year_test))
 
         found_db = db_key in misc_cache.archive and not args.regen_db
@@ -705,8 +708,14 @@ def load_all_qrep_data(load_job_queries,
             cur_val_queries = []
 
         if load_test_queries:
+            if args.db_year_train:
+                skip_zero = False
+            else:
+                skip_zero = args.skip_zero_queries
+
             cur_test_queries = load_samples(cur_test_fns, db, found_db,
-                    template_name, skip_zero_queries=args.skip_zero_queries,
+                    template_name,
+                    skip_zero_queries=skip_zero,
                     train_template=True,
                     wj_times=wj_times, pool=pool)
         else:
@@ -767,7 +776,13 @@ def load_all_qrep_data(load_job_queries,
         feat_type = "combined"
 
     if db is not None:
-        db.init_featurizer(num_tables_feature = args.num_tables_feature,
+        if args.column_stats_key == "same":
+            column_stats_key = None
+        else:
+            column_stats_key = "anything"
+
+        db.init_featurizer(column_stats_key,
+                num_tables_feature = args.num_tables_feature,
                 separate_regex_bins = args.separate_regex_bins,
                 separate_cont_bins = args.separate_cont_bins,
                 featurization_type = feat_type,
@@ -959,14 +974,15 @@ def main():
 
     update_samples(train_queries, args.flow_features,
             args.cost_model, args.debug_set, args.db_name, args.db_year_train)
-    if len(test_queries) > 0:
-        update_samples(test_queries, args.flow_features,
-                args.cost_model, args.debug_set, args.db_name,
-                args.db_year_train)
-    if len(val_queries) > 0:
-        update_samples(val_queries, args.flow_features,
-                args.cost_model, args.debug_set, args.db_name,
-                args.db_year_train)
+
+    # if len(test_queries) > 0:
+        # update_samples(test_queries, args.flow_features,
+                # args.cost_model, args.debug_set, args.db_name,
+                # args.db_year_train)
+    # if len(val_queries) > 0:
+        # update_samples(val_queries, args.flow_features,
+                # args.cost_model, args.debug_set, args.db_name,
+                # args.db_year_train)
 
     if args.eval_on_job and not args.add_job_features \
             and args.nn_type == "mscn_set":
@@ -1092,9 +1108,9 @@ def main():
                         load_all_qrep_data(False, False, False, False, True,
                                 pool=join_loss_pool)
             assert len(val_queries) > 0
-            update_samples(val_queries, args.flow_features,
-                    args.cost_model, args.debug_set, args.db_name,
-                    args.db_year_train)
+            # update_samples(val_queries, args.flow_features,
+                    # args.cost_model, args.debug_set, args.db_name,
+                    # args.db_year_train)
             eval_alg(alg, losses, val_queries, "validation", join_loss_pool,
                     db_years)
             del(val_queries[:])
@@ -1104,9 +1120,9 @@ def main():
             _, test_queries, _, _, _, _ = \
                     load_all_qrep_data(False, True,
                             False, False, False, pool=join_loss_pool)
-            update_samples(test_queries, args.flow_features,
-                    args.cost_model, args.debug_set, args.db_name,
-                    args.db_year_train)
+            # update_samples(test_queries, args.flow_features,
+                    # args.cost_model, args.debug_set, args.db_name,
+                    # args.db_year_train)
 
         # if args.test:
             # size = int(len(test_queries) / 10)
@@ -1146,7 +1162,11 @@ def gen_samples_hash():
 
 def read_flags():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--column_stats_key", type=str, required=False,
+            default=None)
 
+    parser.add_argument("--use_updated_pg_stats", type=int, required=False,
+            default=1)
     parser.add_argument("--db_year_train", type=str, required=False,
             default="")
     parser.add_argument("--db_year_test", type=str, required=False,
@@ -1233,7 +1253,7 @@ def read_flags():
     parser.add_argument("--feat_pg_costs", type=int, required=False,
             default=1)
     parser.add_argument("--feat_pg_path", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--feat_rel_pg_ests", type=int, required=False,
             default=1)
     parser.add_argument("--feat_tolerance", type=int, required=False,
@@ -1275,7 +1295,7 @@ def read_flags():
     parser.add_argument("--num_tables_feature", type=int, required=False,
             default=1)
     parser.add_argument("--flow_features", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--table_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_features", type=int, required=False,
@@ -1346,9 +1366,9 @@ def read_flags():
     parser.add_argument("--use_batch_norm", type=int,
             required=False, default=0)
     parser.add_argument("--eval_epoch_flow_err", type=int,
-            required=False, default=1)
+            required=False, default=100000)
     parser.add_argument("--eval_epoch_plan_err", type=int,
-            required=False, default=1)
+            required=False, default=100000)
 
     parser.add_argument("--lr", type=float,
             required=False, default=0.0001)
@@ -1379,7 +1399,7 @@ def read_flags():
     parser.add_argument("--jl_use_postgres", type=int,
             required=False, default=1)
     parser.add_argument("--nn_type", type=str,
-            required=False, default="mscn_set")
+            required=False, default="microsoft")
     parser.add_argument("--use_set_padding", type=int,
             required=False, default=3)
 

@@ -501,11 +501,12 @@ class JoinLoss():
         else:
             use_indexes = 0
 
-        for i, sql in enumerate(sqls):
-            sql_key = deterministic_hash(sql)
-            if sql_key in self.opt_archive.archive:
-                (opt_costs[i], opt_explains[i], opt_sqls[i]) = \
-                        self.opt_archive.archive[sql_key]
+        print("not using opt archive")
+        # for i, sql in enumerate(sqls):
+            # sql_key = deterministic_hash(sql)
+            # if sql_key in self.opt_archive.archive:
+                # (opt_costs[i], opt_explains[i], opt_sqls[i]) = \
+                        # self.opt_archive.archive[sql_key]
 
         if pool is None:
             # single threaded case, useful for debugging
@@ -517,6 +518,7 @@ class JoinLoss():
             batch_size = len(sqls)
 
         else:
+            use_archive = False
             num_processes = pool._processes
             batch_size = max(1, math.ceil(len(sqls) / num_processes))
             assert num_processes * batch_size >= len(sqls)
@@ -532,7 +534,7 @@ class JoinLoss():
                     opt_explains[start_idx:end_idx],
                     opt_sqls[start_idx:end_idx],
                     use_indexes, self.user, self.pwd, self.db_host,
-                    self.port, self.db_name, True, self.cost_model))
+                    self.port, self.db_name, use_archive, self.cost_model))
 
             all_costs = pool.starmap(compute_join_order_loss_pg_single, par_args)
 

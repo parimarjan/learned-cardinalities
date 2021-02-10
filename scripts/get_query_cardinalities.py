@@ -263,6 +263,10 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                     continue
 
                 print("key existing: {}, but going to rerun".format(cards[key_name]))
+            if key_name == "expected":
+                existing += 1
+                continue
+
 
             # TODO: not sure why this here
             # if not (sampling_percentage is not None and \

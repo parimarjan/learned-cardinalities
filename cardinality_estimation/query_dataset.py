@@ -15,7 +15,7 @@ class QueryDataset(data.Dataset):
             heuristic_features, preload_features,
             normalization_type, load_query_together,
             flow_features, table_features, join_features, pred_features,
-            db_year = "",
+            db_year = "", pg_stats_year = None,
             min_val=None, max_val=None, card_key="actual",
             use_set_padding=True,
             group=None, max_sequence_len=None, log_base=10,
@@ -54,6 +54,12 @@ class QueryDataset(data.Dataset):
         self.use_set_padding = use_set_padding
         self.db_year = db_year
         self.cinfo_key = str(self.db_year) + "cardinality"
+
+        if pg_stats_year is None:
+            pg_stats_year = self.db_year
+
+        self.pg_cinfo_key = str(pg_stats_year) + "cardinality"
+
         print("FIXME: handle if cinfo key not in info")
 
         # -1 to ignore SOURCE_NODE
@@ -123,7 +129,14 @@ class QueryDataset(data.Dataset):
                 make_dir(self.feature_dir)
 
             self.X, self.Y, self.info = self._get_feature_vectors(samples)
-            assert len(self.Y) == total_expected_samples
+
+            # FIXME: seems to depend on whether we ran update_samples / and
+            # have SOURCE_NODE in the samples or not...(?)
+            # assert len(self.Y) == total_expected_samples
+            # if len(self.Y) != total_expected_samples:
+                # print(len(self.Y), total_expected_samples)
+                # pdb.set_trace()
+
             if load_query_together:
                 self.start_idxs, self.idx_lens = self._update_idxs(samples)
                 self.num_samples = len(samples)
@@ -230,12 +243,18 @@ class QueryDataset(data.Dataset):
             qidx += len(qrep["subset_graph"].nodes())
         return idx_map, idx_starts
 
-    def normalize_val(self, val, total):
+    def normalize_val(self, val, total, pg=None):
         if self.normalization_type == "mscn":
             if self.log_base == 2:
                 return (np.log2(val) - self.min_val) / (self.max_val - self.min_val)
             else:
                 return (np.log(float(val)) - self.min_val) / (self.max_val - self.min_val)
+        elif self.normalization_type == "minmax":
+                return (float(val) - self.min_val) / (self.max_val - self.min_val)
+        elif self.normalization_type == "pg_diff":
+            return (float(val) - float(pg) - self.min_val) / (self.max_val - self.min_val)
+        elif self.normalization_type == "pg_diff_log":
+            return (np.log(float(val)) - np.log(float(pg)) - self.min_val) / (self.max_val - self.min_val)
         else:
             return float(val) / total
 
@@ -344,20 +363,25 @@ class QueryDataset(data.Dataset):
                     info = qrep["subset_graph"].nodes()[nodes]
                     if self.wj_times is not None:
                         ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
-                        true_val = info["cardinality"][ck]
+                        true_val = info[self.cinfo_key][ck]
                         if true_val == 0 or true_val == 1:
                             # true_val = info["cardinality"]["expected"]
                             true_val = 1.0
                     else:
                         ck = self.card_key
-                        true_val = info["cardinality"][ck]
+                        if ck == "actual" and ck not in info[self.cinfo_key]:
+                            true_val = info[self.cinfo_key]["expected"]
+                            pgval = info[self.cinfo_key]["expected"]
+                        else:
+                            true_val = info[self.cinfo_key][ck]
+                            pgval = info[self.cinfo_key]["expected"]
 
-                    if "total" in info["cardinality"]:
-                        total = info["cardinality"]["total"]
+                    if "total" in info[self.cinfo_key]:
+                        total = info[self.cinfo_key]["total"]
                     else:
                         total = None
 
-                    Y.append(self.normalize_val(true_val, total))
+                    Y.append(self.normalize_val(true_val, total, pg=pgval))
 
                     ## temporary
                     cur_info = {}
@@ -397,13 +421,13 @@ class QueryDataset(data.Dataset):
             heuristic_est = None
             if self.heuristic_features:
                 node_key = tuple([node])
-                cards = qrep["subset_graph"].nodes()[node_key]["cardinality"]
+                cards = qrep["subset_graph"].nodes()[node_key][self.cinfo_key]
                 if "total" in cards:
                     total = cards["total"]
                 else:
                     total = None
                 heuristic_est = self.normalize_val(cards["expected"],
-                        total)
+                        total, pg=0.0)
 
             if len(info["pred_cols"]) == 0:
                 # pred_features = np.zeros(self.db.max_pred_len)
@@ -439,23 +463,30 @@ class QueryDataset(data.Dataset):
                     continue
 
             info = qrep["subset_graph"].nodes()[nodes]
-            pg_est = info["cardinality"]["expected"]
+            pg_est = info[self.pg_cinfo_key]["expected"]
             # pfeats[-2] = self.normalize_val(pg_est, total)
             total = 0.0
-            sample_heuristic_est = self.normalize_val(pg_est, total)
+            sample_heuristic_est = self.normalize_val(pg_est, total, pg=0.0)
 
             if self.wj_times is not None:
                 ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
-                true_val = info["cardinality"][ck]
+                true_val = info[self.cinfo_key][ck]
                 if true_val == 0 or true_val == 1:
                     # true_val = info["cardinality"]["expected"]
                     true_val = 1.0
+                    pgval = info["cardinality"]["expected"]
             else:
                 ck = self.card_key
-                true_val = info["cardinality"][ck]
+                # FIXME: hack
+                if ck == "actual" and ck not in info[self.cinfo_key]:
+                    true_val = info[self.cinfo_key]["expected"]
+                    pgval = info[self.cinfo_key]["expected"]
+                else:
+                    true_val = info[self.cinfo_key][ck]
+                    pgval = info[self.cinfo_key]["expected"]
 
-            if "total" in info["cardinality"]:
-                total = info["cardinality"]["total"]
+            if "total" in info[self.cinfo_key]:
+                total = info[self.cinfo_key]["total"]
             else:
                 total = None
 
@@ -554,7 +585,7 @@ class QueryDataset(data.Dataset):
                 X["table_mask"].append(table_mask)
                 X["join_mask"].append(join_mask)
 
-            Y.append(self.normalize_val(true_val, total))
+            Y.append(self.normalize_val(true_val, total, pg=pgval))
             cur_info = {}
             cur_info["num_tables"] = len(nodes)
             cur_info["dataset_idx"] = dataset_qidx + node_idx
@@ -617,13 +648,21 @@ class QueryDataset(data.Dataset):
             heuristic_est = None
             if self.heuristic_features:
                 node_key = tuple([node])
-                cards = qrep["subset_graph"].nodes()[node_key][self.cinfo_key]
+                try:
+                    cards = qrep["subset_graph"].nodes()[node_key][self.cinfo_key]
+                except:
+                    # FIXME: if key doesn't exist, just choose default one;
+                    # will be ignored when computing errors
+                    cards = qrep["subset_graph"].nodes()[node_key]["cardinality"]
+                    print(qrep)
+                    print(node_key)
+                    pdb.set_trace()
                 if "total" in cards:
                     total = cards["total"]
                 else:
                     total = None
                 heuristic_est = self.normalize_val(cards["expected"],
-                        total)
+                        total, pg=0.0)
 
             if len(info["pred_cols"]) == 0:
                 pred_features = np.zeros(self.db.pred_features_len)
@@ -657,11 +696,11 @@ class QueryDataset(data.Dataset):
                     continue
 
             info = qrep["subset_graph"].nodes()[nodes]
-            pg_est = info["cardinality"]["expected"]
+            pg_est = info[self.cinfo_key]["expected"]
 
             if self.wj_times is not None:
                 ck = "wanderjoin-" + str(self.wj_times[qrep["template_name"]])
-                true_val = info["cardinality"][ck]
+                true_val = info[self.cinfo_key][ck]
                 if true_val == 0 or true_val == 1:
                     # true_val = info["cardinality"]["expected"]
                     true_val = 1.0
@@ -669,8 +708,10 @@ class QueryDataset(data.Dataset):
                 ck = self.card_key
                 if ck == "actual" and ck not in info[self.cinfo_key]:
                     true_val = info[self.cinfo_key]["expected"]
+                    pgval = info[self.cinfo_key]["expected"]
                 else:
                     true_val = info[self.cinfo_key][ck]
+                    pgval = info[self.cinfo_key]["expected"]
 
             if "total" in info["cardinality"]:
                 total = info["cardinality"]["total"]
@@ -690,7 +731,7 @@ class QueryDataset(data.Dataset):
 
             if self.heuristic_features:
                 assert pred_features[-1] == 0.00
-                pred_features[-1] = self.normalize_val(pg_est, total)
+                pred_features[-1] = self.normalize_val(pg_est, total, pg=0.0)
 
             # TODO: optimize...
             for node1 in nodes:
@@ -740,7 +781,7 @@ class QueryDataset(data.Dataset):
             # if self.featurization_type == "transformer":
                 # cur_y.append(self.normalize_val(true_val, total))
             # else:
-            Y.append(self.normalize_val(true_val, total))
+            Y.append(self.normalize_val(true_val, total, pg=pgval))
 
             cur_info = {}
             cur_info["num_tables"] = len(nodes)

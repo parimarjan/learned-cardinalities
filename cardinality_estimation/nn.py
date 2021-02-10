@@ -179,10 +179,10 @@ def update_samples(samples, flow_features, cost_model,
 
             pg_total_cost = compute_costs(subsetg, cost_model,
                     cardinality_key,
-                    cost_key="pg_cost", ests="expected")
+                    cost_key=cost_model+"pg_cost", ests="expected")
             _ = compute_costs(subsetg, cost_model,
                     cardinality_key,
-                    cost_key="cost",
+                    cost_key=cost_model+"cost",
                     ests=None)
 
             subsetg.graph[cost_model + "total_cost"] = pg_total_cost
@@ -191,9 +191,6 @@ def update_samples(samples, flow_features, cost_model,
 
             pg_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
                     weight=cost_model+"pg_cost")
-
-            # for node in pg_path:
-                # subsetg.nodes()[node][cost_model + "pg_path"] = 1
 
             opt_path = nx.shortest_path(subsetg, final_node, SOURCE_NODE,
                     weight=cost_model+"cost")
@@ -873,6 +870,7 @@ class NN(CardinalityEstimationAlg):
 
         if "flow_loss" in loss_fn_name:
             torch.set_num_threads(1)
+
         if self.save_gradients:
             grads = []
             par_grads = defaultdict(list)
@@ -2119,7 +2117,7 @@ class NN(CardinalityEstimationAlg):
             return
         summary_data = defaultdict(list)
         query_idx = 0
-        subq_imps = self.subq_imp[samples_type]
+        # subq_imps = self.subq_imp[samples_type]
         for samplei, sample in enumerate(samples):
             template = sample["template_name"]
             sample_losses = []
@@ -2135,7 +2133,8 @@ class NN(CardinalityEstimationAlg):
                 summary_data["loss"].append(loss)
                 summary_data["num_tables"].append(num_tables)
                 summary_data["template"].append(template)
-                summary_data["subq_imp"].append(subq_imps[idx])
+                # summary_data["subq_imp"].append(subq_imps[idx])
+                summary_data["subq_imp"].append(None)
                 sorted_node = list(node)
                 sorted_node.sort()
                 subq_id = deterministic_hash(str(sorted_node))
@@ -2368,9 +2367,23 @@ class NN(CardinalityEstimationAlg):
                 if self.normalization_type == "mscn":
                     est_card = np.exp((pred[idx] + \
                         self.min_val)*(self.max_val-self.min_val))
+
+                elif self.normalization_type == "minmax":
+                    est_card = (float(pred[idx]) + self.min_val)*(self.max_val-self.min_val)
+                elif self.normalization_type == "pg_diff":
+                    est_card = (float(pred[idx]) + cards["expected"] \
+                        + self.min_val)*(self.max_val-self.min_val)
+                elif self.normalization_type == "pg_diff_log":
+                    est_card = (np.log(float(pred[idx])) + \
+                            np.log(float(cards["expected"])) \
+                        + self.min_val)*(self.max_val-self.min_val)
+                    if np.isnan(est_card):
+                        print(est_card)
+                        pdb.set_trace()
                 else:
                     est_sel = pred[idx]
                     est_card = est_sel*cards["total"]
+
                 ests[alias_key] = est_card
                 if self.wj_times is not None:
                     ck = "wanderjoin-" + str(self.wj_times[sample["template_name"]])
@@ -2395,7 +2408,7 @@ class NN(CardinalityEstimationAlg):
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
 
     def init_dataset(self, samples, shuffle, batch_size,
-            db_year, weighted=False, testing=False):
+            db_year, weighted=False, testing=False, pg_stats_year=None):
         training_sets = []
         training_loaders = []
         if testing:
@@ -2414,6 +2427,7 @@ class NN(CardinalityEstimationAlg):
                     max_val = self.max_val,
                     card_key = self.train_card_key,
                     db_year = db_year,
+                    pg_stats_year = pg_stats_year,
                     use_set_padding = use_padding,
                     group = self.groups[i], max_sequence_len=self.max_subqs,
                     exp_name = self.get_exp_name()))
@@ -2455,7 +2469,8 @@ class NN(CardinalityEstimationAlg):
             true_cards = np.zeros(len(subsetg_vectors[0]),
                     dtype=np.float32)
             nodes = list(sample["subset_graph"].nodes())
-            nodes.remove(SOURCE_NODE)
+            if SOURCE_NODE in nodes:
+                nodes.remove(SOURCE_NODE)
             nodes.sort()
             for i, node in enumerate(nodes):
                 true_cards[i] = \
@@ -2624,6 +2639,7 @@ class NN(CardinalityEstimationAlg):
     def train(self, db, training_samples, use_subqueries=False,
             val_samples=None, join_loss_pool = None,
             db_year=""):
+        self.db_year_train = db_year
         global SOURCE_NODE
         if db.db_name == "so":
             SOURCE_NODE = tuple(["SOURCE"])
@@ -2705,9 +2721,35 @@ class NN(CardinalityEstimationAlg):
             y = np.log(y)
             self.max_val = np.max(y)
             self.min_val = np.min(y)
-            # if self.min_val == 0:
-                # print("there was 0 as min val")
-                # self.min_val += 1
+            print("min val: ", self.min_val)
+            print("max val: ", self.max_val)
+        elif self.normalization_type == "minmax":
+            y = np.array(get_all_cardinalities(training_samples, self.ckey))
+            self.max_val = np.max(y)
+            self.min_val = np.min(y)
+            print("min val: ", self.min_val)
+            print("max val: ", self.max_val)
+        elif self.normalization_type == "pg_diff":
+            print("normalization type == pg_diff")
+            y = np.array(get_all_cardinalities(training_samples, self.ckey,
+                key_type="actual"))
+            yhat = np.array(get_all_cardinalities(training_samples, self.ckey,
+                key_type="expected"))
+            y -= yhat
+            self.max_val = np.max(y)
+            self.min_val = np.min(y)
+            print("min val: ", self.min_val)
+            print("max val: ", self.max_val)
+        elif self.normalization_type == "pg_diff_log":
+            y = np.array(get_all_cardinalities(training_samples, self.ckey,
+                key_type="actual"))
+            yhat = np.array(get_all_cardinalities(training_samples, self.ckey,
+                key_type="expected"))
+            y = np.log(y)
+            yhat = np.log(yhat)
+            y -= yhat
+            self.max_val = np.max(y)
+            self.min_val = np.min(y)
             print("min val: ", self.min_val)
             print("max val: ", self.max_val)
         else:
@@ -2776,9 +2818,9 @@ class NN(CardinalityEstimationAlg):
 
             print("num features are: ", self.num_features)
 
-        self.subq_imp = {}
-        self.subq_imp["train"] = self.get_subq_imp(self.training_samples)
-        self.subq_imp["test"] = self.get_subq_imp(val_samples)
+        # self.subq_imp = {}
+        # self.subq_imp["train"] = self.get_subq_imp(self.training_samples)
+        # self.subq_imp["test"] = self.get_subq_imp(val_samples)
 
         if "flow" in self.loss_func or \
                 "flow" in self.switch_loss_fn:
@@ -3004,11 +3046,9 @@ class NN(CardinalityEstimationAlg):
                 else:
                     assert False
 
-            if self.epoch % self.eval_epoch == 0 and \
-                    self.eval_epoch < self.max_epochs:
-            # if ((self.epoch % self.eval_epoch == 0 or \
-                    # self.epoch % self.eval_epoch_qerr == 0)
-                # and self.epoch != 0):
+            if ((self.epoch % self.eval_epoch == 0 or \
+                    self.epoch % self.eval_epoch_qerr == 0)
+                and self.epoch != 0):
 
                 eval_start = time.time()
                 self._eval_wrapper("train")
@@ -3200,9 +3240,15 @@ class NN(CardinalityEstimationAlg):
         '''
         @test_samples: [] sql_representation dicts
         '''
+        if self.use_updated_pg_stats:
+            pg_stats_year = test_year
+        else:
+            pg_stats_year = self.db_year_train
+
         datasets, loaders = \
                 self.init_dataset(test_samples, False, self.eval_batch_size,
-                        test_year, weighted=False, testing=True)
+                        test_year, weighted=False, testing=True,
+                        pg_stats_year=pg_stats_year)
         self.nets[0].eval()
         # self.nets[0].eval()
         pred, y = self._eval_samples(loaders)
@@ -3232,6 +3278,16 @@ class NN(CardinalityEstimationAlg):
                 if self.normalization_type == "mscn":
                     est_card = np.exp((pred[idx] + \
                         self.min_val)*(self.max_val-self.min_val))
+                elif self.normalization_type == "minmax":
+                    est_card = (pred[idx] + \
+                        self.min_val)*(self.max_val-self.min_val)
+                elif self.normalization_type == "pg_diff":
+                    est_card = (float(pred[idx]) + cards["expected"] \
+                        + self.min_val)*(self.max_val-self.min_val)
+                elif self.normalization_type == "pg_diff_log":
+                    est_card = (np.log(float(pred[idx])) + \
+                            np.log(cards["expected"]) \
+                        + self.min_val)*(self.max_val-self.min_val)
                 elif self.normalization_type == "pg_total_selectivity":
                     est_sel = pred[idx]
                     est_card = est_sel*cards["total"]

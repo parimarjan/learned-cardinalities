@@ -233,7 +233,16 @@ class OldDB(CardinalityEstimationAlg):
             for alias_key, info in sample["subset_graph"].nodes().items():
                 if alias_key == SOURCE_NODE:
                     continue
+
+                if self.card_key not in info:
+                    pred_dict = None
+                    break
+
                 cards = info[self.card_key]
+                if "actual" not in cards:
+                    pred_dict = None
+                    break
+
                 cur_est = cards["actual"]
 
                 if cur_est == 0:

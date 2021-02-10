@@ -1438,7 +1438,7 @@ def compute_costs(subset_graph, cost_model,
     @computes costs based on the MM1 cost model.
     '''
     total_cost = 0.0
-    cost_key = cost_model + cost_key
+    # cost_key = cost_model + cost_key
     for edge in subset_graph.edges():
         if len(edge[0]) == len(edge[1]):
             # assert edge[1] == SOURCE_NODE

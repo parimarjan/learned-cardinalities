@@ -55,7 +55,7 @@ def load_jerrs(exp_dir, file_name, loss_key):
         # add_row(cur_jerrs["cost"].values, "jcost", -1, "all", "all", samples_type,
                 # stats)
         add_row(cur_jerrs["loss"].values, loss_key, -1, "all", "all", samples_type,
-                stats)
+                stats, None)
 
 
         for template in set(cur_jerrs["template"]):
@@ -63,7 +63,7 @@ def load_jerrs(exp_dir, file_name, loss_key):
             # add_row(tmp_jerrs["cost"].values, "jcost", -1, template, "all",
                     # samples_type, stats)
             add_row(tmp_jerrs["loss"].values, loss_key, -1, template, "all",
-                    samples_type, stats)
+                    samples_type, stats, None)
 
     return pd.DataFrame(stats)
 
@@ -210,13 +210,9 @@ def get_summary_df(results_dir):
                 # print("exp args is None!")
                 # continue
 
-        # print(fn)
-        # print(exp_args)
         exp_args = vars(exp_args)
-        # if exp_args["max_discrete_featurizing_buckets"] != 10:
-            # print("skipping non-10 buckets")
-            # continue
         exp_args["alg"] = get_alg_name(exp_args)
+        ck = exp_args["db_year_train"] + "cardinality"
 
         if exp_args["diff_templates_seed"] <= 10:
             pass
@@ -285,6 +281,7 @@ def get_summary_df(results_dir):
             print("skipping: to concat, len 0")
             continue
         cur_df = pd.concat(to_concat, ignore_index=True)
+        cur_df["cardinality_key"] = ck
 
         # for exp_column in EXP_COLUMNS:
             # cur_df[exp_column] = exp_args[exp_column]
@@ -301,6 +298,8 @@ def get_summary_df(results_dir):
                 cur_df["alg_name"] = "priority"
             else:
                 cur_df["alg_name"] = exp_args["loss_func"]
+        elif "olddb" in exp_args["algs"]:
+            cur_df["alg_name"] = "imdb" + exp_args["db_year_train"]
         else:
             cur_df["alg_name"] = exp_args["algs"]
 
