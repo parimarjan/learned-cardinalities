@@ -30,7 +30,7 @@ CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
 RERUN_TIMEOUTS = 1
 
-CACHE_TIMEOUT = 4
+CACHE_TIMEOUT = 8
 CACHE_CARD_TYPES = ["actual"]
 
 DEBUG_CHECK_TIMES = False
@@ -175,6 +175,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
     if db_year is not None:
         db_name = db_name + str(db_year)
+        cache_dir = cache_dir + str(db_year)
 
     if sampling_percentage is not None:
         key_name = str(sampling_type) + str(sampling_percentage) + "_" + key_name
@@ -191,6 +192,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if card_type in CACHE_CARD_TYPES:
         sql_cache = klepto.archives.dir_archive(cache_dir,
                 cached=True, serialized=True)
+
     found_in_cache = 0
     existing = 0
     num_timeout = 0
@@ -243,8 +245,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                     subsql = re.sub(r"\b {} \b".format(table), new_table_name,
                             subsql)
 
-        if key_name in cards \
-                and not DEBUG_CHECK_TIMES:
+        # if key_name in cards \
+                # and not DEBUG_CHECK_TIMES:
+        if False:
             if key_name == "actual":
                 if cards[key_name] == 0 and skip_zero_queries:
                     # don't want to get cardinalities for zero queries

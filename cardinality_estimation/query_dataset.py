@@ -255,8 +255,11 @@ class QueryDataset(data.Dataset):
             return (float(val) - float(pg) - self.min_val) / (self.max_val - self.min_val)
         elif self.normalization_type == "pg_diff_log":
             return (np.log(float(val)) - np.log(float(pg)) - self.min_val) / (self.max_val - self.min_val)
-        else:
+        elif self.normalization_type == "pg_total_selectivity":
             return float(val) / total
+        else:
+            assert False
+            # return float(val) / total
 
     def _pad_sets(self, all_table_features, all_pred_features,
             all_join_features, tensors):
@@ -660,6 +663,9 @@ class QueryDataset(data.Dataset):
                 if "total" in cards:
                     total = cards["total"]
                 else:
+                    print(qrep)
+                    print(cards)
+                    pdb.set_trace()
                     total = None
                 heuristic_est = self.normalize_val(cards["expected"],
                         total, pg=0.0)

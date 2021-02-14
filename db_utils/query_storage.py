@@ -28,19 +28,24 @@ def get_all_cardinalities(samples, ckey, key_type="actual"):
                 assert False
     return cards
 
-def get_all_totals(qrep):
+def get_all_totals(qrep, user, pwd, db, db_host, port, use_explain=True):
     '''
     @ret: dict, nodes : total
     '''
-    user, pwd, db, db_host, port = get_default_con_creds()
+    # user, pwd, db, db_host, port = get_default_con_creds()
+    print(user, pwd, db)
     ret = {}
     par_args = []
     par_subsets = []
     for subset, info in qrep["subset_graph"].nodes().items():
+        if subset == SOURCE_NODE:
+            continue
         cards = info["cardinality"]
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg)
         tsql = get_total_count_query(subsql)
+        if use_explain:
+            tsql = "EXPLAIN " + tsql
         par_args.append((tsql, user, db_host, port, pwd, db, []))
         par_subsets.append(subset)
 
@@ -50,8 +55,12 @@ def get_all_totals(qrep):
 
     for i, res in enumerate(results):
         assert res is not None
-        total_count = res[0][0]
-        ret[par_subsets[i]] = total_count
+        if use_explain:
+            total_count = pg_est_from_explain(res)
+            ret[par_subsets[i]] = total_count
+        else:
+            total_count = res[0][0]
+            ret[par_subsets[i]] = total_count
 
     print("executed successfully!")
     return ret
@@ -110,12 +119,16 @@ def load_sql_rep(fn, dummy=None):
         print(fn + " failed to load...")
         exit(-1)
 
-    query["subset_graph"] = \
-            nx.OrderedDiGraph(json_graph.adjacency_graph(query["subset_graph"]))
-    query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
-    if "subset_graph_paths" in query:
-        query["subset_graph_paths"] = \
-                nx.OrderedDiGraph(json_graph.adjacency_graph(query["subset_graph_paths"]))
+    try:
+        query["subset_graph"] = \
+                nx.OrderedDiGraph(json_graph.adjacency_graph(query["subset_graph"]))
+        query["join_graph"] = json_graph.adjacency_graph(query["join_graph"])
+    except:
+        pass
+
+    # if "subset_graph_paths" in query:
+        # query["subset_graph_paths"] = \
+                # nx.OrderedDiGraph(json_graph.adjacency_graph(query["subset_graph_paths"]))
 
     return query
 

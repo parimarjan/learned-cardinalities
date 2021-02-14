@@ -246,17 +246,17 @@ def compute_qerror(queries, preds, **kwargs):
                                    ALG = exp_name)
     make_dir(rdir)
 
-    pred_fn = rdir + "/" + "preds.pkl"
-    all_preds = {}
+    print("not saving preds...")
+    # pred_fn = rdir + "/" + "preds.pkl"
+    # all_preds = {}
 
-    for i, q in enumerate(queries):
-        all_preds[q["name"]] = preds[i]
+    # for i, q in enumerate(queries):
+        # all_preds[q["name"]] = preds[i]
 
-    old_results = load_object_gzip(pred_fn)
-    if old_results is not None:
-        all_preds.update(old_results)
-
-    save_object_gzip(pred_fn, all_preds)
+    # old_results = load_object_gzip(pred_fn)
+    # if old_results is not None:
+        # all_preds.update(old_results)
+    # save_object_gzip(pred_fn, all_preds)
 
     ytrue, yhat, cur_queries = _get_all_cardinalities(queries, preds, cardinality_key)
     ytrue = np.array(ytrue)
@@ -639,6 +639,7 @@ def compute_flow_loss(queries, preds, **kwargs):
     exp_name = kwargs["exp_name"]
     samples_type = kwargs["samples_type"]
     pool = kwargs["pool"]
+    cardinality_key = kwargs["cardinality_key"]
 
     # here, we assume that the alg name is unique enough, for their results to
     # be grouped together
@@ -649,7 +650,7 @@ def compute_flow_loss(queries, preds, **kwargs):
     costs = load_object(costs_fn)
     if costs is None:
         columns = ["sql_key", "plan","cost", "loss","samples_type", "template",
-                "qfn"]
+                "qfn", "card_key"]
         costs = pd.DataFrame(columns=columns)
 
     cur_costs = defaultdict(list)
@@ -701,7 +702,7 @@ def compute_plan_loss(queries, preds, **kwargs):
 
     if costs is None:
         columns = ["sql_key", "plan","cost", "loss","samples_type", "template",
-                "qfn"]
+                "qfn", "card_key"]
         costs = pd.DataFrame(columns=columns)
     if costs_pg is None:
         columns2 = ["sql_key", "explain","plan","exec_sql","cost", "loss",

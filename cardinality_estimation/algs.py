@@ -179,7 +179,7 @@ class Postgres(CardinalityEstimationAlg):
     # def __init__(self, num_tables_true=0, regex_true=False):
         # pass
 
-    def test(self, test_samples):
+    def test(self, test_samples, test_year=None):
         assert isinstance(test_samples[0], dict)
         preds = []
         for sample in test_samples:
@@ -187,14 +187,14 @@ class Postgres(CardinalityEstimationAlg):
             nodes = list(sample["subset_graph"].nodes())
             if SOURCE_NODE in nodes:
                 nodes.remove(SOURCE_NODE)
+            if test_year is None:
+                ckey = "cardinality"
+            else:
+                ckey = "cardinality" + test_year
             for alias_key in nodes:
                 info = sample["subset_graph"].nodes()[alias_key]
-                true_card = info["cardinality"]["actual"]
-                est = info["cardinality"]["expected"]
-
-                if "expected" not in info["cardinality"]:
-                    print("no find expected :(")
-                    pdb.set_trace()
+                true_card = info[ckey]["actual"]
+                est = info[ckey]["expected"]
 
                 # if true_card >= CROSS_JOIN_CONSTANT:
                     # est = true_card
