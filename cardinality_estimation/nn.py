@@ -17,7 +17,6 @@ import json
 import multiprocessing
 # from torch.multiprocessing import Pool as Pool2
 # from utils.tf_summaries import TensorboardSummaries
-from tensorflow import summary as tf_summary
 # import tensorflow as tf
 # tf.logging.set_verbosity(tf.logging.ERROR)
 # tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
@@ -1883,6 +1882,7 @@ class NN(CardinalityEstimationAlg):
 
     def add_row(self, losses, loss_type, epoch, template,
             num_tables, samples_type):
+
         for i, func in enumerate(self.summary_funcs):
             loss = func(losses)
             row = [epoch, loss_type, loss, self.summary_types[i],
@@ -1903,8 +1903,12 @@ class NN(CardinalityEstimationAlg):
                         loss_type = loss_type,
                         num_tables = num_tables,
                         template = template)
-                with self.tf_summary_writer.as_default():
-                    tf_summary.scalar(stat_name, loss, step=epoch)
+                try:
+                    from tensorflow import summary as tf_summary
+                    with self.tf_summary_writer.as_default():
+                        tf_summary.scalar(stat_name, loss, step=epoch)
+                except:
+                    pass
 
     def get_exp_name(self):
         '''
@@ -2388,11 +2392,15 @@ class NN(CardinalityEstimationAlg):
         return sqls, join_graphs, true_cardinalities, est_cardinalities
 
     def initialize_tfboard(self):
-        name = self.get_exp_name()
-        # name = self.__str__()
-        log_dir = "tfboard_logs/" + name
-        self.tf_summary_writer = tf_summary.create_file_writer(log_dir)
-        self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
+        try:
+            from tensorflow import summary as tf_summary
+            name = self.get_exp_name()
+            # name = self.__str__()
+            log_dir = "tfboard_logs/" + name
+            self.tf_summary_writer = tf_summary.create_file_writer(log_dir)
+            self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
+        except:
+            print("no tensorflow, so no tf-logging")
 
     def init_dataset(self, samples, shuffle, batch_size,
             db_year, weighted=False, testing=False):
@@ -2776,9 +2784,9 @@ class NN(CardinalityEstimationAlg):
 
             print("num features are: ", self.num_features)
 
-        self.subq_imp = {}
-        self.subq_imp["train"] = self.get_subq_imp(self.training_samples)
-        self.subq_imp["test"] = self.get_subq_imp(val_samples)
+        # self.subq_imp = {}
+        # self.subq_imp["train"] = self.get_subq_imp(self.training_samples)
+        # self.subq_imp["test"] = self.get_subq_imp(val_samples)
 
         if "flow" in self.loss_func or \
                 "flow" in self.switch_loss_fn:

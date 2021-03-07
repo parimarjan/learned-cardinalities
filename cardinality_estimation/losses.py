@@ -148,6 +148,8 @@ def get_loss(loss):
         return compute_qerror
     elif loss == "join-loss":
         return compute_join_order_loss
+    elif loss == "mysql-loss":
+        return compute_join_order_loss_mysql
     elif loss == "plan-loss":
         return compute_plan_loss
     elif loss == "flow-loss":
@@ -445,7 +447,7 @@ def save_join_loss_training_data(sqls, est_cardinalities,
 def join_loss_pg(sqls, join_graphs,
         true_cardinalities, est_cardinalities, env,
         use_indexes, pdf=None, num_processes=1, pool=None,
-        join_loss_data_file=None):
+        join_loss_data_file=None, backend="postgres"):
     '''
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
@@ -456,11 +458,13 @@ def join_loss_pg(sqls, join_graphs,
     start = time.time()
     for i,sql in enumerate(sqls):
         sqls[i] = fix_query(sql)
+
     est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
                 env.compute_join_order_loss(sqls, join_graphs,
                         true_cardinalities, est_cardinalities,
                         None, use_indexes,
-                        num_processes=num_processes, postgres=True, pool=pool)
+                        num_processes=num_processes, backend=backend, pool=pool)
+
     assert isinstance(est_costs, np.ndarray)
     if join_loss_data_file:
         join_losses = est_costs - opt_costs
@@ -484,6 +488,136 @@ def get_join_results_name(alg_name):
                 ALG = alg_name,
                 HASH = time_hash)
     return name
+
+def compute_join_order_loss_mysql(queries, preds, **kwargs):
+    '''
+    TODO: also updates each query object with the relevant stats that we want
+    to plot.
+    @queries: list of qrep objects
+    @preds: list of dicts
+
+    @output: updates ./results/join_order_loss.pkl file
+    '''
+    def run_join_loss_exp(env, cost_model):
+        use_indexes = args.jl_indexes
+        exp_name = kwargs["exp_name"]
+        samples_type = kwargs["samples_type"]
+        # pool = kwargs["pool"]
+        pool = None
+
+        # here, we assume that the alg name is unique enough, for their results to
+        # be grouped together
+        rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
+                                       ALG = exp_name)
+        make_dir(rdir)
+        costs_fn = rdir + cost_model + "_jerr.pkl"
+        costs = load_object(costs_fn)
+        if costs is None:
+            columns = ["sql_key", "explain","plan","exec_sql","cost", "loss",
+                    "postgresql_conf", "samples_type", "template", "qfn",
+                    "card_key"]
+            costs = pd.DataFrame(columns=columns)
+
+        cur_costs = defaultdict(list)
+        assert isinstance(costs, pd.DataFrame)
+
+        est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
+                        join_loss_pg(sqls, join_graphs, true_cardinalities,
+                                est_cardinalities, env, use_indexes, pdf=None,
+                                pool = pool, join_loss_data_file =
+                                args.join_loss_data_file, backend="mysql")
+        losses = est_costs - opt_costs
+        for i, qrep in enumerate(eval_queries):
+            sql_key = str(deterministic_hash(qrep["sql"]))
+            if save_exec_sql:
+                exec_sql = est_sqls[i]
+            else:
+                exec_sql = None
+            add_query_result_row(sql_key, samples_type,
+                    exec_sql, est_costs[i],
+                    losses[i],
+                    None,
+                    # get_leading_hint(est_plans[i]),
+                    qrep["template_name"], cur_costs, costs,
+                    qrep["name"], cardinality_key)
+
+        cur_df = pd.DataFrame(cur_costs)
+        combined_df = pd.concat([costs, cur_df], ignore_index=True)
+        save_object(costs_fn, combined_df)
+
+        return est_costs, opt_costs
+
+    assert isinstance(queries, list)
+    assert isinstance(preds, list)
+    assert isinstance(queries[0], dict)
+
+    # env = park.make('query_optimizer')
+    args = kwargs["args"]
+    save_exec_sql = args.save_exec_sql
+    if args.db_name == "so":
+        global SOURCE_NODE
+        SOURCE_NODE = tuple(["SOURCE"])
+
+    alg_name = kwargs["name"]
+    cardinality_key = kwargs["cardinality_key"]
+
+    assert "nested" in args.cost_model
+    env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
+            args.port, args.db_name)
+
+    est_cardinalities = []
+    true_cardinalities = []
+    sqls = []
+    join_graphs = []
+    # FIXME: wasting a lot of memory
+    eval_queries = []
+
+    # TODO: save alg based predictions too
+    for i, qrep in enumerate(queries):
+        # TODO: check if this prediction is valid from both predictor / and for
+        # the ground truth
+        if preds[i] is None:
+            print("preds None!")
+            pdb.set_trace()
+            continue
+
+        ests = {}
+        trues = {}
+        predq = preds[i]
+        no_ground_truth_data = False
+
+        for node, node_info in qrep["subset_graph"].nodes().items():
+            if node == SOURCE_NODE:
+                continue
+            est_card = predq[node]
+            alias_key = ' '.join(node)
+            if cardinality_key not in node_info \
+                    or "actual" not in node_info[cardinality_key]:
+                no_ground_truth_data = True
+                break
+
+            trues[alias_key] = node_info[cardinality_key]["actual"]
+            if est_card == 0:
+                print("bad est card")
+                est_card += 1
+            ests[alias_key] = est_card
+
+        if no_ground_truth_data:
+            continue
+
+        eval_queries.append(qrep)
+        sqls.append(qrep["sql"])
+        join_graphs.append(qrep["join_graph"])
+        est_cardinalities.append(ests)
+        true_cardinalities.append(trues)
+
+    # if "nested" in args.cost_model:
+    assert "nested" in args.cost_model
+    est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
+    losses2 = est_costs2 - opt_costs2
+
+    return np.array(est_costs2) - np.array(opt_costs2)
+
 
 def compute_join_order_loss(queries, preds, **kwargs):
     '''

@@ -2,11 +2,10 @@ moz-sql-parser
 sqlparse
 klepto
 psycopg2-binary
-numpy==1.16
+numpy
 pandas
 torch
 torchvision
-tensorflow
 networkx
 matplotlib
 seaborn

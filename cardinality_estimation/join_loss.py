@@ -13,6 +13,9 @@ import klepto
 import copy
 import cvxpy as cp
 
+import MySQLdb
+import json
+
 system = platform.system()
 if system == 'Linux':
     lib_file = "libflowloss.so"
@@ -42,6 +45,8 @@ PG_HINT_SCANS["Bitmap Heap Scan"] = "BitmapScan"
 PG_HINT_SCANS["Tid Scan"] = "TidScan"
 
 MAX_JOINS = 16
+
+MYSQL_CARD_FILE_NAME = "/tmp/query_cardinalities.json"
 
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
@@ -457,7 +462,7 @@ class JoinLoss():
 
     def compute_join_order_loss(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, baseline_join_alg, use_indexes,
-            num_processes=8, postgres=True, pool=None):
+            num_processes=8, backend="postgres", pool=None):
         '''
         @query_dict: [sqls]
         @true_cardinalities / est_cardinalities: [{}]
@@ -479,12 +484,186 @@ class JoinLoss():
         assert isinstance(est_cardinalities, list)
         assert len(sqls) == len(true_cardinalities) == len(est_cardinalities)
 
-        if not postgres:
+        if backend == "postgres":
+            return self._compute_join_order_loss_pg(sqls, join_graphs,
+                    true_cardinalities, est_cardinalities, num_processes,
+                    use_indexes, pool)
+        elif backend == "mysql":
+            return self._compute_join_order_loss_mysql(sqls, join_graphs,
+                    true_cardinalities, est_cardinalities, num_processes,
+                    use_indexes, pool)
+        else:
             assert False
 
-        return self._compute_join_order_loss_pg(sqls, join_graphs,
-                true_cardinalities, est_cardinalities, num_processes,
-                use_indexes, pool)
+    def _compute_join_order_loss_mysql(self, sqls, join_graphs, true_cardinalities,
+            est_cardinalities, num_processes, use_indexes, pool):
+        def preprocess_sql(sql):
+            if "ILIKE" in sql:
+                sql = sql.replace("ILIKE", "LIKE")
+
+            bad_str1 = "mii2.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+            bad_str2 = "mii1.info ~ '^(?:[1-9]\d*|0)?(?:\.\d+)?$' AND"
+            if bad_str1 in sql:
+                sql = sql.replace(bad_str1, "")
+
+            if bad_str2 in sql:
+                sql = sql.replace(bad_str2, "")
+
+            if "::float" in sql:
+                sql = sql.replace("::float", "")
+
+            if "::int" in sql:
+                sql = sql.replace("::int", "")
+
+            return sql
+
+        def get_join_order(explain_json):
+            tables = []
+            qb = explain_json["query_block"]
+            if "ordering_operation" in qb:
+                qb = qb["ordering_operation"]
+
+            if "grouping_operation" in qb:
+                tab_list = qb["grouping_operation"]["nested_loop"]
+            else:
+                tab_list = qb["nested_loop"]
+
+            for tab in tab_list:
+                info = tab["table"]
+                tname = info["table_name"]
+                tables.append(tname)
+                rows_join = info["rows_produced_per_join"]
+                read_cost = info["cost_info"]["read_cost"]
+                prefix_cost = info["cost_info"]["prefix_cost"]
+                # print("table: {}, join_rows: {}, read_cost: {}, prefix_cost: {}".format(\
+                        # tname, rows_join, read_cost, prefix_cost))
+                # print(info["cost_info"])
+
+            return tables
+
+        def run_single_sql(sql):
+            # db=MySQLdb.connect(passwd=self.pwd,db=self.db_name, user=self.user)
+            db=MySQLdb.connect(passwd="1234",db=self.db_name, user="root")
+            cursor = db.cursor()
+            cursor.execute("SET optimizer_prune_level=0;")
+
+            sql = preprocess_sql(sql)
+            orig_sql = sql
+
+            # start = time.time()
+            # con.execute(orig_sql)
+            # print("executing default took: ", time.time()-start)
+            sql = "EXPLAIN FORMAT=json " + sql
+            join_graph = join_graphs[i]
+
+            cards = est_cardinalities[i]
+            with open(MYSQL_CARD_FILE_NAME, 'w') as fp:
+                json.dump(cards, fp)
+            cursor.execute(sql)
+            out = cursor.fetchall()
+            plan_explain = json.loads(out[0][0])
+            # print("**********Est Cost*****************")
+            # print(plan_explain["query_block"]["cost_info"])
+            # print("***************************")
+            est_join_order = get_join_order(plan_explain)
+            est_cost=float(plan_explain["query_block"]["cost_info"]["query_cost"])
+            # print("est_join_order: ", est_join_order)
+            os.remove(MYSQL_CARD_FILE_NAME)
+
+            cards = true_cardinalities[i]
+            with open(MYSQL_CARD_FILE_NAME, 'w') as fp:
+                json.dump(cards, fp)
+
+            # TODO: don't need this if we can cache these results
+            cursor.execute(sql)
+            out = cursor.fetchall()
+            plan_explain = json.loads(out[0][0])
+            # print("**********True Cost*****************")
+            # print(plan_explain["query_block"]["cost_info"])
+            # print("***************************")
+            opt_join_order = get_join_order(plan_explain)
+            # print("opt join order: ", opt_join_order)
+            # pdb.set_trace()
+
+            opt_cost=float(plan_explain["query_block"]["cost_info"]["query_cost"])
+            new_from = []
+            for alias in opt_join_order:
+                table = join_graph.nodes()[alias]["real_name"]
+                new_from.append("{} AS {}".format(table, alias))
+            from_clause = " STRAIGHT_JOIN ".join(new_from)
+            opt_sql = nx_graph_to_query(join_graph, from_clause)
+            opt_sql = preprocess_sql(opt_sql)
+            opt_sql_exec = opt_sql
+
+            # TODO: remove
+            # start = time.time()
+            # cursor.execute(orig_sql)
+            # print("executing true took: ", time.time()-start)
+
+            # force join order
+            new_from = []
+            for alias in est_join_order:
+                table = join_graph.nodes()[alias]["real_name"]
+                new_from.append("{} AS {}".format(table, alias))
+
+            from_clause = " STRAIGHT_JOIN ".join(new_from)
+            est_sql = nx_graph_to_query(join_graph, from_clause)
+            est_sql = preprocess_sql(est_sql)
+            est_sql_exec = est_sql
+            est_sql = "EXPLAIN FORMAT=json " + est_sql
+            cursor.execute(est_sql)
+            out = cursor.fetchall()
+            plan_explain = json.loads(out[0][0])
+
+            # print("**********True Cost*****************")
+            # print(plan_explain["query_block"]["cost_info"])
+            # print("***************************")
+            est_join_order_forced = get_join_order(plan_explain)
+            est_plan_cost=float(plan_explain["query_block"]["cost_info"]["query_cost"])
+            # print("est_join_order_forced: ", est_join_order_forced)
+            assert str(est_join_order_forced) == str(est_join_order)
+
+            # add all things to lists here, so if it crashed before, things
+            # won't be out of place
+
+            opt_explains.append(plan_explain)
+            est_explains.append(plan_explain)
+
+            opt_costs.append(opt_cost)
+            est_costs.append(est_plan_cost)
+
+            opt_sqls.append(opt_sql)
+            est_sqls.append(est_sql_exec)
+
+            # print("**********MySQL Plan Loss*****************")
+            # print(est_plan_cost - opt_cost)
+            # print("***************************")
+
+            start = time.time()
+            os.remove(MYSQL_CARD_FILE_NAME)
+            cursor.close()
+
+
+        # open mysql conn
+        est_costs = []
+        opt_costs = []
+        est_explains = []
+        opt_explains = []
+        est_sqls = []
+        opt_sqls = []
+
+        # step 1: set estimated cards and compute plan
+        for i,sql in enumerate(sqls):
+            try:
+                run_single_sql(sql)
+            except:
+                pdb.set_trace()
+                # print("crash, going to run again")
+                # run_single_sql(sql)
+
+
+        return np.array(est_costs), np.array(opt_costs), est_explains, \
+    opt_explains, est_sqls, opt_sqls
 
     def _compute_join_order_loss_pg(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, num_processes, use_indexes, pool):

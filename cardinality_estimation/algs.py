@@ -179,7 +179,7 @@ class Postgres(CardinalityEstimationAlg):
     # def __init__(self, num_tables_true=0, regex_true=False):
         # pass
 
-    def test(self, test_samples):
+    def test(self, test_samples, **kwargs):
         assert isinstance(test_samples[0], dict)
         preds = []
         for sample in test_samples:

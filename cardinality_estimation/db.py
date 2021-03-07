@@ -201,7 +201,7 @@ class DB():
             global SOURCE_NODE
             SOURCE_NODE = tuple(["SOURCE"])
 
-        indexes = self.execute(INDEX_LIST_CMD, "")
+        # indexes = self.execute(INDEX_LIST_CMD, "")
         self.cost_model = cost_model
         self.heuristic_features = heuristic_features
         self.flow_features = flow_features
