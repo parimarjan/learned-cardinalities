@@ -28,6 +28,7 @@ from sklearn.ensemble import RandomForestRegressor
 from .custom_linear import CustomLinearModel
 from sqlalchemy import create_engine
 import datetime
+import os
 
 # from cardinality_estimation.query_dataset import QueryDataset
 # from cardinality_estimation.nn import NN
@@ -98,9 +99,10 @@ class CardinalityEstimationAlg():
         pass
 
     def train(self, db, training_samples, **kwargs):
-        if db.db_name == "so":
-            global SOURCE_NODE
-            SOURCE_NODE = tuple(["SOURCE"])
+        pass
+        # if db.db_name == "so":
+            # global SOURCE_NODE
+            # SOURCE_NODE = tuple(["SOURCE"])
 
     def test(self, test_samples, **kwargs):
         '''
@@ -134,12 +136,19 @@ class SavedPreds(CardinalityEstimationAlg):
         self.max_epochs = 0
 
     def train(self, db, training_samples, **kwargs):
-        if db.db_name == "so":
-            global SOURCE_NODE
-            SOURCE_NODE = tuple(["SOURCE"])
+        # if db.db_name == "so":
+            # global SOURCE_NODE
+            # SOURCE_NODE = tuple(["SOURCE"])
 
         assert os.path.exists(self.model_dir)
-        self.saved_preds = load_object_gzip(self.model_dir + "/preds.pkl")
+        # self.saved_preds = load_object_gzip(self.model_dir + "/preds.pkl")
+        saved_preds = load_object_gzip(os.path.join(self.model_dir,
+            "preds.pkl"))
+        self.saved_preds = {}
+        for k, v in saved_preds.items():
+            newk = os.path.basename(k)
+            self.saved_preds[newk] = v
+
         # self.saved_preds = load_object(self.model_dir + "/preds.pkl")
 
     def test(self, test_samples, **kwargs):
@@ -152,13 +161,18 @@ class SavedPreds(CardinalityEstimationAlg):
         preds = []
         for sample in test_samples:
             # assert sample["name"] in self.saved_preds
-            if sample["name"] not in self.saved_preds:
+            key = os.path.basename(sample["name"])
+            if key not in self.saved_preds:
                 print(sample["name"])
+                print(key)
                 pdb.set_trace()
-            preds.append(self.saved_preds[sample["name"]])
+            preds.append(self.saved_preds[key])
         return preds
 
     def get_exp_name(self):
+
+        if self.model_dir[-1] == "/":
+            self.model_dir = self.model_dir[0:-1]
         old_name = os.path.basename(self.model_dir)
         name = "SavedRun-" + old_name
         return name
@@ -170,7 +184,10 @@ class SavedPreds(CardinalityEstimationAlg):
         return 0
 
     def __str__(self):
-        return "SavedAlg"
+        print("saved-alg string")
+        model_dir = os.path.basename(self.model_dir)
+        print(model_dir)
+        return "SavedAlg-" + model_dir
 
     def save_model(self, save_dir="./", suffix_name=""):
         pass

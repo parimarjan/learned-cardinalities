@@ -510,7 +510,7 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
         rdir = RESULTS_DIR_TMP.format(RESULT_DIR = args.result_dir,
                                        ALG = exp_name)
         make_dir(rdir)
-        costs_fn = rdir + cost_model + "_jerr.pkl"
+        costs_fn = rdir + cost_model + "_mysql_jerr.pkl"
         costs = load_object(costs_fn)
         if costs is None:
             columns = ["sql_key", "explain","plan","exec_sql","cost", "loss",
@@ -614,7 +614,14 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
     # if "nested" in args.cost_model:
     assert "nested" in args.cost_model
     est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
-    losses2 = est_costs2 - opt_costs2
+    losses2 = est_costs2
+    print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+            .format(args.db_name, alg_name, len(queries),
+                "mysql plan cost",
+                np.round(np.mean(losses2),3),
+                np.round(np.median(losses2),3),
+                np.round(np.percentile(losses2,95),3),
+                np.round(np.percentile(losses2,99),3)))
 
     return np.array(est_costs2) - np.array(opt_costs2)
 
@@ -747,10 +754,10 @@ def compute_join_order_loss(queries, preds, **kwargs):
     # if "nested" in args.cost_model:
     assert "nested" in args.cost_model
     est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
-    losses2 = est_costs2 - opt_costs2
+    losses2 = est_costs2
     # print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
             # .format(args.db_name, alg_name, len(queries),
-                # "join all",
+                # "mysql plan cost",
                 # np.round(np.mean(losses2),3),
                 # np.round(np.median(losses2),3),
                 # np.round(np.percentile(losses2,95),3),

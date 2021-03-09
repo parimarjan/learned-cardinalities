@@ -48,6 +48,16 @@ MAX_JOINS = 16
 
 MYSQL_CARD_FILE_NAME = "/tmp/query_cardinalities.json"
 
+MYSQL_OPT_TMP = "set optimizer_switch='{FLAGS}';"
+MYSQL_OPT_FLAGS=""""""
+# MYSQL_OPT_FLAGS="""materialization=off,block_nested_loop=off,semijoin=off,subquery_materialization_cost_based=off,index_merge_union=off,index_merge_sort_union=off,prefer_ordering_index=off,loosescan=off,firstmatch=off,use_index_extensions=off"""
+
+# cursor.execute("SET materialization=off;")
+# cursor.execute("SET block_nested_loop=off;")
+# cursor.execute("SET semijoin=off;")
+# cursor.execute("SET subquery_materialization_cost_based=off;")
+# TMP = "set optimizer_switch='index_merge_union=off,index_merge_sort_union=off';
+
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
     cursor.execute("SET enable_seqscan = {}".format("on"))
@@ -546,6 +556,16 @@ class JoinLoss():
             db=MySQLdb.connect(passwd="1234",db=self.db_name, user="root")
             cursor = db.cursor()
             cursor.execute("SET optimizer_prune_level=0;")
+            # opt_flags = []
+            # cursor.execute("SET 'materialization'=off;")
+            # cursor.execute("SET materialization=off;")
+            # cursor.execute("SET block_nested_loop=off;")
+            # cursor.execute("SET semijoin=off;")
+            # cursor.execute("SET subquery_materialization_cost_based=off;")
+
+            # TMP = "set optimizer_switch='index_merge_union=off,index_merge_sort_union=off';
+            opt_flags = MYSQL_OPT_TMP.format(FLAGS=MYSQL_OPT_FLAGS)
+            cursor.execute(opt_flags)
 
             sql = preprocess_sql(sql)
             orig_sql = sql
@@ -656,10 +676,17 @@ class JoinLoss():
         for i,sql in enumerate(sqls):
             try:
                 run_single_sql(sql)
-            except:
+            except Exception as e:
+                print("crash, restart mysql")
+                print(e)
+                est_costs.append(0.0)
+                opt_costs.append(0.0)
+                est_sqls.append(None)
+                opt_sqls.append(None)
+                est_explains.append(None)
+                opt_explains.append(None)
                 pdb.set_trace()
-                # print("crash, going to run again")
-                # run_single_sql(sql)
+                continue
 
 
         return np.array(est_costs), np.array(opt_costs), est_explains, \

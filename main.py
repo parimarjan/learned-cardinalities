@@ -920,6 +920,7 @@ def main():
     else:
         load_test_samples = True
 
+    load_db = True
     if args.model_dir is not None:
         old_args = load_object(args.model_dir + "/args.pkl")
 
@@ -938,6 +939,17 @@ def main():
         old_args.eval_on_jobm = args.eval_on_jobm
         old_args.jobm_query_dir = args.jobm_query_dir
         old_args.skip_zero_queries = args.skip_zero_queries
+        old_args.query_templates = args.query_templates
+        # old_args.db_year_train = args.db_year_train
+        # old_args.db_year_test = args.db_year_test
+        old_dict = vars(old_args)
+        new_dict = vars(args)
+
+        for k in new_dict:
+            if k not in old_dict:
+                old_dict[k] = new_dict[k]
+
+        old_args = argparse.Namespace(**old_dict)
 
         # if args.max_epochs == 0:
             # # because we aren't actually training, this is just used for init
@@ -951,9 +963,17 @@ def main():
             old_args.algs = args.algs
 
         args = old_args
+        load_db = False
+
+        if old_args.diff_templates_seed != 7:
+            exit(-1)
+
+        # print(old_args.test_diff_templates)
+        # print(old_args.diff_templates_seed)
+        # pdb.set_trace()
 
     train_queries, test_queries, val_queries, job_queries, jobm_queries, db = \
-            load_all_qrep_data(False, load_test_samples, True, True,
+            load_all_qrep_data(False, load_test_samples, load_db, True,
                     load_test_samples,
                     pool=join_loss_pool)
 
@@ -1040,7 +1060,6 @@ def main():
 
             train_times[alg.__str__()] = round(time.time() - start, 2)
         else:
-            assert False
             # just used to initialize the fields in the alg
             if alg.max_epochs == 0:
                 alg.train(db, train_queries, use_subqueries=args.use_subqueries,
@@ -1154,7 +1173,7 @@ def read_flags():
     parser.add_argument("--regen_db", type=int, required=False,
             default=0)
     parser.add_argument("--save_exec_sql", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--query_mb_size", type=int, required=False,
             default=1)
     parser.add_argument("--skip_zero_queries", type=int, required=False,
