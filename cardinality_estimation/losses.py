@@ -3,7 +3,10 @@ import pdb
 # import park
 from utils.utils import *
 from cardinality_estimation.query import *
-from cardinality_estimation.join_loss import JoinLoss,PlanError
+# from cardinality_estimation.join_loss import JoinLoss,PlanError,\
+        # get_simple_shortest_path_cost
+
+from cardinality_estimation.join_loss import *
 
 import itertools
 import multiprocessing
@@ -18,6 +21,9 @@ import datetime
 import pandas as pd
 import networkx as nx
 import inspect
+
+import MySQLdb
+import json
 
 EPSILON = 0.0000000001
 REL_LOSS_EPSILON = EPSILON
@@ -150,6 +156,8 @@ def get_loss(loss):
         return compute_join_order_loss
     elif loss == "mysql-loss":
         return compute_join_order_loss_mysql
+    elif loss == "mysql-cost-model":
+        return compute_cost_model_loss_mysql
     elif loss == "plan-loss":
         return compute_plan_loss
     elif loss == "flow-loss":
@@ -489,6 +497,7 @@ def get_join_results_name(alg_name):
                 HASH = time_hash)
     return name
 
+
 def compute_join_order_loss_mysql(queries, preds, **kwargs):
     '''
     TODO: also updates each query object with the relevant stats that we want
@@ -825,6 +834,10 @@ def compute_plan_loss(queries, preds, **kwargs):
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
 
+    # FIXME: plan-loss, need to change cardinality_key everywhere for
+    # dynamic-db
+    cardinality_key = "cardinality"
+
     env = PlanError(args.cost_model, "plan-loss", args.user, args.pwd,
             args.db_host, args.port, args.db_name, compute_pg_costs=True)
     exp_name = kwargs["exp_name"]
@@ -844,11 +857,11 @@ def compute_plan_loss(queries, preds, **kwargs):
 
     if costs is None:
         columns = ["sql_key", "plan","cost", "loss","samples_type", "template",
-                "qfn"]
+                "qfn", "card_key"]
         costs = pd.DataFrame(columns=columns)
     if costs_pg is None:
         columns2 = ["sql_key", "explain","plan","exec_sql","cost", "loss",
-                "postgresql_conf", "samples_type", "template", "qfn"]
+                "postgresql_conf", "samples_type", "template", "qfn", "card_key"]
         costs_pg = pd.DataFrame(columns=columns2)
 
     cur_costs = defaultdict(list)
@@ -917,3 +930,187 @@ def compute_plan_loss(queries, preds, **kwargs):
     # save_object(costs_fn_pg, combined_df_pg)
 
     return np.array(est_costs) - np.array(opt_costs)
+
+def compute_cost_model_loss_mysql(queries, preds, **kwargs):
+    '''
+    TODO: also updates each query object with the relevant stats that we want
+    to plot.
+    @queries: list of qrep objects
+    @preds: list of dicts
+
+    @output: updates ./results/join_order_loss.pkl file
+    '''
+    assert isinstance(queries, list)
+    assert isinstance(preds, list)
+    assert isinstance(queries[0], dict)
+
+    alg_name = kwargs["name"]
+    cardinality_key = kwargs["cardinality_key"]
+    args = kwargs["args"]
+
+    # env = JoinLoss(args.cost_model, args.user, args.pwd, args.db_host,
+            # args.port, args.db_name)
+
+    est_cardinalities = []
+    true_cardinalities = []
+    sqls = []
+    join_graphs = []
+    # FIXME: wasting a lot of memory
+    eval_queries = []
+
+    # TODO: save alg based predictions too
+    for i, qrep in enumerate(queries):
+        # TODO: check if this prediction is valid from both predictor / and for
+        # the ground truth
+        if preds[i] is None:
+            print("preds None!")
+            pdb.set_trace()
+            continue
+
+        ests = {}
+        trues = {}
+        predq = preds[i]
+        no_ground_truth_data = False
+
+        for node, node_info in qrep["subset_graph"].nodes().items():
+            if node == SOURCE_NODE:
+                continue
+            est_card = predq[node]
+            alias_key = ' '.join(node)
+            if cardinality_key not in node_info \
+                    or "actual" not in node_info[cardinality_key]:
+                no_ground_truth_data = True
+                break
+
+            trues[alias_key] = node_info[cardinality_key]["actual"]
+            if est_card == 0:
+                print("bad est card")
+                est_card += 1
+            ests[alias_key] = est_card
+
+        if no_ground_truth_data:
+            continue
+
+        eval_queries.append(qrep)
+        sqls.append(qrep["sql"])
+        join_graphs.append(qrep["join_graph"])
+        est_cardinalities.append(ests)
+        true_cardinalities.append(trues)
+
+    # est_costs, opt_costs, est_plans, opt_plans, est_sqls, opt_sqls = \
+                    # join_loss_pg(sqls, join_graphs, true_cardinalities,
+                            # est_cardinalities, env, True, pdf=None,
+                            # pool = None, join_loss_data_file =
+                            # args.join_loss_data_file, backend="mysql")
+
+    db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
+            host="127.0.0.1")
+    cursor = db.cursor()
+    cm_losses = []
+    cm_ratios = []
+
+    for i,qrep in enumerate(queries):
+        sql = sqls[i]
+
+        # mysqldb stuff
+        cursor.execute("SET optimizer_prune_level=0;")
+        opt_flags = MYSQL_OPT_TMP.format(FLAGS=MYSQL_OPT_FLAGS)
+        cursor.execute(opt_flags)
+        sql = preprocess_sql_mysql(sql)
+        sql = "EXPLAIN FORMAT=json " + sql
+        join_graph = join_graphs[i]
+        cards = true_cardinalities[i]
+        with open(MYSQL_CARD_FILE_NAME, 'w') as fp:
+            json.dump(cards, fp)
+
+        # TODO: don't need this if we can cache these results
+        cursor.execute(sql)
+        out = cursor.fetchall()
+        opt_plan_explain = json.loads(out[0][0])
+        opt_join_order = get_join_order_mysql(opt_plan_explain)
+        opt_cost=float(opt_plan_explain["query_block"]["cost_info"]["query_cost"])
+
+        fetched_rows = {}
+        for line in open('/tmp/fetched_rows.json', 'r'):
+            # fetched_rows.append(json.loads(line))
+            data = json.loads(line)
+            assert len(data.keys()) == 1
+            for k,v in data.items():
+                fetched_rows[k] = v
+
+        cm_opt_cost,cm_est_cost,opt_path,est_path= \
+                get_simple_shortest_path_cost(qrep, preds[i], preds[i],
+                args.cost_model, True, mysql_rows_fetched=fetched_rows)
+        plan_loss = cm_opt_cost-cm_est_cost
+
+        cm_plan_order = []
+        est_path = est_path[::-1]
+        cur_node = tuple([])
+
+        for node in est_path:
+            for alias in node:
+                if alias not in cur_node:
+                    cm_plan_order.append(alias)
+            cur_node = node
+
+        import copy
+        cm2 = copy.deepcopy(cm_plan_order)
+        cm_plan_order[0] = cm2[1]
+        cm_plan_order[1] = cm2[0]
+
+        new_from = []
+        for alias in cm_plan_order:
+            table = join_graph.nodes()[alias]["real_name"]
+            new_from.append("{} AS {}".format(table, alias))
+
+        from_clause = " STRAIGHT_JOIN ".join(new_from)
+        est_sql = nx_graph_to_query(join_graph, from_clause)
+        est_sql = preprocess_sql_mysql(est_sql)
+        est_sql_exec = est_sql
+        est_sql = "EXPLAIN FORMAT=json " + est_sql
+        cursor.execute(est_sql)
+        out = cursor.fetchall()
+        plan_explain = json.loads(out[0][0])
+
+        est_join_order_forced = get_join_order_mysql(plan_explain)
+        est_plan_cost=float(plan_explain["query_block"]["cost_info"]["query_cost"])
+        # print("est_join_order_forced: ", est_join_order_forced)
+        assert str(est_join_order_forced) == str(cm_plan_order)
+
+        if est_plan_cost - opt_cost > 1e6:
+            print("opt plan  order: ", cm_plan_order)
+            print("opt mysql order: ", opt_join_order)
+            print("CM Loss: {}, Plan Loss: {}".format(est_plan_cost-opt_cost,
+                                                      plan_loss))
+            # print(cm_est_cost, cm_opt_cost)
+            path = []
+            cur_node = []
+            for node in opt_join_order:
+                cur_node.append(node)
+                cur_node.sort()
+                path.append(tuple(cur_node))
+            subsetg = qrep["subset_graph"]
+            compute_costs(subsetg, args.cost_model, "cardinality",
+                    cost_key="tmp_cost",
+                    ests=preds[i],
+                    mysql_rows_fetched=fetched_rows)
+            # print("mysql path: ", path)
+            path = path[::-1]
+            # for edge in p1:
+            costs = []
+            for pi in range(len(path)-1):
+                costs.append(subsetg[path[pi]][path[pi+1]][args.cost_model+"tmp_cost"])
+
+            print("mysql plan, plan-cost: ", np.sum(costs))
+            print(path)
+            print(costs)
+
+            pdb.set_trace()
+
+        cm_losses.append(est_plan_cost-opt_cost)
+        cm_ratios.append(est_plan_cost / float(opt_cost))
+
+    print("cost model ratio: ", np.mean(cm_ratios))
+    return cm_losses
+
+

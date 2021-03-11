@@ -1433,7 +1433,8 @@ def add_single_node_edges(subset_graph, source=None):
                 subset_graph.add_edge(node2, node)
 
 def compute_costs(subset_graph, cost_model,
-        cardinality_key, cost_key="cost", ests=None):
+        cardinality_key, cost_key="cost", ests=None,
+        mysql_rows_fetched=None):
     '''
     @computes costs based on the MM1 cost model.
     '''
@@ -1506,7 +1507,7 @@ def compute_costs(subset_graph, cost_model,
                 card3 = ests[" ".join(node3)]
 
         cost, edges_kind = get_costs(subset_graph, card1, card2, card3, node1, node2,
-                cost_model, total1, total2)
+                cost_model, total1, total2, mysql_rows_fetched)
         assert cost != 0.0
 
         subset_graph[edge[0]][edge[1]][cost_key] = cost
@@ -1516,8 +1517,22 @@ def compute_costs(subset_graph, cost_model,
         total_cost += cost
     return total_cost
 
+PRIMARY_KEY_TABLES = ["t", "n", "n1", "k", "cn"]
+            # if not ("t" in node1 \
+                    # or "n" in node1 \
+                    # or "k" in node1):
+
+def get_mysql_index_cost(node, rf, other_card, card):
+    if node in rf:
+        cost = other_card* rf[node]
+        if node in PRIMARY_KEY_TABLES:
+            cost *= 0.1
+    else:
+        cost = other_card* 10000
+    return cost
+
 def get_costs(subset_graph, card1, card2, card3, node1, node2,
-        cost_model, total1=None, total2=None):
+        cost_model, total1=None, total2=None, mysql_rows_fetched=None):
     def update_edges_kind_with_seq(edges_kind, nilj_cost, cost2):
         if cost2 is not None and cost2 < nilj_cost:
             cost = cost2
@@ -1546,7 +1561,67 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
         pdb.set_trace()
 
     edges_kind = {}
-    if cost_model == "cm1":
+    if cost_model == "mysql1":
+        if mysql_rows_fetched is not None:
+            key_list = list(node1) + list(node2)
+            key_list.sort()
+            key = " ".join(key_list)
+            if key in mysql_rows_fetched:
+                rf = mysql_rows_fetched[key]
+                if len(node1) == 1 and len(node2) == 1:
+                    nilj_cost1 = get_mysql_index_cost(node2[0], rf, card1,
+                            card2)
+                    nilj_cost2 = get_mysql_index_cost(node1[0], rf, card2,
+                            card1)
+
+                    # if node2[0] in rf:
+                        # nilj_cost1 = card1* rf[node2[0]]
+                    # else:
+                        # nilj_cost1 = card1* 10000
+
+                    # if node1[0] in rf:
+                        # nilj_cost2 = card2* rf[node1[0]]
+                    # else:
+                        # nilj_cost2 = card2* 10000
+
+                    # nilj_cost2 = card2* mysql_rows_fetched[key][node1[0]]
+                    nilj_cost = min(nilj_cost1, nilj_cost2)
+
+                elif len(node1) == 1:
+                    nilj_cost = get_mysql_index_cost(node1[0], rf, card2,
+                            card1)
+                    # if node1[0] in rf:
+                        # nilj_cost = card2* rf[node1[0]]
+                    # else:
+                        # nilj_cost = TIMEOUT_COUNT_CONSTANT
+
+                elif len(node2) == 1:
+                    nilj_cost = get_mysql_index_cost(node2[0], rf, card1,
+                            card2)
+                    # if node2[0] in rf:
+                        # nilj_cost = card1* rf[node2[0]]
+                    # else:
+                        # nilj_cost = TIMEOUT_COUNT_CONSTANT
+            else:
+                nilj_cost = TIMEOUT_COUNT_CONSTANT
+
+        else:
+            if len(node1) == 1 and len(node2) == 1:
+                nilj_cost1 = card1* max(float(card1) / card3, 1.0)
+                nilj_cost2 = card2* max(float(card2) / card3, 1.0)
+                nilj_cost = min(nilj_cost1, nilj_cost2)
+
+            elif len(node1) == 1:
+                # nilj_cost = card2 + NILJ_CONSTANT*card1
+                nilj_cost = card2* max(float(card2) / card3, 1.0)
+            elif len(node2) == 1:
+                # nilj_cost = card1 + NILJ_CONSTANT*card2
+                # nilj_cost = card1
+                nilj_cost = card1* max(float(card1) / card3, 1.0)
+
+        cost = nilj_cost
+
+    elif cost_model == "cm1":
         if len(node1) == 1:
             nilj_cost = card2 + NILJ_CONSTANT*card1
         elif len(node2) == 1:

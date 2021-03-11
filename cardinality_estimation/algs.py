@@ -354,7 +354,7 @@ class TrueCardinalities(CardinalityEstimationAlg):
     def __init__(self):
         pass
 
-    def test(self, test_samples):
+    def test(self, test_samples, **kwargs):
         assert isinstance(test_samples[0], dict)
         preds = []
         for sample in test_samples:

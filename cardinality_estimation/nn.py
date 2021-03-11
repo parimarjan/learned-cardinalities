@@ -2123,7 +2123,7 @@ class NN(CardinalityEstimationAlg):
             return
         summary_data = defaultdict(list)
         query_idx = 0
-        subq_imps = self.subq_imp[samples_type]
+        # subq_imps = self.subq_imp[samples_type]
         for samplei, sample in enumerate(samples):
             template = sample["template_name"]
             sample_losses = []
@@ -2139,7 +2139,7 @@ class NN(CardinalityEstimationAlg):
                 summary_data["loss"].append(loss)
                 summary_data["num_tables"].append(num_tables)
                 summary_data["template"].append(template)
-                summary_data["subq_imp"].append(subq_imps[idx])
+                # summary_data["subq_imp"].append(subq_imps[idx])
                 sorted_node = list(node)
                 sorted_node.sort()
                 subq_id = deterministic_hash(str(sorted_node))

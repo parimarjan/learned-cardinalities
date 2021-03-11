@@ -902,17 +902,23 @@ def main():
         SOURCE_NODE = tuple(["SOURCE"])
         args.eval_on_job = False
 
-    if "join-loss" in args.losses or \
-            (args.sampling_priority_alpha > 0 and "nn" in args.algs):
-        if args.join_loss_pool_num == -1:
-            num_processes = int(mp.cpu_count())
-        else:
-            num_processes = args.join_loss_pool_num
-        join_loss_pool = mp.Pool(num_processes)
+    if args.join_loss_pool_num == -1:
+        num_processes = int(mp.cpu_count())
     else:
-        join_loss_pool = None
-    if args.no_join_loss_pool:
-        join_loss_pool = None
+        num_processes = args.join_loss_pool_num
+    join_loss_pool = mp.Pool(num_processes)
+
+    # if "join-loss" in args.losses or \
+            # (args.sampling_priority_alpha > 0 and "nn" in args.algs):
+        # if args.join_loss_pool_num == -1:
+            # num_processes = int(mp.cpu_count())
+        # else:
+            # num_processes = args.join_loss_pool_num
+        # join_loss_pool = mp.Pool(num_processes)
+    # else:
+        # join_loss_pool = None
+    # if args.no_join_loss_pool:
+        # join_loss_pool = None
 
     if args.max_epochs < args.eval_epoch \
             or not args.eval_test_while_training:
