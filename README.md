@@ -1,36 +1,29 @@
 # Testbed for Cardinality Estimation
 
-## Setup
+## Steps for running a simple example with flow-loss
 
-A docker image to set up postgres. We can update the init script in ./docker to
-set up the appropriate DB, and supply the relevant authentication args to
-main.py. For now, I just create a dummy DB and populate it with synthetic data.
+### Download the Cardinality Estimation Benchmark
 
-```bash
-$ cd docker
-$ sudo docker build -t card-est
-$ sudo docker run --name card-db -p 5401:5432 -d card-est
-```
+Follow instructions at https://github.com/Cardinality-Estimation-Benchmark/ceb
 
-Now, you can connect to the db with:
+This is neccessary as constructing the graph for Flow-Loss relies on the way we
+store queries in CEB etc.
+
+### Compile the Flow-Loss implementation
 
 ```bash
-$ psql -U card_est -h localhost -p 5401 -d card_est
+cd flow_loss_cpp
+make
 ```
 
-## Steps
 
-  * Create new DB + generate synthetic data OR set up a pre-existing DB
-  * Generate `interesting` cardinality queries (see cardinality_estimation/db_utils/Query)
-  using templates defined in ./test_templates. These queries can be over a
-  single table or multiple tables.
-  * Maybe, generate all possible SubQueries from each Query (only relevant for
-      multi-table joins)
-  * Implement an algorithm as a subclass of
-  cardinality_estimation/algs/CardinalityEstimationAlg. The train method can
-  use a bunch of the CardinalitySamples in the training set (`query-feedback` based systems, e.g.,
-      quicksel, neural nets etc.) or ignore those, and only use the
-  data in the underlying table (wavelet based classifier, pgm etc.) or combine
-  both of these.
-  * Compare performance on the test set etc.
+### Simple execution example
 
+After the CEB has been set up, and the queries extracted to query/imdb, run the
+following command to train a simple neural for CE with Flow-Loss. Use the
+appropriate PostgreSQL user / password (PostgreSQL should not be neccessary in
+    general, it is just used for featurizing the queries.)
+
+```bash
+python3 simple_flow_loss.py --query_dir queries/imdb/ --user pari --pwd password --query_template 1a -n 100 --normalize_flow_loss 1
+```

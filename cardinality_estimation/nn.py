@@ -2613,9 +2613,6 @@ class NN(CardinalityEstimationAlg):
                     opt_flow_loss))
 
         print("precomputing flow info took: ", time.time()-fstart)
-        # if new_seen:
-            # farchive.dump()
-        # del farchive
 
     def load_model(self, model_dir):
         # TODO: can model dir be reconstructed based on args?
