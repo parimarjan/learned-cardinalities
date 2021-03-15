@@ -65,7 +65,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
     '''
     '''
     start = time.time()
-    drop_cache_cmd = "./drop_cache.sh > /dev/null"
+    drop_cache_cmd = "./drop_cache_mysql.sh > /dev/null"
     p = sp.Popen(drop_cache_cmd, shell=True)
     p.wait()
 
