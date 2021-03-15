@@ -44,7 +44,7 @@ def read_flags():
     parser.add_argument("--explain", type=int, required=False,
             default=0)
     parser.add_argument("--timeout", type=int, required=False,
-            default=900000)
+            default=1800000)
     parser.add_argument("--materialize", type=int, required=False,
             default=0)
     parser.add_argument("--rerun_timeouts", type=int, required=False,
@@ -75,22 +75,38 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
     db = MySQLdb.connect(db=db_name, passwd=args.pwd, user=args.user,
             host=args.host)
     cursor = db.cursor()
+    if timeout is not None and timeout != 0.0:
+        cursor.execute("SET SESSION MAX_EXECUTION_TIME={};".format(timeout))
+
     cursor.execute("SET optimizer_prune_level=0;")
     opt_flags = MYSQL_OPT_TMP.format(FLAGS=MYSQL_OPT_FLAGS)
     cursor.execute(opt_flags)
 
-    print("going to execute!")
-    cursor.execute(sql)
+    try:
+        cursor.execute(sql)
+    except Exception as e:
+        #cursor.execute("ROLLBACK")
+        #con.commit()
+        if not "time" in str(e):
+            print("failed to execute for reason other than timeout")
+            print(e)
+            print(sql)
+            cursor.close()
+            return None, timeout/1000 + 9.0
+        else:
+            print("failed because of timeout!")
+            end = time.time()
+            print("{} took {} seconds".format(template, end-start))
+
+            return None, (timeout/1000) + 9.0
 
     explain = None
     if explain:
         explain = cursor.fetchall()[0]
         print(explain)
-
+    
     exec_time = time.time()-start
     print(exec_time)
-
-    pdb.set_trace()
     return explain, exec_time
 
 def main():
@@ -158,7 +174,6 @@ def main():
             print("Alg:{}, N:{}, AvgRt: {}".format(alg_dir, len(rts),
                 sum(rts) / len(rts)))
 
-            pdb.set_trace()
             df = pd.concat([runtimes, pd.DataFrame(cur_runtimes)], ignore_index=True)
             df.to_csv(rt_fn, index=False)
 
