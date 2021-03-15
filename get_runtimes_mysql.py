@@ -89,8 +89,6 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
 
     exec_time = time.time()-start
     print(exec_time)
-
-    pdb.set_trace()
     return explain, exec_time
 
 def main():
