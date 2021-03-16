@@ -93,7 +93,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
             print(e)
             print(sql)
             cursor.close()
-            return None, timeout/1000 + 9.0
+            return None, -1.0
         else:
             print("failed because of timeout!")
             end = time.time()
@@ -119,6 +119,7 @@ def main():
 
     rt_dirs = os.listdir(args.results_dir)
     print("sorted runtime directories: ", rt_dirs)
+    rt_dirs.sort()
     for alg_dir in rt_dirs:
         if alg_dir not in ["true", "postgres"]:
             continue
