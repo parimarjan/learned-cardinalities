@@ -76,7 +76,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
             host=args.host)
     cursor = db.cursor()
     if timeout is not None and timeout != 0.0:
-        print("set timeout to: ", timeout)
+        #print("set timeout to: ", timeout)
         cursor.execute("SET SESSION MAX_EXECUTION_TIME={};".format(timeout))
 
     cursor.execute("SET optimizer_prune_level=0;")
@@ -174,7 +174,7 @@ def main():
 
             rts = cur_runtimes["runtime"]
             print("Alg:{}, N:{}, AvgRt: {}".format(alg_dir, len(rts),
-                sum(rts) / len(rts)))
+                sum(rts) / len(rts)), flush=True)
 
             df = pd.concat([runtimes, pd.DataFrame(cur_runtimes)], ignore_index=True)
             df.to_csv(rt_fn, index=False)
