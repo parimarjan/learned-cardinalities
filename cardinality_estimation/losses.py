@@ -943,6 +943,35 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
     assert isinstance(queries, list)
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
+    def debug_plan_orders(order, explain):
+        path = []
+        cur_node = []
+        for node in order:
+            cur_node.append(node)
+            cur_node.sort()
+            path.append(tuple(cur_node))
+        subsetg = qrep["subset_graph"]
+        compute_costs(subsetg, args.cost_model, "cardinality",
+                cost_key="tmp_cost",
+                ests=preds[i],
+                mdata=mdata)
+
+        path = path[::-1]
+        costs = []
+        for pi in range(len(path)-1):
+            costs.append(subsetg[path[pi]][path[pi+1]][args.cost_model+"tmp_cost"])
+        costs = costs[::-1]
+
+        evalcost = extract_values(explain, "eval_cost")
+        readcost = extract_values(explain, "read_cost")
+
+        # print("shortest path plan, plan-cost: ", cm_est_cost)
+        print("mysql plan, plan-cost: ", np.sum(costs))
+        print(order)
+        print("plan costs: ", costs)
+        print("mysql readcosts: ", readcost)
+        print("mysql evalcosts: ", evalcost)
+
 
     alg_name = kwargs["name"]
     cardinality_key = kwargs["cardinality_key"]
@@ -1031,6 +1060,7 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         opt_cost=float(opt_plan_explain["query_block"]["cost_info"]["query_cost"])
 
         fetched_rows = {}
+        rc = {}
         for line in open('/tmp/fetched_rows.json', 'r'):
             # fetched_rows.append(json.loads(line))
             data = json.loads(line)
@@ -1038,9 +1068,20 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
             for k,v in data.items():
                 fetched_rows[k] = v
 
+        for line in open('/tmp/read_costs.json', 'r'):
+            # fetched_rows.append(json.loads(line))
+            data = json.loads(line)
+            assert len(data.keys()) == 1
+            for k,v in data.items():
+                rc[k] = v
+
+        mdata = {}
+        mdata["rc"] = rc
+        mdata["rf"] = fetched_rows
+
         cm_opt_cost,cm_est_cost,opt_path,est_path= \
                 get_simple_shortest_path_cost(qrep, preds[i], preds[i],
-                args.cost_model, True, mysql_rows_fetched=fetched_rows)
+                args.cost_model, True, mdata=mdata)
         plan_loss = cm_opt_cost-cm_est_cost
 
         cm_plan_order = []
@@ -1083,27 +1124,14 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
             print("CM Loss: {}, Plan Loss: {}".format(est_plan_cost-opt_cost,
                                                       plan_loss))
             # print(cm_est_cost, cm_opt_cost)
-            path = []
-            cur_node = []
-            for node in opt_join_order:
-                cur_node.append(node)
-                cur_node.sort()
-                path.append(tuple(cur_node))
-            subsetg = qrep["subset_graph"]
-            compute_costs(subsetg, args.cost_model, "cardinality",
-                    cost_key="tmp_cost",
-                    ests=preds[i],
-                    mysql_rows_fetched=fetched_rows)
-            # print("mysql path: ", path)
-            path = path[::-1]
-            # for edge in p1:
-            costs = []
-            for pi in range(len(path)-1):
-                costs.append(subsetg[path[pi]][path[pi+1]][args.cost_model+"tmp_cost"])
 
-            print("mysql plan, plan-cost: ", np.sum(costs))
-            print(path)
-            print(costs)
+            print("""DEBUGGING, shortest path plan-cost v/s mysql-cost for optimal mysql plan""")
+            debug_plan_orders(opt_join_order, opt_plan_explain)
+            print("""DEBUGGING, shortest path plan-cost v/s mysql-cost for optimal shortest path""")
+            debug_plan_orders(cm_plan_order, plan_explain)
+
+            est_explain = plan_explain["query_block"]["nested_loop"]
+            opt_explain = opt_plan_explain["query_block"]["nested_loop"]
 
             pdb.set_trace()
 
