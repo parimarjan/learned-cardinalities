@@ -105,7 +105,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
     if explain:
         explain = cursor.fetchall()[0]
         print(explain)
-    
+
     exec_time = time.time()-start
     print(exec_time)
     return explain, exec_time
@@ -121,8 +121,6 @@ def main():
     print("sorted runtime directories: ", rt_dirs)
     rt_dirs.sort()
     for alg_dir in rt_dirs:
-        if alg_dir not in ["true", "postgres"]:
-            continue
         args_fn = args.results_dir + "/" + alg_dir + "/" + "args.pkl"
         exp_args = load_object(args_fn)
         exp_args = vars(exp_args)
