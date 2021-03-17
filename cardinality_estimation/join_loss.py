@@ -1106,13 +1106,13 @@ def get_quadratic_program_cost(qrep, yhat, y,
     return quad_cost, est_quad_cost, cost,est_cost,opt_path,est_path
 
 def get_simple_shortest_path_cost(qrep, yhat, y,
-        cost_model, directed, mysql_rows_fetched=None):
+        cost_model, directed, mdata=None):
     def get_cost(subsetg, cost_key, ests):
         assert SOURCE_NODE in subsetg.nodes()
         cardinality_key = "cardinality"
         compute_costs(subsetg, cost_model, cardinality_key,
                 cost_key=cost_key,
-                ests=ests, mysql_rows_fetched=mysql_rows_fetched)
+                ests=ests, mdata=mdata)
         nodes = list(subsetg.nodes())
         nodes.sort(key=lambda x: len(x))
 

@@ -1434,7 +1434,7 @@ def add_single_node_edges(subset_graph, source=None):
 
 def compute_costs(subset_graph, cost_model,
         cardinality_key, cost_key="cost", ests=None,
-        mysql_rows_fetched=None):
+        mdata=None):
     '''
     @computes costs based on the MM1 cost model.
     '''
@@ -1469,6 +1469,7 @@ def compute_costs(subset_graph, cost_model,
             total1 = cards1["total"]
             total2 = cards2["total"]
         else:
+            assert False
             total1 = None
             total2 = None
 
@@ -1507,7 +1508,7 @@ def compute_costs(subset_graph, cost_model,
                 card3 = ests[" ".join(node3)]
 
         cost, edges_kind = get_costs(subset_graph, card1, card2, card3, node1, node2,
-                cost_model, total1, total2, mysql_rows_fetched)
+                cost_model, total1, total2, mdata)
         assert cost != 0.0
 
         subset_graph[edge[0]][edge[1]][cost_key] = cost
@@ -1518,21 +1519,70 @@ def compute_costs(subset_graph, cost_model,
     return total_cost
 
 PRIMARY_KEY_TABLES = ["t", "n", "n1", "k", "cn"]
-            # if not ("t" in node1 \
-                    # or "n" in node1 \
-                    # or "k" in node1):
+
+def get_mysql_read_cost(rc, left_nodes, right_node, left_card, right_card, left_total,
+        right_total, card3):
+    if right_node in rc:
+        return rc[right_node]
+    else:
+        return right_total
+        # print(rc)
+        # print(right_node)
+        # assert False
+
+    # left_sel = left_card / left_total
+    # assert left_sel <= 1.0
+    # if left_sel <= 0.5:
+        # return min(card3, right_card)
+
+    ## best general one so far
+    # if "kt" in left_nodes or \
+        # "rt" in left_nodes:
+        # left_sel = left_card / left_total
+        # left_sel = max(1.0, left_sel)
+        # # assert left_sel <= 1.0
+        # # return right_card*left_sel
+        # if left_sel <= 0.5:
+            # return min(card3, right_card)
+        # else:
+            # return card3
+        # # return min(card3, right_card)
+    # else:
+        # # usual one
+        # return right_card
+
+    ## doesn't work too great
+    # return min(card3, right_card)
+
+    ## attempt 1
+    # left_sel = left_card / left_total
+    # assert left_sel <= 1.0
+    # if left_sel <= 0.5:
+        # cost2 = left_sel*right_total
+
+    # cost1 = right_card
+    # cost = min(cost1, cost2)
+    # return cost
+
+    ## dumb version
+    # return right_card
 
 def get_mysql_index_cost(node, rf, other_card, card):
-    if node in rf:
-        cost = other_card* rf[node]
-        if node in PRIMARY_KEY_TABLES:
-            cost *= 0.1
-    else:
-        cost = other_card* 10000
-    return cost
+
+    return other_card + card
+
+    ## more accurate measure
+    # if node in rf:
+        # cost = other_card* rf[node]
+        # # if node in PRIMARY_KEY_TABLES:
+            # # cost *= 0.1
+    # else:
+        # cost = other_card* 10000
+    # return cost
 
 def get_costs(subset_graph, card1, card2, card3, node1, node2,
-        cost_model, total1=None, total2=None, mysql_rows_fetched=None):
+        cost_model, total1=None, total2=None, mdata=None):
+
     def update_edges_kind_with_seq(edges_kind, nilj_cost, cost2):
         if cost2 is not None and cost2 < nilj_cost:
             cost = cost2
@@ -1562,46 +1612,53 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
 
     edges_kind = {}
     if cost_model == "mysql1":
-        if mysql_rows_fetched is not None:
+        assert total1 is not None
+        if mdata is not None:
+            mysql_rows_fetched = mdata["rf"]
+            mysql_read_cost = mdata["rc"]
+
             key_list = list(node1) + list(node2)
             key_list.sort()
             key = " ".join(key_list)
-            if key in mysql_rows_fetched:
+            if key in mysql_rows_fetched and key in mysql_read_cost:
                 rf = mysql_rows_fetched[key]
+                rc = mysql_read_cost[key]
                 if len(node1) == 1 and len(node2) == 1:
-                    nilj_cost1 = get_mysql_index_cost(node2[0], rf, card1,
-                            card2)
-                    nilj_cost2 = get_mysql_index_cost(node1[0], rf, card2,
-                            card1)
+                    # nilj_cost1 = get_mysql_index_cost(node2[0], rf, card1,
+                            # card2)*0.1
+                    nilj_cost1 = card3*0.1
+                    rcost1 = get_mysql_read_cost(rc, node1, node2[0], card1,
+                            card2, total1, total2, card3)
+                    nilj_cost1 += rcost1
+                    # reading in the initial table
+                    nilj_cost1 += card1
 
-                    # if node2[0] in rf:
-                        # nilj_cost1 = card1* rf[node2[0]]
-                    # else:
-                        # nilj_cost1 = card1* 10000
+                    # nilj_cost2 = get_mysql_index_cost(node1[0], rf, card2,
+                            # card1)*0.1
+                    nilj_cost2 = card3*0.1
+                    rcost2 = get_mysql_read_cost(rc, node2, node1[0], card2,
+                            card1, total2, total1, card3)
+                    nilj_cost2 += rcost2
+                    nilj_cost2 += card2
 
-                    # if node1[0] in rf:
-                        # nilj_cost2 = card2* rf[node1[0]]
-                    # else:
-                        # nilj_cost2 = card2* 10000
-
-                    # nilj_cost2 = card2* mysql_rows_fetched[key][node1[0]]
                     nilj_cost = min(nilj_cost1, nilj_cost2)
 
                 elif len(node1) == 1:
-                    nilj_cost = get_mysql_index_cost(node1[0], rf, card2,
-                            card1)
-                    # if node1[0] in rf:
-                        # nilj_cost = card2* rf[node1[0]]
-                    # else:
-                        # nilj_cost = TIMEOUT_COUNT_CONSTANT
+                    # nilj_cost = get_mysql_index_cost(node1[0], rf, card2,
+                            # card1)*0.1
+                    nilj_cost = card3*0.1
+                    rcost = get_mysql_read_cost(rc, node2, node1[0], card2,
+                            card1, total2, total1, card3)
+                    nilj_cost += rcost
 
                 elif len(node2) == 1:
-                    nilj_cost = get_mysql_index_cost(node2[0], rf, card1,
-                            card2)
-                    # if node2[0] in rf:
-                        # nilj_cost = card1* rf[node2[0]]
-                    # else:
-                        # nilj_cost = TIMEOUT_COUNT_CONSTANT
+                    # nilj_cost = get_mysql_index_cost(node2[0], rf, card1,
+                            # card2)*0.1
+                    nilj_cost = card3*0.1
+                    rcost = get_mysql_read_cost(rc, node1, node2[0], card1,
+                            card2, total1, total2, card3)
+                    nilj_cost += rcost
+
             else:
                 nilj_cost = TIMEOUT_COUNT_CONSTANT
 
