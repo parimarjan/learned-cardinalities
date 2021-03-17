@@ -935,6 +935,8 @@ def main():
         old_args.eval_on_job = args.eval_on_job
         old_args.max_epochs = args.max_epochs
         old_args.debug_set = args.debug_set
+        if args.debug_set:
+            old_args.use_val_set = args.use_val_set
         old_args.eval_epoch = args.eval_epoch
         old_args.result_dir = args.result_dir
         # so it can load the current model
@@ -971,7 +973,7 @@ def main():
         args = old_args
         load_db = False
 
-        if old_args.diff_templates_seed != 7:
+        if old_args.diff_templates_seed == 7:
             exit(-1)
 
         # print(old_args.test_diff_templates)

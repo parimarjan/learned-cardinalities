@@ -163,9 +163,11 @@ class SavedPreds(CardinalityEstimationAlg):
             # assert sample["name"] in self.saved_preds
             key = os.path.basename(sample["name"])
             if key not in self.saved_preds:
+                print("key not in saved preds!")
                 print(sample["name"])
                 print(key)
-                pdb.set_trace()
+                exit(-1)
+                # pdb.set_trace()
             preds.append(self.saved_preds[key])
         return preds
 
