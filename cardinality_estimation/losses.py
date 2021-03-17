@@ -1059,25 +1059,28 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         opt_join_order = get_join_order_mysql(opt_plan_explain)
         opt_cost=float(opt_plan_explain["query_block"]["cost_info"]["query_cost"])
 
-        fetched_rows = {}
-        rc = {}
-        for line in open('/tmp/fetched_rows.json', 'r'):
-            # fetched_rows.append(json.loads(line))
-            data = json.loads(line)
-            assert len(data.keys()) == 1
-            for k,v in data.items():
-                fetched_rows[k] = v
+        if False:
+            mdata = None
+        else:
+            fetched_rows = {}
+            rc = {}
+            for line in open('/tmp/fetched_rows.json', 'r'):
+                # fetched_rows.append(json.loads(line))
+                data = json.loads(line)
+                assert len(data.keys()) == 1
+                for k,v in data.items():
+                    fetched_rows[k] = v
 
-        for line in open('/tmp/read_costs.json', 'r'):
-            # fetched_rows.append(json.loads(line))
-            data = json.loads(line)
-            assert len(data.keys()) == 1
-            for k,v in data.items():
-                rc[k] = v
+            for line in open('/tmp/read_costs.json', 'r'):
+                # fetched_rows.append(json.loads(line))
+                data = json.loads(line)
+                assert len(data.keys()) == 1
+                for k,v in data.items():
+                    rc[k] = v
 
-        mdata = {}
-        mdata["rc"] = rc
-        mdata["rf"] = fetched_rows
+            mdata = {}
+            mdata["rc"] = rc
+            mdata["rf"] = fetched_rows
 
         cm_opt_cost,cm_est_cost,opt_path,est_path= \
                 get_simple_shortest_path_cost(qrep, preds[i], preds[i],
@@ -1118,16 +1121,23 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         # print("est_join_order_forced: ", est_join_order_forced)
         assert str(est_join_order_forced) == str(cm_plan_order)
 
-        if est_plan_cost - opt_cost > 1e6:
+        # if est_plan_cost - opt_cost > 1e6:
+        if False:
             print("opt plan  order: ", cm_plan_order)
             print("opt mysql order: ", opt_join_order)
             print("CM Loss: {}, Plan Loss: {}".format(est_plan_cost-opt_cost,
                                                       plan_loss))
             # print(cm_est_cost, cm_opt_cost)
+            import copy
+            opt2 = copy.deepcopy(opt_join_order)
+            opt_join_order[0] = opt2[1]
+            opt_join_order[1] = opt2[0]
 
             print("""DEBUGGING, shortest path plan-cost v/s mysql-cost for optimal mysql plan""")
+            print("opt cost: ", opt_cost)
             debug_plan_orders(opt_join_order, opt_plan_explain)
             print("""DEBUGGING, shortest path plan-cost v/s mysql-cost for optimal shortest path""")
+            print("est plan cost: ", est_plan_cost)
             debug_plan_orders(cm_plan_order, plan_explain)
 
             est_explain = plan_explain["query_block"]["nested_loop"]
