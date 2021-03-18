@@ -171,7 +171,7 @@ def main():
                 print("should never have repeated for execution")
                 continue
 
-            for rep in enumerate(args.reps):
+            for rep in enumerate(range(args.reps)):
                 exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
                         cost_model=cost_model, results_fn=args.results_fn,
                         explain=args.explain,
