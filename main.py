@@ -973,8 +973,8 @@ def main():
         args = old_args
         load_db = False
 
-        if old_args.diff_templates_seed == 7:
-            exit(-1)
+        # if old_args.diff_templates_seed != 7:
+            # exit(-1)
 
         # print(old_args.test_diff_templates)
         # print(old_args.diff_templates_seed)

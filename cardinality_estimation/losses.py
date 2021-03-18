@@ -1059,7 +1059,7 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         opt_join_order = get_join_order_mysql(opt_plan_explain)
         opt_cost=float(opt_plan_explain["query_block"]["cost_info"]["query_cost"])
 
-        if False:
+        if args.cost_model != "mysql1":
             mdata = None
         else:
             fetched_rows = {}

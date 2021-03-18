@@ -47,6 +47,10 @@ def read_flags():
             default=1800000)
     parser.add_argument("--materialize", type=int, required=False,
             default=0)
+    parser.add_argument("--drop_cache", type=int, required=False,
+            default=1)
+    parser.add_argument("--reps", type=int, required=False,
+            default=3)
     parser.add_argument("--rerun_timeouts", type=int, required=False,
             default=0)
     parser.add_argument("--db_name", type=str, required=False,
@@ -61,13 +65,15 @@ def read_flags():
     return parser.parse_args()
 
 def execute_sql(db_name, sql, template="sql", cost_model="cm1",
-        results_fn="jerr.pkl", explain=False, timeout=900000):
+        results_fn="jerr.pkl", explain=False, timeout=900000,
+        drop_cache=True):
     '''
     '''
     start = time.time()
-    drop_cache_cmd = "./drop_cache_mysql.sh > /dev/null"
-    p = sp.Popen(drop_cache_cmd, shell=True)
-    p.wait()
+    if drop_cache:
+        drop_cache_cmd = "./drop_cache_mysql.sh > /dev/null"
+        p = sp.Popen(drop_cache_cmd, shell=True)
+        p.wait()
 
     if explain:
         sql = "EXPLAIN FORMAT=json " + sql
@@ -164,12 +170,14 @@ def main():
             if row["sql_key"] in cur_runtimes["sql_key"]:
                 print("should never have repeated for execution")
                 continue
-            exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
-                    cost_model=cost_model, results_fn=args.results_fn,
-                    explain=args.explain,
-                    timeout=args.timeout)
 
-            add_runtime_row(row["sql_key"], rt, exp_analyze)
+            for rep in enumerate(args.reps):
+                exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
+                        cost_model=cost_model, results_fn=args.results_fn,
+                        explain=args.explain,
+                        timeout=args.timeout,
+                        drop_cache=args.drop_cache)
+                add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]
             print("Alg:{}, N:{}, AvgRt: {}".format(alg_dir, len(rts),
