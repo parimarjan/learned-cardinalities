@@ -405,7 +405,7 @@ def load_samples(qfns, db, found_db, template_name,
 
         mdata_fn = qfns[qi]
         mdata_fn = mdata_fn.replace("queries", "mysql_data")
-        if not os.path.exists(mdata_fn):
+        if not os.path.exists(mdata_fn) and args.loss_func == "flow_loss2":
             skipped += 1
             continue
 
@@ -1240,7 +1240,7 @@ def read_flags():
     parser.add_argument("--eval_on_jobm", type=int, required=False,
             default=0)
     parser.add_argument("--add_job_features", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--add_test_features", type=int, required=False,
             default=1)
     parser.add_argument("--job_skip_zero_queries", type=int, required=False,
@@ -1308,7 +1308,7 @@ def read_flags():
     parser.add_argument("--num_tables_feature", type=int, required=False,
             default=1)
     parser.add_argument("--flow_features", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--table_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_features", type=int, required=False,
@@ -1323,7 +1323,7 @@ def read_flags():
     parser.add_argument("--heuristic_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_loss_pool_num", type=int, required=False,
-            default=10)
+            default=-1)
     parser.add_argument("--no_join_loss_pool", type=int, required=False,
             default=0)
     parser.add_argument("--group_models", type=int, required=False,

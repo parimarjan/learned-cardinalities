@@ -1062,8 +1062,8 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
     cm_ratios = []
 
     for i,qrep in enumerate(queries):
-        # if i % 10 == 0:
-            # print(i)
+        if i % 10 == 0:
+            print(i)
         sql = sqls[i]
 
         # mysqldb stuff
@@ -1085,35 +1085,46 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         opt_cost=float(opt_plan_explain["query_block"]["cost_info"]["query_cost"])
 
         fn = qrep["name"]
-        fn = fn.replace("queries", "mysql_data")
+        # fn = fn.replace("queries", "tmp_mysql_data")
+        fn = fn.replace("queries", "tmp_mysql_data2")
 
         if os.path.exists(fn):
             # mdata = None
             mdata = load_object(fn)
         else:
-            fetched_rows = {}
-            rc = {}
-            for line in open('/tmp/fetched_rows.json', 'r'):
-                # fetched_rows.append(json.loads(line))
-                data = json.loads(line)
-                assert len(data.keys()) == 1
-                for k,v in data.items():
-                    fetched_rows[k] = v
+            fn2 = fn.replace("tmp_mysql_data", "tmp_fetched_rows")
+            fn3 = fn.replace("tmp_mysql_data", "tmp_read_costs")
+            make_dir(os.path.dirname(fn2))
+            make_dir(os.path.dirname(fn3))
+            os.rename("/tmp/fetched_rows.json", fn2)
+            os.rename("/tmp/read_costs.json", fn3)
 
-            for line in open('/tmp/read_costs.json', 'r'):
-                # fetched_rows.append(json.loads(line))
-                data = json.loads(line)
-                assert len(data.keys()) == 1
-                for k,v in data.items():
-                    rc[k] = v
+            # fetched_rows = {}
+            # rc = {}
+            # for line in open('/tmp/fetched_rows.json', 'r'):
+                # data = json.loads(line)
+                # assert len(data.keys()) == 1
+                # for k,v in data.items():
+                    # fetched_rows[k] = v
 
-            mdata = {}
-            mdata["rc"] = rc
-            mdata["rf"] = fetched_rows
-            # let's save this ftw
-            make_dir(os.path.dirname(fn))
-            save_object(fn, mdata)
 
+            # for line in open('/tmp/read_costs.json', 'r'):
+                # data = json.loads(line)
+                # assert len(data.keys()) == 1
+                # for k,v in data.items():
+                    # rc[k] = v
+
+            # mdata = {}
+            # mdata["rc"] = rc
+            # mdata["rf"] = fetched_rows
+            # # let's save this ftw
+            # make_dir(os.path.dirname(fn))
+            # save_object(fn, mdata)
+
+        # FIXME:
+        cm_losses.append(1.0)
+        cm_ratios.append(2.0)
+        continue
         cm_opt_cost,cm_est_cost,opt_path,est_path= \
                 get_simple_shortest_path_cost(qrep, preds[i], preds[i],
                 args.cost_model, True, mdata=mdata)

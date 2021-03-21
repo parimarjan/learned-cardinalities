@@ -692,7 +692,6 @@ class JoinLoss():
                 pdb.set_trace()
                 continue
 
-
         return np.array(est_costs), np.array(opt_costs), est_explains, \
     opt_explains, est_sqls, opt_sqls
 

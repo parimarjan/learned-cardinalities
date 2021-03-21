@@ -2430,13 +2430,13 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
                     edges_read_costs[edgei] = 699999.0
 
             if joined_key not in mdata["rf"]:
-                edges_rows_fetched[edgei] = OLD_TIMEOUT_COUNT_CONSTANT
+                edges_rows_fetched[edgei] = 10.0;
             else:
                 rdata = mdata["rf"][joined_key]
                 if node2[0] in rdata:
                     edges_rows_fetched[edgei] = rdata[node2[0]]
                 else:
-                    edges_rows_fetched[edgei] = 10000.0
+                    edges_rows_fetched[edgei] = 10.0
 
             if len(node1) == 1:
                 # add the cost of reading node1 to it too

@@ -557,7 +557,7 @@ void get_costs18(float *ests, float *totals,
   card3 = ests[head_node];
   rc = edges_read_costs[i];
   if (rc == RC_CONST) {
-    rc = card2*100.0;
+    rc = card2;
   }
 
   rf = edges_rows_fetched[i];
