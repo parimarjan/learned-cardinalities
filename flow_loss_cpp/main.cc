@@ -11,6 +11,9 @@
 #define CARD_DIVIDER 0.001
 #define SEQ_CONSTANT 5.0
 
+//#define OLD_TIMEOUT_CONSTANT 150001001.0
+#define RC_CONST 699999.0
+
 void get_dfdg_par(int num_edges, int num_nodes,
     int *edges_head, int *edges_tail,
     float *QinvG, float *v, float *dfdg, int batch,
@@ -537,6 +540,48 @@ void get_costs16(float *ests, float *totals,
   }
 }
 
+void get_costs18(float *ests, float *totals,
+    double min_val, double max_val, int normalization_type,
+    int *edges_cost_node1, int *edges_cost_node2,
+    int *nilj, float *edges_read_costs, float *edges_rows_fetched,
+    int num_nodes, int num_edges,
+    float *costs, float *dgdxt, int i, int head_node)
+{
+  // head node is the joined node
+  float card1, card2, card3, nilj_cost, ratio_mul, rc, rf;
+  int node1, node2;
+  node1 = edges_cost_node1[i];
+  node2 = edges_cost_node2[i];
+  card1 = ests[node1];
+  card2 = ests[node2];
+  card3 = ests[head_node];
+  rc = edges_read_costs[i];
+  if (rc == RC_CONST) {
+    rc = card2*100.0;
+  }
+
+  rf = edges_rows_fetched[i];
+
+  // TODO: use rows_fetched to calculate work done instead of card1
+  //float cost = rc + 0.1*card1;
+  float cost = rc + 0.1*card1*rf;
+  costs[i] = cost;
+
+  /* time to compute gradients */
+  if (normalization_type == 2) {
+      if (nilj[i]  == 1) {
+          printf("should not have happened\n");
+          exit(-1);
+      } else {
+          //dgdxt[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
+          //dgdxt[node1*num_edges + i] = - (max_val*card1*0.1) / (cost*cost);
+          dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf) / (cost*cost);
+          dgdxt[node2*num_edges + i] = 0.0;
+          dgdxt[head_node*num_edges + i] = 0.0;
+      }
+  }
+}
+
 
 void get_costs11(float *ests, float *totals,
     double min_val, double max_val, int normalization_type,
@@ -1023,6 +1068,7 @@ extern "C" void get_optimization_variables(
     int *edges_cost_node1, int *edges_cost_node2,
     int *edges_head, int *edges_tail,
     int *nilj, float *edges_penalties,
+    float *edges_read_costs, float *edges_rows_fetched,
     int num_nodes, int num_edges,
     // return arguments below, will be edited in place
     float *costs, float *dgdxT,
@@ -1112,6 +1158,12 @@ extern "C" void get_optimization_variables(
     } else if (cost_model == 17) {
       get_costs17(ests, totals, min_val, max_val, normalization_type,
           edges_cost_node1, edges_cost_node2, nilj, num_nodes, num_edges,
+          costs, dgdxT, i, head_node);
+    } else if (cost_model == 18) {
+      get_costs18(ests, totals, min_val, max_val, normalization_type,
+          edges_cost_node1, edges_cost_node2, nilj,
+          edges_read_costs, edges_rows_fetched,
+          num_nodes, num_edges,
           costs, dgdxT, i, head_node);
     }
 

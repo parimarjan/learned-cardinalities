@@ -64,6 +64,8 @@ OLD_TIMEOUT_COUNT_CONSTANT = 150001001
 OLD_CROSS_JOIN_CONSTANT = 150001000
 OLD_EXCEPTION_COUNT_CONSTANT = 150001002
 
+# FIXME: this exceeds max(float32) --- might cause problems in flow-loss
+# implementation?
 TIMEOUT_COUNT_CONSTANT = 150001000001
 CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
@@ -1507,9 +1509,14 @@ def compute_costs(subset_graph, cost_model,
                 card2 = ests[" ".join(node2)]
                 card3 = ests[" ".join(node3)]
 
+        # edge = subset_graph[node
+        # pdb.set_trace()
+
         cost, edges_kind = get_costs(subset_graph, card1, card2, card3, node1, node2,
                 cost_model, total1, total2, mdata)
-        assert cost != 0.0
+        # assert cost != 0.0
+        # if cost == 0:
+            # cost += 1
 
         subset_graph[edge[0]][edge[1]][cost_key] = cost
         # print(cost_key + "scan_type")
@@ -1520,15 +1527,27 @@ def compute_costs(subset_graph, cost_model,
 
 PRIMARY_KEY_TABLES = ["t", "n", "n1", "k", "cn"]
 
-def get_mysql_read_cost(rc, left_nodes, right_node, left_card, right_card, left_total,
-        right_total, card3):
+def get_heuristic_read_cost(inode, icard, other_node, other_card, join_keys):
+
+    # return icard
+    if inode in PRIMARY_KEY_TABLES:
+        if "kt" in other_node or \
+            "rt" in other_node:
+            return icard*0.1
+        else:
+            return icard
+    else:
+        return icard
+
+def get_mysql_read_cost(rc, left_nodes, right_node, left_card, right_card,
+        left_total, right_total, card3):
+    # best one, read from stuff:
     if right_node in rc:
         return rc[right_node]
     else:
-        return right_total
-        # print(rc)
-        # print(right_node)
-        # assert False
+        return right_card * 100.0;
+        # return TIMEOUT_COUNT_CONSTANT
+        # return right_card*1000000000.0;
 
     # left_sel = left_card / left_total
     # assert left_sel <= 1.0
@@ -1569,16 +1588,16 @@ def get_mysql_read_cost(rc, left_nodes, right_node, left_card, right_card, left_
 
 def get_mysql_index_cost(node, rf, other_card, card):
 
-    return other_card + card
+    # return other_card + card
 
     ## more accurate measure
-    # if node in rf:
-        # cost = other_card* rf[node]
-        # # if node in PRIMARY_KEY_TABLES:
-            # # cost *= 0.1
-    # else:
-        # cost = other_card* 10000
-    # return cost
+    if node in rf:
+        cost = other_card* rf[node]
+        # if node in PRIMARY_KEY_TABLES:
+            # cost *= 0.1
+    else:
+        cost = other_card* 10000
+    return cost
 
 def get_costs(subset_graph, card1, card2, card3, node1, node2,
         cost_model, total1=None, total2=None, mdata=None):
@@ -1611,7 +1630,11 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
         pdb.set_trace()
 
     edges_kind = {}
-    if cost_model == "mysql1":
+    if cost_model == "mysql_rc":
+        # FIXME: pass in mdata here
+        cost = card1
+
+    elif cost_model == "mysql1":
         assert total1 is not None
         if mdata is not None:
             mysql_rows_fetched = mdata["rf"]
@@ -1624,40 +1647,67 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
                 rf = mysql_rows_fetched[key]
                 rc = mysql_read_cost[key]
                 if len(node1) == 1 and len(node2) == 1:
+                    nilj_cost1 = 1.0
                     # nilj_cost1 = get_mysql_index_cost(node2[0], rf, card1,
                             # card2)*0.1
-                    nilj_cost1 = card3*0.1
+
                     rcost1 = get_mysql_read_cost(rc, node1, node2[0], card1,
                             card2, total1, total2, card3)
                     nilj_cost1 += rcost1
                     # reading in the initial table
                     nilj_cost1 += card1
 
-                    # nilj_cost2 = get_mysql_index_cost(node1[0], rf, card2,
-                            # card1)*0.1
-                    nilj_cost2 = card3*0.1
+                    # rows_fetched
+                    if node2[0] in rf:
+                        nilj_cost1 += 0.1*card1*rf[node2[0]]
+                    else:
+                        nilj_cost1 += OLD_TIMEOUT_COUNT_CONSTANT
+
+                    nilj_cost2 = 1.0
+
                     rcost2 = get_mysql_read_cost(rc, node2, node1[0], card2,
                             card1, total2, total1, card3)
                     nilj_cost2 += rcost2
                     nilj_cost2 += card2
+
+                    # rows fetched
+                    if node1[0] in rf:
+                        nilj_cost1 += 0.1*card2*rf[node1[0]]
+                    else:
+                        nilj_cost1 += OLD_TIMEOUT_COUNT_CONSTANT
 
                     nilj_cost = min(nilj_cost1, nilj_cost2)
 
                 elif len(node1) == 1:
                     # nilj_cost = get_mysql_index_cost(node1[0], rf, card2,
                             # card1)*0.1
-                    nilj_cost = card3*0.1
+
+                    nilj_cost = 0.0
                     rcost = get_mysql_read_cost(rc, node2, node1[0], card2,
                             card1, total2, total1, card3)
                     nilj_cost += rcost
 
+                    ## one of these
+                    # nilj_cost += card2*0.1
+                    if node1[0] in rf:
+                        nilj_cost += 0.1*card2*rf[node1[0]]
+                    else:
+                        nilj_cost += OLD_TIMEOUT_COUNT_CONSTANT
+
                 elif len(node2) == 1:
                     # nilj_cost = get_mysql_index_cost(node2[0], rf, card1,
                             # card2)*0.1
-                    nilj_cost = card3*0.1
+
+                    nilj_cost = 0.0
                     rcost = get_mysql_read_cost(rc, node1, node2[0], card1,
                             card2, total1, total2, card3)
                     nilj_cost += rcost
+
+                    # nilj_cost = card1*0.1
+                    if node2[0] in rf:
+                        nilj_cost += 0.1*card1*rf[node2[0]]
+                    else:
+                        nilj_cost += OLD_TIMEOUT_COUNT_CONSTANT
 
             else:
                 nilj_cost = TIMEOUT_COUNT_CONSTANT
@@ -1677,6 +1727,47 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
                 nilj_cost = card1* max(float(card1) / card3, 1.0)
 
         cost = nilj_cost
+
+    elif cost_model == "mysql2":
+
+        if len(node1) == 1 and len(node2) == 1:
+            # nilj_cost = card2 + NILJ_CONSTANT*card1
+            # assume node1 is on the left always --- this will happen twice
+            # nilj_cost = card1 + card2
+            nilj_cost1 = 1.0
+            rcost1 = get_heuristic_read_cost(node2, card2, node1, card1, None)
+            nilj_cost1 += rcost1
+            # reading in the initial table
+            nilj_cost1 += card1
+
+            nilj_cost2 = 1.0
+            rcost2 = get_heuristic_read_cost(node1, card1, node2, card2, None)
+            nilj_cost2 += rcost2
+            nilj_cost2 += card2
+
+            nilj_cost = min(nilj_cost1, nilj_cost2)
+
+        elif len(node1) == 1:
+            # ccost = card2* max(float(card2) / card3, 1.0)*0.1
+            ccost = card2
+            rcost = get_heuristic_read_cost(node1, card1, node2, card2, None)
+            nilj_cost = ccost + rcost
+            # nilj_cost = card2*0.1 + rcost
+        elif len(node2) == 1:
+            # ccost = card1* max(float(card1) / card3, 1.0)*0.1
+            ccost = card1
+            rcost = get_heuristic_read_cost(node2, card2, node1, card1, None)
+            # nilj_cost = card1*0.1 + rcost
+            nilj_cost = ccost + rcost
+        else:
+            assert False
+
+        cost = nilj_cost
+        # cost2 = card1*card2
+        # if cost2 < nilj_cost:
+            # cost = cost2
+        # else:
+            # cost = nilj_cost
 
     elif cost_model == "cm1":
         if len(node1) == 1:
@@ -2224,9 +2315,11 @@ def construct_lp(subsetg, cost_key="cost"):
 
     return edges, c, A, b, G, h
 
-def get_subsetg_vectors(sample, cost_model, source_node=None):
+def get_subsetg_vectors(sample, cost_model, source_node=None,
+        mysql_costs=True):
     start = time.time()
     node_dict = {}
+
     # edge_dict = {}
     nodes = list(sample["subset_graph"].nodes())
 
@@ -2262,6 +2355,19 @@ def get_subsetg_vectors(sample, cost_model, source_node=None):
     final_node = 0
     max_len_nodes = 0
 
+    # TODO: load mysql read-cost data
+    fn = sample["name"]
+    fn = fn.replace("queries", "mysql_data")
+
+    if os.path.exists(fn) and mysql_costs:
+        mdata = load_object(fn)
+        edges_read_costs = [0]*M
+        edges_rows_fetched = [0]*M
+    else:
+        edges_read_costs = None
+        edges_rows_fetched = None
+
+
     for nodei, node in enumerate(nodes):
         node_dict[node] = nodei
         # totals[nodei] = subsetg.nodes()[node]["cardinality"]["total"]
@@ -2276,6 +2382,10 @@ def get_subsetg_vectors(sample, cost_model, source_node=None):
             edges_tail[edgei] = SOURCE_NODE_CONST
             edges_cost_node1[edgei] = SOURCE_NODE_CONST
             edges_cost_node2[edgei] = SOURCE_NODE_CONST
+            if edges_read_costs is not None:
+                edges_read_costs[edgei] = 1.0
+                edges_rows_fetched[edgei] = 1.0
+
             if cost_model == "nested_loop_index8b":
                 edges_head[edgei+num_edges] = node_dict[edge[0]]
                 edges_tail[edgei+num_edges] = SOURCE_NODE_CONST
@@ -2300,8 +2410,42 @@ def get_subsetg_vectors(sample, cost_model, source_node=None):
         node2 = tuple(node2)
         assert node2 in subsetg.nodes()
 
+        # edge[0] is the joined node
+        # node2 is the new node we joined to get to edge[0]
+        assert len(node2) == 1
+
+        if edges_read_costs is not None:
+            # TODO: update keys to store tuples
+            joined_key = " ".join(edge[0])
+            if joined_key not in mdata["rc"]:
+                # edges_read_costs[edgei] = float(OLD_TIMEOUT_COUNT_CONSTANT)
+                edges_read_costs[edgei] = 699999.0
+            else:
+                rdata = mdata["rc"][joined_key]
+                if node2[0] in rdata:
+                    edges_read_costs[edgei] = rdata[node2[0]]
+                else:
+                    # TIMEOUT_COUNT_CONSTANT exceeds max(float32)
+                    # edges_read_costs[edgei] = float(OLD_TIMEOUT_COUNT_CONSTANT)
+                    edges_read_costs[edgei] = 699999.0
+
+            if joined_key not in mdata["rf"]:
+                edges_rows_fetched[edgei] = OLD_TIMEOUT_COUNT_CONSTANT
+            else:
+                rdata = mdata["rf"][joined_key]
+                if node2[0] in rdata:
+                    edges_rows_fetched[edgei] = rdata[node2[0]]
+                else:
+                    edges_rows_fetched[edgei] = 10000.0
+
+            if len(node1) == 1:
+                # add the cost of reading node1 to it too
+                rcost = mdata["rc"][node1[0]][node1[0]]
+                # edges_read_costs[edgei] += rcost
+
         edges_cost_node1[edgei] = node_dict[node1]
         edges_cost_node2[edgei] = node_dict[node2]
+
         if cost_model == "nested_loop_index8b":
             edges_cost_node1[edgei+num_edges] = node_dict[node1]
             edges_cost_node2[edgei+num_edges] = node_dict[node2]
@@ -2375,11 +2519,14 @@ def get_subsetg_vectors(sample, cost_model, source_node=None):
     edges_cost_node2 = np.array(edges_cost_node2, dtype=np.int32)
     nilj = np.array(nilj, dtype=np.int32)
     edges_penalties = np.array(edges_penalties, dtype=np.float32)
+    if edges_read_costs is not None:
+        edges_read_costs = np.array(edges_read_costs, dtype=np.float32)
+        edges_rows_fetched = np.array(edges_rows_fetched, dtype = np.float32)
 
-    # print("get subsetg vectors took: ", time.time()-start)
     return totals, edges_head, edges_tail, nilj, \
-            edges_cost_node1, edges_cost_node2, final_node, \
-            edges_penalties
+            edges_cost_node1, edges_cost_node2, \
+            edges_read_costs, edges_rows_fetched, \
+            final_node, edges_penalties
 
 def get_subq_flows(qrep, cost_key):
     # TODO: save or not?
@@ -2425,7 +2572,8 @@ def debug_flow_loss(sample, source_node, cost_key,
     assert len(subsetg_vectors) == 7
 
     totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-            edges_cost_node2, final_node, edges_penalties = subsetg_vectors
+            edges_cost_node2, edges_read_costs, edges_rows_fetched, \
+            final_node, edges_penalties = subsetg_vectors
     nodes = list(sample["subset_graph"].nodes())
     if SOURCE_NODE_CONST in nodes:
         nodes.remove(SOURCE_NODE)
@@ -2441,7 +2589,9 @@ def debug_flow_loss(sample, source_node, cost_key,
 
     trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
             0.0, 24.0, None, edges_cost_node1,
-            edges_cost_node2, nilj, edges_head, edges_tail, cost_model,
+            edges_cost_node2, nilj, edges_head, edges_tail, edges_read_costs,
+            edges_rows_fetched,
+            cost_model,
             edges_penalties)
 
     Gv2 = np.zeros(len(totals), dtype=np.float32)
@@ -2475,12 +2625,17 @@ def debug_flow_loss(sample, source_node, cost_key,
 
 def get_optimization_variables(ests, totals, min_val, max_val,
         normalization_type, edges_cost_node1, edges_cost_node2,
-        nilj, edges_head, edges_tail, cost_model, edges_penalties):
+        nilj, edges_head, edges_tail, edges_read_costs, edges_rows_fetched,
+        cost_model, edges_penalties):
     '''
     @ests: these are actual values for each estimate. totals,min_val,max_val
     are only required for the derivatives.
     '''
     start = time.time()
+    if edges_read_costs is None:
+        # dummy values just so the code doesn't crash
+        edges_read_costs = np.random.rand(10)
+        edges_rows_fetched = np.random.rand(10)
 
     # TODO: speed up this init stuff?
     if normalization_type is None:
@@ -2527,22 +2682,20 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         # debug cost model to calculate cost model loss
         # 1.9, 1.6; 1.14M, 0.96M
         cost_model_num = 14
-        # print("C nested loop index 10 not implemented yet!")
     elif cost_model == "nested_loop_index11":
         # 2.3, 2.8; 2M, 4M;
         cost_model_num = 14
-        # print("C nested loop index 10 not implemented yet!")
     elif cost_model == "nested_loop_index12":
         # 1.5, ; 0.86M, ;
         cost_model_num = 14
-        # print("C nested loop index 10 not implemented yet!")
     elif cost_model == "nested_loop_index13":
         cost_model_num = 15
-        # print("c nested loop index 10 not implemented yet!")
     elif cost_model == "nested_loop_index14":
         cost_model_num = 16
     elif cost_model == "nested_loop_index8b":
         cost_model_num = 17
+    elif cost_model == "mysql_rc":
+        cost_model_num = 18
     else:
         assert False
 
@@ -2560,8 +2713,6 @@ def get_optimization_variables(ests, totals, min_val, max_val,
     Q2 = np.zeros((len(edges_cost_node1),len(ests)), dtype=np.float32)
 
     assert ests.dtype == np.float32
-    # if np.min(ests) < 1.0:
-        # print("ests was < 1")
     ests = np.maximum(ests, 1.0)
 
     start = time.time()
@@ -2576,6 +2727,8 @@ def get_optimization_variables(ests, totals, min_val, max_val,
             edges_tail.ctypes.data_as(c_void_p),
             nilj.ctypes.data_as(c_void_p),
             edges_penalties.ctypes.data_as(c_void_p),
+            edges_read_costs.ctypes.data_as(c_void_p),
+            edges_rows_fetched.ctypes.data_as(c_void_p),
             c_int(len(ests)),
             c_int(len(costs2)),
             costs2.ctypes.data_as(c_void_p),

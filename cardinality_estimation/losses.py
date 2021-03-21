@@ -570,7 +570,6 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
     alg_name = kwargs["name"]
     cardinality_key = kwargs["cardinality_key"]
 
-    assert "nested" in args.cost_model
     env2 = JoinLoss("cm1", args.user, args.pwd, args.db_host,
             args.port, args.db_name)
 
@@ -620,8 +619,6 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)
 
-    # if "nested" in args.cost_model:
-    assert "nested" in args.cost_model
     est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
     losses2 = est_costs2
     print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
@@ -779,6 +776,7 @@ def compute_join_order_loss(queries, preds, **kwargs):
 
 def compute_flow_loss(queries, preds, **kwargs):
 
+    cardinality_key = "cardinality"
     assert isinstance(queries, list)
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
@@ -801,7 +799,7 @@ def compute_flow_loss(queries, preds, **kwargs):
     costs = load_object(costs_fn)
     if costs is None:
         columns = ["sql_key", "plan","cost", "loss","samples_type", "template",
-                "qfn"]
+                "qfn", "card_key"]
         costs = pd.DataFrame(columns=columns)
 
     cur_costs = defaultdict(list)
@@ -943,6 +941,28 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
     assert isinstance(queries, list)
     assert isinstance(preds, list)
     assert isinstance(queries[0], dict)
+    def get_est_plan(cm_plan_order):
+        new_from = []
+        for alias in cm_plan_order:
+            table = join_graph.nodes()[alias]["real_name"]
+            new_from.append("{} AS {}".format(table, alias))
+
+        from_clause = " STRAIGHT_JOIN ".join(new_from)
+        est_sql = nx_graph_to_query(join_graph, from_clause)
+        est_sql = preprocess_sql_mysql(est_sql)
+        est_sql_exec = est_sql
+        est_sql = "EXPLAIN FORMAT=json " + est_sql
+        cursor.execute(est_sql)
+        out = cursor.fetchall()
+        plan_explain = json.loads(out[0][0])
+
+        est_join_order_forced = get_join_order_mysql(plan_explain)
+        est_plan_cost=float(plan_explain["query_block"]["cost_info"]["query_cost"])
+        # print("est_join_order_forced: ", est_join_order_forced)
+        assert str(est_join_order_forced) == str(cm_plan_order)
+
+        return est_plan_cost, plan_explain
+
     def debug_plan_orders(order, explain):
         path = []
         cur_node = []
@@ -959,16 +979,19 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         path = path[::-1]
         costs = []
         for pi in range(len(path)-1):
-            costs.append(subsetg[path[pi]][path[pi+1]][args.cost_model+"tmp_cost"])
+            try:
+                costs.append(subsetg[path[pi]][path[pi+1]][args.cost_model+"tmp_cost"])
+            except:
+                costs.append(-1)
         costs = costs[::-1]
 
         evalcost = extract_values(explain, "eval_cost")
         readcost = extract_values(explain, "read_cost")
 
         # print("shortest path plan, plan-cost: ", cm_est_cost)
-        print("mysql plan, plan-cost: ", np.sum(costs))
+        print("plan, our-cost: ", np.sum(costs))
         print(order)
-        print("plan costs: ", costs)
+        print("our-costs: ", costs)
         print("mysql readcosts: ", readcost)
         print("mysql evalcosts: ", evalcost)
 
@@ -1039,6 +1062,8 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
     cm_ratios = []
 
     for i,qrep in enumerate(queries):
+        # if i % 10 == 0:
+            # print(i)
         sql = sqls[i]
 
         # mysqldb stuff
@@ -1059,8 +1084,13 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         opt_join_order = get_join_order_mysql(opt_plan_explain)
         opt_cost=float(opt_plan_explain["query_block"]["cost_info"]["query_cost"])
 
-        if False:
-            mdata = None
+        fn = qrep["name"]
+        fn = fn.replace("queries", "mysql_data")
+
+        # if False:
+        if os.path.exists(fn):
+            # mdata = None
+            mdata = load_object(fn)
         else:
             fetched_rows = {}
             rc = {}
@@ -1081,6 +1111,9 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
             mdata = {}
             mdata["rc"] = rc
             mdata["rf"] = fetched_rows
+            # let's save this ftw
+            make_dir(os.path.dirname(fn))
+            save_object(fn, mdata)
 
         cm_opt_cost,cm_est_cost,opt_path,est_path= \
                 get_simple_shortest_path_cost(qrep, preds[i], preds[i],
@@ -1099,29 +1132,19 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
 
         import copy
         cm2 = copy.deepcopy(cm_plan_order)
-        cm_plan_order[0] = cm2[1]
-        cm_plan_order[1] = cm2[0]
+        cm2[0] = cm_plan_order[1]
+        cm2[1] = cm_plan_order[0]
 
-        new_from = []
-        for alias in cm_plan_order:
-            table = join_graph.nodes()[alias]["real_name"]
-            new_from.append("{} AS {}".format(table, alias))
+        est_cost1, est_explain1 = get_est_plan(cm_plan_order)
+        est_cost2, est_explain2 = get_est_plan(cm2)
+        if est_cost1 < est_cost2:
+            est_plan_cost = est_cost1
+            plan_explain = est_explain1
+        else:
+            est_plan_cost = est_cost2
+            plan_explain = est_explain2
+            cm_plan_order = cm2
 
-        from_clause = " STRAIGHT_JOIN ".join(new_from)
-        est_sql = nx_graph_to_query(join_graph, from_clause)
-        est_sql = preprocess_sql_mysql(est_sql)
-        est_sql_exec = est_sql
-        est_sql = "EXPLAIN FORMAT=json " + est_sql
-        cursor.execute(est_sql)
-        out = cursor.fetchall()
-        plan_explain = json.loads(out[0][0])
-
-        est_join_order_forced = get_join_order_mysql(plan_explain)
-        est_plan_cost=float(plan_explain["query_block"]["cost_info"]["query_cost"])
-        # print("est_join_order_forced: ", est_join_order_forced)
-        assert str(est_join_order_forced) == str(cm_plan_order)
-
-        # if est_plan_cost - opt_cost > 1e6:
         if False:
             print("opt plan  order: ", cm_plan_order)
             print("opt mysql order: ", opt_join_order)
@@ -1134,14 +1157,17 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
             opt_join_order[1] = opt2[0]
 
             print("""DEBUGGING, shortest path plan-cost v/s mysql-cost for optimal mysql plan""")
-            print("opt cost: ", opt_cost)
+            print("opt mysql-cost: ", opt_cost)
             debug_plan_orders(opt_join_order, opt_plan_explain)
             print("""DEBUGGING, shortest path plan-cost v/s mysql-cost for optimal shortest path""")
-            print("est plan cost: ", est_plan_cost)
+            print("est mysql-cost: ", est_plan_cost)
             debug_plan_orders(cm_plan_order, plan_explain)
 
             est_explain = plan_explain["query_block"]["nested_loop"]
-            opt_explain = opt_plan_explain["query_block"]["nested_loop"]
+            try:
+                opt_explain = opt_plan_explain["query_block"]["nested_loop"]
+            except:
+                print("opt explain keys: ", opt_plan_explain["query_block"].keys())
 
             pdb.set_trace()
 

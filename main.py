@@ -403,6 +403,12 @@ def load_samples(qfns, db, found_db, template_name,
             if num_edges > max_edges:
                 max_edges = num_edges
 
+        mdata_fn = qfns[qi]
+        mdata_fn = mdata_fn.replace("queries", "mysql_data")
+        if not os.path.exists(mdata_fn):
+            skipped += 1
+            continue
+
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
         # if train_template and "job" in template_name:
@@ -1202,7 +1208,7 @@ def read_flags():
             default="hist")
 
     parser.add_argument("--query_directory", type=str, required=False,
-            default="./minified_dataset")
+            default="./queries/imdb")
     # parser.add_argument("--query_directory", type=str, required=False,
             # default="./our_dataset/queries")
     parser.add_argument("--cost_model", type=str, required=False,

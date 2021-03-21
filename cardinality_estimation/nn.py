@@ -790,7 +790,7 @@ class NN(CardinalityEstimationAlg):
                 subsetg_vectors, trueC_vec, opt_loss = \
                         self.flow_training_info[qidx]
 
-                assert len(subsetg_vectors) == 8
+                assert len(subsetg_vectors) == 10
 
                 losses = loss_fn(pred, ybatch.detach().cpu(),
                         normalization_type, min_val,
@@ -916,7 +916,7 @@ class NN(CardinalityEstimationAlg):
                         subsetg_vectors, trueC_vec, opt_loss = \
                                 self.flow_training_info[qidx]
 
-                        assert len(subsetg_vectors) == 8
+                        assert len(subsetg_vectors) == 10
 
                         cur_loss = loss_fn(pred[qstart:qstart+len(cur_info)],
                                 ybatch[qstart:qstart+len(cur_info)],
@@ -931,7 +931,7 @@ class NN(CardinalityEstimationAlg):
                     subsetg_vectors, trueC_vec, opt_loss = \
                             self.flow_training_info[qidx]
 
-                    assert len(subsetg_vectors) == 8
+                    assert len(subsetg_vectors) == 10
 
                     losses = loss_fn(pred, ybatch.detach().cpu(),
                             normalization_type, min_val,
@@ -1072,7 +1072,7 @@ class NN(CardinalityEstimationAlg):
                     subsetg_vectors, trueC_vec, opt_loss = \
                             self.flow_training_info[qidx]
 
-                    assert len(subsetg_vectors) == 8
+                    assert len(subsetg_vectors) == 10
 
                     cur_loss = loss_fn(pred[qstart:qstart+len(cur_info)],
                             ybatch[qstart:qstart+len(cur_info)],
@@ -1239,7 +1239,7 @@ class NN(CardinalityEstimationAlg):
                 subsetg_vectors, trueC_vec, opt_loss = \
                         self.flow_training_info[qidx]
 
-                assert len(subsetg_vectors) == 8
+                assert len(subsetg_vectors) == 10
 
                 losses = loss_fn(pred, ybatch.detach().cpu(),
                         normalization_type, min_val,
@@ -1376,7 +1376,7 @@ class NN(CardinalityEstimationAlg):
                 subsetg_vectors, trueC_vec, opt_loss = \
                         self.flow_training_info[qidx]
 
-                assert len(subsetg_vectors) == 8
+                assert len(subsetg_vectors) == 10
 
                 losses = loss_fn(pred, ybatch.detach().cpu(),
                         normalization_type, min_val,
@@ -2562,7 +2562,7 @@ class NN(CardinalityEstimationAlg):
             # if qkey in farchive:
             if False:
                 subsetg_vectors = farchive[qkey]
-                assert len(subsetg_vectors) == 8
+                assert len(subsetg_vectors) == 10
             else:
                 new_seen = True
                 subsetg_vectors = list(get_subsetg_vectors(sample,
@@ -2587,6 +2587,8 @@ class NN(CardinalityEstimationAlg):
                         subsetg_vectors[3],
                         subsetg_vectors[1],
                         subsetg_vectors[2],
+                        subsetg_vectors[6],
+                        subsetg_vectors[7],
                         self.cost_model, subsetg_vectors[-1])
 
             Gv = to_variable(np.zeros(len(subsetg_vectors[0]))).float()

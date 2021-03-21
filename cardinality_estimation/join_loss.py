@@ -47,6 +47,7 @@ PG_HINT_SCANS["Tid Scan"] = "TidScan"
 MAX_JOINS = 16
 
 MYSQL_CARD_FILE_NAME = "/tmp/query_cardinalities.json"
+# MYSQL_CARD_FILE_NAME = "/tmp/query_cardinalities_no.json"
 
 MYSQL_OPT_TMP = "set optimizer_switch='{FLAGS}';"
 MYSQL_OPT_FLAGS=""""""
@@ -819,10 +820,11 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
             # this must be for true cards
             # assert all_ests is None
             subsetg_vectors = list(get_subsetg_vectors(sample, cost_model))
-            assert len(subsetg_vectors) == 8
+            assert len(subsetg_vectors) == 10
 
         totals, edges_head, edges_tail, nilj, edges_cost_node1, \
-                edges_cost_node2, final_node, edges_penalties = subsetg_vectors
+                edges_cost_node2, edges_read_costs, edges_rows_fetched, \
+                final_node, edges_penalties = subsetg_vectors
         nodes = list(sample["subset_graph"].nodes())
         if SOURCE_NODE in nodes:
             nodes.remove(SOURCE_NODE)
@@ -849,7 +851,9 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
 
             predC2, _, G2, Q2 = get_optimization_variables(est_cards, totals,
                     0.0, 24.0, None, edges_cost_node1,
-                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model,
+                    edges_cost_node2, nilj, edges_head, edges_tail,
+                    edges_read_costs, edges_rows_fetched,
+                    cost_model,
                     edges_penalties)
 
             if debug_sql:
@@ -868,7 +872,9 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
 
             trueC_vec, _, G2, Q2 = get_optimization_variables(true_cards, totals,
                     0.0, 24.0, None, edges_cost_node1,
-                    edges_cost_node2, nilj, edges_head, edges_tail, cost_model,
+                    edges_cost_node2, nilj, edges_head, edges_tail,
+                    edges_read_costs, edges_rows_fetched,
+                    cost_model,
                     edges_penalties)
             trueC_vecs[qkey] = trueC_vec
 
