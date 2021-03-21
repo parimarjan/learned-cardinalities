@@ -70,6 +70,8 @@ TIMEOUT_COUNT_CONSTANT = 150001000001
 CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
 
+RF_CONSTANT = 10.0
+
 CROSS_JOIN_CARD = 19329323
 
 CREATE_TABLE_TEMPLATE = "CREATE TABLE {name} (id SERIAL, {columns})"
@@ -2358,6 +2360,7 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
     # TODO: load mysql read-cost data
     fn = sample["name"]
     fn = fn.replace("queries", "mysql_data")
+    # fn = fn.replace("queries", "tmp_mysql_data")
 
     if os.path.exists(fn) and mysql_costs:
         mdata = load_object(fn)
@@ -2366,7 +2369,7 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
     else:
         edges_read_costs = None
         edges_rows_fetched = None
-
+        assert False
 
     for nodei, node in enumerate(nodes):
         node_dict[node] = nodei
@@ -2420,6 +2423,9 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
             if joined_key not in mdata["rc"]:
                 # edges_read_costs[edgei] = float(OLD_TIMEOUT_COUNT_CONSTANT)
                 edges_read_costs[edgei] = 699999.0
+                # if len(joined_key.split(" ")) != len(sample["join_graph"].nodes()):
+                    # print(joined_key, " not in mdata")
+                    # pdb.set_trace()
             else:
                 rdata = mdata["rc"][joined_key]
                 if node2[0] in rdata:
@@ -2428,20 +2434,24 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
                     # TIMEOUT_COUNT_CONSTANT exceeds max(float32)
                     # edges_read_costs[edgei] = float(OLD_TIMEOUT_COUNT_CONSTANT)
                     edges_read_costs[edgei] = 699999.0
+                    # print(joined_key + node2[0] + " not in rc")
+                    # pdb.set_trace()
 
             if joined_key not in mdata["rf"]:
-                edges_rows_fetched[edgei] = 10.0;
+                edges_rows_fetched[edgei] = RF_CONSTANT
             else:
                 rdata = mdata["rf"][joined_key]
                 if node2[0] in rdata:
                     edges_rows_fetched[edgei] = rdata[node2[0]]
                 else:
-                    edges_rows_fetched[edgei] = 10.0
+                    # print(node2[0], " not in rf")
+                    # pdb.set_trace()
+                    edges_rows_fetched[edgei] = RF_CONSTANT
 
             if len(node1) == 1:
-                # add the cost of reading node1 to it too
+                #add the cost of reading node1 to it too
                 rcost = mdata["rc"][node1[0]][node1[0]]
-                # edges_read_costs[edgei] += rcost
+                edges_read_costs[edgei] += rcost
 
         edges_cost_node1[edgei] = node_dict[node1]
         edges_cost_node2[edgei] = node_dict[node2]

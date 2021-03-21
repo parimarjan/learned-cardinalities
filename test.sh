@@ -3,7 +3,7 @@ time python3 main.py \
 -n -1 --losses mysql-cost-model --user pari --pwd password --algs true
 
 time python3 main.py \
---query_template 2b,2c,3a,4a \
+--query_template 2b,2c,3a,4a,5a \
 -n -1 --losses mysql-cost-model --user pari --pwd password --algs true
 
 time python3 main.py \
@@ -11,6 +11,6 @@ time python3 main.py \
 -n -1 --losses mysql-cost-model --user pari --pwd password --algs true
 
 time python3 main.py \
---query_template 5a,6a,7a \
+--query_template 6a,7a \
 -n -1 --losses mysql-cost-model --user pari --pwd password --algs true
 
