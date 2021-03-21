@@ -50,8 +50,8 @@ MYSQL_CARD_FILE_NAME = "/tmp/query_cardinalities.json"
 # MYSQL_CARD_FILE_NAME = "/tmp/query_cardinalities_no.json"
 
 MYSQL_OPT_TMP = "set optimizer_switch='{FLAGS}';"
-MYSQL_OPT_FLAGS=""""""
-# MYSQL_OPT_FLAGS="""materialization=off,block_nested_loop=off,semijoin=off,subquery_materialization_cost_based=off,index_merge_union=off,index_merge_sort_union=off,prefer_ordering_index=off,loosescan=off,firstmatch=off,use_index_extensions=off"""
+# MYSQL_OPT_FLAGS=""""""
+MYSQL_OPT_FLAGS="""materialization=off,block_nested_loop=off,semijoin=off,subquery_materialization_cost_based=off,index_merge_union=off,index_merge_sort_union=off,prefer_ordering_index=off,loosescan=off,firstmatch=off,use_index_extensions=off"""
 
 # cursor.execute("SET materialization=off;")
 # cursor.execute("SET block_nested_loop=off;")

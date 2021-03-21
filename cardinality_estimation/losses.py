@@ -1087,7 +1087,6 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         fn = qrep["name"]
         fn = fn.replace("queries", "mysql_data")
 
-        # if False:
         if os.path.exists(fn):
             # mdata = None
             mdata = load_object(fn)
