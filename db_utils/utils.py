@@ -71,6 +71,7 @@ CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
 
 RF_CONSTANT = 10.0
+RC_CONSTANT = 699999.0
 
 CROSS_JOIN_CARD = 19329323
 
@@ -2422,7 +2423,7 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
             joined_key = " ".join(edge[0])
             if joined_key not in mdata["rc"]:
                 # edges_read_costs[edgei] = float(OLD_TIMEOUT_COUNT_CONSTANT)
-                edges_read_costs[edgei] = 699999.0
+                edges_read_costs[edgei] = RC_CONSTANT
                 # if len(joined_key.split(" ")) != len(sample["join_graph"].nodes()):
                     # print(joined_key, " not in mdata")
                     # pdb.set_trace()
@@ -2433,7 +2434,7 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
                 else:
                     # TIMEOUT_COUNT_CONSTANT exceeds max(float32)
                     # edges_read_costs[edgei] = float(OLD_TIMEOUT_COUNT_CONSTANT)
-                    edges_read_costs[edgei] = 699999.0
+                    edges_read_costs[edgei] = RC_CONSTANT
                     # print(joined_key + node2[0] + " not in rc")
                     # pdb.set_trace()
 

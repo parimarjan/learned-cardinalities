@@ -1055,15 +1055,18 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
                             # pool = None, join_loss_data_file =
                             # args.join_loss_data_file, backend="mysql")
 
-    db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
+    db = MySQLdb.connect(db="imdb", passwd="", user="root",
             host="127.0.0.1")
+    # db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
+            # host="127.0.0.1")
     cursor = db.cursor()
     cm_losses = []
     cm_ratios = []
 
     for i,qrep in enumerate(queries):
-        if i % 10 == 0:
-            print(i)
+        print(i)
+        # if i % 10 == 0:
+            # print(i)
         sql = sqls[i]
 
         # mysqldb stuff

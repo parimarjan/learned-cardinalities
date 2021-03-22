@@ -1963,10 +1963,10 @@ class NN(CardinalityEstimationAlg):
             pickle.dump(results, fp,
                     protocol=4)
 
-        sfn = exp_dir + "/" + "subq_summary.pkl"
-        with open(sfn, 'wb') as fp:
-            pickle.dump(self.subquery_summary_data, fp,
-                    protocol=4)
+        # sfn = exp_dir + "/" + "subq_summary.pkl"
+        # with open(sfn, 'wb') as fp:
+            # pickle.dump(self.subquery_summary_data, fp,
+                    # protocol=4)
 
     def num_parameters(self):
         def _calc_size(net):
@@ -2155,11 +2155,11 @@ class NN(CardinalityEstimationAlg):
         df["samples_type"] = samples_type
         df["epoch"] = self.epoch
 
-        if samples_type == "test":
-            self.subquery_summary_data = pd.concat([self.subquery_summary_data,
-                df])
-        else:
-            self.subquery_summary_data = df
+        # if samples_type == "test":
+            # self.subquery_summary_data = pd.concat([self.subquery_summary_data,
+                # df])
+        # else:
+            # self.subquery_summary_data = df
 
         for template in set(df["template"]):
             tvals = df[df["template"] == template]
@@ -3014,11 +3014,11 @@ class NN(CardinalityEstimationAlg):
                 else:
                     assert False
 
-            if self.epoch % self.eval_epoch == 0 and \
-                    self.eval_epoch < self.max_epochs:
-            # if ((self.epoch % self.eval_epoch == 0 or \
-                    # self.epoch % self.eval_epoch_qerr == 0)
-                # and self.epoch != 0):
+            # if self.epoch % self.eval_epoch == 0 and \
+                    # self.eval_epoch < self.max_epochs:
+            if ((self.epoch % self.eval_epoch == 0 or \
+                    self.epoch % self.eval_epoch_qerr == 0)
+                and self.epoch != 0):
 
                 eval_start = time.time()
                 self._eval_wrapper("train")

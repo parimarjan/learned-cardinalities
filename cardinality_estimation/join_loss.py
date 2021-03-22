@@ -556,8 +556,10 @@ class JoinLoss():
 
         def run_single_sql(sql):
             # db=MySQLdb.connect(passwd=self.pwd,db=self.db_name, user=self.user)
-            db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
+            db = MySQLdb.connect(db="imdb", passwd="", user="root",
                     host="127.0.0.1")
+            # db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
+                    # host="127.0.0.1")
             cursor = db.cursor()
             cursor.execute("SET optimizer_prune_level=0;")
             # opt_flags = []
@@ -680,6 +682,10 @@ class JoinLoss():
         for i,sql in enumerate(sqls):
             try:
                 run_single_sql(sql)
+                if i % 10 == 0:
+                    avg_cost = np.mean(np.array(est_costs) - \
+                            np.array(opt_costs))
+                    print("{}: avg mysql cost: {}".format(i, avg_cost))
             except Exception as e:
                 print("crash, restart mysql")
                 print(e)
