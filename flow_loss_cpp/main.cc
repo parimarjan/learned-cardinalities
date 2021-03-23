@@ -555,16 +555,22 @@ void get_costs18(float *ests, float *totals,
   card1 = ests[node1];
   card2 = ests[node2];
   card3 = ests[head_node];
-  rc = edges_read_costs[i];
-  if (rc == RC_CONST) {
-    rc = card2*10.0;
-    //rc = card2;
-  }
+  //rc = edges_read_costs[i];
+  //if (rc == RC_CONST) {
+    //rc = card2*10.0;
+    ////rc = card2;
+  //}
 
   rf = edges_rows_fetched[i];
 
   // TODO: use rows_fetched to calculate work done instead of card1
   //float cost = rc + 0.1*card1;
+
+  rc = card2;
+  if (nilj[i] == 4) {
+    rc += card1;
+  }
+
   float cost = rc + 0.1*card1*rf;
   costs[i] = cost;
 
@@ -576,13 +582,20 @@ void get_costs18(float *ests, float *totals,
       } else {
           //dgdxt[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
           //dgdxt[node1*num_edges + i] = - (max_val*card1*0.1) / (cost*cost);
-          dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf) / (cost*cost);
-          if (rc == RC_CONST) {
-            dgdxt[node2*num_edges + i] = (max_val*card2*10.0) / (cost*cost);
-            //dgdxt[node2*num_edges + i] = (max_val*card2) / (cost*cost);
+
+          if (nilj[i] == 4) {
+            dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf + max_val*card1) / (cost*cost);
           } else {
-            dgdxt[node2*num_edges + i] = 0.0;
+            dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf) / (cost*cost);
           }
+
+          dgdxt[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
+
+          //if (rc == RC_CONST) {
+            //dgdxt[node2*num_edges + i] = - (max_val*card2*10.0) / (cost*cost);
+          //} else {
+            //dgdxt[node2*num_edges + i] = 0.0;
+          //}
           dgdxt[head_node*num_edges + i] = 0.0;
       }
   }

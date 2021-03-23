@@ -1679,21 +1679,22 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
                     if node2[0] in rf:
                         nilj_cost1 += 0.1*card1*rf[node2[0]]
                     else:
-                        nilj_cost1 += OLD_TIMEOUT_COUNT_CONSTANT
+                        # nilj_cost1 += OLD_TIMEOUT_COUNT_CONSTANT
+                        nilj_cost1 += card1*100
 
                     nilj_cost2 = 1.0
 
                     rcost2 = get_mysql_read_cost(rc, node2, node1[0], card2,
                             card1, total2, total1, card3, rf)
                     nilj_cost2 += rcost2
-
                     nilj_cost2 += card2
 
                     # rows fetched
                     if node1[0] in rf:
                         nilj_cost1 += 0.1*card2*rf[node1[0]]
                     else:
-                        nilj_cost1 += OLD_TIMEOUT_COUNT_CONSTANT
+                        # nilj_cost1 += OLD_TIMEOUT_COUNT_CONSTANT
+                        nilj_cost1 += card2*100
 
                     nilj_cost = min(nilj_cost1, nilj_cost2)
 
@@ -2483,21 +2484,23 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
             edges_cost_node2[edgei+num_edges] = node_dict[node2]
 
         if len(node1) == 1:
-            fkey_join = True
+            nilj[edgei] = 4
+            ## FIXME: no idea why i was using this
+            # fkey_join = True
 
-            join_edge_data = join_graph[node1[0]]
-            for other_node in node2:
-                if other_node not in join_edge_data:
-                    continue
-                jc = join_edge_data[other_node]["join_condition"]
-                if "!=" in jc:
-                    fkey_join = False
-                    break
+            # join_edge_data = join_graph[node1[0]]
+            # for other_node in node2:
+                # if other_node not in join_edge_data:
+                    # continue
+                # jc = join_edge_data[other_node]["join_condition"]
+                # if "!=" in jc:
+                    # fkey_join = False
+                    # break
 
-            if fkey_join:
-                nilj[edgei] = 2
-            else:
-                nilj[edgei] = 3
+            # if fkey_join:
+                # nilj[edgei] = 2
+            # else:
+                # nilj[edgei] = 3
 
         elif len(node2) == 1:
             fkey_join = True

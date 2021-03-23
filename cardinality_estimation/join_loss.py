@@ -704,17 +704,16 @@ class JoinLoss():
                 if i % 200 == 0:
                     avg_cost = np.mean(np.array(est_costs) - \
                             np.array(opt_costs))
-                    print("{}: avg mysql cost: {}".format(i, avg_cost))
-                    print(fns[i])
-                    exp1 = est_explains[i]["query_block"]["nested_loop"]
-                    exp2 = est_est_explains[i]["query_block"]["nested_loop"]
-                    opt_exp = opt_explains[i]["query_block"]["nested_loop"]
-                    rc1 = extract_values(exp1, "read_cost")
-                    rc2 = extract_values(exp2, "read_cost")
-                    print(rc1)
-                    print(rc2)
-
-                    pdb.set_trace()
+                    # print("{}: avg mysql cost: {}".format(i, avg_cost))
+                    # print(fns[i])
+                    # exp1 = est_explains[i]["query_block"]["nested_loop"]
+                    # exp2 = est_est_explains[i]["query_block"]["nested_loop"]
+                    # opt_exp = opt_explains[i]["query_block"]["nested_loop"]
+                    # rc1 = extract_values(exp1, "read_cost")
+                    # rc2 = extract_values(exp2, "read_cost")
+                    # print(rc1)
+                    # print(rc2)
+                    # pdb.set_trace()
             except Exception as e:
                 print("crash, restart mysql")
                 print(e)
