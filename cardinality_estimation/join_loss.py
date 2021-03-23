@@ -26,6 +26,22 @@ else:
     print("flow loss C library not being used as we are not on linux")
     # lib_file = "libflowloss.dylib"
 
+DEBUG_SQL=""""SELECT COUNT(*) FROM keyword AS k STRAIGHT_JOIN movie_keyword AS
+mk STRAIGHT_JOIN movie_companies AS mc STRAIGHT_JOIN company_name AS cn
+STRAIGHT_JOIN title AS t STRAIGHT_JOIN kind_type AS kt STRAIGHT_JOIN cast_info
+AS ci STRAIGHT_JOIN company_type AS ct STRAIGHT_JOIN role_type AS rt
+STRAIGHT_JOIN name AS n WHERE  1950 < t.production_year AND  cn.country_code IN
+('[ar]','[at]','[au]','[ca]','[de]','[es]','[fr]','[ie]','[in]','[jp]','[pl]','[tr]','[us]')
+AND  ct.kind IN ('distributors','production companies') AND  k.keyword IN
+('anal-sex','blood','dancing','female-frontal-nudity','female-nudity','lesbian','non-fiction','nudity','one-word-title','sex','suicide','tv-mini-series')
+AND  kt.kind IN ('episode','movie','tv movie') AND  n.gender IN ('f','m') AND
+rt.role IN ('cinematographer','production designer') AND  t.production_year <=
+1990 AND ci.movie_id = mc.movie_id AND ci.movie_id = mk.movie_id AND
+ci.person_id = n.id AND ci.role_id = rt.id AND cn.id = mc.company_id AND ct.id
+= mc.company_type_id AND k.id = mk.keyword_id AND kt.id = t.kind_id AND
+mk.movie_id = mc.movie_id AND t.id = ci.movie_id AND t.id = mc.movie_id AND
+t.id = mk.movie_id"""
+
 
 PG_HINT_CMNT_TMP = '''/*+ {COMMENT} */'''
 PG_HINT_JOIN_TMP = "{JOIN_TYPE} ({TABLES}) "
@@ -518,7 +534,7 @@ class JoinLoss():
 
     def compute_join_order_loss(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, baseline_join_alg, use_indexes,
-            num_processes=8, backend="postgres", pool=None):
+            num_processes=8, backend="postgres", pool=None, fns=None):
         '''
         @query_dict: [sqls]
         @true_cardinalities / est_cardinalities: [{}]
@@ -547,12 +563,12 @@ class JoinLoss():
         elif backend == "mysql":
             return self._compute_join_order_loss_mysql(sqls, join_graphs,
                     true_cardinalities, est_cardinalities, num_processes,
-                    use_indexes, pool)
+                    use_indexes, pool, fns)
         else:
             assert False
 
     def _compute_join_order_loss_mysql(self, sqls, join_graphs, true_cardinalities,
-            est_cardinalities, num_processes, use_indexes, pool):
+            est_cardinalities, num_processes, use_indexes, pool, fns):
 
         def run_single_sql(sql):
             # db=MySQLdb.connect(passwd=self.pwd,db=self.db_name, user=self.user)
@@ -592,6 +608,8 @@ class JoinLoss():
             # print(plan_explain["query_block"]["cost_info"])
             # print("***************************")
             est_join_order = get_join_order_mysql(plan_explain)
+            est_est_explain = plan_explain
+            est_est_explains.append(est_est_explain)
             est_cost=float(plan_explain["query_block"]["cost_info"]["query_cost"])
             # print("est_join_order: ", est_join_order)
             os.remove(MYSQL_CARD_FILE_NAME)
@@ -620,6 +638,7 @@ class JoinLoss():
             opt_sql = nx_graph_to_query(join_graph, from_clause)
             opt_sql = preprocess_sql_mysql(opt_sql)
             opt_sql_exec = opt_sql
+            opt_explains.append(plan_explain)
 
             # TODO: remove
             # start = time.time()
@@ -652,7 +671,6 @@ class JoinLoss():
             # add all things to lists here, so if it crashed before, things
             # won't be out of place
 
-            opt_explains.append(plan_explain)
             est_explains.append(plan_explain)
 
             opt_costs.append(opt_cost)
@@ -674,6 +692,7 @@ class JoinLoss():
         est_costs = []
         opt_costs = []
         est_explains = []
+        est_est_explains = []
         opt_explains = []
         est_sqls = []
         opt_sqls = []
@@ -682,10 +701,20 @@ class JoinLoss():
         for i,sql in enumerate(sqls):
             try:
                 run_single_sql(sql)
-                if i % 300 == 0:
+                if i % 200 == 0:
                     avg_cost = np.mean(np.array(est_costs) - \
                             np.array(opt_costs))
                     print("{}: avg mysql cost: {}".format(i, avg_cost))
+                    print(fns[i])
+                    exp1 = est_explains[i]["query_block"]["nested_loop"]
+                    exp2 = est_est_explains[i]["query_block"]["nested_loop"]
+                    opt_exp = opt_explains[i]["query_block"]["nested_loop"]
+                    rc1 = extract_values(exp1, "read_cost")
+                    rc2 = extract_values(exp2, "read_cost")
+                    print(rc1)
+                    print(rc2)
+
+                    pdb.set_trace()
             except Exception as e:
                 print("crash, restart mysql")
                 print(e)
@@ -694,6 +723,7 @@ class JoinLoss():
                 est_sqls.append(None)
                 opt_sqls.append(None)
                 est_explains.append(None)
+                est_est_explains.append(None)
                 opt_explains.append(None)
                 pdb.set_trace()
                 continue

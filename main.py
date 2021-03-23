@@ -404,7 +404,8 @@ def load_samples(qfns, db, found_db, template_name,
                 max_edges = num_edges
 
         mdata_fn = qfns[qi]
-        mdata_fn = mdata_fn.replace("queries", "mysql_data_all")
+        mdata_fn = mdata_fn.replace("queries", "mysql_data")
+
         if not os.path.exists(mdata_fn) and args.loss_func == "flow_loss2":
             skipped += 1
             continue

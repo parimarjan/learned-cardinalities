@@ -455,7 +455,7 @@ def save_join_loss_training_data(sqls, est_cardinalities,
 def join_loss_pg(sqls, join_graphs,
         true_cardinalities, est_cardinalities, env,
         use_indexes, pdf=None, num_processes=1, pool=None,
-        join_loss_data_file=None, backend="postgres"):
+        join_loss_data_file=None, backend="postgres", fns=None):
     '''
     @sqls: [sql strings]
     @pdf: None, or open pdf file to which the plans and cardinalities will be
@@ -471,7 +471,9 @@ def join_loss_pg(sqls, join_graphs,
                 env.compute_join_order_loss(sqls, join_graphs,
                         true_cardinalities, est_cardinalities,
                         None, use_indexes,
-                        num_processes=num_processes, backend=backend, pool=pool)
+                        num_processes=num_processes, backend=backend,
+                        pool=pool,
+                        fns = fns)
 
     assert isinstance(est_costs, np.ndarray)
     if join_loss_data_file:
@@ -534,7 +536,8 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
                         join_loss_pg(sqls, join_graphs, true_cardinalities,
                                 est_cardinalities, env, use_indexes, pdf=None,
                                 pool = pool, join_loss_data_file =
-                                args.join_loss_data_file, backend="mysql")
+                                args.join_loss_data_file, backend="mysql",
+                                fns = fns)
         losses = est_costs - opt_costs
         for i, qrep in enumerate(eval_queries):
             sql_key = str(deterministic_hash(qrep["sql"]))
@@ -579,6 +582,7 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
     join_graphs = []
     # FIXME: wasting a lot of memory
     eval_queries = []
+    fns = []
 
     # TODO: save alg based predictions too
     for i, qrep in enumerate(queries):
@@ -618,6 +622,7 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
         join_graphs.append(qrep["join_graph"])
         est_cardinalities.append(ests)
         true_cardinalities.append(trues)
+        fns.append(qrep["name"])
 
     est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
     losses2 = est_costs2
