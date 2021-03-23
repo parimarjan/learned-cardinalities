@@ -405,6 +405,7 @@ def load_samples(qfns, db, found_db, template_name,
 
         mdata_fn = qfns[qi]
         mdata_fn = mdata_fn.replace("queries", "mysql_data")
+
         if not os.path.exists(mdata_fn) and args.loss_func == "flow_loss2":
             skipped += 1
             continue
@@ -1331,7 +1332,7 @@ def read_flags():
     parser.add_argument("--priority_normalize_type", type=str, required=False,
             default="")
     parser.add_argument("--normalize_flow_loss", type=int, required=False,
-            default=1)
+            default=0)
 
     # parser.add_argument("--priority_err_divide_len", type=int, required=False,
             # default=0)

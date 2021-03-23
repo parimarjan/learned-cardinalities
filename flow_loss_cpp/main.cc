@@ -557,8 +557,8 @@ void get_costs18(float *ests, float *totals,
   card3 = ests[head_node];
   rc = edges_read_costs[i];
   if (rc == RC_CONST) {
-    //rc = card2*10.0;
-    rc = card2;
+    rc = card2*10.0;
+    //rc = card2;
   }
 
   rf = edges_rows_fetched[i];
@@ -578,8 +578,8 @@ void get_costs18(float *ests, float *totals,
           //dgdxt[node1*num_edges + i] = - (max_val*card1*0.1) / (cost*cost);
           dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf) / (cost*cost);
           if (rc == RC_CONST) {
-            //dgdxt[node2*num_edges + i] = (max_val*card2*10.0) / (cost*cost);
-            dgdxt[node2*num_edges + i] = (max_val*card2) / (cost*cost);
+            dgdxt[node2*num_edges + i] = (max_val*card2*10.0) / (cost*cost);
+            //dgdxt[node2*num_edges + i] = (max_val*card2) / (cost*cost);
           } else {
             dgdxt[node2*num_edges + i] = 0.0;
           }
