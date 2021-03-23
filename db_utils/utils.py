@@ -1543,12 +1543,26 @@ def get_heuristic_read_cost(inode, icard, other_node, other_card, join_keys):
         return icard
 
 def get_mysql_read_cost(rc, left_nodes, right_node, left_card, right_card,
-        left_total, right_total, card3):
-    # best one, read from stuff:
-    if right_node in rc:
-        return rc[right_node]
+        left_total, right_total, card3, rf):
+
+    # if this is too small, then just read it in
+    return right_card
+
+    cost1 = right_card
+    if right_node in rf:
+        cost2 = left_card*rf[right_node]
     else:
-        return right_card * 100.0;
+        cost2 = TIMEOUT_COUNT_CONSTANT
+
+    return min(cost1, cost2)
+
+
+    # best one, read from stuff:
+    # if right_node in rc:
+        # return rc[right_node]
+    # else:
+        # return right_card * 100.0;
+
         # return TIMEOUT_COUNT_CONSTANT
         # return right_card*1000000000.0;
 
@@ -1655,8 +1669,9 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
                             # card2)*0.1
 
                     rcost1 = get_mysql_read_cost(rc, node1, node2[0], card1,
-                            card2, total1, total2, card3)
+                            card2, total1, total2, card3, rf)
                     nilj_cost1 += rcost1
+
                     # reading in the initial table
                     nilj_cost1 += card1
 
@@ -1669,8 +1684,9 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
                     nilj_cost2 = 1.0
 
                     rcost2 = get_mysql_read_cost(rc, node2, node1[0], card2,
-                            card1, total2, total1, card3)
+                            card1, total2, total1, card3, rf)
                     nilj_cost2 += rcost2
+
                     nilj_cost2 += card2
 
                     # rows fetched
@@ -1687,15 +1703,17 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
 
                     nilj_cost = 0.0
                     rcost = get_mysql_read_cost(rc, node2, node1[0], card2,
-                            card1, total2, total1, card3)
+                            card1, total2, total1, card3, rf)
                     nilj_cost += rcost
 
                     ## one of these
                     # nilj_cost += card2*0.1
+
                     if node1[0] in rf:
                         nilj_cost += 0.1*card2*rf[node1[0]]
                     else:
-                        nilj_cost += OLD_TIMEOUT_COUNT_CONSTANT
+                        # nilj_cost += OLD_TIMEOUT_COUNT_CONSTANT
+                        nilj_cost += card2*100
 
                 elif len(node2) == 1:
                     # nilj_cost = get_mysql_index_cost(node2[0], rf, card1,
@@ -1703,14 +1721,16 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
 
                     nilj_cost = 0.0
                     rcost = get_mysql_read_cost(rc, node1, node2[0], card1,
-                            card2, total1, total2, card3)
+                            card2, total1, total2, card3, rf)
                     nilj_cost += rcost
 
                     # nilj_cost = card1*0.1
+
                     if node2[0] in rf:
                         nilj_cost += 0.1*card1*rf[node2[0]]
                     else:
-                        nilj_cost += OLD_TIMEOUT_COUNT_CONSTANT
+                        # nilj_cost += OLD_TIMEOUT_COUNT_CONSTANT
+                        nilj_cost += card1*100
 
             else:
                 nilj_cost = TIMEOUT_COUNT_CONSTANT
@@ -1781,6 +1801,7 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
         cost = nilj_cost
 
     elif cost_model == "cm2":
+        # cost = CARD_DIVIDER*card1 + CARD_DIVIDER*card2
         cost = CARD_DIVIDER*card1 + CARD_DIVIDER*card2
     elif cost_model == "nested_loop_index":
         # TODO: calculate second multiple
