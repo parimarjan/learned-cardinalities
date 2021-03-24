@@ -609,6 +609,11 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     v = invG @ Gv2 # vshape: Nx1
     v = v.detach().cpu().numpy()
 
+    # flows = Q2 @ v
+    # if np.min(flows) < 0.0:
+        # print("flows max-min-mean!")
+        # print(np.max(flows), np.min(flows), np.mean(flows))
+
     # TODO: we don't even need to compute the loss here if we don't want to
     loss2 = np.zeros(1, dtype=np.float32)
 

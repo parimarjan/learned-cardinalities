@@ -903,6 +903,9 @@ class NN(CardinalityEstimationAlg):
             ybatch = ybatch.to(device, non_blocking=True)
             xbatch = xbatch.to(device, non_blocking=True)
             pred = net(xbatch).squeeze(1)
+            if torch.isnan(pred).any():
+                print(pred)
+                pdb.set_trace()
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
@@ -945,6 +948,10 @@ class NN(CardinalityEstimationAlg):
                 loss = losses.sum() / len(losses)
             except:
                 loss = losses
+
+            if torch.isnan(loss):
+                print(loss)
+                pdb.set_trace()
 
             if self.weighted_qloss != 0.0:
                 qloss = qloss_torch(pred, ybatch)
@@ -1053,6 +1060,7 @@ class NN(CardinalityEstimationAlg):
                 sample = None
 
             pred = net(tbatch,pbatch,jbatch,fbatch,tmask,pmask,jmask).squeeze(1)
+
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together

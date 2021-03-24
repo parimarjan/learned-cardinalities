@@ -554,7 +554,7 @@ void get_costs18(float *ests, float *totals,
   node2 = edges_cost_node2[i];
   card1 = ests[node1];
   card2 = ests[node2];
-  card3 = ests[head_node];
+  //card3 = ests[head_node];
   //rc = edges_read_costs[i];
   //if (rc == RC_CONST) {
     //rc = card2*10.0;
@@ -585,6 +585,7 @@ void get_costs18(float *ests, float *totals,
 
           if (nilj[i] == 4) {
             dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf + max_val*card1) / (cost*cost);
+            //dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf) / (cost*cost);
           } else {
             dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf) / (cost*cost);
           }
