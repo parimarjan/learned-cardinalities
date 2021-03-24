@@ -550,11 +550,13 @@ void get_costs18(float *ests, float *totals,
   // head node is the joined node
   float card1, card2, card3, nilj_cost, ratio_mul, rc, rf;
   int node1, node2;
+  float cost1, cost2;
   node1 = edges_cost_node1[i];
   node2 = edges_cost_node2[i];
   card1 = ests[node1];
   card2 = ests[node2];
   card3 = ests[head_node];
+
   //rc = edges_read_costs[i];
   //if (rc == RC_CONST) {
     //rc = card2*10.0;
@@ -566,36 +568,58 @@ void get_costs18(float *ests, float *totals,
   // TODO: use rows_fetched to calculate work done instead of card1
   //float cost = rc + 0.1*card1;
 
-  rc = card2;
+  //if (card2 < card1*rf) {
+    //rc = card2;
+  //} else {
+    //rc = card1*rf;
+  //}
+
+  rc = 0.0;
   if (nilj[i] == 4) {
     rc += card1;
+    rc += card2;
+  } else if (card2 > card1*rf) {
+    rc += card1*rf;
+  } else {
+    rc += card2;
   }
 
-  float cost = rc + 0.1*card1*rf;
-  costs[i] = cost;
+  float eval_const = 0.1;
+
+  cost1 = rc + eval_const*card1*rf;
+  cost2 = eval_const*card1*card2;
+
+  if (cost2 < cost1) {
+    costs[i] = cost2;
+  } else costs[i] = cost1;
+  float cost = costs[i];
+
+  //costs[i] = cost;
 
   /* time to compute gradients */
   if (normalization_type == 2) {
-      if (nilj[i]  == 1) {
-          printf("should not have happened\n");
-          exit(-1);
+      if (cost2 < cost1) {
+          // FIXME: eval_const**2 or not??
+          dgdxt[node1*num_edges + i] = - (max_val) / (costs[i]);
+          dgdxt[node2*num_edges + i] = - (max_val) / (costs[i]);
       } else {
-          //dgdxt[node1*num_edges + i] = - (max_val*card1) / (cost*cost);
-          //dgdxt[node1*num_edges + i] = - (max_val*card1*0.1) / (cost*cost);
-
+          dgdxt[node1*num_edges + i] = -(max_val*card1*eval_const*rf) / (cost*cost);
           if (nilj[i] == 4) {
-            dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf + max_val*card1) / (cost*cost);
+            dgdxt[node1*num_edges + i] -= (max_val*card1) / (cost*cost);
+            dgdxt[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
+          } else if (card2 > card1*rf) {
+            dgdxt[node1*num_edges + i] -= (max_val*card1*rf) / (cost*cost);
+            dgdxt[node2*num_edges + i] = 0.0;
           } else {
-            dgdxt[node1*num_edges + i] = - (max_val*card1*0.1*rf) / (cost*cost);
+            dgdxt[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
           }
 
-          dgdxt[node2*num_edges + i] = - (max_val*card2) / (cost*cost);
-
-          //if (rc == RC_CONST) {
-            //dgdxt[node2*num_edges + i] = - (max_val*card2*10.0) / (cost*cost);
+          //if (nilj[i] == 4) {
+            //dgdxt[node1*num_edges + i] = - (max_val*card1*eval_const*rf + max_val*card1) / (cost*cost);
           //} else {
-            //dgdxt[node2*num_edges + i] = 0.0;
+            //dgdxt[node1*num_edges + i] = - (max_val*card1*eval_const*rf) / (cost*cost);
           //}
+
           dgdxt[head_node*num_edges + i] = 0.0;
       }
   }
