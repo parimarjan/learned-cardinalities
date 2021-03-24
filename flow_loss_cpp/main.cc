@@ -625,7 +625,6 @@ void get_costs18(float *ests, float *totals,
   }
 }
 
-
 void get_costs11(float *ests, float *totals,
     double min_val, double max_val, int normalization_type,
     int *edges_cost_node1, int *edges_cost_node2,
@@ -643,7 +642,7 @@ void get_costs11(float *ests, float *totals,
   card3 = ests[head_node];
   float cost1, cost2;
 
-  if (nilj[i] == 1) {
+  if (nilj[i] == 1 || nilj[i] == 4) {
     nilj_cost = card2 + NILJ_CONSTANT*card1;
     //nilj_cost = card2 + card3;
     //nilj_cost = card2;
@@ -655,6 +654,7 @@ void get_costs11(float *ests, float *totals,
     printf("should not have happened!\n");
     exit(-1);
   }
+
   cost2 = card1*card2;
   if (cost2 < nilj_cost) {
     costs[i] = cost2;
