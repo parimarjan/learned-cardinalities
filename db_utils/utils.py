@@ -72,6 +72,7 @@ EXCEPTION_COUNT_CONSTANT = 150001000002
 
 RF_CONSTANT = 100.0
 RC_CONSTANT = 699999.0
+MYSQL_EVAL_CONST = 0.1
 
 CROSS_JOIN_CARD = 19329323
 
@@ -1545,8 +1546,8 @@ def get_heuristic_read_cost(inode, icard, other_node, other_card, join_keys):
 def get_mysql_read_cost(rc, left_nodes, right_node, left_card, right_card,
         left_total, right_total, card3, rf):
 
-    # if this is too small, then just read it in
-    return right_card
+    ## simpler version
+    # return right_card
 
     cost1 = right_card
     if right_node in rf:
@@ -1664,7 +1665,7 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
                 rf = mysql_rows_fetched[key]
                 rc = mysql_read_cost[key]
                 if len(node1) == 1 and len(node2) == 1:
-                    nilj_cost1 = 1.0
+                    nilj_cost1 = 0.0
                     # nilj_cost1 = get_mysql_index_cost(node2[0], rf, card1,
                             # card2)*0.1
 
@@ -1677,12 +1678,12 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
 
                     # rows_fetched
                     if node2[0] in rf:
-                        nilj_cost1 += 0.1*card1*rf[node2[0]]
+                        nilj_cost1 += MYSQL_EVAL_CONST*card1*rf[node2[0]]
                     else:
                         # nilj_cost1 += OLD_TIMEOUT_COUNT_CONSTANT
                         nilj_cost1 += card1*100
 
-                    nilj_cost2 = 1.0
+                    nilj_cost2 = 0.0
 
                     rcost2 = get_mysql_read_cost(rc, node2, node1[0], card2,
                             card1, total2, total1, card3, rf)
@@ -1691,7 +1692,7 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
 
                     # rows fetched
                     if node1[0] in rf:
-                        nilj_cost1 += 0.1*card2*rf[node1[0]]
+                        nilj_cost1 += MYSQL_EVAL_CONST*card2*rf[node1[0]]
                     else:
                         # nilj_cost1 += OLD_TIMEOUT_COUNT_CONSTANT
                         nilj_cost1 += card2*100
@@ -1711,10 +1712,13 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
                     # nilj_cost += card2*0.1
 
                     if node1[0] in rf:
-                        nilj_cost += 0.1*card2*rf[node1[0]]
+                        nilj_cost += MYSQL_EVAL_CONST*card2*rf[node1[0]]
                     else:
                         # nilj_cost += OLD_TIMEOUT_COUNT_CONSTANT
-                        nilj_cost += card2*100
+                        nilj_cost += card2*10
+
+                    # cost2 = card1*card2*MYSQL_EVAL_CONST
+                    # nilj_cost = min(cost2, nilj_cost)
 
                 elif len(node2) == 1:
                     # nilj_cost = get_mysql_index_cost(node2[0], rf, card1,
@@ -1728,10 +1732,13 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
                     # nilj_cost = card1*0.1
 
                     if node2[0] in rf:
-                        nilj_cost += 0.1*card1*rf[node2[0]]
+                        nilj_cost += MYSQL_EVAL_CONST*card1*rf[node2[0]]
                     else:
                         # nilj_cost += OLD_TIMEOUT_COUNT_CONSTANT
-                        nilj_cost += card1*100
+                        nilj_cost += card1*10
+
+                    # cost2 = card1*card2*MYSQL_EVAL_CONST
+                    # nilj_cost = min(cost2, nilj_cost)
 
             else:
                 nilj_cost = TIMEOUT_COUNT_CONSTANT

@@ -41,11 +41,21 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
         total1, total2,penalty, rc, rf):
     if cost_model == "mysql_rc":
         # cost = rc + card1
-        rc = card2
+        rc = 0.0
         if nilj == 4:
             rc += card1
+            rc += card2
+        elif card2 > card1*rf:
+            rc += card1*rf
+        else:
+            rc += card2
 
-        cost = rc + rf*card1*0.1
+        cost1 = rc + rf*card1*0.1
+        cost2 = card1*card2*0.1
+        if cost2 < cost1:
+            cost = cost2
+        else:
+            cost = cost1
 
     elif cost_model == "cm1":
         # hash_join_cost = card1 + card2
@@ -571,17 +581,19 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
 
         if not np.allclose(predC, costs):
             print("costs not close!")
-            pdb.set_trace()
+            # pdb.set_trace()
+            assert False
 
         print(np.allclose(dgdxT2, costs_grad))
         if not np.allclose(dgdxT2, costs_grad):
             print("cost grads not close!")
             print("norm diff: ", np.linalg.norm(dgdxT2 - costs_grad))
+            # assert False
 
         print(np.min(dgdxT2), np.max(dgdxT2))
         print(np.min(costs_grad), np.max(costs_grad))
 
-        pdb.set_trace()
+        # pdb.set_trace()
 
     Gv2 = np.zeros(len(totals))
     Gv2[final_node] = 1.0

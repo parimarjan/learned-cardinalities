@@ -1332,7 +1332,7 @@ def read_flags():
     parser.add_argument("--priority_normalize_type", type=str, required=False,
             default="")
     parser.add_argument("--normalize_flow_loss", type=int, required=False,
-            default=0)
+            default=1)
 
     # parser.add_argument("--priority_err_divide_len", type=int, required=False,
             # default=0)

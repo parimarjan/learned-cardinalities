@@ -905,6 +905,7 @@ class NN(CardinalityEstimationAlg):
             pred = net(xbatch).squeeze(1)
             if torch.isnan(pred).any():
                 print(pred)
+                print("prediction is nan!")
                 pdb.set_trace()
 
             if "flow_loss" in loss_fn_name:
