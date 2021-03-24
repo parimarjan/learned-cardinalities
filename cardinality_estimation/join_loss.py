@@ -920,8 +920,7 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         Gv2 = to_variable(Gv2).float()
         # predC2 = to_variable(predC2).float()
         G2 = to_variable(G2).float()
-        # invG = torch.inverse(G2)
-        invG = torch.pinverse(G2)
+        invG = torch.inverse(G2)
         v = invG @ Gv2 # vshape: Nx1
         v = v.detach().cpu().numpy()
         if debug_sql:

@@ -2389,8 +2389,8 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
 
     # TODO: load mysql read-cost data
     fn = sample["name"]
-    fn = fn.replace("queries", "mysql_data")
-    # fn = fn.replace("queries", "tmp_mysql_data")
+    # fn = fn.replace("queries", "mysql_data")
+    fn = fn.replace("queries", "mysql_data_all")
 
     if os.path.exists(fn) and mysql_costs:
         mdata = load_object(fn)

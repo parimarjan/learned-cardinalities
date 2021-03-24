@@ -1073,6 +1073,15 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         if i % 10 == 0:
             print(i)
         sql = sqls[i]
+        fn = qrep["name"]
+        fn = fn.replace("queries", "mysql_data_all")
+        # fn = fn.replace("queries", "mysql_data")
+
+        if os.path.exists(fn):
+            print("file exists!")
+            cm_losses.append(1.0)
+            cm_ratios.append(2.0)
+            continue
 
         # mysqldb stuff
         cursor.execute("SET optimizer_prune_level=0;")
@@ -1092,18 +1101,11 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
         opt_join_order = get_join_order_mysql(opt_plan_explain)
         opt_cost=float(opt_plan_explain["query_block"]["cost_info"]["query_cost"])
 
-        fn = qrep["name"]
-        # fn = fn.replace("queries", "mysql_data_all")
-        fn = fn.replace("queries", "mysql_data")
-
-        # fn = fn.replace("queries", "mysql_data1")
-        # fn = fn.replace("queries", "tmp_mysql_data2")
 
         if os.path.exists(fn):
-            # mdata = None
             mdata = load_object(fn)
-            # mdata = None
         else:
+            # pdb.set_trace()
             # assert False
             # fn2 = fn.replace("tmp_mysql_data", "tmp_fetched_rows")
             # fn3 = fn.replace("tmp_mysql_data", "tmp_read_costs")
@@ -1146,12 +1148,12 @@ def compute_cost_model_loss_mysql(queries, preds, **kwargs):
             make_dir(os.path.dirname(fn))
             save_object(fn, mdata)
 
-            print("saving mdata took: ", time.time()-start)
+            # print("saving mdata took: ", time.time()-start)
 
         # FIXME:
-        # cm_losses.append(1.0)
-        # cm_ratios.append(2.0)
-        # continue
+        cm_losses.append(1.0)
+        cm_ratios.append(2.0)
+        continue
 
         cm_opt_cost,cm_est_cost,opt_path,est_path= \
                 get_simple_shortest_path_cost(qrep, preds[i], preds[i],
