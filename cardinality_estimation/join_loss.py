@@ -920,8 +920,8 @@ def fl_cpp_get_flow_loss(samples, source_node, cost_key,
         Gv2 = to_variable(Gv2).float()
         # predC2 = to_variable(predC2).float()
         G2 = to_variable(G2).float()
-        invG = torch.inverse(G2)
-        # invG = torch.pinverse(G2)
+        # invG = torch.inverse(G2)
+        invG = torch.pinverse(G2)
         v = invG @ Gv2 # vshape: Nx1
         v = v.detach().cpu().numpy()
         if debug_sql:
@@ -1242,23 +1242,29 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         assert cost >= 1
         costs.append(cost)
 
-        join_order = [tuple(sorted(x)) for x in path_to_join_order(path)]
-        # print("path_to_join_order done")
-        join_order.reverse()
-        # join_order2 = copy.deepcopy(join_order)
-        # join_order[0] = join_order2[1]
-        # join_order[1] = join_order2[0]
-        sql_to_exec = nodes_to_sql(join_order, join_graphs[i])
+        if False:
+            join_order = [tuple(sorted(x)) for x in path_to_join_order(path)]
+            # print("path_to_join_order done")
+            join_order.reverse()
+            # join_order2 = copy.deepcopy(join_order)
+            # join_order[0] = join_order2[1]
+            # join_order[1] = join_order2[0]
 
-        cur_ests = all_ests[i]
-        exec_sql, est_cost, est_explain = get_join_cost_sql(sql_to_exec,
-                cur_ests, true_cardinalities[i],
-                join_graphs[i], user, pwd, db_host, port, db_name,
-                cost_model, scan_types)
-        # print("get join cost sql done")
-        pg_costs.append(est_cost)
-        pg_sqls.append(exec_sql)
-        pg_explains.append(est_explain)
+            sql_to_exec = nodes_to_sql(join_order, join_graphs[i])
+
+            cur_ests = all_ests[i]
+            exec_sql, est_cost, est_explain = get_join_cost_sql(sql_to_exec,
+                    cur_ests, true_cardinalities[i],
+                    join_graphs[i], user, pwd, db_host, port, db_name,
+                    cost_model, scan_types)
+            # print("get join cost sql done")
+            pg_costs.append(est_cost)
+            pg_sqls.append(exec_sql)
+            pg_explains.append(est_explain)
+        else:
+            pg_costs.append(0.0)
+            pg_sqls.append("")
+            pg_explains.append(None)
 
     return costs, pg_costs, paths, pg_sqls, pg_explains
 
@@ -1313,8 +1319,8 @@ class PlanError():
             qkey = deterministic_hash(qrep["sql"])
             if qkey in self.opt_costs:
                 opt_costs.append(self.opt_costs[qkey])
-                if self.loss_type == "plan-loss":
-                    opt_pg_costs.append(self.opt_pg_costs[qkey])
+                # if self.loss_type == "plan-loss":
+                    # opt_pg_costs.append(self.opt_pg_costs[qkey])
             else:
                 opt_costs.append(None)
                 new_opt_cost = True

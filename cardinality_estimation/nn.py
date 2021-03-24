@@ -2102,22 +2102,35 @@ class NN(CardinalityEstimationAlg):
         start = time.time()
         self.nets[0].eval()
         pred, Y = self.eval_samples(samples_type)
-        # assert pred.shape == Y.shape
-        print("eval samples done at epoch: ", self.epoch)
         self.nets[0].train()
-        if "flow_loss" not in self.loss_func:
-            losses = self.loss(pred, Y).detach().cpu().numpy()
-        else:
-            # FIXME: store all appropriate losses throughout...
-            if self.normalization_type == "mscn":
-                losses = torch.nn.MSELoss(reduction="none")(pred,
-                        Y).detach().cpu().numpy()
-            else:
-                losses = qloss_torch(pred, Y).detach().cpu().numpy()
+
+        yhat = copy.deepcopy(pred)
+        Ytrue = copy.deepcopy(Y)
+
+        for i in range(len(pred)):
+            yhat[i] = torch.exp((pred[i] + \
+                        self.min_val)*(self.max_val-self.min_val))
+            Ytrue[i] = torch.exp((Y[i] + \
+                        self.min_val)*(self.max_val-self.min_val))
+        losses = qloss_torch(yhat, Ytrue).detach().cpu().numpy()
+
+        # assert pred.shape == Y.shape
+        # print("eval samples done at epoch: ", self.epoch)
+        # if "flow_loss" not in self.loss_func:
+            # losses = self.loss(pred, Y).detach().cpu().numpy()
+        # else:
+            # # FIXME: store all appropriate losses throughout...
+            # if self.normalization_type == "mscn":
+                # losses = torch.nn.MSELoss(reduction="none")(pred,
+                        # Y).detach().cpu().numpy()
+            # else:
+                # losses = qloss_torch(pred, Y).detach().cpu().numpy()
 
         loss_avg = round(np.sum(losses) / len(losses), 6)
+
         print("""{}: {}, N: {}, qerr: {}""".format(
             samples_type, epoch, len(Y), loss_avg))
+
         if self.adaptive_lr and self.scheduler is not None:
             self.scheduler.step(loss_avg)
 
@@ -2202,7 +2215,6 @@ class NN(CardinalityEstimationAlg):
                     samples_type, loss_key="flow_ratio")
 
         opt_plan_pg_costs = None
-        print("should compute cost model err next")
         if self.cost_model_plan_err and \
                 epoch % self.eval_epoch_plan_err == 0:
             opt_plan_costs, est_plan_costs, opt_plan_pg_costs, \
@@ -2221,22 +2233,22 @@ class NN(CardinalityEstimationAlg):
             self.save_join_loss_stats(cm_plan_losses_ratio, None, samples,
                     samples_type, loss_key="mm1_plan_ratio")
 
-            if opt_plan_pg_costs is not None:
-                cm_plan_pg_losses = est_plan_pg_costs - opt_plan_pg_costs
-                cm_plan_pg_ratio = est_plan_pg_costs / opt_plan_pg_costs
+            # if opt_plan_pg_costs is not None:
+                # cm_plan_pg_losses = est_plan_pg_costs - opt_plan_pg_costs
+                # cm_plan_pg_ratio = est_plan_pg_costs / opt_plan_pg_costs
 
-                self.save_join_loss_stats(cm_plan_pg_losses, None, samples,
-                        samples_type, loss_key="mm1_plan_pg_err")
-                self.save_join_loss_stats(cm_plan_pg_ratio, None, samples,
-                        samples_type, loss_key="mm1_plan_pg_ratio")
+                # self.save_join_loss_stats(cm_plan_pg_losses, None, samples,
+                        # samples_type, loss_key="mm1_plan_pg_err")
+                # self.save_join_loss_stats(cm_plan_pg_ratio, None, samples,
+                        # samples_type, loss_key="mm1_plan_pg_ratio")
 
-                # if self.debug_set:
-                min_idx = np.argmin(cm_plan_pg_losses)
-                min_idx2 = np.argmin(cm_plan_pg_ratio)
-                print("min plan pg loss: {}, name: {}".format(
-                    cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
-                print("min plan pg ratio: {}, name: {}".format(
-                    cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
+                # # if self.debug_set:
+                # min_idx = np.argmin(cm_plan_pg_losses)
+                # min_idx2 = np.argmin(cm_plan_pg_ratio)
+                # print("min plan pg loss: {}, name: {}".format(
+                    # cm_plan_pg_losses[min_idx], samples[min_idx]["name"]))
+                # print("min plan pg ratio: {}, name: {}".format(
+                    # cm_plan_pg_ratio[min_idx2], samples[min_idx2]["name"]))
 
 
         if not epoch % self.eval_epoch_jerr == 0:
@@ -2353,6 +2365,7 @@ class NN(CardinalityEstimationAlg):
         '''
         if not isinstance(pred, np.ndarray):
             pred = pred.detach().cpu().numpy()
+
         sqls = []
         true_cardinalities = []
         est_cardinalities = []
@@ -2379,8 +2392,11 @@ class NN(CardinalityEstimationAlg):
                 # alias_key = node
                 idx = query_idx + subq_idx
                 if self.normalization_type == "mscn":
-                    est_card = np.exp((pred[idx] + \
+                    sel_est = pred[idx]
+                    assert sel_est <= 1.0
+                    est_card = np.exp((sel_est + \
                         self.min_val)*(self.max_val-self.min_val))
+                    assert est_card >= 0
                 else:
                     est_sel = pred[idx]
                     est_card = est_sel*cards["total"]
@@ -2745,7 +2761,7 @@ class NN(CardinalityEstimationAlg):
 
         self.plan_err = PlanError(self.cost_model, "plan-loss", self.db.user,
                 self.db.pwd, self.db.db_host, self.db.port, self.db.db_name,
-                compute_pg_costs=True)
+                compute_pg_costs=False)
         self.flow_loss_env = PlanError(self.cost_model, "flow-loss",
                 compute_pg_costs=False)
 
