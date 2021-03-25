@@ -1,21 +1,27 @@
-ALG=$1
-LOSS_FUNC=$2
-NN_TYPE=$3
-DECAY=$4
-LR=$5
-MAX_EPOCHS=$6
+LOSS_FUNC=$1
+DECAY=$2
+LR=$3
+COST_MODEL=$4
+NORM_FLOW_LOSS=$5
+
+DEBUG_SET=0
+DEBUG_RATIO=1.5
+MAX_EPOCHS=10
+
+ALG=nn
+NN_TYPE=microsoft
+
 QUERY_MB_SIZE=4
 EVAL_ON_JOB=0
 EVAL_ON_JOBM=0
-
-NORM_FLOW_LOSS=0
-
-PRIORITY=2.0
+PRIORITY=0.0
 PR_NORM=no
 SAMPLE_BITMAP_BUCKETS=1000
 SAMPLE_BITMAP=0
+
 PRELOAD_FEATURES=1
 NUM_MSE_ANCHORING=0
+
 FLOW_FEATS=1
 SWITCH_EPOCH=100000
 REL_ESTS=1
@@ -26,28 +32,23 @@ WEIGHTED_MSES=(0.0)
 
 EVAL_EPOCH=100
 
-LOSSES=join-loss,qerr
-COST_MODEL=nested_loop_index7
+LOSSES=mysql-loss,qerr
 
-NHL=2
-#RES_DIR=all_results/vldb/default/sample_bitmaps
-#RES_DIR=all_results/vldb/default/fcnn_subq_imp2
-RES_DIR=all_results/vldb/default/pr2
+NHL=4
+RES_DIR=all_results/mysql/fcnn/final1
 
 BUCKETS=10
-HLS=256
+HLS=512
 
 LOAD_QUERY_TOGTHER=0
-#BUCKETS=10
-#HLS=(512)
-#DECAYS=(0.1)
-#MIN_QERRS=(2.0 4.0 8.0 16.0 32.0 64.0)
 NUM_PAR=16
 
 for i in "${!WEIGHTED_MSES[@]}";
   do
   CMD="time python3 main.py --algs nn -n -1 \
    --hidden_layer_size $HLS \
+   --debug_set $DEBUG_SET \
+   --debug_ratio $DEBUG_RATIO \
    --use_val_set $USE_VAL_SET \
    --query_mb_size $QUERY_MB_SIZE \
    --weighted_mse ${WEIGHTED_MSES[$i]} \
@@ -74,9 +75,9 @@ for i in "${!WEIGHTED_MSES[@]}";
    --eval_epoch $EVAL_EPOCH --join_loss_pool_num $NUM_PAR \
    --optimizer_name adamw \
    --normalize_flow_loss $NORM_FLOW_LOSS \
-   --eval_on_job $EVAL_ON_JOB \
-   --eval_on_jobm $EVAL_ON_JOBM \
-   --add_job_features $JOB_FEATS \
+   --eval_on_job 0 \
+   --eval_on_jobm 0 \
+   --add_job_features 0 \
    --feat_rel_pg_ests  $REL_ESTS \
    --feat_rel_pg_ests_onehot  $ONEHOT \
    --feat_pg_est_one_hot  $ONEHOT \

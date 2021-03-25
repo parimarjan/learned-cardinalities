@@ -33,7 +33,6 @@ else:
     print("flow loss C library not being used as we are not on linux")
     # lib_file = "libflowloss.dylib"
 
-# DEBUG_JAX = False
 DEBUG_JAX = False
 DEBUG = False
 
@@ -47,6 +46,35 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
             rc += card2
         elif card2 > card1*rf:
             rc += card1*rf
+        else:
+            rc += card2
+
+        cost1 = rc + rf*card1*0.1
+        cost2 = card1*card2*0.1
+        if cost2 < cost1:
+            cost = cost2
+        else:
+            cost = cost1
+
+    elif cost_model == "mysql_rc2":
+        # cost = rc + card1
+        rc = 0.0
+        if nilj == 4:
+            rc += card1
+            rc += card2
+        elif card2 > card1*rf:
+            rc += card1*rf
+        else:
+            rc += card2
+
+        cost = rc + rf*card1*0.1
+
+    elif cost_model == "mysql_rc3":
+        # cost = rc + card1
+        rc = 0.0
+        if nilj == 4:
+            rc += card1
+            rc += card2
         else:
             rc += card2
 
