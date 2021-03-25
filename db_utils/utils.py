@@ -1650,7 +1650,11 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
     edges_kind = {}
     if cost_model == "mysql_rc":
         # FIXME: pass in mdata here
-        cost = card1
+        cost = card1 + 0.1*card2
+    elif cost_model == "mysql_rc2":
+        cost = card1 + 0.1*card2
+    elif cost_model == "mysql_rc3":
+        cost = card1 + 0.1*card2
 
     elif cost_model == "mysql1":
         assert total1 is not None
@@ -2738,6 +2742,10 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         cost_model_num = 17
     elif cost_model == "mysql_rc":
         cost_model_num = 18
+    elif cost_model == "mysql_rc2":
+        cost_model_num = 19
+    elif cost_model == "mysql_rc3":
+        cost_model_num = 20
     else:
         assert False
 
