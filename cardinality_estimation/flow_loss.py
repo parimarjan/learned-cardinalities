@@ -85,6 +85,19 @@ def get_costs_jax(card1, card2, card3, nilj, cost_model,
         else:
             cost = cost1
 
+    elif cost_model == "mysql_rc4":
+        # cost = rc + card1
+        rc = rc
+        if nilj == 4:
+            rc += card1
+            rc += card2
+        elif card2 > card1*rf:
+            rc += card1*rf
+        else:
+            rc += card2
+
+        cost = rc + rf*card1*0.1
+
     elif cost_model == "cm1":
         # hash_join_cost = card1 + card2
         if nilj == 1:
@@ -633,6 +646,7 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     G2 = to_variable(G2).float().to(device)
 
     invG = torch.inverse(G2)
+    # invG = torch.pinverse(G2)
 
     # invG = scipy.linalg.inv(G2)
     # invG = np.linalg.inv(G2)
@@ -648,6 +662,11 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
 
     v = invG @ Gv2 # vshape: Nx1
     v = v.detach().cpu().numpy()
+
+    # flows = Q2 @ v
+    # if np.min(flows) < 0.0:
+        # print("flows max-min-mean!")
+        # print(np.max(flows), np.min(flows), np.mean(flows))
 
     # TODO: we don't even need to compute the loss here if we don't want to
     loss2 = np.zeros(1, dtype=np.float32)

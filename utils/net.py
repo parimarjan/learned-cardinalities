@@ -104,6 +104,7 @@ class SimpleRegression(torch.nn.Module):
 
         final_layer = nn.Sequential(
             nn.Linear(n_hidden, n_output, bias=True),
+            # nn.Tanh()
             nn.Sigmoid()
         ).to(device)
         self.layers.append(final_layer)

@@ -70,7 +70,7 @@ TIMEOUT_COUNT_CONSTANT = 150001000001
 CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
 
-RF_CONSTANT = 10.0
+RF_CONSTANT = 100.0
 RC_CONSTANT = 699999.0
 MYSQL_EVAL_CONST = 0.1
 
@@ -1655,6 +1655,8 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
         cost = card1 + 0.1*card2
     elif cost_model == "mysql_rc3":
         cost = card1 + 0.1*card2
+    elif cost_model == "mysql_rc4":
+        cost = card1 + 0.1*card2
 
     elif cost_model == "mysql1":
         assert total1 is not None
@@ -2746,6 +2748,8 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         cost_model_num = 19
     elif cost_model == "mysql_rc3":
         cost_model_num = 20
+    elif cost_model == "mysql_rc4":
+        cost_model_num = 21
     else:
         assert False
 
