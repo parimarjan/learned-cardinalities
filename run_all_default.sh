@@ -35,7 +35,7 @@ EVAL_EPOCH=100
 LOSSES=mysql-loss,qerr
 
 NHL=4
-RES_DIR=all_results/mysql/fcnn/final1
+RES_DIR=all_results/mysql/mscn/final1
 
 BUCKETS=10
 HLS=512

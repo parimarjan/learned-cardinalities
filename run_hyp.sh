@@ -12,7 +12,7 @@ do
 		do
 			for l in "${!DECAYS[@]}";
 			do
-				CMD="bash run_all_default.sh flow_loss2 ${DECAYS[$l]} \
+				CMD="bash run_all_default_mscn.sh flow_loss2 ${DECAYS[$l]} \
         ${LRS[$j]} \
         ${COST_MODELS[$i]} \
         ${NORM_FLS[$k]}"

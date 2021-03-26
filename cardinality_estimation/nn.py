@@ -958,6 +958,22 @@ class NN(CardinalityEstimationAlg):
                 qloss = qloss_torch(pred, ybatch)
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
 
+            if self.magnitude_regularization:
+                # don't make predictions be too large
+                # pred_reg = pred - 0.5
+                pred_reg = pred
+                pred_reg = self.magnitude_regularization*torch.norm(pred_reg, p=1)
+                # pred_mean = torch.mean(pred)
+                # pred_mean -= 0.5
+                loss += pred_reg
+
+            if self.boundary_mse:
+                mses = torch.nn.MSELoss(reduction="none")(pred,
+                        ybatch)
+                mse = torch.mean(mses)
+                if mse > self.boundary_mse:
+                    loss += mse
+
             if self.weighted_mse != 0.0 and \
                 "flow_loss" in loss_fn_name:
                 mses = torch.nn.MSELoss(reduction="none")(pred,
