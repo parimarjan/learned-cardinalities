@@ -2391,7 +2391,7 @@ class NN(CardinalityEstimationAlg):
                 idx = query_idx + subq_idx
                 if self.normalization_type == "mscn":
                     sel_est = pred[idx]
-                    assert sel_est <= 1.0
+                    # assert sel_est <= 1.0
                     est_card = np.exp((sel_est + \
                         self.min_val)*(self.max_val-self.min_val))
                     assert est_card >= 0

@@ -1375,7 +1375,7 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_qerr", type=int,
-            required=False, default=100)
+            required=False, default=1)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=10000)
     parser.add_argument("--use_batch_norm", type=int,
