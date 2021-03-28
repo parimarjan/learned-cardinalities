@@ -572,10 +572,10 @@ class JoinLoss():
 
         def run_single_sql(sql):
             # db=MySQLdb.connect(passwd=self.pwd,db=self.db_name, user=self.user)
-            db = MySQLdb.connect(db="imdb", passwd="", user="root",
-                    host="127.0.0.1")
-            # db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
+            # db = MySQLdb.connect(db="imdb", passwd="", user="root",
                     # host="127.0.0.1")
+            db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
+                    host="127.0.0.1")
             cursor = db.cursor()
             cursor.execute("SET optimizer_prune_level=0;")
             # opt_flags = []

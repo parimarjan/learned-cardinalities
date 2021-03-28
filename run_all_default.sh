@@ -6,7 +6,7 @@ NORM_FLOW_LOSS=$5
 
 DEBUG_SET=1
 DEBUG_RATIO=1.5
-MAX_EPOCHS=10
+MAX_EPOCHS=15
 
 ALG=nn
 NN_TYPE=microsoft
@@ -35,7 +35,7 @@ EVAL_EPOCH=100
 LOSSES=mysql-loss,qerr
 
 NHL=4
-RES_DIR=all_results/mysql/mscn/final1
+RES_DIR=all_results/mysql/fcnn/final2
 
 BUCKETS=10
 HLS=512
