@@ -12,7 +12,7 @@ from cardinality_estimation.nn import *
 from cardinality_estimation.losses import *
 from cardinality_estimation.data_loader import *
 import argparse
-# from park.param import parser
+from park.param import parser
 import psycopg2 as pg
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import psycopg2.extras
@@ -1182,7 +1182,7 @@ def gen_samples_hash():
     return deterministic_hash(string)
 
 def read_flags():
-    parser = argparse.ArgumentParser()
+    # parser = argparse.ArgumentParser()
 
     parser.add_argument("--db_year_train", type=str, required=False,
             default="")

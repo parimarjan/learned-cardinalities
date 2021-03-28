@@ -16,6 +16,8 @@ import cvxpy as cp
 import MySQLdb
 import json
 
+from park.envs.query_optimizer.query_optimizer import QueryOptEnv
+
 system = platform.system()
 if system == 'Linux':
     lib_file = "libflowloss.so"
@@ -564,8 +566,27 @@ class JoinLoss():
             return self._compute_join_order_loss_mysql(sqls, join_graphs,
                     true_cardinalities, est_cardinalities, num_processes,
                     use_indexes, pool, fns)
+        elif backend == "calcite":
+            return self._compute_join_order_loss_calcite(sqls, join_graphs,
+                    true_cardinalities, est_cardinalities, num_processes,
+                    use_indexes, pool, fns)
         else:
             assert False
+
+    def _compute_join_order_loss_calcite(self, sqls, join_graphs, true_cardinalities,
+            est_cardinalities, num_processes, use_indexes, pool, fns):
+
+    # def compute_join_order_loss(self, sqls, true_cardinalities,
+            # est_cardinalities, baseline_join_alg, use_indexes,
+            # num_processes=8, postgres=True, pool=None):
+
+        env = QueryOptEnv()
+        print("test hello!")
+        env.compute_join_order_loss(sqls, true_cardinalities,
+                est_cardinalities, "EXHAUSTIVE", True, 1, postgres=False,
+                pool=None)
+
+        pdb.set_trace()
 
     def _compute_join_order_loss_mysql(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, num_processes, use_indexes, pool, fns):
