@@ -70,8 +70,8 @@ TIMEOUT_COUNT_CONSTANT = 150001000001
 CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
 
-RF_CONSTANT = 10.0
-RC_CONSTANT = 699999.0
+RF_CONSTANT = 100.0
+RC_CONSTANT = 6999999.0
 MYSQL_EVAL_CONST = 0.1
 
 CROSS_JOIN_CARD = 19329323
@@ -1650,7 +1650,49 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
     edges_kind = {}
     if cost_model == "mysql_rc":
         # FIXME: pass in mdata here
-        cost = card1
+        cost = card1 + 0.1*card2
+    elif cost_model == "mysql_rc2":
+        cost = card1 + 0.1*card2
+    elif cost_model == "mysql_rc3":
+        cost = card1 + 0.1*card2
+    elif cost_model == "mysql_rc4":
+        # cost = card1 + 0.1*card2
+        if mdata is not None:
+            mysql_rows_fetched = mdata["rf"]
+            mysql_read_cost = mdata["rc"]
+            key_list = list(node1) + list(node2)
+            key_list.sort()
+            key = " ".join(key_list)
+            if key in mysql_rows_fetched and key in mysql_read_cost:
+                rf_dict = mysql_rows_fetched[key]
+                rc_dict = mysql_read_cost[key]
+                if node2[0] in rf_dict:
+                    rf = rf_dict[node2[0]]
+                else:
+                    rf = RF_CONSTANT
+
+                if node2[0] in rc_dict:
+                    rc = rc_dict[node2[0]]
+                else:
+                    rc = RC_CONSTANT
+            else:
+                rf = RF_CONSTANT
+                rc = RC_CONSTANT
+
+            assert len(node2) == 1
+
+            if len(node1) == 1:
+                # both are len(1)
+                rc += card1
+                rc += card2
+            elif card2 > card1*rf:
+                rc += card1*rf
+            else:
+                rc += card2
+
+            cost = rc + rf*card1*0.1
+        else:
+            assert False
 
     elif cost_model == "mysql1":
         assert total1 is not None
@@ -2738,6 +2780,12 @@ def get_optimization_variables(ests, totals, min_val, max_val,
         cost_model_num = 17
     elif cost_model == "mysql_rc":
         cost_model_num = 18
+    elif cost_model == "mysql_rc2":
+        cost_model_num = 19
+    elif cost_model == "mysql_rc3":
+        cost_model_num = 20
+    elif cost_model == "mysql_rc4":
+        cost_model_num = 21
     else:
         assert False
 

@@ -163,26 +163,27 @@ def update_samples(samples, flow_features, cost_model,
             # print("SOURCE NODE {} not in graph".format(SOURCE_NODE))
         add_single_node_edges(subsetg, SOURCE_NODE)
         sample_edge = list(subsetg.edges())[0]
-        # if (cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
-                # and not debug_set) and not REGEN_COSTS:
-        if (cost_model + "cost" in subsetg.edges()[sample_edge].keys()) \
-                and not REGEN_COSTS:
+        # if (cost_model + "cost" in subsetg.edges()[sample_edge].keys()) \
+                # and not REGEN_COSTS:
+        if False:
             continue
         else:
-            # print(sample["name"])
-            # print("new sample in update sample")
-            # print(subsetg.edges()[sample_edge].keys())
-            # pdb.set_trace()
+            if "mysql" in cost_model:
+                fn = sample["name"]
+                fn = fn.replace("queries", "mysql_data_all")
+                mdata = load_object(fn)
+            else:
+                mdata = None
+                assert False
 
             new_seen = True
-
             pg_total_cost = compute_costs(subsetg, cost_model,
                     cardinality_key,
-                    cost_key="pg_cost", ests="expected")
+                    cost_key="pg_cost", ests="expected", mdata=mdata)
             _ = compute_costs(subsetg, cost_model,
                     cardinality_key,
                     cost_key="cost",
-                    ests=None)
+                    ests=None, mdata=mdata)
 
             subsetg.graph[cost_model + "total_cost"] = pg_total_cost
 
@@ -904,10 +905,9 @@ class NN(CardinalityEstimationAlg):
             xbatch = xbatch.to(device, non_blocking=True)
             pred = net(xbatch).squeeze(1)
             if torch.isnan(pred).any():
-                print("prediction is nan!")
                 print(pred)
+                print("prediction is nan!")
                 pdb.set_trace()
-
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
@@ -951,11 +951,29 @@ class NN(CardinalityEstimationAlg):
             except:
                 loss = losses
 
-            # print(loss)
+            if torch.isnan(loss):
+                print(loss)
+                pdb.set_trace()
 
             if self.weighted_qloss != 0.0:
                 qloss = qloss_torch(pred, ybatch)
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
+
+            if self.magnitude_regularization:
+                # don't make predictions be too large
+                # pred_reg = pred - 0.5
+                pred_reg = pred
+                pred_reg = self.magnitude_regularization*torch.norm(pred_reg, p=1)
+                # pred_mean = torch.mean(pred)
+                # pred_mean -= 0.5
+                loss += pred_reg
+
+            if self.boundary_mse:
+                mses = torch.nn.MSELoss(reduction="none")(pred,
+                        ybatch)
+                mse = torch.mean(mses)
+                if mse > self.boundary_mse:
+                    loss += mse
 
             if self.weighted_mse != 0.0 and \
                 "flow_loss" in loss_fn_name:
@@ -1060,6 +1078,7 @@ class NN(CardinalityEstimationAlg):
                 sample = None
 
             pred = net(tbatch,pbatch,jbatch,fbatch,tmask,pmask,jmask).squeeze(1)
+
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
@@ -2391,7 +2410,7 @@ class NN(CardinalityEstimationAlg):
                 idx = query_idx + subq_idx
                 if self.normalization_type == "mscn":
                     sel_est = pred[idx]
-                    assert sel_est <= 1.0
+                    # assert sel_est <= 1.0
                     est_card = np.exp((sel_est + \
                         self.min_val)*(self.max_val-self.min_val))
                     assert est_card >= 0

@@ -12,7 +12,7 @@ from cardinality_estimation.nn import *
 from cardinality_estimation.losses import *
 from cardinality_estimation.data_loader import *
 import argparse
-# from park.param import parser
+from park.param import parser
 import psycopg2 as pg
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import psycopg2.extras
@@ -164,6 +164,8 @@ def get_alg(alg):
         return BN(alg="exact-dp", num_bins=args.num_bins)
     elif alg == "nn":
         return NN(max_epochs = args.max_epochs, lr=args.lr,
+                magnitude_regularization = args.magnitude_regularization,
+                boundary_mse = args.boundary_mse,
                 use_batch_norm = args.use_batch_norm,
                 mb_size = args.query_mb_size,
                 eval_epoch_qerr = args.eval_epoch_qerr,
@@ -1184,13 +1186,15 @@ def gen_samples_hash():
     return deterministic_hash(string)
 
 def read_flags():
-    parser = argparse.ArgumentParser()
+    # parser = argparse.ArgumentParser()
 
     parser.add_argument("--db_year_train", type=str, required=False,
             default="")
     parser.add_argument("--db_year_test", type=str, required=False,
             default=None, help="1950,1960,... OR all")
     parser.add_argument("--regen_db", type=int, required=False,
+            default=0)
+    parser.add_argument("--magnitude_regularization", type=int, required=False,
             default=0)
     parser.add_argument("--save_exec_sql", type=int, required=False,
             default=1)
@@ -1290,6 +1294,8 @@ def read_flags():
             default=0)
     parser.add_argument("--weighted_mse", type=float, required=False,
             default=0.0)
+    parser.add_argument("--boundary_mse", type=float, required=False,
+            default=0.0)
 
     parser.add_argument("--unnormalized_mse", type=int, required=False,
             default=0)
@@ -1314,7 +1320,7 @@ def read_flags():
     parser.add_argument("--num_tables_feature", type=int, required=False,
             default=1)
     parser.add_argument("--flow_features", type=int, required=False,
-            default=0)
+            default=1)
     parser.add_argument("--table_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_features", type=int, required=False,
@@ -1379,7 +1385,7 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_qerr", type=int,
-            required=False, default=100)
+            required=False, default=1)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=10000)
     parser.add_argument("--use_batch_norm", type=int,
