@@ -163,26 +163,27 @@ def update_samples(samples, flow_features, cost_model,
             # print("SOURCE NODE {} not in graph".format(SOURCE_NODE))
         add_single_node_edges(subsetg, SOURCE_NODE)
         sample_edge = list(subsetg.edges())[0]
-        # if (cost_model + "cost" in subsetg.edges()[sample_edge].keys() \
-                # and not debug_set) and not REGEN_COSTS:
-        if (cost_model + "cost" in subsetg.edges()[sample_edge].keys()) \
-                and not REGEN_COSTS:
+        # if (cost_model + "cost" in subsetg.edges()[sample_edge].keys()) \
+                # and not REGEN_COSTS:
+        if False:
             continue
         else:
-            # print(sample["name"])
-            # print("new sample in update sample")
-            # print(subsetg.edges()[sample_edge].keys())
-            # pdb.set_trace()
+            if "mysql" in cost_model:
+                fn = sample["name"]
+                fn = fn.replace("queries", "mysql_data_all")
+                mdata = load_object(fn)
+            else:
+                mdata = None
+                assert False
 
             new_seen = True
-
             pg_total_cost = compute_costs(subsetg, cost_model,
                     cardinality_key,
-                    cost_key="pg_cost", ests="expected")
+                    cost_key="pg_cost", ests="expected", mdata=mdata)
             _ = compute_costs(subsetg, cost_model,
                     cardinality_key,
                     cost_key="cost",
-                    ests=None)
+                    ests=None, mdata=mdata)
 
             subsetg.graph[cost_model + "total_cost"] = pg_total_cost
 

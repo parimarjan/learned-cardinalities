@@ -4,9 +4,9 @@ LR=$3
 COST_MODEL=$4
 NORM_FLOW_LOSS=$5
 
-DEBUG_SET=1
+DEBUG_SET=0
 DEBUG_RATIO=1.5
-MAX_EPOCHS=15
+MAX_EPOCHS=10
 
 ALG=nn
 NN_TYPE=microsoft
@@ -36,7 +36,7 @@ EVAL_EPOCH=100
 LOSSES=mysql-loss,qerr
 
 NHL=4
-RES_DIR=all_results/mysql/fcnn/diff/final3
+RES_DIR=all_results/mysql/fcnn/diff/final4
 
 BUCKETS=10
 HLS=512
