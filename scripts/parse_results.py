@@ -55,7 +55,7 @@ def load_jerrs(exp_dir, file_name, loss_key):
         # add_row(cur_jerrs["cost"].values, "jcost", -1, "all", "all", samples_type,
                 # stats)
         add_row(cur_jerrs["loss"].values, loss_key, -1, "all", "all", samples_type,
-                stats)
+                stats, "cardinality")
 
 
         for template in set(cur_jerrs["template"]):
@@ -63,7 +63,7 @@ def load_jerrs(exp_dir, file_name, loss_key):
             # add_row(tmp_jerrs["cost"].values, "jcost", -1, template, "all",
                     # samples_type, stats)
             add_row(tmp_jerrs["loss"].values, loss_key, -1, template, "all",
-                    samples_type, stats)
+                    samples_type, stats, "cardinality")
 
     return pd.DataFrame(stats)
 
@@ -239,7 +239,8 @@ def get_summary_df(results_dir):
 
         try:
             qerrs = load_qerrs(cur_dir)
-            cm1_jerrs = load_jerrs(cur_dir, "cm1_jerr.pkl", "cm1_jerr")
+            # cm1_jerrs = load_jerrs(cur_dir, "cm1_jerr.pkl", "cm1_jerr")
+            cm1_jerrs = load_jerrs(cur_dir, "cm1_mysql_jerr.pkl", "cm1_jerr")
             # perrs = load_jerrs(cur_dir, "plan_err.pkl", "plan_err")
             # perrs_pg = load_jerrs(cur_dir, "plan_pg_err.pkl", "plan_pg_err")
             # ferrs = load_jerrs(cur_dir, "flow_err.pkl", "flow_err")

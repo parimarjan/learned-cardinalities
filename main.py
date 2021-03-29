@@ -407,9 +407,9 @@ def load_samples(qfns, db, found_db, template_name,
         # mdata_fn = mdata_fn.replace("queries", "mysql_data")
         mdata_fn = mdata_fn.replace("queries", "mysql_data_all")
 
-        if not os.path.exists(mdata_fn) and args.loss_func == "flow_loss2":
-            skipped += 1
-            continue
+        # if not os.path.exists(mdata_fn) and args.loss_func == "flow_loss2":
+            # skipped += 1
+            # continue
 
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
@@ -934,7 +934,11 @@ def main():
     else:
         load_test_samples = True
 
-    load_db = True
+    if "nn" not in args.algs:
+        load_db = False
+    else:
+        load_db = True
+
     if args.model_dir is not None:
         old_args = load_object(args.model_dir + "/args.pkl")
 
@@ -981,8 +985,8 @@ def main():
         args = old_args
         load_db = False
 
-        # if old_args.diff_templates_seed != 6:
-            # exit(-1)
+        if not old_args.diff_templates_seed in [6, 7, 8, 9, 10]:
+            exit(-1)
 
         # print(old_args.test_diff_templates)
         # print(old_args.diff_templates_seed)

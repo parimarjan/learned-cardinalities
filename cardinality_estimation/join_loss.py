@@ -69,6 +69,8 @@ MYSQL_OPT_TMP = "set optimizer_switch='{FLAGS}';"
 # MYSQL_OPT_FLAGS=""""""
 MYSQL_OPT_FLAGS="""materialization=off,block_nested_loop=off,semijoin=off,subquery_materialization_cost_based=off,index_merge_union=off,index_merge_sort_union=off,prefer_ordering_index=off,loosescan=off,firstmatch=off,use_index_extensions=off"""
 
+MYSQL_ROW_EVAL_COST_TMP = """UPDATE mysql.server_cost SET cost_value={val} WHERE cost_name='row_evaluate_cost';"""
+
 # cursor.execute("SET materialization=off;")
 # cursor.execute("SET block_nested_loop=off;")
 # cursor.execute("SET semijoin=off;")
@@ -577,6 +579,10 @@ class JoinLoss():
             db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
                     host="127.0.0.1")
             cursor = db.cursor()
+            row_eval_cost = 1.0
+            row_eval_query = MYSQL_ROW_EVAL_COST_TMP.format(val=row_eval_cost)
+            cursor.execute(row_eval_query)
+
             cursor.execute("SET optimizer_prune_level=0;")
             # opt_flags = []
             # cursor.execute("SET 'materialization'=off;")
