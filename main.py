@@ -1098,10 +1098,10 @@ def main():
             del(alg.training_loaders[0])
             del(alg.training_sets[0])
 
-            if args.eval_epoch < args.max_epochs and len(alg.eval_test_sets) > 0:
-                # clear_memory(alg.eval_test_sets[0])
-                alg.eval_test_sets[0].clean()
-                del(alg.eval_test_sets[0])
+            # if args.eval_epoch < args.max_epochs and len(alg.eval_test_sets) > 0:
+                # # clear_memory(alg.eval_test_sets[0])
+                # alg.eval_test_sets[0].clean()
+                # del(alg.eval_test_sets[0])
 
             for k,v in alg.eval_loaders.items():
                 del(v)
