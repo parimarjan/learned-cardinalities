@@ -177,6 +177,7 @@ def update_samples(samples, flow_features, cost_model,
                 assert False
 
             new_seen = True
+            assert mdata is not None
             pg_total_cost = compute_costs(subsetg, cost_model,
                     cardinality_key,
                     cost_key="pg_cost", ests="expected", mdata=mdata)
