@@ -1652,7 +1652,39 @@ def get_costs(subset_graph, card1, card2, card3, node1, node2,
         # FIXME: pass in mdata here
         cost = card1 + 0.1*card2
     elif cost_model == "mysql_rc2":
-        cost = card1 + 0.1*card2
+        if mdata is not None:
+            mysql_rows_fetched = mdata["rf"]
+            mysql_read_cost = mdata["rc"]
+            key_list = list(node1) + list(node2)
+            key_list.sort()
+            key = " ".join(key_list)
+            if key in mysql_rows_fetched and key in mysql_read_cost:
+                rf_dict = mysql_rows_fetched[key]
+                # rc_dict = mysql_read_cost[key]
+                rc = 0.0
+                if node2[0] in rf_dict:
+                    rf = rf_dict[node2[0]]
+                else:
+                    rf = RF_CONSTANT
+            else:
+                rf = RF_CONSTANT
+                rc = 0.0
+
+            assert len(node2) == 1
+
+            if len(node1) == 1:
+                # both are len(1)
+                rc += card1
+                rc += card2
+            elif card2 > card1*rf:
+                rc += card1*rf
+            else:
+                rc += card2
+
+            cost = rc + rf*card1*0.1
+        else:
+            assert False
+
     elif cost_model == "mysql_rc3":
         cost = card1 + 0.1*card2
     elif cost_model == "mysql_rc4":

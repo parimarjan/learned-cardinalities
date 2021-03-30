@@ -259,11 +259,11 @@ def update_samples(samples, flow_features, cost_model,
                 subsetg.nodes()[node]["tolerance"] = tolerances[j]
 
     # if not debug_set and not REGEN_COSTS:
-    if not REGEN_COSTS:
-        print("going to save sample!")
-        # print(sample["name"])
-        for sample in samples:
-            save_sql_rep(sample["name"], sample)
+    # if not REGEN_COSTS:
+        # print("going to save sample!")
+        # # print(sample["name"])
+        # for sample in samples:
+            # save_sql_rep(sample["name"], sample)
 
     print("updated samples in", time.time()-start)
 
