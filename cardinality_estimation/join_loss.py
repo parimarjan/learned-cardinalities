@@ -593,18 +593,12 @@ class JoinLoss():
 
         def run_single_sql(sql):
             # db=MySQLdb.connect(passwd=self.pwd,db=self.db_name, user=self.user)
-            db = MySQLdb.connect(db="imdb", passwd="", user="root",
-                    host="127.0.0.1")
-            # db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
+            # db = MySQLdb.connect(db="imdb", passwd="", user="root",
                     # host="127.0.0.1")
+            db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
+                    host="127.0.0.1")
             cursor = db.cursor()
             cursor.execute("SET optimizer_prune_level=0;")
-            # opt_flags = []
-            # cursor.execute("SET 'materialization'=off;")
-            # cursor.execute("SET materialization=off;")
-            # cursor.execute("SET block_nested_loop=off;")
-            # cursor.execute("SET semijoin=off;")
-            # cursor.execute("SET subquery_materialization_cost_based=off;")
 
             # TMP = "set optimizer_switch='index_merge_union=off,index_merge_sort_union=off';
             opt_flags = MYSQL_OPT_TMP.format(FLAGS=MYSQL_OPT_FLAGS)
@@ -1226,12 +1220,19 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         assert SOURCE_NODE in subsetg.nodes()
 
         # this should already be pre-computed
-        if cost_key != "cost":
-            ests = all_ests[i]
-            compute_costs(subsetg, cost_model,
-                    cardinality_key,
-                    cost_key=cost_key,
-                    ests=ests)
+        ests = all_ests[i]
+        if "mysql" in cost_model:
+            fn = samples[i]["name"]
+            fn = fn.replace("queries", "mysql_data_all")
+            mdata = load_object(fn)
+        else:
+            mdata = None
+
+        compute_costs(subsetg, cost_model,
+                cardinality_key,
+                cost_key=cost_key,
+                ests=ests, mdata=mdata)
+
         # print("compute costs done")
 
         # TODO: precompute..
