@@ -199,7 +199,7 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
             continue
 
 
-        perrs = load_object(cur_dir + "/cm1_jerr.pkl")
+        perrs = load_object(cur_dir + res_fn)
         # perrs = perrs[perrs["samples_type"].isin(["test", "job"])]
         runtimes = runtimes.drop_duplicates("sql_key")
         all_rt_keys = set(runtimes["sql_key"])

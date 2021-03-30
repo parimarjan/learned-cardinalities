@@ -24,7 +24,11 @@ LOSS_COLUMNS = ["loss_type", "loss", "summary_type", "template", "num_samples",
         # "heuristic_features", "alg", "nn_type", "normalization_type"]
 EXP_COLUMNS = ["num_hidden_layers", "hidden_layer_size",
         "sampling_priority_alpha", "max_discrete_featurizing_buckets",
-        "heuristic_features", "alg", "nn_type"]
+        "heuristic_features", "alg", "nn_type", "loss_func",
+        "flow_features", "weight_decay", "sample_bitmap", "test_size",
+        "max_epochs", "debug_set", "lr", "diff_templates_seed",
+        "test_diff_templates"]
+
 PLOT_SUMMARY_TYPES = ["mean"]
 ALGS_ORDER = ["mscn", "mscn-priority", "microsoft", "microsoft-priority"]
 
@@ -52,18 +56,16 @@ def load_jerrs(exp_dir, file_name, loss_key):
 
     for samples_type in set(jerrs["samples_type"]):
         cur_jerrs = jerrs[jerrs["samples_type"] == samples_type]
-        # add_row(cur_jerrs["cost"].values, "jcost", -1, "all", "all", samples_type,
-                # stats)
-        add_row(cur_jerrs["loss"].values, loss_key, -1, "all", "all", samples_type,
+        add_row(cur_jerrs["cost"].values, loss_key, -1, "all", "all", samples_type,
                 stats, "cardinality")
-
-
+        # add_row(cur_jerrs["loss"].values, loss_key, -1, "all", "all", samples_type,
+                # stats, "cardinality")
         for template in set(cur_jerrs["template"]):
             tmp_jerrs = cur_jerrs[cur_jerrs["template"] == template]
-            # add_row(tmp_jerrs["cost"].values, "jcost", -1, template, "all",
-                    # samples_type, stats)
-            add_row(tmp_jerrs["loss"].values, loss_key, -1, template, "all",
+            add_row(tmp_jerrs["cost"].values, loss_key, -1, template, "all",
                     samples_type, stats, "cardinality")
+            # add_row(tmp_jerrs["loss"].values, loss_key, -1, template, "all",
+                    # samples_type, stats, "cardinality")
 
     return pd.DataFrame(stats)
 
@@ -287,12 +289,14 @@ def get_summary_df(results_dir):
             continue
         cur_df = pd.concat(to_concat, ignore_index=True)
 
-        # for exp_column in EXP_COLUMNS:
-            # cur_df[exp_column] = exp_args[exp_column]
+        # cur_df = cur_df.assign(**exp_args)
+
+        for exp_column in EXP_COLUMNS:
+            cur_df[exp_column] = exp_args[exp_column]
 
         args_hash = str(deterministic_hash(str(exp_args)))[0:5]
         exp_hash = str(deterministic_hash(str(exp_args)))[0:5]
-        cur_df = cur_df.assign(**exp_args)
+
         cur_df["exp_hash"] = exp_hash
         cur_df["fn"] = fn
         cur_df["fn_hash"] = str(deterministic_hash(fn))[0:5]
