@@ -4,52 +4,58 @@ LR=$3
 COST_MODEL=$4
 NORM_FLOW_LOSS=$5
 
-DEBUG_SET=0
-DEBUG_RATIO=1.5
+ALG=nn
+NN_TYPE=mscn_set
 MAX_EPOCHS=10
 
-ALG=nn
-NN_TYPE=microsoft
+PRELOAD_FEATURES=1
+USE_VAL_SET=1
+USE_SET_PADDING=2
+DEBUG_SET=0
+DEBUG_RATIO=20
+
 
 QUERY_MB_SIZE=4
 EVAL_ON_JOB=0
 EVAL_ON_JOBM=0
+
 PRIORITY=0.0
 PR_NORM=no
 SAMPLE_BITMAP_BUCKETS=1000
 SAMPLE_BITMAP=0
 
-PRELOAD_FEATURES=1
-NUM_MSE_ANCHORING=0
-
+NUM_MSE_ANCHORING=-1
 FLOW_FEATS=1
 SWITCH_EPOCH=100000
 REL_ESTS=1
 ONEHOT=1
 
-USE_VAL_SET=1
 WEIGHTED_MSES=(0.0)
 
 EVAL_EPOCH=100
 
 LOSSES=mysql-loss,qerr
 
-NHL=4
-RES_DIR=all_results/mysql/fcnn/default/no_norm
+NHL=2
+RES_DIR=all_results/mysql/mscn/final4
 
 BUCKETS=10
-HLS=512
+HLS=256
 
 LOAD_QUERY_TOGTHER=0
+#BUCKETS=10
+#HLS=(512)
+#DECAYS=(0.1)
+#MIN_QERRS=(2.0 4.0 8.0 16.0 32.0 64.0)
 NUM_PAR=16
 
 for i in "${!WEIGHTED_MSES[@]}";
   do
   CMD="time python3 main.py --algs nn -n -1 \
    --hidden_layer_size $HLS \
+   --use_val_set $USE_VAL_SET \
    --debug_set $DEBUG_SET \
    --debug_ratio $DEBUG_RATIO \
-   --use_val_set $USE_VAL_SET \
    --query_mb_size $QUERY_MB_SIZE \
    --weighted_mse ${WEIGHTED_MSES[$i]} \
    --num_mse_anchoring $NUM_MSE_ANCHORING \
@@ -67,6 +73,7 @@ for i in "${!WEIGHTED_MSES[@]}";
    --sample_bitmap $SAMPLE_BITMAP \
    --sample_bitmap_buckets $SAMPLE_BITMAP_BUCKETS \
    --preload_features $PRELOAD_FEATURES \
+   --use_set_padding $USE_SET_PADDING \
    --test_size 0.5 \
    --exp_prefix final_runs \
    --result_dir $RES_DIR \
