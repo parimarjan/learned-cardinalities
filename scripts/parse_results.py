@@ -27,7 +27,7 @@ EXP_COLUMNS = ["num_hidden_layers", "hidden_layer_size",
         "heuristic_features", "alg", "nn_type", "loss_func",
         "flow_features", "weight_decay", "sample_bitmap", "test_size",
         "max_epochs", "debug_set", "lr", "diff_templates_seed",
-        "test_diff_templates"]
+        "test_diff_templates", "cost_model", "normalize_flow_loss"]
 
 PLOT_SUMMARY_TYPES = ["mean"]
 ALGS_ORDER = ["mscn", "mscn-priority", "microsoft", "microsoft-priority"]

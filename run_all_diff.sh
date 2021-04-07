@@ -30,7 +30,7 @@ ONEHOT=1
 USE_VAL_SET=0
 
 #SEEDS=(6 7 8)
-SEEDS=(2 3 4 5 9 10 1)
+SEEDS=(6 7 8 2 3 4 5 9 10 1)
 #SEEDS=(1)
 
 EVAL_EPOCH=100
@@ -39,7 +39,7 @@ LOSSES=mysql-loss,qerr
 #LOSSES=qerr
 
 NHL=4
-RES_DIR=all_results/mysql/fcnn/diff/no_norm_allseeds
+RES_DIR=all_results/mysql/fcnn/diff/norm_allseeds2
 
 BUCKETS=10
 HLS=512

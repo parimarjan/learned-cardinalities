@@ -370,6 +370,8 @@ def load_samples(qfns, db, found_db, template_name,
     if args.debug_set:
         random.seed(args.random_seed)
         qfns = random.sample(qfns, int(len(qfns) / args.debug_ratio))
+        print("reduced samples because args.debug_set 1, ratio: ",
+                args.debug_ratio)
 
     if len(qfns) == 0:
         return samples
@@ -408,10 +410,9 @@ def load_samples(qfns, db, found_db, template_name,
         mdata_fn = qfns[qi]
         # mdata_fn = mdata_fn.replace("queries", "mysql_data")
         mdata_fn = mdata_fn.replace("queries", "mysql_data_all")
-
-        # if not os.path.exists(mdata_fn) and args.loss_func == "flow_loss2":
-            # skipped += 1
-            # continue
+        if not os.path.exists(mdata_fn) and args.loss_func == "flow_loss2":
+            skipped += 1
+            continue
 
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
@@ -658,6 +659,7 @@ def load_all_qrep_data(load_job_queries,
         # let's do the train-test split on the qfns itself
         cur_val_fns = []
         if args.test and args.use_val_set:
+            # assert not args.debug_set
             cur_val_fns, qfns = train_test_split(qfns,
                     test_size=1-args.val_size,
                     random_state=args.random_seed_queries)
@@ -943,6 +945,7 @@ def main():
 
     if args.model_dir is not None:
         old_args = load_object(args.model_dir + "/args.pkl")
+        assert old_args is not None
 
         # going to keep old args for most params, except these:
         old_args.losses = args.losses
@@ -951,6 +954,8 @@ def main():
         old_args.debug_set = args.debug_set
         if args.debug_set:
             old_args.use_val_set = args.use_val_set
+            old_args.debug_ratio = args.debug_ratio
+
         old_args.eval_epoch = args.eval_epoch
         old_args.result_dir = args.result_dir
         # so it can load the current model
@@ -987,8 +992,13 @@ def main():
         args = old_args
         load_db = False
 
-        if not old_args.diff_templates_seed in [6, 7, 8, 9, 10]:
+        if old_args.diff_templates_seed in [1]:
             exit(-1)
+        # if not old_args.diff_templates_seed in [6, 7, 8]:
+            # exit(-1)
+
+        # if not old_args.diff_templates_seed in [6, 7, 8, 9, 10]:
+            # exit(-1)
 
         # print(old_args.test_diff_templates)
         # print(old_args.diff_templates_seed)
@@ -999,16 +1009,17 @@ def main():
                     load_test_samples,
                     pool=join_loss_pool)
 
-    update_samples(train_queries, args.flow_features,
-            args.cost_model, args.debug_set, args.db_name, args.db_year_train)
-    if len(test_queries) > 0:
-        update_samples(test_queries, args.flow_features,
-                args.cost_model, args.debug_set, args.db_name,
-                args.db_year_train)
-    if len(val_queries) > 0:
-        update_samples(val_queries, args.flow_features,
-                args.cost_model, args.debug_set, args.db_name,
-                args.db_year_train)
+    if "nn" in args.algs:
+        update_samples(train_queries, args.flow_features,
+                args.cost_model, args.debug_set, args.db_name, args.db_year_train)
+        if len(test_queries) > 0:
+            update_samples(test_queries, args.flow_features,
+                    args.cost_model, args.debug_set, args.db_name,
+                    args.db_year_train)
+        if len(val_queries) > 0:
+            update_samples(val_queries, args.flow_features,
+                    args.cost_model, args.debug_set, args.db_name,
+                    args.db_year_train)
 
     if args.eval_on_job and not args.add_job_features \
             and args.nn_type == "mscn_set":
@@ -1385,7 +1396,7 @@ def read_flags():
     parser.add_argument("--eval_epoch", type=int,
             required=False, default=1)
     parser.add_argument("--eval_epoch_qerr", type=int,
-            required=False, default=1)
+            required=False, default=100)
     parser.add_argument("--eval_epoch_jerr", type=int,
             required=False, default=10000)
     parser.add_argument("--use_batch_norm", type=int,

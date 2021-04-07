@@ -6,7 +6,7 @@
 #LRS=(0.00001 0.00001)
 DECAYS=(1.0)
 LRS=(0.0001)
-NORM_FLS=(0)
+NORM_FLS=(1)
 COST_MODELS=("mysql_rc2")
 
 for i in "${!COST_MODELS[@]}";

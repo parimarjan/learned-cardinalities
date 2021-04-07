@@ -600,9 +600,9 @@ class JoinLoss():
             # db = MySQLdb.connect(db="imdb", passwd="1234", user="root",
                     # host="127.0.0.1")
             cursor = db.cursor()
-            row_eval_cost = 1.0
-            row_eval_query = MYSQL_ROW_EVAL_COST_TMP.format(val=row_eval_cost)
-            cursor.execute(row_eval_query)
+            # row_eval_cost = 0.1
+            # row_eval_query = MYSQL_ROW_EVAL_COST_TMP.format(val=row_eval_cost)
+            # cursor.execute(row_eval_query)
 
             cursor.execute("SET optimizer_prune_level=0;")
 

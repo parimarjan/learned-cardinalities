@@ -174,10 +174,8 @@ def update_samples(samples, flow_features, cost_model,
                 mdata = load_object(fn)
             else:
                 mdata = None
-                assert False
 
             new_seen = True
-            assert mdata is not None
             pg_total_cost = compute_costs(subsetg, cost_model,
                     cardinality_key,
                     cost_key="pg_cost", ests="expected", mdata=mdata)
@@ -3045,6 +3043,7 @@ class NN(CardinalityEstimationAlg):
         if self.sampling_priority_alpha > 0:
             self.clean_memory()
 
+        print("going to start training")
         for self.epoch in range(0,self.max_epochs):
             if self.epoch == self.switch_loss_fn_epoch:
                 print("*************************")
