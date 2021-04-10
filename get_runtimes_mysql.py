@@ -2,7 +2,7 @@ import pickle
 import argparse
 import glob
 import pdb
-import psycopg2 as pg
+# import psycopg2 as pg
 import time
 import subprocess as sp
 import os
