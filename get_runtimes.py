@@ -106,16 +106,22 @@ def read_flags():
             default=0)
     parser.add_argument("--db_name", type=str, required=False,
             default="imdb")
+    parser.add_argument("--drop_cache", type=int, required=False,
+            default=1)
+    parser.add_argument("--reps", type=int, required=False,
+            default=1)
     return parser.parse_args()
 
 def execute_sql(db_name, sql, template="sql", cost_model="cm1",
         results_fn="jerr.pkl", explain=False,
-        materialize=True, timeout=900000):
+        materialize=True, timeout=900000, drop_cache=1):
     '''
     '''
-    drop_cache_cmd = "./drop_cache.sh > /dev/null"
-    p = sp.Popen(drop_cache_cmd, shell=True)
-    p.wait()
+
+    if drop_cache:
+        drop_cache_cmd = "./drop_cache.sh > /dev/null"
+        p = sp.Popen(drop_cache_cmd, shell=True)
+        p.wait()
 
     if explain:
         sql = sql.replace("explain (format json)", "explain (analyze,costs, format json)")
@@ -242,18 +248,21 @@ def main():
             if row["sql_key"] in cur_runtimes["sql_key"]:
                 print("should never have repeated for execution")
                 continue
-            if "template" in row:
-                exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
-                        template=row["template"], cost_model=cost_model,
-                        results_fn=args.results_fn, explain=args.explain,
-                        materialize=args.materialize, timeout=args.timeout)
-            else:
-                exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
-                        cost_model=cost_model, results_fn=args.results_fn,
-                        explain=args.explain, materialize=args.materialize,
-                        timeout=args.timeout)
+            
+            for i in range(args.reps):
+                if "template" in row:
+                    exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
+                            template=row["template"], cost_model=cost_model,
+                            results_fn=args.results_fn, explain=args.explain,
+                            materialize=args.materialize, timeout=args.timeout, 
+                            drop_cache=args.drop_cache)
+                else:
+                    exp_analyze, rt = execute_sql(args.db_name, row["exec_sql"],
+                            cost_model=cost_model, results_fn=args.results_fn,
+                            explain=args.explain, materialize=args.materialize,
+                            timeout=args.timeout, drop_cache=args.drop_cache)
 
-            add_runtime_row(row["sql_key"], rt, exp_analyze)
+                add_runtime_row(row["sql_key"], rt, exp_analyze)
 
             rts = cur_runtimes["runtime"]
             print("Alg:{}, N:{}, AvgRt: {}".format(alg_dir, len(rts),
