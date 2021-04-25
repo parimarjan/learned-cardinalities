@@ -166,7 +166,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
             print(sql)
             cursor.close()
             con.close()
-            return None, timeout/1000 + 9.0
+            return None, 0.0
         else:
             print("failed because of timeout!")
             end = time.time()
