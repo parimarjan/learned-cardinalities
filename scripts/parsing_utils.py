@@ -146,7 +146,7 @@ def get_all_objects(results_dir, obj_name):
 
         ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
                 "flow_features", "nn_type", "max_discrete_featurizing_buckets",
-                "sampling_priority_alpha"]
+                "sampling_priority_alpha", "loss_func", "train_card_key"]
 
         for k in ARG_KEYS:
             df[k] = exp_args[k]
@@ -249,7 +249,8 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
 
         ARG_KEYS = ["sample_bitmap", "hidden_layer_size",
                 "flow_features", "nn_type", "max_discrete_featurizing_buckets",
-                "sampling_priority_alpha", "loss_func", "db_name"]
+                "sampling_priority_alpha", "loss_func", "db_name",
+                "train_card_key"]
 
         for k in ARG_KEYS:
             df[k] = exp_args[k]

@@ -42,8 +42,11 @@ if system == 'Linux':
     lib_file = lib_dir + "/" + lib_file
     fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
 else:
-    print("flow loss C library not being used")
-    # lib_file = "libflowloss.dylib"
+    # print("flow loss C library not being used")
+    lib_file = "libflowloss.dylib"
+    lib_dir = "./flow_loss_cpp"
+    lib_file = lib_dir + "/" + lib_file
+    fl_cpp = CDLL(lib_file, mode=RTLD_GLOBAL)
 
 # TIMEOUT_COUNT_CONSTANT = 150001001
 # TIMEOUT_COUNT_CONSTANT = 15000100001
@@ -2441,7 +2444,8 @@ def get_subsetg_vectors(sample, cost_model, source_node=None,
     else:
         edges_read_costs = None
         edges_rows_fetched = None
-        assert False
+        mdata = None
+        # assert False
 
     for nodei, node in enumerate(nodes):
         node_dict[node] = nodei

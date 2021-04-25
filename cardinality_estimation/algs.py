@@ -166,7 +166,10 @@ class SavedPreds(CardinalityEstimationAlg):
                 print("key not in saved preds!")
                 print(sample["name"])
                 print(key)
-                exit(-1)
+                # preds.append(sample["subset_graph"].nodes()[key]["cardinality"]["actual"])
+                preds.append(None)
+                continue
+                # exit(-1)
                 # pdb.set_trace()
             preds.append(self.saved_preds[key])
         return preds

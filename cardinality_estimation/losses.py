@@ -647,6 +647,31 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
 
     @output: updates ./results/join_order_loss.pkl file
     '''
+    def add_query_result_row(sql_key, samples_type, exec_sql, cost,
+            loss, cpu_cost, io_cost, plan, template,
+            cur_costs, costs, qfn, card_key):
+        '''
+        '''
+        # FIXME: is this needed / what situation is it for?
+        if sql_key in costs["sql_key"].values:
+            return
+
+        arg_names = inspect.getfullargspec(add_query_result_row).args
+        for arg in arg_names:
+            arg_val = locals()[arg]
+            if arg in costs:
+                cur_costs[arg].append(arg_val)
+            else:
+                if not (arg == "costs" or arg == "cur_costs"):
+                    assert arg_val is None
+
+    def get_cpu_io_costs(exp):
+        eval_costs = extract_values(exp, "eval_cost")
+        read_costs = extract_values(exp, "read_cost")
+        eval_costs = [float(c) for c in eval_costs]
+        read_costs = [float(c) for c in read_costs]
+        return np.sum(eval_costs), np.sum(read_costs)
+
     def run_join_loss_exp(env, cost_model):
         use_indexes = args.jl_indexes
         exp_name = kwargs["exp_name"]
@@ -662,7 +687,11 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
         costs_fn = rdir + cost_model + "_mysql_jerr.pkl"
         costs = load_object(costs_fn)
         if costs is None:
+            # columns = ["sql_key", "explain","plan","exec_sql","cost", "loss",
+                    # "postgresql_conf", "samples_type", "template", "qfn",
+                    # "card_key"]
             columns = ["sql_key", "explain","plan","exec_sql","cost", "loss",
+                    "cpu_cost", "io_cost",
                     "postgresql_conf", "samples_type", "template", "qfn",
                     "card_key"]
             costs = pd.DataFrame(columns=columns)
@@ -676,6 +705,7 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
                                 pool = pool, join_loss_data_file =
                                 args.join_loss_data_file, backend="mysql",
                                 fns = fns)
+
         losses = est_costs - opt_costs
         for i, qrep in enumerate(eval_queries):
             sql_key = str(deterministic_hash(qrep["sql"]))
@@ -683,9 +713,21 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
                 exec_sql = est_sqls[i]
             else:
                 exec_sql = None
+
+            exp = est_plans[i]
+            opt_exp = opt_plans[i]
+
+            est_cpu_cost, est_io_cost = get_cpu_io_costs(exp)
+            # opt_cpu_cost, opt_io_cost = get_cpu_io_costs(opt_exp)
+            # print(est_cpu_cost, est_io_cost)
+            # print(opt_cpu_cost, opt_io_cost)
+            # pdb.set_trace()
+
+
             add_query_result_row(sql_key, samples_type,
                     exec_sql, est_costs[i],
                     losses[i],
+                    est_cpu_cost, est_io_cost,
                     None,
                     # get_leading_hint(est_plans[i]),
                     qrep["template_name"], cur_costs, costs,
@@ -728,7 +770,7 @@ def compute_join_order_loss_mysql(queries, preds, **kwargs):
         # the ground truth
         if preds[i] is None:
             print("preds None!")
-            pdb.set_trace()
+            # pdb.set_trace()
             continue
 
         ests = {}
@@ -1056,10 +1098,10 @@ def compute_plan_loss(queries, preds, **kwargs):
         add_query_result_row(sql_key, samples_type, None, est_costs[i], losses[i],
                 None, qrep["template_name"], cur_costs, costs,
                 qrep["name"], cardinality_key)
-        add_query_result_row(sql_key, samples_type, exec_sqls_pg[i],
-                est_costs_pg[i], losses_pg[i],
-                get_leading_hint(explains_pg[i]), qrep["template_name"],
-                cur_costs_pg, costs_pg, qrep["name"], cardinality_key)
+        # add_query_result_row(sql_key, samples_type, exec_sqls_pg[i],
+                # est_costs_pg[i], losses_pg[i],
+                # get_leading_hint(explains_pg[i]), qrep["template_name"],
+                # cur_costs_pg, costs_pg, qrep["name"], cardinality_key)
 
     cur_df = pd.DataFrame(cur_costs)
     combined_df = pd.concat([costs, cur_df], ignore_index=True)

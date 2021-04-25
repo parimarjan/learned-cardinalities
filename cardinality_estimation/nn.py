@@ -148,7 +148,8 @@ def update_samples(samples, flow_features, cost_model,
     if db_name == "so":
         SOURCE_NODE = tuple(["SOURCE"])
     cardinality_key = str(db_year) + "cardinality"
-    REGEN_COSTS = True
+    REGEN_COSTS = False
+
     subq_hash_opt_path = {}
 
     if REGEN_COSTS:
@@ -163,9 +164,8 @@ def update_samples(samples, flow_features, cost_model,
             # print("SOURCE NODE {} not in graph".format(SOURCE_NODE))
         add_single_node_edges(subsetg, SOURCE_NODE)
         sample_edge = list(subsetg.edges())[0]
-        # if (cost_model + "cost" in subsetg.edges()[sample_edge].keys()) \
-                # and not REGEN_COSTS:
-        if False:
+        if (cost_model + "cost" in subsetg.edges()[sample_edge].keys()) \
+                and not REGEN_COSTS:
             continue
         else:
             if "mysql" in cost_model:
@@ -174,10 +174,9 @@ def update_samples(samples, flow_features, cost_model,
                 mdata = load_object(fn)
             else:
                 mdata = None
-                assert False
 
             new_seen = True
-            assert mdata is not None
+            # assert mdata is not None
             pg_total_cost = compute_costs(subsetg, cost_model,
                     cardinality_key,
                     cost_key="pg_cost", ests="expected", mdata=mdata)

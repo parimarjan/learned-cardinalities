@@ -413,6 +413,10 @@ def load_samples(qfns, db, found_db, template_name,
             # skipped += 1
             # continue
 
+        if not os.path.exists(mdata_fn):
+            skipped += 1
+            continue
+
         zero_query = False
         nodes = list(qrep["subset_graph"].nodes())
         # if train_template and "job" in template_name:
@@ -951,6 +955,8 @@ def main():
         old_args.debug_set = args.debug_set
         if args.debug_set:
             old_args.use_val_set = args.use_val_set
+            old_args.debug_ratio = args.debug_ratio
+
         old_args.eval_epoch = args.eval_epoch
         old_args.result_dir = args.result_dir
         # so it can load the current model
@@ -987,8 +993,8 @@ def main():
         args = old_args
         load_db = False
 
-        if not old_args.diff_templates_seed in [6, 7, 8, 9, 10]:
-            exit(-1)
+        # if not old_args.diff_templates_seed in [6, 7, 8, 9, 10]:
+            # exit(-1)
 
         # print(old_args.test_diff_templates)
         # print(old_args.diff_templates_seed)
@@ -999,16 +1005,17 @@ def main():
                     load_test_samples,
                     pool=join_loss_pool)
 
-    update_samples(train_queries, args.flow_features,
-            args.cost_model, args.debug_set, args.db_name, args.db_year_train)
-    if len(test_queries) > 0:
-        update_samples(test_queries, args.flow_features,
-                args.cost_model, args.debug_set, args.db_name,
-                args.db_year_train)
-    if len(val_queries) > 0:
-        update_samples(val_queries, args.flow_features,
-                args.cost_model, args.debug_set, args.db_name,
-                args.db_year_train)
+    if args.algs != "saved":
+        update_samples(train_queries, args.flow_features,
+                args.cost_model, args.debug_set, args.db_name, args.db_year_train)
+        if len(test_queries) > 0:
+            update_samples(test_queries, args.flow_features,
+                    args.cost_model, args.debug_set, args.db_name,
+                    args.db_year_train)
+        if len(val_queries) > 0:
+            update_samples(val_queries, args.flow_features,
+                    args.cost_model, args.debug_set, args.db_name,
+                    args.db_year_train)
 
     if args.eval_on_job and not args.add_job_features \
             and args.nn_type == "mscn_set":
@@ -1115,9 +1122,10 @@ def main():
             train_queries, _, _, _, _, _ = \
                     load_all_qrep_data(False, False, False, True, False,
                             pool=join_loss_pool)
-            update_samples(train_queries, args.flow_features,
-                    args.cost_model, args.debug_set, args.db_name,
-                    args.db_year_train)
+            if args.algs != "saved":
+                update_samples(train_queries, args.flow_features,
+                        args.cost_model, args.debug_set, args.db_name,
+                        args.db_year_train)
 
         start = time.time()
 
@@ -1133,6 +1141,7 @@ def main():
                         load_all_qrep_data(False, False, False, False, True,
                                 pool=join_loss_pool)
             assert len(val_queries) > 0
+
             update_samples(val_queries, args.flow_features,
                     args.cost_model, args.debug_set, args.db_name,
                     args.db_year_train)
@@ -1145,9 +1154,10 @@ def main():
             _, test_queries, _, _, _, _ = \
                     load_all_qrep_data(False, True,
                             False, False, False, pool=join_loss_pool)
-            update_samples(test_queries, args.flow_features,
-                    args.cost_model, args.debug_set, args.db_name,
-                    args.db_year_train)
+            if args.algs != "saved":
+                update_samples(test_queries, args.flow_features,
+                        args.cost_model, args.debug_set, args.db_name,
+                        args.db_year_train)
 
         # if args.test:
             # size = int(len(test_queries) / 10)

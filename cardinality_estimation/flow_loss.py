@@ -20,6 +20,7 @@ import jax
 import jax.numpy as jp
 from jax import jacfwd, jacrev
 # import tensorflow as tf
+import pyamg
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -636,16 +637,38 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
 
         # pdb.set_trace()
 
-    Gv2 = np.zeros(len(totals))
+    Gv2 = np.zeros(len(totals), dtype=np.float32)
     Gv2[final_node] = 1.0
 
     mat_start = time.time()
-    Gv2 = to_variable(Gv2).float().to(device)
     predC2 = to_variable(predC2).float()
     dgdxT2 = to_variable(dgdxT2).float()
-    G2 = to_variable(G2).float().to(device)
 
+    # start = time.time()
+    # np.savez("test", data=M.data, indices=M.indices,
+                         # indptr=M.indptr, shape=M.shape)
+    # np.save("test.npy", G2)
+    # A=scipy.sparse.csr_matrix(G2, dtype=np.float32)
+    # ml = pyamg.ruge_stuben_solver(A)
+    # x = ml.solve(Gv2, tol=1e-8)
+    # print("linear solver took: ", time.time() - start)
+    # invG2 = np.outer(x, Gv2)
+    # print(invG2.shape)
+    # print("residual: ", np.linalg.norm(Gv2-A*x))
+    # start = time.time()
+
+    Gv2 = to_variable(Gv2).float().to(device)
+    G2 = to_variable(G2).float().to(device)
     invG = torch.inverse(G2)
+    # invG = np.linalg.inv(G2)
+    invG = to_variable(invG).float()
+
+    # print("inversion took: ", time.time() - start)
+    # print(np.linalg.norm(invG.detach().cpu().numpy() - invG2))
+
+    v = invG @ Gv2 # vshape: Nx1
+    v = v.detach().cpu().numpy()
+
     # invG = torch.pinverse(G2)
 
     # invG = scipy.linalg.inv(G2)
@@ -658,10 +681,6 @@ def single_forward2(yhat, totals, edges_head, edges_tail, edges_cost_node1,
     # invG = scipy.sparse.linalg.inv(M)
     # invG = invG.A
 
-    invG = to_variable(invG).float()
-
-    v = invG @ Gv2 # vshape: Nx1
-    v = v.detach().cpu().numpy()
 
     # flows = Q2 @ v
     # if np.min(flows) < 0.0:

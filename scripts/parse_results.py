@@ -27,7 +27,10 @@ EXP_COLUMNS = ["num_hidden_layers", "hidden_layer_size",
         "heuristic_features", "alg", "nn_type", "loss_func",
         "flow_features", "weight_decay", "sample_bitmap", "test_size",
         "max_epochs", "debug_set", "lr", "diff_templates_seed",
-        "test_diff_templates"]
+        "test_diff_templates", "db_name", "normalize_flow_loss",
+        "train_card_key", "feat_rel_pg_ests_onehot", "join_features",
+        "pred_features", "table_features", "use_set_padding",
+        "feat_rel_pg_ests"]
 
 PLOT_SUMMARY_TYPES = ["mean"]
 ALGS_ORDER = ["mscn", "mscn-priority", "microsoft", "microsoft-priority"]
@@ -195,7 +198,7 @@ def plot_join_summaries(pdf):
         pdf.savefig()
         plt.clf()
 
-def get_summary_df(results_dir):
+def get_summary_df(results_dir, jerr_fn):
     all_dfs = []
     fns = os.listdir(results_dir)
     for fn in fns:
@@ -242,7 +245,9 @@ def get_summary_df(results_dir):
         try:
             qerrs = load_qerrs(cur_dir)
             # cm1_jerrs = load_jerrs(cur_dir, "cm1_jerr.pkl", "cm1_jerr")
-            cm1_jerrs = load_jerrs(cur_dir, "cm1_mysql_jerr.pkl", "cm1_jerr")
+            # cm1_jerrs = load_jerrs(cur_dir, "cm1_mysql_jerr.pkl", "cm1_jerr")
+            cm1_jerrs = load_jerrs(cur_dir, jerr_fn, "cm1_jerr")
+
             # perrs = load_jerrs(cur_dir, "plan_err.pkl", "plan_err")
             # perrs_pg = load_jerrs(cur_dir, "plan_pg_err.pkl", "plan_pg_err")
             # ferrs = load_jerrs(cur_dir, "flow_err.pkl", "flow_err")
