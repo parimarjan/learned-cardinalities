@@ -4,8 +4,8 @@ LR=$3
 COST_MODEL=$4
 NORM_FLOW_LOSS=$5
 
-DEBUG_SET=0
-DEBUG_RATIO=1.5
+DEBUG_SET=1
+DEBUG_RATIO=2
 MAX_EPOCHS=10
 
 ALG=nn
@@ -27,15 +27,16 @@ SWITCH_EPOCH=100000
 REL_ESTS=1
 ONEHOT=1
 
-USE_VAL_SET=1
-WEIGHTED_MSES=(0.0)
+USE_VAL_SET=0
+
+SEEDS=(7 6 10 8)
 
 EVAL_EPOCH=100
 
-LOSSES=mysql-loss,qerr
+LOSSES=qerr
 
 NHL=4
-RES_DIR=all_results/mysql/fcnn/default/no_norm
+RES_DIR=all_results/mysql/fcnn/diff/final_rc2
 
 BUCKETS=10
 HLS=512
@@ -43,7 +44,7 @@ HLS=512
 LOAD_QUERY_TOGTHER=0
 NUM_PAR=16
 
-for i in "${!WEIGHTED_MSES[@]}";
+for i in "${!SEEDS[@]}";
   do
   CMD="time python3 main.py --algs nn -n -1 \
    --hidden_layer_size $HLS \
@@ -51,7 +52,8 @@ for i in "${!WEIGHTED_MSES[@]}";
    --debug_ratio $DEBUG_RATIO \
    --use_val_set $USE_VAL_SET \
    --query_mb_size $QUERY_MB_SIZE \
-   --weighted_mse ${WEIGHTED_MSES[$i]} \
+   --test_diff_templates 1 \
+   --diff_templates_seed ${SEEDS[$i]} \
    --num_mse_anchoring $NUM_MSE_ANCHORING \
    --num_hidden_layers $NHL \
    --max_discrete_featurizing_buckets $BUCKETS \

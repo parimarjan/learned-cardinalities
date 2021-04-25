@@ -19,6 +19,7 @@ endif
 ${LIB}: main.cc
 	$(CLANG) $(CFLAGS) -c main.cc -o main.o
 	$(CLANG) -fopenmp $(SHARED_FLAG) -o ${LIB} main.o
+	#$(CLANG) $(SHARED_FLAG) -o ${LIB} main.o
 
 clean:
 	rm -f *.bc *.o *.out ${LIB}

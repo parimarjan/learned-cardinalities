@@ -5,11 +5,11 @@ COST_MODEL=$4
 NORM_FLOW_LOSS=$5
 
 DEBUG_SET=0
-DEBUG_RATIO=1.5
+DEBUG_RATIO=10.0
 MAX_EPOCHS=10
 
 ALG=nn
-NN_TYPE=microsoft
+NN_TYPE=mscn_set
 
 QUERY_MB_SIZE=4
 EVAL_ON_JOB=0
@@ -20,30 +20,34 @@ SAMPLE_BITMAP_BUCKETS=1000
 SAMPLE_BITMAP=0
 
 PRELOAD_FEATURES=1
-NUM_MSE_ANCHORING=0
+USE_SET_PADDING=3
+
+NUM_MSE_ANCHORING=-1
 
 FLOW_FEATS=1
 SWITCH_EPOCH=100000
 REL_ESTS=1
-ONEHOT=1
+ONEHOT=0
 
-USE_VAL_SET=1
-WEIGHTED_MSES=(0.0)
+USE_VAL_SET=0
+
+SEEDS=(1 6 7 8)
 
 EVAL_EPOCH=100
 
 LOSSES=mysql-loss,qerr
+#LOSSES=qerr
 
-NHL=4
-RES_DIR=all_results/mysql/fcnn/default/no_norm
+NHL=2
+RES_DIR=all_results/mysql/mscn/diff/rc2-678
 
 BUCKETS=10
-HLS=512
+HLS=256
 
 LOAD_QUERY_TOGTHER=0
 NUM_PAR=16
 
-for i in "${!WEIGHTED_MSES[@]}";
+for i in "${!SEEDS[@]}";
   do
   CMD="time python3 main.py --algs nn -n -1 \
    --hidden_layer_size $HLS \
@@ -51,7 +55,8 @@ for i in "${!WEIGHTED_MSES[@]}";
    --debug_ratio $DEBUG_RATIO \
    --use_val_set $USE_VAL_SET \
    --query_mb_size $QUERY_MB_SIZE \
-   --weighted_mse ${WEIGHTED_MSES[$i]} \
+   --test_diff_templates 1 \
+   --diff_templates_seed ${SEEDS[$i]} \
    --num_mse_anchoring $NUM_MSE_ANCHORING \
    --num_hidden_layers $NHL \
    --max_discrete_featurizing_buckets $BUCKETS \
@@ -67,6 +72,7 @@ for i in "${!WEIGHTED_MSES[@]}";
    --sample_bitmap $SAMPLE_BITMAP \
    --sample_bitmap_buckets $SAMPLE_BITMAP_BUCKETS \
    --preload_features $PRELOAD_FEATURES \
+   --use_set_padding $USE_SET_PADDING \
    --test_size 0.5 \
    --exp_prefix final_runs \
    --result_dir $RES_DIR \

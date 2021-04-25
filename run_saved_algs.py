@@ -3,6 +3,7 @@ import os
 import glob
 import pdb
 
+### local files
 # BASE_DIR="""/Users/pari/prism-testbed/all_results/imdb/VLDB/MSCN/diff/"""
 
 # BASE_DIR="""/Users/pari/prism-testbed/all_results/imdb/VLDB/FCNN/ablation/default/"""
@@ -11,10 +12,31 @@ import pdb
 # BASE_DIR="""/Users/pari/prism-testbed/all_results/imdb/VLDB/FCNN/diff/"""
 # OUT_DIR="""all_results/vldb/mysql_lambda1/fcnn_diff_debug/"""
 
-BASE_DIR="""/Users/pari/prism-testbed/all_results/imdb/MYSQL_lambda1/FCNN/rc2/diff_all/"""
-OUT_DIR="""debug_fcnn_lambda1"""
+# BASE_DIR="""/Users/pari/prism-testbed/all_results/imdb/MYSQL_lambda1/FCNN/rc2/diff_all/"""
+# OUT_DIR="""debug_fcnn_lambda1"""
 
-CMD_TMP="""time python3 main.py --algs saved --debug_set 1 --debug_ratio 10.0 --query_template all -n -1 --eval_epoch 100 --losses mysql-loss,qerr --query_dir queries/imdb --model_dir {MODEL_DIR} --result_dir {RES_DIR} --cost_model mysql_rc2 """
+# CMD_TMP="""time python3 main.py --algs saved --debug_set 1 --debug_ratio 10.0 --query_template all -n -1 --eval_epoch 100 --losses mysql-loss,qerr --query_dir queries/imdb --model_dir {MODEL_DIR} --result_dir {RES_DIR} --cost_model mysql_rc2 """
+
+# BASE_DIR="""all_results/mysql/mscn/default/"""
+# OUT_DIR="""all_results/mysql/mscn/default_debug/"""
+
+# BASE_DIR = """all_results/mysql/fcnn/diff/no_norm_allseeds/"""
+# BASE_DIR = """all_results/mysql/fcnn/diff/norm_allseeds/"""
+# OUT_DIR = """norm_allseeds_debug/"""
+
+# BASE_DIR="""/home/ubuntu/learned-cardinalities/all_results/mysql/fcnn/diff"""
+
+# BASE_DIR="""diff_fcnn/"""
+# OUT_DIR="""diff_mse_debug05/"""
+
+# BASE_DIR="""all_results/mysql/fcnn/diff/norm_678/"""
+BASE_DIR="""all_results/mysql/fcnn/diff/norm_allseeds/"""
+OUT_DIR="""diff_mse_debug05/"""
+
+# BASE_DIR="""all_results/mysql/fcnn/diff/final6_all_other_seeds/"""
+# OUT_DIR="""flow_loss_seed1/"""
+
+CMD_TMP="""time python3 main.py --algs saved --debug_set 1 --debug_ratio 10 --query_template all -n -1 --eval_epoch 100 --losses qerr,mysql-loss --query_dir queries/imdb --model_dir {MODEL_DIR} --result_dir {RES_DIR}"""
 
 model_dirs = os.listdir(BASE_DIR)
 out_dirs = os.listdir(OUT_DIR)
@@ -31,6 +53,10 @@ for mdir in model_dirs:
     # if mdir in out_dirs:
         # print("skipping existing experiment!")
         # continue
+
+    if mdir in out_dirs:
+        print("skipping existing experiment!")
+        continue
 
     cmd = CMD_TMP.format(MODEL_DIR = BASE_DIR + mdir,
                          RES_DIR = OUT_DIR)
