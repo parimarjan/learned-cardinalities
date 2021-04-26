@@ -163,7 +163,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
         if not "timeout" in str(e):
             print("failed to execute for reason other than timeout")
             print(e)
-            print(sql)
+            #print(sql)
             cursor.close()
             con.close()
             return None, 0.0
