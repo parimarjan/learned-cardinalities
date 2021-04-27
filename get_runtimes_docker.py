@@ -122,17 +122,31 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
         drop_cache_cmd = "./drop_cache_docker.sh > /dev/null"
         p = sp.Popen(drop_cache_cmd, shell=True)
         p.wait()
+        #time.sleep(5)
+        time.sleep(0.1)
+        for ri in range(30):
+            try:
+                con = pg.connect(port=5432,dbname=db_name,
+                        user="ubuntu",password="password",host="localhost")
+                print("succeeded in try: ", ri)
+                break
+            except:
+                print("failed in try: ", ri)
+                time.sleep(0.1)
+                continue
+
+    else:
+        # FIXME: generalize
+        #con = pg.connect(port=5432,dbname=db_name,
+        #        user="ubuntu",password="",host="localhost")
+        con = pg.connect(port=5432,dbname=db_name,
+                user="ubuntu",password="password",host="localhost")
 
     if explain:
         sql = sql.replace("explain (format json)", "explain (analyze,costs, format json)")
     else:
         sql = sql.replace("explain (format json)", "")
 
-    # FIXME: generalize
-    #con = pg.connect(port=5432,dbname=db_name,
-    #        user="ubuntu",password="",host="localhost")
-    con = pg.connect(port=5432,dbname=db_name,
-            user="ubuntu",password="password",host="localhost")
 
     # TODO: clear cache
 
@@ -158,8 +172,6 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
     try:
         cursor.execute(sql)
     except Exception as e:
-        cursor.execute("ROLLBACK")
-        con.commit()
         if not "timeout" in str(e):
             print("failed to execute for reason other than timeout")
             print(e)
@@ -168,6 +180,8 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
             con.close()
             return None, 0.0
         else:
+            cursor.execute("ROLLBACK")
+            con.commit()
             print("failed because of timeout!")
             end = time.time()
             print("{} took {} seconds".format(template, end-start))
