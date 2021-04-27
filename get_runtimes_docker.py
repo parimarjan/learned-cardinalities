@@ -119,7 +119,7 @@ def execute_sql(db_name, sql, template="sql", cost_model="cm1",
     '''
 
     if drop_cache:
-        drop_cache_cmd = "./drop_cache.sh > /dev/null"
+        drop_cache_cmd = "./drop_cache_docker.sh > /dev/null"
         p = sp.Popen(drop_cache_cmd, shell=True)
         p.wait()
 
