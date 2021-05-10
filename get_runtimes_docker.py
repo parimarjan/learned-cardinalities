@@ -216,7 +216,7 @@ def main():
         cur_runtimes["exp_analyze"].append(exp_analyze)
 
     rt_dirs = os.listdir(args.results_dir)
-    # rt_dirs.sort()
+    rt_dirs.sort()
     print("sorted runtime directories: ", rt_dirs)
     for alg_dir in rt_dirs:
         # if alg_dir not in ["true", "postgres"]:
