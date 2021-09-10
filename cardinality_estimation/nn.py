@@ -64,6 +64,9 @@ from sklearn.experimental import enable_hist_gradient_boosting  # noqa
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.ensemble import GradientBoostingRegressor
 
+SAVE_IMP=False
+SUBQ_IMP_FN="./all_subq_imp_pd.pkl"
+
 # os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 device = "cpu"
@@ -876,7 +879,6 @@ class NN(CardinalityEstimationAlg):
 
         for idx, (xbatch, ybatch,info) in enumerate(loader):
             start = time.time()
-            print(idx)
             # TODO: add handling for num_tables
             if load_query_together:
                 # update the batches
@@ -896,7 +898,6 @@ class NN(CardinalityEstimationAlg):
             ybatch = ybatch.to(device, non_blocking=True)
             xbatch = xbatch.to(device, non_blocking=True)
             pred = net(xbatch).squeeze(1)
-            print("pred done")
 
             if "flow_loss" in loss_fn_name:
                 assert load_query_together
@@ -934,13 +935,13 @@ class NN(CardinalityEstimationAlg):
                             self.join_loss_pool, self.cost_model)
             else:
                 losses = loss_fn(pred, ybatch)
-            print("losses done")
+            # print("losses done")
 
             try:
                 loss = losses.sum() / len(losses)
             except:
                 loss = losses
-            print("loss done")
+            # print("loss done")
 
             if self.weighted_qloss != 0.0:
                 qloss = qloss_torch(pred, ybatch)
@@ -986,18 +987,13 @@ class NN(CardinalityEstimationAlg):
                     par_grads[wi].append(wt)
             else:
                 optimizer.zero_grad()
-                print("opt zero grad done")
-                print(loss)
-                pdb.set_trace()
                 loss.backward()
-                print("loss backward done")
 
             if clip_gradient is not None:
                 clip_grad_norm_(net.parameters(), clip_gradient)
-                print("clip grad done")
+                # print("clip grad done")
 
             optimizer.step()
-            print("opt step done")
             idx_time = time.time() - start
             if idx_time > 10:
                 print("train idx took: ", idx_time)
@@ -1939,6 +1935,7 @@ class NN(CardinalityEstimationAlg):
         self.stats = pd.DataFrame(self.cur_stats)
         if not os.path.exists(self.result_dir):
             make_dir(self.result_dir)
+
         exp_name = self.get_exp_name()
         exp_dir = self.result_dir + "/" + exp_name
         if not os.path.exists(exp_dir):
@@ -1953,13 +1950,14 @@ class NN(CardinalityEstimationAlg):
         results["query_stats"] = self.query_stats
         results["query_qerr_stats"] = self.query_qerr_stats
 
-        # with open(fn, 'wb') as fp:
-            # pickle.dump(results, fp,
-                    # protocol=4)
-            # sfn = exp_dir + "/" + "subq_summary.pkl"
-            # with open(sfn, 'wb') as fp:
-                # pickle.dump(self.subquery_summary_data, fp,
-                        # protocol=4)
+        with open(fn, 'wb') as fp:
+            pickle.dump(results, fp,
+                    protocol=4)
+
+        sfn = exp_dir + "/" + "subq_summary.pkl"
+        with open(sfn, 'wb') as fp:
+            pickle.dump(self.subquery_summary_data, fp,
+                    protocol=4)
 
     def num_parameters(self):
         def _calc_size(net):
@@ -2423,6 +2421,10 @@ class NN(CardinalityEstimationAlg):
 
     def get_subq_imp(self, samples):
         # FIXME: avoid repetition
+        if SAVE_IMP:
+            # subq_imp = {}
+            subq_imp = defaultdict(list)
+
         imps = []
         for sample in samples:
             subsetg_vectors = list(get_subsetg_vectors(sample,
@@ -2468,14 +2470,38 @@ class NN(CardinalityEstimationAlg):
             # want to calculate the importance of each node in the subquery
             # graph
             node_importances = []
+            sq_hashes = []
             for i, node in enumerate(nodes):
                 in_edges = sample["subset_graph"].in_edges(node)
                 node_pr = 0.0
                 for edge in in_edges:
                     node_pr += flows[edge_dict[edge]]
                 node_importances.append(node_pr)
+                sq_hash = deterministic_hash(sample["sql"] + str(node))
+                sq_hashes.append(sq_hash)
 
             imps += node_importances
+
+            if SAVE_IMP:
+                # subq_imp[sample["name"]] = node_importances
+                # subq_imp[sample["name"]+"subq_hashes"] = node_importances
+                # subq_imp[sample["name"]+"subq_hashes"] = node_importances
+                for ni,imp in enumerate(node_importances):
+                    subq_imp["sq_hash"].append(sq_hashes[ni])
+                    subq_imp["importance"].append(imp)
+                    subq_imp["query"].append(sample["name"])
+                    subq_imp["sql_key"].append(deterministic_hash(sample["sql"]))
+
+        if SAVE_IMP:
+            subq_imp = pd.DataFrame(subq_imp)
+            old = load_object(SUBQ_IMP_FN)
+            if old is not None:
+                # subq_imp.update(old)
+                subq_imp = pd.concat([old, subq_imp])
+
+            with open(SUBQ_IMP_FN, 'wb') as fp:
+                pickle.dump(subq_imp, fp,
+                        protocol=4)
 
         return np.array(imps)
 
@@ -2730,122 +2756,124 @@ class NN(CardinalityEstimationAlg):
                 self.update_flow_training_info()
 
         subquery_rel_weights = None
-        if self.priority_normalize_type == "paths1":
-            print("generating path probs")
-            training_set = training_sets[0]
-            subw_start = time.time()
-            subquery_rel_weights = np.zeros(len(training_set))
-            qidx = 0
-            template_weights = {}
-            for sample in training_samples:
-                subsetg = sample["subset_graph"]
-                node_list = list(subsetg.nodes())
-                node_list.sort(key = lambda v: len(v))
-                dest = node_list[-1]
-                node_list.remove(SOURCE_NODE)
-                node_list.sort()
-                cur_weights = np.zeros(len(node_list))
-                if sample["template_name"] in template_weights:
-                    cur_weights = template_weights[sample["template_name"]]
-                else:
-                    print("sample template name: ", sample["template_name"])
-                    for i, node in enumerate(node_list):
-                        all_paths = nx.all_simple_paths(subsetg, dest, node)
-                        num_paths = len(list(all_paths))
-                        cur_weights[i] = num_paths
+
+        if self.sampling_priority_alpha > 0.0:
+            if self.priority_normalize_type == "paths1":
+                print("generating path probs")
+                training_set = training_sets[0]
+                subw_start = time.time()
+                subquery_rel_weights = np.zeros(len(training_set))
+                qidx = 0
+                template_weights = {}
+                for sample in training_samples:
+                    subsetg = sample["subset_graph"]
+                    node_list = list(subsetg.nodes())
+                    node_list.sort(key = lambda v: len(v))
+                    dest = node_list[-1]
+                    node_list.remove(SOURCE_NODE)
+                    node_list.sort()
+                    cur_weights = np.zeros(len(node_list))
+                    if sample["template_name"] in template_weights:
+                        cur_weights = template_weights[sample["template_name"]]
+                    else:
+                        print("sample template name: ", sample["template_name"])
+                        for i, node in enumerate(node_list):
+                            all_paths = nx.all_simple_paths(subsetg, dest, node)
+                            num_paths = len(list(all_paths))
+                            cur_weights[i] = num_paths
+                        cur_weights = cur_weights / sum(cur_weights)
+                        assert np.abs(sum(cur_weights) - 1.0) < 0.001
+                        template_weights[sample["template_name"]] = cur_weights
+
+                    subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
+                    qidx += len(node_list)
+                print("subquery weights calculate in: ", time.time()-subw_start)
+            elif "tolerance" in self.priority_normalize_type:
+                subquery_rel_weights = np.zeros(len(training_sets[0]))
+                tstart = time.time()
+                num_proc = 60
+                par_args = []
+                for s in training_samples:
+                    par_args.append((s, None))
+
+                with Pool(processes = num_proc) as pool:
+                    res = pool.starmap(get_subq_tolerances, par_args)
+
+                qidx = 0
+                for si, sample in enumerate(training_samples):
+                    subsetg = sample["subset_graph"]
+                    # node_list = list(subsetg.nodes())
+                    # node_list.sort()
+                    # will update the cur_weights for this sample now
+                    tolerances = res[si]
+                    cur_weights = 1.00 / np.log2(tolerances)
                     cur_weights = cur_weights / sum(cur_weights)
                     assert np.abs(sum(cur_weights) - 1.0) < 0.001
-                    template_weights[sample["template_name"]] = cur_weights
 
-                subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
-                qidx += len(node_list)
-            print("subquery weights calculate in: ", time.time()-subw_start)
-        elif "tolerance" in self.priority_normalize_type:
-            subquery_rel_weights = np.zeros(len(training_sets[0]))
-            tstart = time.time()
-            num_proc = 60
-            par_args = []
-            for s in training_samples:
-                par_args.append((s, None))
+                    num_nodes = len(subsetg.nodes())
+                    subquery_rel_weights[qidx:qidx+num_nodes] = cur_weights
+                    qidx += num_nodes
 
-            with Pool(processes = num_proc) as pool:
-                res = pool.starmap(get_subq_tolerances, par_args)
+                print("generating tolerances took: ", time.time()-tstart)
+                # pdb.set_trace()
 
-            qidx = 0
-            for si, sample in enumerate(training_samples):
-                subsetg = sample["subset_graph"]
-                # node_list = list(subsetg.nodes())
-                # node_list.sort()
-                # will update the cur_weights for this sample now
-                tolerances = res[si]
-                cur_weights = 1.00 / np.log2(tolerances)
-                cur_weights = cur_weights / sum(cur_weights)
-                assert np.abs(sum(cur_weights) - 1.0) < 0.001
+            elif "flow" in self.priority_normalize_type:
+                # sample = training_samples[0]
+                subquery_rel_weights = np.zeros(len(training_sets[0]))
+                fl_start = time.time()
+                num_proc = 10
+                par_args = []
+                # training_samples_hash = deterministic_hash(str(training_samples))
+                # for s in training_samples:
+                    # par_args.append((s, "cost"))
 
-                num_nodes = len(subsetg.nodes())
-                subquery_rel_weights[qidx:qidx+num_nodes] = cur_weights
-                qidx += num_nodes
+                # with Pool(processes = num_proc) as pool:
+                    # res = pool.starmap(get_subq_flows, par_args)
 
-            print("generating tolerances took: ", time.time()-tstart)
-            # pdb.set_trace()
+                if self.priority_normalize_type == "flow4":
+                    # count number at each level
+                    template_level_counts = {}
 
-        elif "flow" in self.priority_normalize_type:
-            # sample = training_samples[0]
-            subquery_rel_weights = np.zeros(len(training_sets[0]))
-            fl_start = time.time()
-            num_proc = 10
-            par_args = []
-            # training_samples_hash = deterministic_hash(str(training_samples))
-            # for s in training_samples:
-                # par_args.append((s, "cost"))
+                qidx = 0
+                subq_imps = self.subq_imp["train"]
+                for si, sample in enumerate(training_samples):
+                    subsetg = sample["subset_graph"]
+                    node_list = list(subsetg.nodes())
+                    if SOURCE_NODE in node_list:
+                        node_list.remove(SOURCE_NODE)
+                    node_list.sort()
+                    cur_weights = np.zeros(len(node_list))
+                    # will update the cur_weights for this sample now
+                    # flows, edge_dict = res[si]
 
-            # with Pool(processes = num_proc) as pool:
-                # res = pool.starmap(get_subq_flows, par_args)
+                    for i, node in enumerate(node_list):
+                        subq_idx = idx = qidx + i
+                        node_pr = subq_imps[subq_idx]
 
-            if self.priority_normalize_type == "flow4":
-                # count number at each level
-                template_level_counts = {}
+                        if self.priority_normalize_type in ["flow1", "flow2"]:
+                            cur_weights[i] = node_pr
+                        elif self.priority_normalize_type == "flow3":
+                            cur_weights[i] = node_pr * (1 / len(node))
+                        elif self.priority_normalize_type == "flow4":
+                            # approximation for # at the right level
+                            # combs = nCr(len(node_lis), len(node))
+                            if sample["template_name"] in template_level_counts:
+                                counts = template_level_counts[sample["template_name"]]
+                            else:
+                                counts = defaultdict(int)
+                                for node2 in node_list:
+                                    counts[len(node2)] += 1
+                                template_level_counts[sample["template_name"]] = counts
+                            level_num_nodes = counts[len(node)]
+                            cur_weights[i] = node_pr * level_num_nodes
 
-            qidx = 0
-            subq_imps = self.subq_imp["train"]
-            for si, sample in enumerate(training_samples):
-                subsetg = sample["subset_graph"]
-                node_list = list(subsetg.nodes())
-                if SOURCE_NODE in node_list:
-                    node_list.remove(SOURCE_NODE)
-                node_list.sort()
-                cur_weights = np.zeros(len(node_list))
-                # will update the cur_weights for this sample now
-                # flows, edge_dict = res[si]
+                    cur_weights = cur_weights / sum(cur_weights)
+                    assert np.abs(sum(cur_weights) - 1.0) < 0.001
 
-                for i, node in enumerate(node_list):
-                    subq_idx = idx = qidx + i
-                    node_pr = subq_imps[subq_idx]
+                    subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
+                    qidx += len(node_list)
 
-                    if self.priority_normalize_type in ["flow1", "flow2"]:
-                        cur_weights[i] = node_pr
-                    elif self.priority_normalize_type == "flow3":
-                        cur_weights[i] = node_pr * (1 / len(node))
-                    elif self.priority_normalize_type == "flow4":
-                        # approximation for # at the right level
-                        # combs = nCr(len(node_lis), len(node))
-                        if sample["template_name"] in template_level_counts:
-                            counts = template_level_counts[sample["template_name"]]
-                        else:
-                            counts = defaultdict(int)
-                            for node2 in node_list:
-                                counts[len(node2)] += 1
-                            template_level_counts[sample["template_name"]] = counts
-                        level_num_nodes = counts[len(node)]
-                        cur_weights[i] = node_pr * level_num_nodes
-
-                cur_weights = cur_weights / sum(cur_weights)
-                assert np.abs(sum(cur_weights) - 1.0) < 0.001
-
-                subquery_rel_weights[qidx:qidx+len(node_list)] = cur_weights
-                qidx += len(node_list)
-
-            print("generating flow values took: ", time.time()-fl_start)
+                print("generating flow values took: ", time.time()-fl_start)
 
         if self.loss_func == "cm_fcnn":
             inp_len = len(training_samples[0]["subset_graph"].nodes())
@@ -2963,7 +2991,7 @@ class NN(CardinalityEstimationAlg):
                     self._eval_wrapper("test")
 
             start = time.time()
-            print("going to call trian one epoch")
+            # print("going to call trian one epoch")
             self.train_one_epoch()
             self.save_model_dict()
             print("one epoch train took: ", time.time()-start)

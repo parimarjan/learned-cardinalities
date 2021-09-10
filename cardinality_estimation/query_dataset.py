@@ -111,7 +111,7 @@ class QueryDataset(data.Dataset):
 
                 # self.feature_dir = "/flashrd/pari/saved_features/"
                 # self.feature_dir = "/flashrd/pari/saved_features2/"
-                self.feature_dir = "./saved_features/"
+                self.feature_dir = "./saved_features2/"
                 self.feature_dir += self.db.db_key + "/"
                 print("saved features directory: ")
                 print(self.feature_dir)

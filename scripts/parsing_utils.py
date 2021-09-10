@@ -15,6 +15,7 @@ import seaborn as sns
 import pdb
 # from db_utils.utils import *
 # from db_utils.query_storage import *
+import traceback
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -257,7 +258,7 @@ def get_all_runtimes(results_dir, res_fn, rt_keys=None):
     if len(all_dfs) > 0:
         return pd.concat(all_dfs)
     else:
-        return all_dfs
+        return None
     return pd.concat(all_dfs)
 
 def get_all_training_df(results_dir):
@@ -295,6 +296,9 @@ def get_all_training_df(results_dir):
             alg = get_alg_name(exp_args)
             start = time.time()
             nns = load_object(cur_dir + "/nn.pkl")
+            if nns is None:
+                print("nns was None")
+                continue
             args_hash = str(deterministic_hash(str(exp_args)))[0:5]
             df = nns["stats"]
             df = df.assign(**exp_args)
@@ -334,6 +338,7 @@ def get_all_training_df(results_dir):
         except Exception as e:
             print("exception caught!")
             print(e)
+            traceback.print_exc()
             continue
 
     if len(all_dfs) == 0:

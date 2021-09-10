@@ -1,14 +1,28 @@
-ALG=$1
-LOSS_FUNC=$2
-NN_TYPE=$3
+LOSS_FUNC=$1
+DECAY=$2
+LR=$3
+ONEHOT=$4
+FLOW_FEATS=$5
+
+# TODO: add job features
+EVAL_ON_JOB=1
+
+ALG=nn
+NN_TYPE=mscn_set
+
+REL_ESTS=1
+
+NORM_FLOW_LOSS=0
+
 MIN_QERRS=(1.0)
-DECAY=1.0
-#DIFF_SEEDS=(1 2 3 4 5)
-#DIFF_SEEDS=(1 6 8 7 9 10)
-#DIFF_SEEDS=(7 9 10 1 2 3 4 5)
-#DIFF_SEEDS=(2 3 7 6)
-#DIFF_SEEDS=(11 12 13 14 15 16 17 18 19 20)
-DIFF_SEEDS=(11 12 13 14 15 16 18 19 20)
+
+# battleground seeds
+DIFF_SEEDS=(2 5 6 7 8 9 10 1 2 4 11)
+#DIFF_SEEDS=(7 13)
+#DIFF_SEEDS=(16 17 18 19 20 21 22 23 24 25 26 27 28 29 30)
+EVAL_EPOCH=100
+
+#DIFF_SEEDS=(13)
 
 #DIFF_SEEDS=(6)
 
@@ -16,19 +30,16 @@ PRIORITY=0.0
 MAX_EPOCHS=(10)
 #MAX_EPOCHS=(10)
 BUCKETS=10
-FLOW_FEATS=1
 LR=0.0001
 #LR=0.0001
 PRELOAD_FEATURES=1
 No7=0
 #RES_DIR=all_results/vldb/test_diff/fcnn/wd1
-RES_DIR=all_results/vldb/test_diff/mscn/finalv2
+#RES_DIR=/flash1/pari/VLDB-Nov1-Results/all_results/vldb/test_diff/mscn/lc
+RES_DIR=/flash1/pari/VLDB-Nov1-Results/all_results/vldb/test_diff/mscn/finalv2
 
-REL_ESTS=1
-ONEHOT=1
 MB_SIZE=4
 
-NORM_FLOW_LOSS=0
 NUM_WORKERS=0
 
 HLS=256
@@ -43,8 +54,6 @@ TEST_FEATS=1
 
 SAMPLE_BITMAP=0
 SAMPLE_BITMAP_BUCKETS=1000
-EVAL_EPOCH=20
-EVAL_ON_JOB=0
 USE_SET_PADDING=3
 
 for i in "${!WEIGHTED_MSES[@]}";
@@ -86,6 +95,8 @@ do
      --sample_bitmap_buckets $SAMPLE_BITMAP_BUCKETS \
      --min_qerr 1.00 \
      --eval_on_job $EVAL_ON_JOB \
+     --eval_on_jobm $EVAL_ON_JOB \
+     --add_job_features $EVAL_ON_JOB \
      --feat_rel_pg_ests  $REL_ESTS \
      --feat_rel_pg_ests_onehot $ONEHOT \
      --feat_pg_est_one_hot $ONEHOT \

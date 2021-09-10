@@ -45,6 +45,7 @@ EXCEPTION_COUNT_CONSTANT = 150001000002
 # sentinel value for NULLS
 NULL_VALUE = "-1"
 
+WJ_CONSTANT=100
 WJ_TIMES = {}
 WJ_TIMES["1a"] = 0.25
 WJ_TIMES["2a"] = 0.5
@@ -56,12 +57,13 @@ WJ_TIMES["5a"] = 0.1
 WJ_TIMES["6a"] = 1.0
 WJ_TIMES["7a"] = 5.0
 WJ_TIMES["8a"] = 5.0
-WJ_TIMES["9a"] = 5.0
-WJ_TIMES["9b"] = 5.0
-WJ_TIMES["10a"] = 5.0
-WJ_TIMES["11a"] = 5.0
-WJ_TIMES["11b"] = 5.0
-WJ_TIMES["3b"] = 5.0
+WJ_TIMES["9a"] = 0.5
+WJ_TIMES["9b"] = 0.5
+# TODO: can reduce these a lot more
+WJ_TIMES["10a"] = 0.5
+WJ_TIMES["11a"] = 0.5
+WJ_TIMES["11b"] = 0.5
+WJ_TIMES["3b"] = 0.5
 
 WJ_TIMES0 = {}
 WJ_TIMES0["1a"] = 0.12
@@ -264,7 +266,7 @@ class SamplingTables(CardinalityEstimationAlg):
                     cur_est = 1
 
                 if cur_est == 0:
-                    cur_est += 1
+                    cur_est += WJ_CONSTANT
                 pred_dict[(alias_key)] = cur_est
             preds.append(pred_dict)
         print("bad ests: {}, total: {}".format(bad_ests, total))

@@ -1,10 +1,10 @@
 ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
-DECAY=$4
+DECAY=0.1
 NORM_FLOW_LOSS=0
 
-LR=0.00005
+LR=0.0001
 QUERY_MB_SIZE=4
 PRIORITY=0.0
 SAMPLE_BITMAP_BUCKETS=1000
@@ -20,7 +20,7 @@ ONEHOT=1
 USE_VAL_SET=1
 WEIGHTED_MSES=(0.0 0.0 0.0)
 EVAL_ON_JOB=1
-EVAL_ON_JOBM=0
+EVAL_ON_JOBM=1
 
 EVAL_EPOCH=100
 #EVAL_EPOCH=1
@@ -28,11 +28,11 @@ EVAL_EPOCH=100
 LOSSES=join-loss,qerr
 COST_MODEL=nested_loop_index7
 
-NHL=4
+NHL=2
 #RES_DIR=all_results/vldb/default/sample_bitmaps
-RES_DIR=all_results/vldb/default/fcnn/final_jobm
+RES_DIR=/flash1/pari/VLDB-Nov1-Results/all_results/vldb/default/mscn/final_jobm5
 BUCKETS=10
-HLS=512
+HLS=256
 
 LOAD_QUERY_TOGTHER=0
 #BUCKETS=10

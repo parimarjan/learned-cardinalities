@@ -1,7 +1,7 @@
 ALG=$1
 LOSS_FUNC=$2
 NN_TYPE=$3
-USE_VAL_SET=2
+USE_VAL_SET=1
 NUM_WORKERS=0
 NO7=0
 LOSSES=qerr,join-loss
@@ -12,14 +12,15 @@ FLOW_FEATS=(1)
 WEIGHTED_MSES=(0.0)
 ONE_HOT_ESTS=(1)
 REL_ESTS=(1)
-RES_DIR=all_results/vldb/default/sample_bitmap/hyp_sweep1
+RES_DIR=/flash1/pari/VLDB-Nov1-Results/all_results/vldb/default/hyp_sweep_fcnn
+#RES_DIR=/flash1/pari/VLDB-Nov1-Results/all_results/vldb/default/sample_bitmap2
 #RES_DIR=all_results/vldb/default/pr/hyp_sweep1
 EVAL_JOB=0
 BATCH_NORM=0
 MB_SIZE=4
 
 DECAYS=(1.0 0.1)
-LRS=(0.00005 0.0001)
+LRS=(0.00001)
 
 MAX_EPOCHS=(10)
 HLS=(512)
@@ -38,12 +39,13 @@ DEBUG_RATIO=10
 NUM_HLS=4
 LOAD_QUERY_TOGETHER=0
 
-JOB_FEATS=1
+JOB_FEATS=0
 TEST_FEATS=1
 
-SAMPLE_BITMAP=1
-PRELOAD_FEATURES=2
-QUERY_DIR=./our_dataset/queries/
+SAMPLE_BITMAP=0
+PRELOAD_FEATURES=1
+#QUERY_DIR=./our_dataset/queries/
+QUERY_DIR=./minified_dataset/
 SAMPLE_BITMAP_BUCKETS=1000
 EVAL_EPOCH=4000
 NUM_PAR=16

@@ -340,12 +340,12 @@ def eval_alg(alg, loss_funcs, queries, samples_type,
                 pool = join_loss_pool)
 
         # TODO: set global printoptions to round digits
-        print("db: {}, samples_type: {}, alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+        print("db: {}, samples_type: {}, alg: {}, samples: {}, {}: mean: {}, median: {}, 90p: {}, 99p: {}"\
                 .format(args.db_name, samples_type, alg, len(queries),
                     get_loss_name(loss_func.__name__),
                     np.round(np.mean(losses),3),
                     np.round(np.median(losses),3),
-                    np.round(np.percentile(losses,95),3),
+                    np.round(np.percentile(losses,90),3),
                     np.round(np.percentile(losses,99),3)))
 
     print("loss computations took: {} seconds".format(time.time()-loss_start))
