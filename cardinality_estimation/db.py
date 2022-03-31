@@ -607,10 +607,10 @@ class DB():
                         self.bitmap_mapping[table+str(val)] = cur_bin
 
                     idx = cur_bin % num_bins
-
                     #### only difference compared to the non-set case. combine
                     #### the code.
                     tables_vector[idx] = 1.00
+
             return tables_vector
 
         else:

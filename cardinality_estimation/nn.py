@@ -1025,6 +1025,7 @@ class NN(CardinalityEstimationAlg):
             opt_flow_costs = []
             est_flow_costs = []
 
+        alllosses = []
         for idx, (tbatch, pbatch, jbatch,
                 fbatch,tmask,pmask,jmask,ybatch,info) in enumerate(loader):
             ybatch = ybatch.to(device, non_blocking=True)
@@ -1103,6 +1104,8 @@ class NN(CardinalityEstimationAlg):
             except:
                 loss = losses
 
+            alllosses.append(loss.item())
+
             if self.weighted_qloss != 0.0:
                 qloss = qloss_torch(pred, ybatch)
                 loss += self.weighted_qloss* (sum(qloss) / len(qloss))
@@ -1167,6 +1170,7 @@ class NN(CardinalityEstimationAlg):
             if idx_time > 10:
                 print("train idx took: ", idx_time)
 
+        print("loss: ", np.mean(alllosses))
         if self.save_gradients and len(grad_samples) > 0 \
                 and self.epoch % self.eval_epoch == 0:
             self.save_join_loss_stats(grads, None, grad_samples,
@@ -2994,7 +2998,7 @@ class NN(CardinalityEstimationAlg):
             # print("going to call trian one epoch")
             self.train_one_epoch()
             self.save_model_dict()
-            print("one epoch train took: ", time.time()-start)
+            # print("one epoch train took: ", time.time()-start)
 
             if self.sampling_priority_alpha > 0 \
                     and (self.epoch % self.reprioritize_epoch == 0 \

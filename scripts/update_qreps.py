@@ -79,7 +79,7 @@ def main():
     for i, fn in enumerate(fns):
         if i >= args.num_queries and args.num_queries != -1:
             break
-
+        print(i)
         if "pkl" not in fn:
             qreps.append(None)
             continue
@@ -97,7 +97,7 @@ def main():
         for node in qrep["subset_graph"].nodes():
             keys = list(qrep["subset_graph"].nodes()[node].keys())
             for k in keys:
-                if k != "cardinality":
+                if k not in ["cardinality", "sample_bitmap"]:
                     del qrep["subset_graph"].nodes()[node][k]
 
         qreps.append(qrep)
