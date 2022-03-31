@@ -2110,6 +2110,7 @@ def get_subsetg_vectors(sample, cost_model, source_node=None):
     join_graph = sample["join_graph"]
     edges = list(sample["subset_graph"].edges())
     edges.sort()
+
     N = len(nodes)
     num_edges = len(edges)
     if cost_model == "nested_loop_index8b":

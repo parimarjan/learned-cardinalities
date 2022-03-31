@@ -253,14 +253,14 @@ def train_nn(net, X, Y, lr=0.00001, max_iter=10000, mb_size=32,
         assert False
         loss_func = torch.nn.MSELoss()
 
-    if tfboard_dir:
-        make_dir(tfboard_dir)
-        tfboard = TensorboardSummaries(tfboard_dir + "/tflogs/" +
-            time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
-        tfboard.add_variables([
-            'train-loss', 'lr', 'mse-loss'], 'training_set_loss')
+    # if tfboard_dir:
+        # make_dir(tfboard_dir)
+        # tfboard = TensorboardSummaries(tfboard_dir + "/tflogs/" +
+            # time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
+        # tfboard.add_variables([
+            # 'train-loss', 'lr', 'mse-loss'], 'training_set_loss')
 
-        tfboard.init()
+        # tfboard.init()
 
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     # update learning rate

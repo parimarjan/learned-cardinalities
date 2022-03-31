@@ -228,7 +228,7 @@ def compute_relative_loss(queries, preds, **kwargs):
 
 def compute_qerror(queries, preds, **kwargs):
     assert len(preds) == len(queries)
-    assert isinstance(preds[0], dict)
+    # assert isinstance(preds[0], dict)
 
     args = kwargs["args"]
     if args.db_name == "so":
@@ -547,7 +547,8 @@ def compute_join_order_loss(queries, preds, **kwargs):
 
     # env = park.make('query_optimizer')
     args = kwargs["args"]
-    save_exec_sql = args.save_exec_sql
+    # save_exec_sql = args.save_exec_sql
+    save_exec_sql = True
     if args.db_name == "so":
         global SOURCE_NODE
         SOURCE_NODE = tuple(["SOURCE"])
@@ -614,13 +615,21 @@ def compute_join_order_loss(queries, preds, **kwargs):
     assert "nested" in args.cost_model
     est_costs2, opt_costs2 = run_join_loss_exp(env2, "cm1")
     losses2 = est_costs2 - opt_costs2
-    # print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
-            # .format(args.db_name, alg_name, len(queries),
-                # "join all",
-                # np.round(np.mean(losses2),3),
-                # np.round(np.median(losses2),3),
-                # np.round(np.percentile(losses2,95),3),
-                # np.round(np.percentile(losses2,99),3)))
+
+    relcost = float(np.sum(est_costs2)) / np.sum(opt_costs2)
+
+    print("{}, #samples: {}, total_relative_cost: {}"\
+            .format(alg_name, len(est_costs2),
+                relcost))
+
+    print("case: {}: alg: {}, samples: {}, {}: mean: {}, median: {}, 95p: {}, 99p: {}"\
+            .format(args.db_name, alg_name, len(queries),
+                "join costs",
+                np.round(np.mean(est_costs2),3),
+                np.round(np.median(est_costs2),3),
+                np.round(np.percentile(est_costs2,95),3),
+                np.round(np.percentile(est_costs2,99),3)))
+
 
     # dummy = []
     # save_object("dummy.pkl", dummy)

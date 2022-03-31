@@ -30,6 +30,7 @@ class DB():
         self.port = port
         self.db_name = db_name
         self.db_years = db_years
+        print(self.port)
 
         # In seconds. If query execution takes longer, then the results are
         # cached for the future
@@ -127,6 +128,7 @@ class DB():
         con = pg.connect(user=self.user, host=self.db_host, port=self.port,
                 password=self.pwd, database=self.db_name+str(db_year))
         cursor = con.cursor()
+
         if timeout is not None:
             cursor.execute("SET statement_timeout = {}".format(timeout))
         try:

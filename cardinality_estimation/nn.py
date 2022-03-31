@@ -17,12 +17,12 @@ import json
 import multiprocessing
 # from torch.multiprocessing import Pool as Pool2
 # from utils.tf_summaries import TensorboardSummaries
-from tensorflow import summary as tf_summary
+# from tensorflow import summary as tf_summary
 # import tensorflow as tf
 # tf.logging.set_verbosity(tf.logging.ERROR)
 # tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
 
 from multiprocessing.pool import ThreadPool
 
@@ -1013,6 +1013,7 @@ class NN(CardinalityEstimationAlg):
             clip_gradient, samples, normalization_type, min_val, max_val,
             load_query_together=False):
 
+        start = time.time()
         # because we use openmp to speed up flow-loss computations. Else, it is
         # good to have multiple threads
         if "flow_loss" in loss_fn_name:
@@ -1031,6 +1032,12 @@ class NN(CardinalityEstimationAlg):
         for idx, (tbatch, pbatch, jbatch,
                 fbatch,tmask,pmask,jmask,ybatch,info) in enumerate(loader):
             ybatch = ybatch.to(device, non_blocking=True)
+
+            # print(self.training_samples[0]["name"])
+            # print(tbatch.shape, pbatch.shape, jbatch.shape)
+            # print(torch.mean(tbatch), torch.mean(pbatch), torch.mean(jbatch))
+            # print(torch.sum(tbatch), torch.sum(pbatch), torch.sum(jbatch))
+            # pdb.set_trace()
             # ybatch = torch.stack(ybatch)
             start = time.time()
             # print(tbatch.shape)
@@ -1064,6 +1071,7 @@ class NN(CardinalityEstimationAlg):
 
                 qstart = 0
                 losses = []
+
                 for cur_info in info:
                     if "query_idx" not in cur_info[0]:
                         print(cur_info)
@@ -1075,6 +1083,9 @@ class NN(CardinalityEstimationAlg):
 
                     assert len(subsetg_vectors) == 8
 
+                    # print("before flow loss")
+                    # print(pred)
+                    # pdb.set_trace()
                     cur_loss = loss_fn(pred[qstart:qstart+len(cur_info)],
                             ybatch[qstart:qstart+len(cur_info)],
                             normalization_type, min_val,
@@ -1083,7 +1094,9 @@ class NN(CardinalityEstimationAlg):
                             self.join_loss_pool, self.cost_model)
                     losses.append(cur_loss)
                     qstart += len(cur_info)
+
                 losses = torch.stack(losses)
+
             else:
                 if self.unnormalized_mse:
                     assert self.normalization_type == "mscn"
@@ -1172,6 +1185,10 @@ class NN(CardinalityEstimationAlg):
             idx_time = time.time() - start
             if idx_time > 10:
                 print("train idx took: ", idx_time)
+
+        curloss = round(float(sum(losses))/len(losses),6)
+        print("Epoch {} took {}, Avg Loss: {}".format(self.epoch,
+            round(time.time()-start, 2), curloss))
 
         if self.save_gradients and len(grad_samples) > 0 \
                 and self.epoch % self.eval_epoch == 0:
@@ -1903,8 +1920,8 @@ class NN(CardinalityEstimationAlg):
                         loss_type = loss_type,
                         num_tables = num_tables,
                         template = template)
-                with self.tf_summary_writer.as_default():
-                    tf_summary.scalar(stat_name, loss, step=epoch)
+                # with self.tf_summary_writer.as_default():
+                    # tf_summary.scalar(stat_name, loss, step=epoch)
 
     def get_exp_name(self):
         '''
@@ -2391,7 +2408,7 @@ class NN(CardinalityEstimationAlg):
         name = self.get_exp_name()
         # name = self.__str__()
         log_dir = "tfboard_logs/" + name
-        self.tf_summary_writer = tf_summary.create_file_writer(log_dir)
+        # self.tf_summary_writer = tf_summary.create_file_writer(log_dir)
         self.tf_stat_fmt = "{samples_type}-{loss_type}-nt:{num_tables}-tmp:{template}"
 
     def init_dataset(self, samples, shuffle, batch_size,
@@ -2601,6 +2618,9 @@ class NN(CardinalityEstimationAlg):
             opt_flow_loss = left @ trueC @ right
             del trueC
 
+            # print(opt_flow_loss)
+            # pdb.set_trace()
+
             self.flow_training_info.append((subsetg_vectors, trueC_vec,
                     opt_flow_loss))
 
@@ -2734,6 +2754,8 @@ class NN(CardinalityEstimationAlg):
         if self.sampling_priority_alpha > 0.00:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
                                     False, self.mb_size, db_year, weighted=True)
+
+
             self.training_sets = training_sets
             priority_loaders = []
             for i, ds in enumerate(training_sets):
@@ -2744,6 +2766,7 @@ class NN(CardinalityEstimationAlg):
         else:
             training_sets, self.training_loaders = self.init_dataset(training_samples,
                                     True, self.mb_size, db_year, weighted=False)
+
             self.training_sets = training_sets
 
         assert len(self.training_loaders) == len(self.groups)
@@ -3005,7 +3028,8 @@ class NN(CardinalityEstimationAlg):
                     assert False
 
             if self.epoch % self.eval_epoch == 0 and \
-                    self.eval_epoch < self.max_epochs:
+                    self.eval_epoch < self.max_epochs \
+                    and self.epoch != 0:
             # if ((self.epoch % self.eval_epoch == 0 or \
                     # self.epoch % self.eval_epoch_qerr == 0)
                 # and self.epoch != 0):
@@ -3017,11 +3041,11 @@ class NN(CardinalityEstimationAlg):
 
                 self.save_stats()
 
-            elif self.epoch > self.start_validation and self.use_val_set \
-                    and self.epoch % self.validation_epoch == 0:
-                if self.samples["test"] is not None:
-                    # self.periodic_eval("test")
-                    self._eval_wrapper("test")
+            # elif self.epoch > self.start_validation and self.use_val_set \
+                    # and self.epoch % self.validation_epoch == 0:
+                # if self.samples["test"] is not None:
+                    # # self.periodic_eval("test")
+                    # self._eval_wrapper("test")
 
             start = time.time()
             self.train_one_epoch()
@@ -3424,7 +3448,7 @@ class XGBoost(NN):
         # self.xgb_model = GradientBoostingRegressor(**params)
         # self.xgb_model.fit(X, Y)
 
-    def test(self, test_samples):
+    def test(self, test_samples, test_year=""):
         X,Y = \
                 self.init_dataset(test_samples, False, self.eval_batch_size,
                         weighted=False)
@@ -3565,7 +3589,7 @@ class RandomForest(NN):
             self.model = RandomForestRegressor(n_jobs=-1, verbose=2, **params)
             self.model.fit(X, Y)
 
-    def test(self, test_samples):
+    def test(self, test_samples, test_year=""):
         X,Y = \
                 self.init_dataset(test_samples, False, None)
         pred = self.model.predict(X)

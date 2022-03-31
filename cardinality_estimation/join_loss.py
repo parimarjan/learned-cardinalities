@@ -41,7 +41,7 @@ PG_HINT_SCANS["Index Only Scan"] = "IndexOnlyScan"
 PG_HINT_SCANS["Bitmap Heap Scan"] = "BitmapScan"
 PG_HINT_SCANS["Tid Scan"] = "TidScan"
 
-MAX_JOINS = 16
+MAX_JOINS = 32
 
 def set_indexes(cursor, val):
     cursor.execute("SET enable_indexscan = {}".format(val))
@@ -53,6 +53,7 @@ def set_indexes(cursor, val):
 def set_cost_model(cursor, cost_model):
     # makes things easier to understand
     cursor.execute("SET enable_material = off")
+
     if cost_model == "hash_join":
         cursor.execute("SET enable_hashjoin = on")
         cursor.execute("SET enable_mergejoin = off")
@@ -114,7 +115,21 @@ def set_cost_model(cursor, cost_model):
 
     elif cost_model == "cm1" \
             or cost_model == "cm2":
-        pass
+        set_indexes(cursor, "on")
+        cursor.execute("SET max_parallel_workers = 0")
+        cursor.execute("SET max_parallel_workers_per_gather = 0")
+
+        # cursor.execute("SET enable_material = off")
+        # cursor.execute("SET enable_hashjoin = on")
+        # cursor.execute("SET enable_mergejoin = on")
+        # cursor.execute("SET enable_nestloop = on")
+
+        # cursor.execute("SET enable_indexscan = {}".format("on"))
+        # cursor.execute("SET enable_seqscan = {}".format("on"))
+        # cursor.execute("SET enable_indexonlyscan = {}".format("on"))
+        # cursor.execute("SET enable_bitmapscan = {}".format("on"))
+        # cursor.execute("SET enable_tidscan = {}".format("on"))
+
     else:
         assert False
 
@@ -451,9 +466,10 @@ class JoinLoss():
         self.port = port
         self.db_name = db_name
 
-        opt_archive_fn = "/tmp/opt_archive_" + cost_model
-        self.opt_archive = klepto.archives.dir_archive(opt_archive_fn,
-                cached=True, serialized=True)
+        # opt_archive_fn = "/tmp/opt_archive_" + cost_model
+        # self.opt_archive = klepto.archives.dir_archive(opt_archive_fn,
+                # cached=True, serialized=True)
+        self.opt_archive = None
 
     def compute_join_order_loss(self, sqls, join_graphs, true_cardinalities,
             est_cardinalities, baseline_join_alg, use_indexes,
@@ -503,7 +519,7 @@ class JoinLoss():
 
         for i, sql in enumerate(sqls):
             sql_key = deterministic_hash(sql)
-            if sql_key in self.opt_archive.archive:
+            if self.opt_archive is not None and sql_key in self.opt_archive.archive:
                 (opt_costs[i], opt_explains[i], opt_sqls[i]) = \
                         self.opt_archive.archive[sql_key]
 
@@ -553,8 +569,8 @@ class JoinLoss():
 
                 # pool is None used when computing subquery priorities,
                 # archiving all those is too expensive..
-                if sql_key not in self.opt_archive.archive \
-                        and pool is not None:
+                if self.opt_archive is not None and (sql_key not in self.opt_archive.archive \
+                        and pool is not None):
                     self.opt_archive.archive[sql_key] = (opt, opt_explain, opt_sql)
 
         # print("num explains: ", len(est_explains))
@@ -832,7 +848,8 @@ def get_quadratic_program_cost(qrep, yhat, y,
             true_edge_costs=None):
         assert SOURCE_NODE in subsetg.nodes()
 
-        compute_costs(subsetg, cost_model, cost_key=cost_key,
+        compute_costs(subsetg, cost_model, "cardinality",
+                cost_key=cost_key,
                 ests=ests)
         edges, costs, A, b, G, h = construct_lp(subsetg,
                 cost_key=cost_model+cost_key)
@@ -900,7 +917,8 @@ def get_simple_shortest_path_cost(qrep, yhat, y,
         cost_model, directed):
     def get_cost(subsetg, cost_key, ests):
         assert SOURCE_NODE in subsetg.nodes()
-        compute_costs(subsetg, cost_model, cost_key=cost_key,
+        compute_costs(subsetg, cost_model, "cardinality",
+                cost_key=cost_key,
                 ests=ests)
         nodes = list(subsetg.nodes())
         nodes.sort(key=lambda x: len(x))
@@ -955,7 +973,8 @@ def get_shortest_path_costs(samples, source_node, cost_key,
         # this should already be pre-computed
         if cost_key != "cost":
             ests = all_ests[i]
-            compute_costs(subsetg, cost_model, cost_key=cost_key,
+            compute_costs(subsetg, cost_model, "cardinality",
+                    cost_key=cost_key,
                     ests=ests)
         # print("compute costs done")
 

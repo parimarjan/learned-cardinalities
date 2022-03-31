@@ -156,12 +156,6 @@ class PaddedMSCN(nn.Module):
         '''
         #TODO: describe shapes
         '''
-        # if "cuda" in device.__str__():
-            # assert samples.is_cuda
-        # print(device)
-        # print(self.predicate_mlp1)
-        # print(type(samples))
-        # pdb.set_trace()
         samples = samples.to(device, non_blocking=True)
         predicates = predicates.to(device, non_blocking=True)
         joins = joins.to(device, non_blocking=True)

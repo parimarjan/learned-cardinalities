@@ -19,7 +19,7 @@ import jax
 # from jax import grad, jit, vmap
 import jax.numpy as jp
 from jax import jacfwd, jacrev
-import tensorflow as tf
+# import tensorflow as tf
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 

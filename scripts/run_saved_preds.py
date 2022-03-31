@@ -8,7 +8,8 @@ import os
 import subprocess as sp
 
 RUN_TMP='''export CUDA_VISIBLE_DEVICES="";python3 main.py --algs saved \
---model_dir {MODEL_DIR} --result_dir {RES_DIR} --debug_set {DEBUG}
+--model_dir {MODEL_DIR} --result_dir {RES_DIR} --debug_set {DEBUG} \
+--port 5431 --user imdb --pwd password --query_dir queries/imdb
 '''
 
 def read_flags():
@@ -19,7 +20,7 @@ def read_flags():
     parser.add_argument("--result_dir", type=str, required=False,
             default=None)
     parser.add_argument("--losses", type=str, required=False,
-            default="qerr,join-loss,plan-loss")
+            default="qerr,join-loss")
     parser.add_argument("--debug_set", type=int, required=False,
             default=0)
     parser.add_argument("--eval_on_job", type=int, required=False,
@@ -33,6 +34,10 @@ def main():
     model_dirs = list(glob.glob(args.base_dir + "/*"))
 
     for i, model_dir in enumerate(model_dirs):
+        if "pr" in model_dir:
+            print("Skipping priority model")
+            continue
+
         if args.result_dir is None:
             res_dir = args.base_dir
         else:
@@ -42,12 +47,12 @@ def main():
             # print("continuing because done")
             # continue
 
-        if os.path.exists(model_dir + "/cm1_jerr.pkl"):
-            continue
+        # if os.path.exists(model_dir + "/cm1_jerr.pkl"):
+            # continue
 
-        if not os.path.exists(model_dir + "/model_weights.pt"):
-            print("no model weights")
-            continue
+        # if not os.path.exists(model_dir + "/model_weights.pt"):
+            # print("no model weights")
+            # continue
 
         print(model_dir)
         cmd = RUN_TMP.format(MODEL_DIR = model_dir,

@@ -606,10 +606,9 @@ def load_all_qrep_data(load_job_queries,
         if args.diff_templates_type == 3:
             sorted_fns = copy.deepcopy(fns)
             sorted_fns.sort()
+            print(sorted_fns)
             train_tmps, test_tmps = train_test_split(sorted_fns,
                     test_size=args.test_size, random_state=args.diff_templates_seed)
-            print(train_tmps)
-            print(test_tmps)
 
     if args.sampling_key in ["wanderjoin", "wanderjoin0.5", "wanderjoin2"]:
         wj_times = get_wj_times_dict(args.sampling_key)
@@ -625,12 +624,12 @@ def load_all_qrep_data(load_job_queries,
         template_name = os.path.basename(qdir)
         if args.query_templates != "all":
             if template_name not in query_templates:
-                print("skipping template ", template_name)
+                # print("skipping template ", template_name)
                 continue
 
         if args.no7a:
             if "7a" in template_name:
-                print("skipping template 7a")
+                # print("skipping template 7a")
                 continue
 
         # let's first select all the qfns we are going to load
@@ -640,11 +639,13 @@ def load_all_qrep_data(load_job_queries,
         if args.num_samples_per_template == -1 \
                 or "job" in qdir:
             qfns = qfns
-        elif args.num_samples_per_template < len(qfns):
+        elif args.num_samples_per_template <= len(qfns):
             qfns = qfns[0:args.num_samples_per_template]
         else:
-            print("queries should be generated using appropriate script")
-            assert False
+            qfns = qfns
+            # print("queries should be generated using appropriate script")
+            # assert False
+
         # let's do the train-test split on the qfns itself
         cur_val_fns = []
         if args.test and args.use_val_set:
@@ -678,7 +679,7 @@ def load_all_qrep_data(load_job_queries,
             else:
                 assert False
 
-        elif args.test:
+        elif args.test and not args.test_size == 0.0:
             cur_train_fns, cur_test_fns = train_test_split(qfns,
                     test_size=args.test_size,
                     random_state=args.random_seed_queries)
@@ -938,6 +939,13 @@ def main():
         old_args.eval_on_jobm = args.eval_on_jobm
         old_args.jobm_query_dir = args.jobm_query_dir
         old_args.skip_zero_queries = args.skip_zero_queries
+        old_args.port = args.port
+        old_args.user = args.user
+        old_args.pwd = args.pwd
+
+        # if old_args.diff_templates_seed not in [2,6,7]:
+            # print("exiting because seed: ", old_args.diff_templates_seed)
+            # exit(-1)
 
         # if args.max_epochs == 0:
             # # because we aren't actually training, this is just used for init
@@ -951,6 +959,8 @@ def main():
             old_args.algs = args.algs
 
         args = old_args
+        args.db_year_test = ""
+        args.db_year_train = ""
 
     train_queries, test_queries, val_queries, job_queries, jobm_queries, db = \
             load_all_qrep_data(False, load_test_samples, True, True,
@@ -1040,7 +1050,7 @@ def main():
 
             train_times[alg.__str__()] = round(time.time() - start, 2)
         else:
-            assert False
+            # assert False
             # just used to initialize the fields in the alg
             if alg.max_epochs == 0:
                 alg.train(db, train_queries, use_subqueries=args.use_subqueries,
@@ -1061,13 +1071,13 @@ def main():
             del(alg.training_loaders[0])
             del(alg.training_sets[0])
 
-            if args.eval_epoch < args.max_epochs and len(alg.eval_test_sets) > 0:
-                # clear_memory(alg.eval_test_sets[0])
-                alg.eval_test_sets[0].clean()
-                del(alg.eval_test_sets[0])
+            # if args.eval_epoch < args.max_epochs and len(alg.eval_test_sets) > 0:
+                # # clear_memory(alg.eval_test_sets[0])
+                # alg.eval_test_sets[0].clean()
+                # del(alg.eval_test_sets[0])
 
-            for k,v in alg.eval_loaders.items():
-                del(v)
+            # for k,v in alg.eval_loaders.items():
+                # del(v)
 
         # may have deleted it to save space
         if len(train_queries) == 0:
@@ -1115,6 +1125,7 @@ def main():
                 # eval_alg(alg, losses, test_queries[idx:idx+size], "test", join_loss_pool)
 
         if len(test_queries) > 0:
+            print("going to call eval_alg on test")
             eval_alg(alg, losses, test_queries, "test", join_loss_pool,
                     db_years)
             del(test_queries[:])
@@ -1175,7 +1186,7 @@ def read_flags():
             default="hist")
 
     parser.add_argument("--query_directory", type=str, required=False,
-            default="./minified_dataset")
+            default="./queries/imdb-unique-plans/")
     # parser.add_argument("--query_directory", type=str, required=False,
             # default="./our_dataset/queries")
     parser.add_argument("--cost_model", type=str, required=False,
@@ -1275,7 +1286,7 @@ def read_flags():
     parser.add_argument("--num_tables_feature", type=int, required=False,
             default=1)
     parser.add_argument("--flow_features", type=int, required=False,
-            default=1)
+            default=0)
     parser.add_argument("--table_features", type=int, required=False,
             default=1)
     parser.add_argument("--join_features", type=int, required=False,
@@ -1283,7 +1294,7 @@ def read_flags():
     parser.add_argument("--pred_features", type=int, required=False,
             default=1)
     parser.add_argument("--weight_decay", type=float, required=False,
-            default=0.1)
+            default=0.0)
 
     parser.add_argument("--max_discrete_featurizing_buckets", type=int, required=False,
             default=10)
@@ -1318,9 +1329,9 @@ def read_flags():
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
-            default="")
+            default="ceb")
     parser.add_argument("--pwd", type=str, required=False,
-            default="")
+            default="password")
     parser.add_argument("--template_dir", type=str, required=False,
             default=None)
     parser.add_argument("--port", type=str, required=False,
@@ -1338,7 +1349,7 @@ def read_flags():
     parser.add_argument("--num_workers", type=int,
             required=False, default=0)
     parser.add_argument("--eval_epoch", type=int,
-            required=False, default=1)
+            required=False, default=5)
     parser.add_argument("--eval_epoch_qerr", type=int,
             required=False, default=100)
     parser.add_argument("--eval_epoch_jerr", type=int,
@@ -1346,9 +1357,9 @@ def read_flags():
     parser.add_argument("--use_batch_norm", type=int,
             required=False, default=0)
     parser.add_argument("--eval_epoch_flow_err", type=int,
-            required=False, default=1)
+            required=False, default=100)
     parser.add_argument("--eval_epoch_plan_err", type=int,
-            required=False, default=1)
+            required=False, default=100)
 
     parser.add_argument("--lr", type=float,
             required=False, default=0.0001)
@@ -1441,9 +1452,9 @@ def read_flags():
     parser.add_argument('--synth_num_vals', help='delimited list correlations',
             type=int, required=False, default=100000)
     parser.add_argument("--random_seed", type=int, required=False,
-            default=2112)
+            default=13)
     parser.add_argument("--random_seed_queries", type=int, required=False,
-            default=2112)
+            default=13)
     parser.add_argument("--test", type=int, required=False,
             default=1)
     parser.add_argument("--avg_factor", type=int, required=False,

@@ -79,33 +79,6 @@ class QueryDataset(data.Dataset):
             self.max_joins = self.db.max_joins
             self.max_preds = self.db.max_preds
 
-            # update stats about max-predicates, max-tables etc.
-            # self.max_tables = 0
-            # self.max_joins = 0
-            # self.max_preds = 0
-
-            # for i, qrep in enumerate(samples):
-                # node_data = qrep["join_graph"].nodes(data=True)
-
-                # num_tables = len(node_data)
-                # if num_tables > self.max_tables:
-                    # self.max_tables = num_tables
-
-                # num_preds = 0
-                # for node, info in node_data:
-                    # num_preds += len(info["pred_cols"])
-
-                # if num_preds > self.max_preds:
-                    # self.max_preds = num_preds
-
-                # num_joins = len(qrep["join_graph"].edges())
-                # if num_joins > self.max_joins:
-                    # self.max_joins = num_joins
-
-            # # TODO: estimated upper bound, need to figure out a better way to calculate this
-            # # self.max_joins = self.max_tables + 12
-            # print(self.max_tables, self.max_joins, self.max_preds)
-
         if self.preload_features == 1:
             # 3, means we will try to load the padded sets and masks from
             # memory
@@ -260,15 +233,24 @@ class QueryDataset(data.Dataset):
                 print(num_pad)
                 pdb.set_trace()
 
+            # print("before padding; num pad: ", num_pad)
+            # print(np.array(pred_features).shape)
+            # pdb.set_trace()
+
             predicate_mask = np.ones_like(pred_features).mean(1, keepdims=True)
             pred_features = np.pad(pred_features, ((0, num_pad), (0, 0)), 'constant')
             predicate_mask = np.pad(predicate_mask, ((0, num_pad), (0, 0)), 'constant')
             pred_features = np.expand_dims(pred_features, 0)
             predicate_mask = np.expand_dims(predicate_mask, 0)
 
+            # print("after padding; num pad: ", num_pad)
+            # print(np.array(pred_features).shape)
+            # pdb.set_trace()
+
             # do same for table, and joins
             table_features = np.vstack(table_features)
             num_pad = self.max_tables - table_features.shape[0]
+
 
             if num_pad < 0:
                 print(num_pad)
@@ -328,7 +310,8 @@ class QueryDataset(data.Dataset):
             qpathy = self.feature_dir + qkey + "y.pkl"
             qpathi = self.feature_dir + qkey + "i.pkl"
 
-            if os.path.exists(qpathx) and use_saved:
+            # if os.path.exists(qpathx) and use_saved:
+            if False:
                 # load and all
                 # X = load_object(qpathx)
                 X = load_object_gzip(qpathx)
@@ -440,6 +423,8 @@ class QueryDataset(data.Dataset):
 
             info = qrep["subset_graph"].nodes()[nodes]
             pg_est = info["cardinality"]["expected"]
+            ## estimated heuristic
+            # assert pfeats[-2] == 0.0
             # pfeats[-2] = self.normalize_val(pg_est, total)
             total = 0.0
             sample_heuristic_est = self.normalize_val(pg_est, total)
@@ -470,6 +455,11 @@ class QueryDataset(data.Dataset):
                 if node not in pred_feat_dict:
                     continue
                 pfeats = copy.deepcopy(pred_feat_dict[node])
+
+                # debug
+                assert pfeats[-2] == 0.0
+                pfeats[-2] = sample_heuristic_est
+
                 pred_features.append(pfeats)
 
             for node1 in nodes:
@@ -572,6 +562,10 @@ class QueryDataset(data.Dataset):
             # save_object(qpathy, Y)
             # save_object(qpathi, sample_info)
 
+        # print(X["table"][0].shape)
+        # print(X["join"][0].shape)
+        # print(X["pred"][0].shape)
+        # pdb.set_trace()
         assert len(Y) == len(sample_info) == len(X["table"])
         return X,Y,sample_info
 
@@ -872,6 +866,12 @@ class QueryDataset(data.Dataset):
                     X[k] = to_variable(v, requires_grad=False).float()
 
         Y = to_variable(Y, requires_grad=False).float()
+
+        # print(Y)
+        # print(X["table"][0].shape)
+        # print(X["join"][0].shape)
+        # print(X["pred"][0].shape)
+        # pdb.set_trace()
         return X,Y,sample_info
 
     def __len__(self):

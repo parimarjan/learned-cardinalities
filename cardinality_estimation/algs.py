@@ -1,6 +1,7 @@
 import time
 import numpy as np
 import pdb
+import os
 import math
 from db_utils.utils import *
 from utils.utils import *
@@ -140,6 +141,12 @@ class SavedPreds(CardinalityEstimationAlg):
 
         assert os.path.exists(self.model_dir)
         self.saved_preds = load_object_gzip(self.model_dir + "/preds.pkl")
+
+        renamed_preds = {}
+        for k,v in self.saved_preds.items():
+            renamed_preds[os.path.basename(k)] = v
+        self.saved_preds = renamed_preds
+
         # self.saved_preds = load_object(self.model_dir + "/preds.pkl")
 
     def test(self, test_samples, **kwargs):
@@ -152,10 +159,26 @@ class SavedPreds(CardinalityEstimationAlg):
         preds = []
         for sample in test_samples:
             # assert sample["name"] in self.saved_preds
-            if sample["name"] not in self.saved_preds:
-                print(sample["name"])
-                pdb.set_trace()
-            preds.append(self.saved_preds[sample["name"]])
+            name = os.path.basename(sample["name"])
+            if name not in self.saved_preds:
+                print(name)
+                print("MISSING!")
+                # generate new dict
+                sg = sample["subset_graph"]
+                estdict = {}
+                for node in sg.nodes():
+                    if node == SOURCE_NODE:
+                        continue
+                    try:
+                        est = sg.nodes()[node]["cardinality"]["expected"]
+                    except:
+                        print(sg.nodes()[node])
+                        est = 1.0
+                        # pdb.set_trace()
+                    estdict[node] = est
+                preds.append(estdict)
+                continue
+            preds.append(self.saved_preds[name])
         return preds
 
     def get_exp_name(self):
@@ -179,7 +202,7 @@ class Postgres(CardinalityEstimationAlg):
     # def __init__(self, num_tables_true=0, regex_true=False):
         # pass
 
-    def test(self, test_samples):
+    def test(self, test_samples, test_year=""):
         assert isinstance(test_samples[0], dict)
         preds = []
         for sample in test_samples:

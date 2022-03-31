@@ -5,7 +5,6 @@ import psycopg2 as pg
 # from db_utils.utils import *
 from utils.utils import *
 from db_utils.query_storage import *
-from utils.utils import *
 import pdb
 import random
 import klepto
@@ -94,14 +93,18 @@ def update_bad_qrep(qrep):
 
 def is_cross_join(sg):
     '''
-    enforces the constraint that the graph should be connected w/o the site
-    node.
+    enforces the constraint that the graph should be connected.
     '''
     if len(sg.nodes()) < 2:
         # FIXME: should be return False
         return False
     sg2 = nx.Graph(sg)
     to_remove = []
+
+    # do this in case of stackexchange database; because of the weird query
+    # structure, if the graph is connected only through the `site` table, it
+    # still behaves like a cross-join. Check the appendix of the Flow-Loss
+    # paper for more details
     for node, data in sg2.nodes(data=True):
         if data["real_name"] == "site":
             to_remove.append(node)

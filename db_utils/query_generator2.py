@@ -1,7 +1,7 @@
 from db_utils.utils import *
 import pdb
-from nltk.tokenize import word_tokenize
-import pygtrie
+# from nltk.tokenize import word_tokenize
+# import pygtrie
 
 ILIKE_PRED_FMT = "'%{ILIKE_PRED}%'"
 class QueryGenerator2():
