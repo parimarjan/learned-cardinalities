@@ -33,7 +33,7 @@ RERUN_TIMEOUTS = 1
 CACHE_TIMEOUT = 4
 CACHE_CARD_TYPES = ["actual"]
 
-DEBUG_CHECK_TIMES = False
+DEBUG_CHECK_TIMES = True
 CONF_ALPHA = 0.99
 
 def read_flags():
@@ -44,13 +44,13 @@ def read_flags():
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
-            default="")
+            default="ceb")
     parser.add_argument("--pwd", type=str, required=False,
-            default="")
+            default="password")
     parser.add_argument("--card_cache_dir", type=str, required=False,
             default="./cardinality_cache")
     parser.add_argument("--port", type=str, required=False,
-            default=5432)
+            default=5431)
     parser.add_argument("--wj_walk_timeout", type=float, required=False,
             default=0.5)
     parser.add_argument("--query_dir", type=str, required=False,
@@ -173,9 +173,11 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if sampling_percentage is not None:
         key_name = str(sampling_type) + str(sampling_percentage) + "_" + key_name
 
-        con = pg.connect(user=user, host=db_host, port=port,
-                password=pwd, database=db_name)
-        cursor = con.cursor()
+    con = pg.connect(user=user, host=db_host, port=port,
+            password=pwd, database=db_name)
+    cursor = con.cursor()
+
+    cursor.execute("SET enable_hashjoin = off")
 
     if idx % 10 == 0:
         print("query: ", idx)
@@ -184,6 +186,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if card_type in CACHE_CARD_TYPES:
         sql_cache = klepto.archives.dir_archive(cache_dir,
                 cached=True, serialized=True)
+
     found_in_cache = 0
     existing = 0
     num_timeout = 0
@@ -355,6 +358,10 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         update_qrep(qrep)
         save_sql_rep(fn, qrep)
         print("updated sql rep!")
+
+    cursor.close()
+    con.close()
+
     return qrep
 
 def main():
@@ -400,7 +407,7 @@ def main():
                         args.db_name, args.user, args.pwd, args.port,
                         args.true_timeout, args.pg_total, args.card_cache_dir, fn,
                         args.wj_walk_timeout, i, args.sampling_percentage,
-                        args.sampling_type, True)
+                        args.sampling_type, args.skip_zero_queries)
 
             continue
 

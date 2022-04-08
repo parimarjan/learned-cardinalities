@@ -36,6 +36,62 @@ CACHE_CARD_TYPES = ["actual"]
 DEBUG_CHECK_TIMES = False
 CONF_ALPHA = 0.99
 
+JOIN_COL_MAP = {}
+JOIN_COL_MAP["t.id"] = "movie_id"
+JOIN_COL_MAP["mi.movie_id"] = "movie_id"
+JOIN_COL_MAP["ci.movie_id"] = "movie_id"
+JOIN_COL_MAP["mk.movie_id"] = "movie_id"
+JOIN_COL_MAP["mc.movie_id"] = "movie_id"
+JOIN_COL_MAP["ml.movie_id"] = "movie_id"
+JOIN_COL_MAP["mi_idx.movie_id"] = "movie_id"
+JOIN_COL_MAP["mi_idx.movie_id"] = "movie_id"
+JOIN_COL_MAP["ml.linked_movie_id"] = "movie_id"
+## TODO: handle it so same columns map to same table+col
+JOIN_COL_MAP["miidx.movie_id"] = "movie_id"
+JOIN_COL_MAP["at.movie_id"] = "movie_id"
+JOIN_COL_MAP["cc.movie_id"] = "movie_id"
+
+JOIN_COL_MAP["mk.keyword_id"] = "keyword"
+JOIN_COL_MAP["k.id"] = "keyword"
+
+JOIN_COL_MAP["n.id"] = "person_id"
+JOIN_COL_MAP["pi.person_id"] = "person_id"
+JOIN_COL_MAP["ci.person_id"] = "person_id"
+JOIN_COL_MAP["an.person_id"] = "person_id"
+# TODO: handle cases
+JOIN_COL_MAP["a.person_id"] = "person_id"
+
+JOIN_COL_MAP["t.kind_id"] = "kind_id"
+JOIN_COL_MAP["kt.id"] = "kind_id"
+
+JOIN_COL_MAP["ci.role_id"] = "role_id"
+JOIN_COL_MAP["rt.id"] = "role_id"
+
+JOIN_COL_MAP["ci.person_role_id"] = "char_id"
+JOIN_COL_MAP["chn.id"] = "char_id"
+
+JOIN_COL_MAP["mi.info_type_id"] = "info_id"
+JOIN_COL_MAP["mii.info_type_id"] = "info_id"
+JOIN_COL_MAP["mi_idx.info_type_id"] = "info_id"
+JOIN_COL_MAP["miidx.info_type_id"] = "info_id"
+
+JOIN_COL_MAP["pi.info_type_id"] = "info_id"
+JOIN_COL_MAP["it.id"] = "info_id"
+
+JOIN_COL_MAP["mc.company_type_id"] = "company_type"
+JOIN_COL_MAP["ct.id"] = "company_type"
+
+JOIN_COL_MAP["mc.company_id"] = "company_id"
+JOIN_COL_MAP["cn.id"] = "company_id"
+
+JOIN_COL_MAP["ml.link_type_id"] = "link_id"
+JOIN_COL_MAP["lt.id"] = "link_id"
+
+## complete_cast
+JOIN_COL_MAP["cc.status_id"] = "subject"
+JOIN_COL_MAP["cc.subject_id"] = "subject"
+JOIN_COL_MAP["cct.id"] = "subject"
+
 def pg_est_aggr_from_explain(output):
     '''
     '''
@@ -126,6 +182,169 @@ def is_cross_join(sg):
         return False
     return True
 
+def get_distinct_joinkeys(qrep, card_type, key_name, db_host, db_name, user, pwd,
+        port, fn, idx, sample_num, sampling_type):
+    '''
+    updates qrep's fields with the needed cardinality estimates, and returns
+    the qrep.
+    '''
+    if key_name is None:
+        key_name = card_type
+
+    # if sample_num is not None:
+        # key_name = str(sampling_type) + str(sample_num)
+
+    con = pg.connect(user=user, host=db_host, port=port,
+            password=pwd, database=db_name)
+    cursor = con.cursor()
+    cursor.execute("SET enable_hashjoin = off")
+
+    if idx % 10 == 0:
+        print("query: ", idx)
+
+    node_list = list(qrep["subset_graph"].nodes())
+    if SOURCE_NODE in node_list:
+        node_list.remove(SOURCE_NODE)
+    node_list.sort(reverse=False, key = lambda x: len(x))
+
+    # subset_edges = qrep["subset_graph"].edges()
+    sg = qrep["subset_graph"]
+    jg = qrep["join_graph"]
+
+    # for si, subset_edge in enumerate(subset_edges):
+        # if si % 100 == 0:
+            # print(si)
+
+    for ni,node in enumerate(node_list):
+
+        info = qrep["subset_graph"].nodes()[node]
+        node_card = info["cardinality"]["actual"]
+        node_pg = info["cardinality"]["expected"]
+
+        # edges
+        joinedges = sg.in_edges(node)
+        aggr_conds = []
+        aggr_cols = []
+        updated_edges = []
+
+        for subset_edge in joinedges:
+            u = subset_edge[0]
+            subset = subset_edge[1]
+            assert len(u) > len(subset)
+            einfo = sg.edges()[subset_edge]
+
+            if "join_key_cardinality" not in einfo or \
+                    len(einfo["join_key_cardinality"]) == 0:
+                einfo["join_key_cardinality"] = {}
+                ecards = einfo["join_key_cardinality"]
+
+                updated_edges.append(subset_edge)
+                newtab = tuple(list(set(u) - set(subset)))[0]
+                poss_edges = jg.edges(newtab)
+
+                cur_edges = []
+                cur_edge_cols = []
+
+                for e in poss_edges:
+                    for e0 in e:
+                        if e0 == newtab:
+                            continue
+                        if e0 in subset:
+                            cur_edges.append(e)
+                            cur_edge_cols.append(e0)
+                            break
+
+                    if len(cur_edges) == 1:
+                        break
+
+                assert len(cur_edges) == 1
+                for ei, e in enumerate(cur_edges):
+                    jcondition = jg.edges()[e]["join_condition"]
+                    ecol = cur_edge_cols[ei]
+                    jcols = jcondition.split("=")
+                    curattr = None
+                    for jcol in jcols:
+                        jcol_tmp = jcol.split(".")[0]
+                        jcol_tmp = jcol_tmp.strip()
+                        if ecol == jcol_tmp:
+                            curattr = jcol
+                            break
+
+                    if curattr is None:
+                        print(ecol)
+                        print(jcols)
+                        pdb.set_trace()
+
+                    curattr = curattr.replace(" ", "")
+                    assert curattr is not None
+                    aggr_conds.append("COUNT(DISTINCT {})".format(curattr))
+                    aggr_cols.append(curattr)
+
+                    # TODO: need to add postgres sqls for all
+
+        # if len(node) > 2:
+            # print(aggr_conds)
+            # print(updated_edges)
+            # pdb.set_trace()
+
+        if len(aggr_conds) == 0:
+            continue
+
+        # if len(node) < 3:
+            # continue
+
+        join_subg = qrep["join_graph"].subgraph(node)
+        subsql = nx_graph_to_query(join_subg)
+
+        aggr_cond = ",".join(aggr_conds)
+        csql = subsql.replace("COUNT(*)", aggr_cond)
+
+        try:
+            cursor.execute(csql)
+            outputs = cursor.fetchall()
+
+        except Exception as e:
+            print("Exception!")
+            print(e)
+            print(csql)
+            pdb.set_trace()
+
+        assert len(outputs[0]) == len(aggr_conds) == len(updated_edges)
+        print(outputs)
+
+        for ci, cure in enumerate(updated_edges):
+            ecards = sg.edges()[cure]["join_key_cardinality"]
+            card = outputs[0][ci]
+            aggrcol = aggr_cols[ci]
+            ecards[aggrcol] = {}
+            ecards[aggrcol]["actual"] = card
+
+        for ci, curattr in enumerate(aggr_cols):
+            ecards = sg.edges()[updated_edges[ci]]["join_key_cardinality"]
+            pgsql = subsql.replace("COUNT(*)", " DISTINCT {}".format(curattr))
+            pgsql = "EXPLAIN " + pgsql
+            try:
+                cursor.execute(pgsql)
+                output = cursor.fetchall()
+            except Exception as e:
+                print("Exception!")
+                print(e)
+                print(pgsql)
+                pdb.set_trace()
+                continue
+
+            card = pg_est_aggr_from_explain(output)
+            ecards[curattr]["expected"] = card
+
+    if fn is not None:
+        update_qrep(qrep)
+        save_sql_rep(fn, qrep)
+        print("saved new qrep!")
+
+    cursor.close()
+    con.close()
+    return qrep
+
 def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
         port, fn, idx, sample_num, sampling_type):
     '''
@@ -141,6 +360,8 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
         con = pg.connect(user=user, host=db_host, port=port,
                 password=pwd, database=db_name)
         cursor = con.cursor()
+
+    cursor.execute("SET enable_hashjoin = off")
 
     if idx % 10 == 0:
         print("query: ", idx)
@@ -166,16 +387,22 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
         einfo = qrep["subset_graph"].edges()[subset_edge]
 
         if "join_key_cardinality" not in einfo:
+            # DEBUG:
+            continue
             einfo["join_key_cardinality"] = {}
             ecards = einfo["join_key_cardinality"]
         else:
-            continue
-            # ecards = einfo["join_key_cardinality"]
+            # TODO:
+            # continue
+            ecards = einfo["join_key_cardinality"]
+            if len(ecards) == 0:
+                continue
 
         info = qrep["subset_graph"].nodes()[subset]
+        node_card = info["cardinality"]["actual"]
+        node_pg = info["cardinality"]["expected"]
 
         newtab = tuple(list(set(u) - set(subset)))[0]
-
         poss_edges = jg.edges(newtab)
 
         ## join_graph edges
@@ -193,8 +420,10 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg)
+
         execsqls = []
         pgsqls = []
+        curattrs = []
 
         for ei, e in enumerate(cur_edges):
             jcondition = jg.edges()[e]["join_condition"]
@@ -203,11 +432,17 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
             curattr = None
             for jcol in jcols:
                 jcol_tmp = jcol.split(".")[0]
-                jcol_tmp = ''.join([i for i in jcol_tmp if not i.isdigit()])
                 jcol_tmp = jcol_tmp.strip()
                 if ecol == jcol_tmp:
                     curattr = jcol
                     break
+
+            if curattr is None:
+                print(ecol)
+                print(jcols)
+                pdb.set_trace()
+
+            curattr = curattr.replace(" ", "")
             assert curattr is not None
             csql = subsql.replace("COUNT(*)", "COUNT(DISTINCT {})".format(curattr))
             # EXPLAIN SELECT DISTINCT mc.company_type_id from movie_companies as mc;
@@ -216,14 +451,47 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
             execsqls.append(csql)
             pgsqls.append(pgsql)
+            curattrs.append(curattr)
+            # TODO: confirm assumption
+            # break
+
+        ## DEBUG stuff:
+        real_col_vals = []
+        for curattr in curattrs:
+            orig_attr = "".join([ca for ca in curattr if not ca.isdigit()])
+            orig_attr = orig_attr.replace(" ", "")
+
+            if orig_attr not in JOIN_COL_MAP:
+                print(orig_attr + " not found in JOIN_COL_MAP")
+                pdb.set_trace()
+            else:
+                real_col_vals.append(JOIN_COL_MAP[orig_attr])
+
+        if len(set(real_col_vals)) != 1:
+            print("Num real attributes: ", len(set(real_col_vals)))
+            print(real_col_vals, curattrs)
+            pdb.set_trace()
+
+        # update ecards
+        newecards = {}
+        for ci, ce in enumerate(cur_edge_cols):
+            if ce not in ecards:
+                print(ce + " not found!")
+                continue
+            newecards[curattrs[ci]] = ecards[ce]
+
+        if len(newecards) > 0:
+            einfo["join_key_cardinality"] = newecards
+
+        continue
 
         for ei, esql in enumerate(execsqls):
             try:
                 cursor.execute(esql)
                 outputs = cursor.fetchall()
-                # print(subset, cur_edge_cols[ei], outputs)
-                ecards[cur_edge_cols[ei]] = {}
-                ecards[cur_edge_cols[ei]]["actual"] = outputs[0][0]
+                ecards[curattrs[ei]] = {}
+                actual_card = outputs[0][0]
+                ecards[curattrs[ei]]["actual"] = actual_card
 
                 esql2 = pgsqls[ei]
                 cursor.execute(esql2)
@@ -231,7 +499,10 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 card = pg_est_aggr_from_explain(output)
                 # print("Explain: ", card)
 
-                ecards[cur_edge_cols[ei]]["expected"] = card
+                ecards[curattrs[ei]]["expected"] = card
+
+                print(subset, node_card, node_pg, cur_edge_cols[ei],
+                        actual_card, card)
 
             except Exception as e:
                 print(e)
@@ -244,6 +515,8 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
         save_sql_rep(fn, qrep)
         print("saved new qrep!")
 
+    cursor.close()
+    con.close()
     return qrep
 
 def main():
@@ -266,12 +539,12 @@ def main():
             assert False
 
         if args.no_parallel:
-            get_sample_bitmaps(qrep, args.card_type, args.key_name, args.db_host,
+            get_distinct_joinkeys(qrep, args.card_type, args.key_name, args.db_host,
                     args.db_name, args.user, args.pwd, args.port,fn,
                      i, args.sample_num, args.sampling_type)
             continue
 
-        par_func = get_sample_bitmaps
+        par_func = get_distinct_joinkeys
         par_args.append((qrep, args.card_type, args.key_name, args.db_host,
                 args.db_name, args.user, args.pwd, args.port,
                 fn, i,
