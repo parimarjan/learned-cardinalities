@@ -119,9 +119,10 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if sample_num is not None:
         key_name = str(sampling_type) + str(sample_num)
 
-        con = pg.connect(user=user, host=db_host, port=port,
-                password=pwd, database=db_name)
-        cursor = con.cursor()
+    con = pg.connect(user=user, host=db_host, port=port,
+            password=pwd, database=db_name)
+    cursor = con.cursor()
+    cursor.execute("SET enable_hashjoin=false")
 
     if idx % 10 == 0:
         print("query: ", idx)
@@ -130,6 +131,7 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if SOURCE_NODE in node_list:
         node_list.remove(SOURCE_NODE)
     node_list.sort(reverse=False, key = lambda x: len(x))
+
     for subqi, subset in enumerate(node_list):
         if len(subset) > 1:
             break
@@ -138,22 +140,10 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         if "sample_bitmap" not in info:
             info["sample_bitmap"] = {}
-        # else:
-            # break
 
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg)
 
-        # if "where" not in subsql.lower():
-            # print(subsql)
-            # print("skipping because no where")
-            # continue
-
-        # if "LIKE" in subsql:
-            # print(subsql)
-
-        # TODO: find table name
-        # sample_table =
         for k,v in sg.nodes(data=True):
             table = v["real_name"]
             sample_table = table + "_" + sampling_type + str(sample_num)
@@ -170,6 +160,7 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
             cursor.execute(subsql)
             outputs = cursor.fetchall()
             bitmaps = [int(o[0]) for o in outputs]
+            print(len(bitmaps))
         except:
             print(subsql)
             print(table)
@@ -187,6 +178,9 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
         save_sql_rep(fn, qrep)
         print("saved new qrep!")
 
+    con.close()
+    cursor.close()
+
     return qrep
 
 def main():
@@ -196,7 +190,7 @@ def main():
     fns.sort()
     par_args = []
     for i, fn in enumerate(fns):
-        print(fn)
+        # print(fn)
         if i >= args.num_queries and args.num_queries != -1:
             break
 
