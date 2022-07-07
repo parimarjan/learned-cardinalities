@@ -1,5 +1,12 @@
 import sys
 sys.path.append(".")
+import collections.abc
+#hyper needs the four following aliases to be done manually.
+collections.Iterable = collections.abc.Iterable
+collections.Mapping = collections.abc.Mapping
+collections.MutableSet = collections.abc.MutableSet
+collections.MutableMapping = collections.abc.MutableMapping
+
 import argparse
 import psycopg2 as pg
 # from db_utils.utils import *
@@ -79,7 +86,7 @@ def main():
     for i, fn in enumerate(fns):
         if i >= args.num_queries and args.num_queries != -1:
             break
-        print(i)
+        # print(i)
         if "pkl" not in fn:
             qreps.append(None)
             continue
@@ -94,62 +101,66 @@ def main():
         if SOURCE2 in qrep["subset_graph"].nodes():
             qrep["subset_graph"].remove_node(SOURCE2)
 
-        for node in qrep["subset_graph"].nodes():
-            keys = list(qrep["subset_graph"].nodes()[node].keys())
-            for k in keys:
-                if k not in ["cardinality", "sample_bitmap"]:
-                    del qrep["subset_graph"].nodes()[node][k]
+        # for node in qrep["subset_graph"].nodes():
+            # keys = list(qrep["subset_graph"].nodes()[node].keys())
+            # for k in keys:
+                # if k not in ["cardinality", "sample_bitmap"]:
+                    # del qrep["subset_graph"].nodes()[node][k]
 
         qreps.append(qrep)
         for subset, info in qrep["subset_graph"].nodes().items():
             if "cardinality" not in info:
                 info["cardinality"] = {}
+            # if len(info) > 1:
+                # print(info.keys())
             cards = info["cardinality"]
+            del cards["actual"]
+            del cards["expected"]
+            del cards["total"]
 
             # handle actuals
-            if not "actual" in cards:
-                # pdb.set_trace()
-                noactuals += 1
-                qreps[-1] = None
-                os.remove(fn)
-                break
-            else:
-                actual_card = cards["actual"]
-                # total_card = cards["total"]
+            # if not "actual" in cards:
+                # # pdb.set_trace()
+                # noactuals += 1
+                # qreps[-1] = None
+                # os.remove(fn)
+                # break
+            # else:
+                # actual_card = cards["actual"]
+                # # total_card = cards["total"]
 
-                if actual_card == OLD_CROSS_JOIN_CONSTANT:
-                    actual_card = CROSS_JOIN_CONSTANT
-                elif actual_card == OLD_TIMEOUT_COUNT_CONSTANT:
-                    actual_card = TIMEOUT_COUNT_CONSTANT
-                elif actual_card == OLD_EXCEPTION_COUNT_CONSTANT:
-                    actual_card = EXCEPTION_COUNT_CONSTANT
+                # if actual_card == OLD_CROSS_JOIN_CONSTANT:
+                    # actual_card = CROSS_JOIN_CONSTANT
+                # elif actual_card == OLD_TIMEOUT_COUNT_CONSTANT:
+                    # actual_card = TIMEOUT_COUNT_CONSTANT
+                # elif actual_card == OLD_EXCEPTION_COUNT_CONSTANT:
+                    # actual_card = EXCEPTION_COUNT_CONSTANT
 
-                if actual_card != cards["actual"]:
-                    print("updating actual card!")
-                    cards["actual"] = actual_card
+                # if actual_card != cards["actual"]:
+                    # print("updating actual card!")
+                    # cards["actual"] = actual_card
 
-                # if total_card < actual_card:
-                    # cards["total"] = actual_card
+                # # if total_card < actual_card:
+                    # # cards["total"] = actual_card
 
-                # total += 1
-                card = cards["actual"]
-                if card > TIMEOUT_COUNT_CONSTANT + 1:
-                    print(card / float(TIMEOUT_COUNT_CONSTANT))
-                    assert card / float(TIMEOUT_COUNT_CONSTANT) <= 100
-                    # print(card)
-                    over_timeout += 1
+                # # total += 1
+                # card = cards["actual"]
+                # if card > TIMEOUT_COUNT_CONSTANT + 1:
+                    # print(card / float(TIMEOUT_COUNT_CONSTANT))
+                    # assert card / float(TIMEOUT_COUNT_CONSTANT) <= 100
+                    # # print(card)
+                    # over_timeout += 1
 
-                if card == TIMEOUT_COUNT_CONSTANT:
-                    timeouts += 1
+                # if card == TIMEOUT_COUNT_CONSTANT:
+                    # timeouts += 1
 
-                elif card == CROSS_JOIN_CONSTANT:
-                    cjs += 1
+                # elif card == CROSS_JOIN_CONSTANT:
+                    # cjs += 1
 
-    print("over timeout: ", over_timeout)
-    print("timeout: ", timeouts + cjs)
-    print("noactuals: ", noactuals)
+    # print("over timeout: ", over_timeout)
+    # print("timeout: ", timeouts + cjs)
+    # print("noactuals: ", noactuals)
 
-    # let us save them all
     for i, _ in enumerate(qreps):
         qrep = qreps[i]
         if qrep is None:

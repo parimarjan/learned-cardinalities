@@ -1,8 +1,16 @@
 import sys
 sys.path.append(".")
+
+import collections.abc
+#hyper needs the four following aliases to be done manually.
+collections.Iterable = collections.abc.Iterable
+collections.Mapping = collections.abc.Mapping
+collections.MutableSet = collections.abc.MutableSet
+collections.MutableMapping = collections.abc.MutableMapping
+
 import argparse
 import psycopg2 as pg
-# from db_utils.utils import *
+#from db_utils.utils import *
 from utils.utils import *
 from db_utils.query_storage import *
 from utils.utils import *
@@ -12,7 +20,7 @@ import klepto
 from multiprocessing import Pool, cpu_count
 import json
 import pickle
-from sql_rep.utils import execute_query
+# from sql_rep.utils import execute_query
 from networkx.readwrite import json_graph
 import pickle
 # from progressbar import progressbar as bar
@@ -93,6 +101,8 @@ def main():
         allzero = True
 
         for node in qrep["subset_graph"].nodes():
+            if len(node) > 1:
+                continue
             bitmaps[node] = {}
             data = qrep["subset_graph"].nodes()[node]
             # if len(node) == 1:
@@ -101,23 +111,28 @@ def main():
             if args.bitmap_type not in data:
                 if len(node) == 1:
                     print("not in data")
+                print("bitmap type not in data")
+                # print(data.keys())
+                # pdb.set_trace()
                 continue
 
             if len(data[args.bitmap_type]) == 0:
-                # print(data[args.bitmap_type])
                 print("len 0")
                 continue
+
+            # print(len(data[args.bitmap_type]))
 
             for sk,bvals in data[args.bitmap_type].items():
                 if len(bvals) != 0:
                     allzero = False
                 bitmaps[node][sk] = set(bvals)
-                # print(node, sk, len(bvals))
+                print(node, sk, len(bvals))
 
         if allzero:
-            # print("allzero! ", i)
+            print("allzero! ", i)
+            print(fn)
             # print(qrep["name"])
-            continue
+            # continue
             # pdb.set_trace()
 
         fn = os.path.basename(fn)

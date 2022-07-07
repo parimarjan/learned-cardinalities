@@ -1,5 +1,13 @@
 import sys
 sys.path.append(".")
+
+import collections.abc
+#hyper needs the four following aliases to be done manually.
+collections.Iterable = collections.abc.Iterable
+collections.Mapping = collections.abc.Mapping
+collections.MutableSet = collections.abc.MutableSet
+collections.MutableMapping = collections.abc.MutableMapping
+
 import argparse
 import psycopg2 as pg
 # from db_utils.utils import *
@@ -49,60 +57,123 @@ SMALL_FIDS = ["kind_id", "role_id", "person_role_id", "info_type_id",
                 "keyword_id", "linked_movie_id", "link_type_id",
                 "status_id", "subject_id"]
 
-JOIN_COL_MAP = {}
-JOIN_COL_MAP["title.id"] = "movie_id"
-JOIN_COL_MAP["movie_info.movie_id"] = "movie_id"
-JOIN_COL_MAP["cast_info.movie_id"] = "movie_id"
-JOIN_COL_MAP["movie_keyword.movie_id"] = "movie_id"
-JOIN_COL_MAP["movie_companies.movie_id"] = "movie_id"
-JOIN_COL_MAP["movie_link.movie_id"] = "movie_id"
-JOIN_COL_MAP["movie_info_idx.movie_id"] = "movie_id"
-JOIN_COL_MAP["movie_link.linked_movie_id"] = "movie_id"
+JOIN_COL_MAP_IMDB = {}
+JOIN_COL_MAP_IMDB["title.id"] = "movie_id"
+JOIN_COL_MAP_IMDB["movie_info.movie_id"] = "movie_id"
+JOIN_COL_MAP_IMDB["cast_info.movie_id"] = "movie_id"
+JOIN_COL_MAP_IMDB["movie_keyword.movie_id"] = "movie_id"
+JOIN_COL_MAP_IMDB["movie_companies.movie_id"] = "movie_id"
+JOIN_COL_MAP_IMDB["movie_link.movie_id"] = "movie_id"
+JOIN_COL_MAP_IMDB["movie_info_idx.movie_id"] = "movie_id"
+JOIN_COL_MAP_IMDB["movie_link.linked_movie_id"] = "movie_id"
 ## TODO: handle it so same columns map to same table+col
-# JOIN_COL_MAP["miidx.movie_id"] = "movie_id"
-JOIN_COL_MAP["aka_title.movie_id"] = "movie_id"
-JOIN_COL_MAP["complete_cast.movie_id"] = "movie_id"
+# JOIN_COL_MAP_IMDB["miidx.movie_id"] = "movie_id"
+JOIN_COL_MAP_IMDB["aka_title.movie_id"] = "movie_id"
+JOIN_COL_MAP_IMDB["complete_cast.movie_id"] = "movie_id"
 
-JOIN_COL_MAP["movie_keyword.keyword_id"] = "keyword"
-JOIN_COL_MAP["keyword.id"] = "keyword"
+JOIN_COL_MAP_IMDB["movie_keyword.keyword_id"] = "keyword"
+JOIN_COL_MAP_IMDB["keyword.id"] = "keyword"
 
-JOIN_COL_MAP["name.id"] = "person_id"
-JOIN_COL_MAP["person_info.person_id"] = "person_id"
-JOIN_COL_MAP["cast_info.person_id"] = "person_id"
-JOIN_COL_MAP["aka_name.person_id"] = "person_id"
+JOIN_COL_MAP_IMDB["name.id"] = "person_id"
+JOIN_COL_MAP_IMDB["person_info.person_id"] = "person_id"
+JOIN_COL_MAP_IMDB["cast_info.person_id"] = "person_id"
+JOIN_COL_MAP_IMDB["aka_name.person_id"] = "person_id"
 # TODO: handle cases
-# JOIN_COL_MAP["a.person_id"] = "person_id"
+# JOIN_COL_MAP_IMDB["a.person_id"] = "person_id"
 
-JOIN_COL_MAP["title.kind_id"] = "kind_id"
-JOIN_COL_MAP["kind_type.id"] = "kind_id"
+JOIN_COL_MAP_IMDB["title.kind_id"] = "kind_id"
+JOIN_COL_MAP_IMDB["kind_type.id"] = "kind_id"
 
-JOIN_COL_MAP["cast_info.role_id"] = "role_id"
-JOIN_COL_MAP["role_type.id"] = "role_id"
+JOIN_COL_MAP_IMDB["cast_info.role_id"] = "role_id"
+JOIN_COL_MAP_IMDB["role_type.id"] = "role_id"
 
-JOIN_COL_MAP["cast_info.person_role_id"] = "char_id"
-JOIN_COL_MAP["char_name.id"] = "char_id"
+JOIN_COL_MAP_IMDB["cast_info.person_role_id"] = "char_id"
+JOIN_COL_MAP_IMDB["char_name.id"] = "char_id"
 
-JOIN_COL_MAP["movie_info.info_type_id"] = "info_id"
-JOIN_COL_MAP["movie_info_idx.info_type_id"] = "info_id"
-# JOIN_COL_MAP["mi_idx.info_type_id"] = "info_id"
-# JOIN_COL_MAP["miidx.info_type_id"] = "info_id"
+JOIN_COL_MAP_IMDB["movie_info.info_type_id"] = "info_id"
+JOIN_COL_MAP_IMDB["movie_info_idx.info_type_id"] = "info_id"
+# JOIN_COL_MAP_IMDB["mi_idx.info_type_id"] = "info_id"
+# JOIN_COL_MAP_IMDB["miidx.info_type_id"] = "info_id"
 
-JOIN_COL_MAP["person_info.info_type_id"] = "info_id"
-JOIN_COL_MAP["info_type.id"] = "info_id"
+JOIN_COL_MAP_IMDB["person_info.info_type_id"] = "info_id"
+JOIN_COL_MAP_IMDB["info_type.id"] = "info_id"
 
-JOIN_COL_MAP["movie_companies.company_type_id"] = "company_type"
-JOIN_COL_MAP["company_type.id"] = "company_type"
+JOIN_COL_MAP_IMDB["movie_companies.company_type_id"] = "company_type"
+JOIN_COL_MAP_IMDB["company_type.id"] = "company_type"
 
-JOIN_COL_MAP["movie_companies.company_id"] = "company_id"
-JOIN_COL_MAP["company_name.id"] = "company_id"
+JOIN_COL_MAP_IMDB["movie_companies.company_id"] = "company_id"
+JOIN_COL_MAP_IMDB["company_name.id"] = "company_id"
 
-JOIN_COL_MAP["movie_link.link_type_id"] = "link_id"
-JOIN_COL_MAP["link_type.id"] = "link_id"
+JOIN_COL_MAP_IMDB["movie_link.link_type_id"] = "link_id"
+JOIN_COL_MAP_IMDB["link_type.id"] = "link_id"
 
-JOIN_COL_MAP["complete_cast.status_id"] = "subject"
-JOIN_COL_MAP["complete_cast.subject_id"] = "subject"
-JOIN_COL_MAP["comp_cast_type.id"] = "subject"
+JOIN_COL_MAP_IMDB["complete_cast.status_id"] = "subject"
+JOIN_COL_MAP_IMDB["complete_cast.subject_id"] = "subject"
+JOIN_COL_MAP_IMDB["comp_cast_type.id"] = "subject"
 
+
+JOIN_COL_MAP_STATS = {}
+# JOIN_COL_MAP_STATS["badges.id"] = "badge_id"
+# JOIN_COL_MAP_STATS["badges.userid"] = "user_id"
+
+# JOIN_COL_MAP_STATS["comments.userid"] = "user_id"
+# JOIN_COL_MAP_STATS["comments.postid"] = "post_id"
+# JOIN_COL_MAP_STATS["comments.id"] = "comment_id"
+
+# JOIN_COL_MAP_STATS["posthistory.id"] = "history_id"
+# JOIN_COL_MAP_STATS["posthistory.postid"] = "post_id"
+# JOIN_COL_MAP_STATS["posthistory.userid"] = "user_id"
+
+# JOIN_COL_MAP_STATS["postlinks.id"] = "link_id"
+# JOIN_COL_MAP_STATS["postlinks.postid"] = "post_id"
+# JOIN_COL_MAP_STATS["postlinks.relatedpostid"] = "post_id"
+# JOIN_COL_MAP_STATS["postlinks.linktypeid"] = "link_type_id"
+
+# JOIN_COL_MAP_STATS["posts.id"] = "post_id"
+# JOIN_COL_MAP_STATS["posts.posttypeid"] = "post_type_id"
+# JOIN_COL_MAP_STATS["posts.owneruserid"] = "user_id"
+# JOIN_COL_MAP_STATS["posts.lasteditoruserid"] = "user_id"
+
+# JOIN_COL_MAP_STATS["tags.id"] = "tag_id"
+# # JOIN_COL_MAP_STATS["tags.excerptpostid"] = "post_id"
+
+# JOIN_COL_MAP_STATS["users.id"] = "user_id"
+
+# JOIN_COL_MAP_STATS["votes.id"] = "vote_id"
+# JOIN_COL_MAP_STATS["votes.postid"] = "post_id"
+# JOIN_COL_MAP_STATS["votes.userid"] = "user_id"
+
+JOIN_COL_MAP_STATS["badges.Id"] = "badge_id"
+JOIN_COL_MAP_STATS["badges.UserId"] = "user_id"
+
+JOIN_COL_MAP_STATS["comments.UserId"] = "user_id"
+JOIN_COL_MAP_STATS["comments.PostId"] = "post_id"
+
+JOIN_COL_MAP_STATS["comments.id"] = "comment_id"
+JOIN_COL_MAP_STATS["postHistory.Id"] = "history_id"
+JOIN_COL_MAP_STATS["postHistory.PostId"] = "post_id"
+JOIN_COL_MAP_STATS["postHistory.UserId"] = "user_id"
+
+JOIN_COL_MAP_STATS["postLinks.Id"] = "link_id"
+JOIN_COL_MAP_STATS["postLinks.PostId"] = "post_id"
+JOIN_COL_MAP_STATS["postLinks.RelatedPostId"] = "post_id"
+#JOIN_COL_MAP_STATS["postLinks.LinkTypeId"] = "link_type_id"
+
+JOIN_COL_MAP_STATS["posts.Id"] = "post_id"
+JOIN_COL_MAP_STATS["posts.PostTypeId"] = "post_type_id"
+JOIN_COL_MAP_STATS["posts.OwnerUserId"] = "user_id"
+JOIN_COL_MAP_STATS["posts.LastEditorUserId"] = "user_id"
+
+
+JOIN_COL_MAP_STATS["tags.Id"] = "tag_id"
+JOIN_COL_MAP_STATS["tags.ExcerptPostId"] = "post_id"
+JOIN_COL_MAP_STATS["users.Id"] = "user_id"
+JOIN_COL_MAP_STATS["votes.Id"] = "vote_id"
+JOIN_COL_MAP_STATS["votes.PostId"] = "post_id"
+JOIN_COL_MAP_STATS["votes.UserId"] = "user_id"
+
+# JOIN_COL_MAP = JOIN_COL_MAP_STATS
+JOIN_COL_MAP = JOIN_COL_MAP_IMDB
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -162,6 +233,9 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
     updates qrep's fields with the needed cardinality estimates, and returns
     the qrep.
     '''
+    if "imdb_id" in qrep["sql"]:
+        return
+
     if key_name is None:
         key_name = card_type
 
@@ -210,8 +284,11 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         jinfo = jg.nodes()[subset[0]]
         for join_key, join_real in JOIN_COL_MAP.items():
-            if ".id" in join_key:
+            if ".id" in join_key.lower():
                 continue
+            if "posttypeid" in join_key.lower():
+                continue
+
             join_key_col = join_key[join_key.find(".")+1:]
             join_tab = join_key[:join_key.find(".")]
 
@@ -224,7 +301,8 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
                 newid = join_key[join_key.find(".")+1:]
                 newtab = NEW_JOIN_TABLE_TEMPLATE.format(TABLE=table,
-                                               JOINKEY = join_key_col,
+                                               # JOINKEY = join_key_col,
+                                               JOINKEY = join_real,
                                                SS = "sb",
                                                NUM = "1000")
                 exectab = newtab
@@ -247,9 +325,8 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
             exec_tab = exec_tables[si]
             # adding extra space because table name may appear in predicates,
             # e.g., t.title
-            execsql = subsql.replace(" " + table + " ", " " + exec_tab + " ")
-            execsql = execsql.replace("COUNT(*)", sample_ids[si])
-            # print(execsql)
+            execsql = subsql.replace(" " + table + " ", " \"" + exec_tab + "\" ")
+            execsql = execsql.replace("COUNT(*)", "\"" + sample_ids[si] + "\"")
 
             try:
                 cursor.execute(execsql)
@@ -258,12 +335,19 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 print(len(bitmaps))
 
             except Exception as e:
-                print(e)
                 print("Exception!")
                 print(execsql)
                 print(table)
                 print(subset)
+                print(e)
                 pdb.set_trace()
+                cursor.close()
+                con.close()
+                con = pg.connect(user=user, host=db_host, port=port,
+                        password=pwd, database=db_name)
+                cursor = con.cursor()
+
+                continue
 
             info["join_bitmap"][sample_tab] = bitmaps
 

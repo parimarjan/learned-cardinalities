@@ -751,7 +751,9 @@ def extract_predicates(query):
     except:
         print(query)
         print("moz sql parser failed to parse this!")
-        pdb.set_trace()
+        return None
+        # pdb.set_trace()
+
     pred_vals = get_all_wheres(parsed_query)
 
     for i, pred in enumerate(pred_vals):

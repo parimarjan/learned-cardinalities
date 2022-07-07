@@ -1,5 +1,13 @@
 import sys
 sys.path.append(".")
+
+import collections.abc
+#hyper needs the four following aliases to be done manually.
+collections.Iterable = collections.abc.Iterable
+collections.Mapping = collections.abc.Mapping
+collections.MutableSet = collections.abc.MutableSet
+collections.MutableMapping = collections.abc.MutableMapping
+
 import argparse
 import psycopg2 as pg
 # from db_utils.utils import *
@@ -113,6 +121,9 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
     updates qrep's fields with the needed cardinality estimates, and returns
     the qrep.
     '''
+    if "imdb_id" in qrep["sql"]:
+        return
+
     if key_name is None:
         key_name = card_type
 
@@ -148,23 +159,28 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
             table = v["real_name"]
             sample_table = table + "_" + sampling_type + str(sample_num)
 
-        if table not in SAMPLE_TABLES:
-            print(subsql)
-            print("continuing coz no sample table")
-            continue
+        # if table not in SAMPLE_TABLES:
+            # print(subsql)
+            # print("continuing coz no sample table")
+            # continue
 
-        subsql = subsql.replace("COUNT(*)", "id")
-        subsql = subsql.replace(table, sample_table, 1)
+        # subsql = subsql.replace("COUNT(*)", "id")
+        # subsql = subsql.replace(table, sample_table, 1)
+
+        # subsql = subsql.replace("COUNT(*)", "\"Id\"")
+        subsql = subsql.replace("COUNT(*)", "\"id\"")
+        subsql = subsql.replace(table, "\"" + sample_table + "\"" , 1)
 
         try:
             cursor.execute(subsql)
             outputs = cursor.fetchall()
             bitmaps = [int(o[0]) for o in outputs]
             print(len(bitmaps))
-        except:
+        except Exception as e:
             print(subsql)
             print(table)
             print(subset)
+            print(e)
             pdb.set_trace()
 
         # if "where" not in subsql.lower():

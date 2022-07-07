@@ -75,12 +75,22 @@ def update_qrep(qrep, total_sample=None):
             join_graph.nodes[node]["pred_types"] = []
             join_graph.nodes[node]["pred_vals"] = []
             continue
+
         subg = qrep["join_graph"].subgraph(node)
         node_sql = nx_graph_to_query(subg)
-        pred_cols, pred_types, pred_vals = extract_predicates(node_sql)
-        qrep["join_graph"].nodes[node]["pred_cols"] = pred_cols
-        qrep["join_graph"].nodes[node]["pred_types"] = pred_types
-        qrep["join_graph"].nodes[node]["pred_vals"] = pred_vals
+        try:
+            pred_cols, pred_types, pred_vals = extract_predicates(node_sql)
+            qrep["join_graph"].nodes[node]["pred_cols"] = pred_cols
+            qrep["join_graph"].nodes[node]["pred_types"] = pred_types
+            qrep["join_graph"].nodes[node]["pred_vals"] = pred_vals
+        except Exception as e:
+            print(e)
+            qrep["join_graph"].nodes[node]["pred_cols"] = []
+            qrep["join_graph"].nodes[node]["pred_types"] = []
+            qrep["join_graph"].nodes[node]["pred_vals"] = []
+            return False
+
+    return True
 
 def gen_queries(query_template, num_samples, args):
     '''

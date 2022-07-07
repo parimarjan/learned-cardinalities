@@ -1,5 +1,13 @@
 import sys
 sys.path.append(".")
+
+import collections.abc
+#hyper needs the four following aliases to be done manually.
+collections.Iterable = collections.abc.Iterable
+collections.Mapping = collections.abc.Mapping
+collections.MutableSet = collections.abc.MutableSet
+collections.MutableMapping = collections.abc.MutableMapping
+
 import argparse
 import psycopg2 as pg
 # from db_utils.utils import *
@@ -20,6 +28,7 @@ from wanderjoin import WanderJoin
 import math
 # from progressbar import progressbar as bar
 import scipy.stats as st
+import random
 
 OLD_TIMEOUT_COUNT_CONSTANT = 150001001
 OLD_CROSS_JOIN_CONSTANT = 150001000
@@ -28,13 +37,15 @@ OLD_EXCEPTION_COUNT_CONSTANT = 150001002
 TIMEOUT_COUNT_CONSTANT = 150001000001
 CROSS_JOIN_CONSTANT = 150001000000
 EXCEPTION_COUNT_CONSTANT = 150001000002
-RERUN_TIMEOUTS = 1
+RERUN_TIMEOUTS = 0
 
 CACHE_TIMEOUT = 4
-CACHE_CARD_TYPES = ["actual"]
+# CACHE_CARD_TYPES = ["actual"]
+CACHE_CARD_TYPES = []
 
 DEBUG_CHECK_TIMES = True
 CONF_ALPHA = 0.99
+TABLE_PG12=True
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -50,7 +61,7 @@ def read_flags():
     parser.add_argument("--card_cache_dir", type=str, required=False,
             default="./cardinality_cache")
     parser.add_argument("--port", type=str, required=False,
-            default=5431)
+            default=5432)
     parser.add_argument("--wj_walk_timeout", type=float, required=False,
             default=0.5)
     parser.add_argument("--query_dir", type=str, required=False,
@@ -68,7 +79,7 @@ def read_flags():
     parser.add_argument("--key_name", type=str, required=False,
             default=None)
     parser.add_argument("--true_timeout", type=int,
-            required=False, default=1800000*5)
+            required=False, default=180000*4)
     parser.add_argument("--pg_total", type=int,
             required=False, default=1)
     parser.add_argument("--num_proc", type=int,
@@ -167,6 +178,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     updates qrep's fields with the needed cardinality estimates, and returns
     the qrep.
     '''
+    if "imdb_id" in qrep["sql"]:
+        return
+
     if key_name is None:
         key_name = card_type
 
@@ -177,7 +191,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             password=pwd, database=db_name)
     cursor = con.cursor()
 
-    cursor.execute("SET enable_hashjoin = off")
+    # cursor.execute("SET enable_hashjoin = off")
+    cursor.execute("SET max_parallel_workers = 0")
+    cursor.execute("SET max_parallel_workers_per_gather = 0")
 
     if idx % 10 == 0:
         print("query: ", idx)
@@ -189,6 +205,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
     found_in_cache = 0
     existing = 0
+    zeros = 0
     num_timeout = 0
     site_cj = 0
     query_exec_times = []
@@ -199,7 +216,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         source_node = tuple(["SOURCE"])
         if source_node in node_list:
             node_list.remove(source_node)
-    elif args.db_name == "imdb":
+    elif "imdb" in args.db_name:
         source_node = tuple(["s"])
         if source_node in node_list:
             node_list.remove(source_node)
@@ -218,7 +235,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         cards = info["cardinality"]
         execs = info["exec_time"]
         sg = qrep["join_graph"].subgraph(subset)
-        subsql = nx_graph_to_query(sg)
+        subsql = nx_graph_to_query(sg, table_pg12=TABLE_PG12)
 
         if sampling_percentage is not None:
             table_names = []
@@ -237,6 +254,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 and not DEBUG_CHECK_TIMES:
             if key_name == "actual":
                 if cards[key_name] == 0 and skip_zero_queries:
+                    zeros += 1
                     # don't want to get cardinalities for zero queries
                     break
 
@@ -263,12 +281,36 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         if card_type == "pg":
             subsql = "EXPLAIN " + subsql
-            output = execute_query(subsql, user, db_host, port, pwd, db_name, [])
-            card = pg_est_from_explain(output)
-            cards[key_name] = card
-            # if "s" in subset:
-                # # print(subset, card)
-                # save_sql_rep(fn, qrep)
+            # output = execute_query(subsql, user, db_host, port, pwd, db_name, [])
+            # card = pg_est_from_explain(output)
+            # cards[key_name] = card
+
+            try:
+                cursor.execute(subsql)
+                output = cursor.fetchall()
+                # card = output[0][0]
+                card = pg_est_from_explain(output)
+                cards[key_name] = card
+
+            except Exception as e:
+                cursor.close()
+                con.close()
+                con = pg.connect(user=user, host=db_host, port=port,
+                        password=pwd, database=db_name)
+                cursor = con.cursor()
+                print(e)
+                if "timeout" in str(e):
+                    print("timeout query: ")
+                    print(subsql)
+                    card = TIMEOUT_COUNT_CONSTANT
+                    num_timeout += 1
+                    continue
+                else:
+                    print(subsql)
+                    card = EXCEPTION_COUNT_CONSTANT
+                    num_timeout += 1
+                    continue
+                continue
 
         elif card_type == "actual":
             if subqi % 10 == 0:
@@ -284,40 +326,53 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 cards[key_name] = card
                 continue
 
-            if hash_sql in sql_cache.archive \
-                    and not DEBUG_CHECK_TIMES:
-                card = sql_cache.archive[hash_sql]
-                found_in_cache += 1
-                cards[key_name] = card
-                continue
+            # if hash_sql in sql_cache.archive \
+                    # and not DEBUG_CHECK_TIMES:
+                # card = sql_cache.archive[hash_sql]
+                # found_in_cache += 1
+                # cards[key_name] = card
+                # continue
 
             start = time.time()
-            pre_execs = ["SET statement_timeout = {}".format(true_timeout)]
-            output = execute_query(subsql, user, db_host, port, pwd, db_name,
-                            pre_execs)
-            if isinstance(output, Exception):
-                print(output)
-                card = EXCEPTION_COUNT_CONSTANT
-                num_timeout += 1
-                # continue
-                # pdb.set_trace()
-            elif output == "timeout":
-                print("timeout query: ")
-                print(subsql)
-                card = TIMEOUT_COUNT_CONSTANT
-                num_timeout += 1
-            else:
+            timeoutq = "SET statement_timeout = {}".format(true_timeout)
+            # output = execute_query(subsql, user, db_host, port, pwd, db_name,
+                            # pre_execs)
+
+            try:
+                cursor.execute(timeoutq)
+                cursor.execute(subsql)
+                output = cursor.fetchall()
                 card = output[0][0]
+            except Exception as e:
+                cursor.close()
+                con.close()
+                con = pg.connect(user=user, host=db_host, port=port,
+                        password=pwd, database=db_name)
+                cursor = con.cursor()
+                print(e)
+                if "timeout" in str(e):
+                    print("timeout query: ")
+                    print(subsql)
+                    card = TIMEOUT_COUNT_CONSTANT
+                    num_timeout += 1
+                    # continue
+                else:
+                    print(subsql)
+                    card = EXCEPTION_COUNT_CONSTANT
+                    num_timeout += 1
+                    # continue
+                # continue
 
             exec_time = time.time() - start
-            if exec_time > CACHE_TIMEOUT:
-                print(exec_time)
-                sql_cache.archive[hash_sql] = card
+            # if exec_time > CACHE_TIMEOUT:
+                # print(exec_time)
+                # sql_cache.archive[hash_sql] = card
             cards[key_name] = card
             execs[key_name] = exec_time
             query_exec_times.append(exec_time)
             if card == 0 and skip_zero_queries:
                 # bad times...
+                zeros += 1
                 print("skipping query with zero cardinality subquery")
                 break
 
@@ -341,15 +396,18 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
             if args.pg_total:
                 exec_sql = "EXPLAIN " + exec_sql
 
-            output = execute_query(exec_sql, user, db_host, port, pwd, db_name, [])
+            # output = execute_query(exec_sql, user, db_host, port, pwd, db_name, [])
+            cursor.execute(exec_sql)
+            output = cursor.fetchall()
+
             card = pg_est_from_explain(output)
             cards[key_name] = card
         else:
             assert False
 
     if card_type == "actual":
-        print("total: {}, timeout: {}, existing: {}, found in cache: {}".format(\
-                len(qrep["subset_graph"].nodes()), num_timeout, existing, found_in_cache))
+        print("total: {}, skip_zeros: {}, timeout: {}, existing: {}, found in cache: {}".format(\
+                len(qrep["subset_graph"].nodes()), zeros, num_timeout, existing, found_in_cache))
         # print("site cj: ", site_cj)
         if len(query_exec_times) != 0:
             print("avg exec time: ", sum(query_exec_times) / len(query_exec_times))
@@ -357,7 +415,7 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if fn is not None:
         update_qrep(qrep)
         save_sql_rep(fn, qrep)
-        print("updated sql rep!")
+        print("updated sql rep: " + fn)
 
     cursor.close()
     con.close()
@@ -366,7 +424,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
 def main():
     fns = list(glob.glob(args.query_dir + "/*"))
-    fns.sort()
+    # fns.sort()
+    random.shuffle(fns)
+
     par_args = []
     for i, fn in enumerate(fns):
         if i >= args.num_queries and args.num_queries != -1:
@@ -379,8 +439,16 @@ def main():
         else:
             with open(fn, "r") as f:
                 sql = f.read()
-            qrep = parse_sql(sql, None, None, None, None, None,
-                    compute_ground_truth=False)
+            if sql.replace(" ", "") == "":
+                continue
+
+            try:
+                qrep = parse_sql(sql, None, None, None, None, None,
+                        compute_ground_truth=False)
+            except Exception as e:
+                print(e)
+                continue
+
             qrep["subset_graph"] = \
                     nx.OrderedDiGraph(json_graph.adjacency_graph(qrep["subset_graph"]))
             qrep["join_graph"] = json_graph.adjacency_graph(qrep["join_graph"])
@@ -403,11 +471,15 @@ def main():
                 print("done!")
                 pdb.set_trace()
             else:
-                get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
-                        args.db_name, args.user, args.pwd, args.port,
-                        args.true_timeout, args.pg_total, args.card_cache_dir, fn,
-                        args.wj_walk_timeout, i, args.sampling_percentage,
-                        args.sampling_type, args.skip_zero_queries)
+                try:
+                    get_cardinality(qrep, args.card_type, args.key_name, args.db_host,
+                            args.db_name, args.user, args.pwd, args.port,
+                            args.true_timeout, args.pg_total, args.card_cache_dir, fn,
+                            args.wj_walk_timeout, i, args.sampling_percentage,
+                            args.sampling_type, args.skip_zero_queries)
+                except Exception as e:
+                    print(e)
+                    continue
 
             continue
 
