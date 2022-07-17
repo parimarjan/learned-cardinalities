@@ -52,9 +52,9 @@ def read_flags():
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
-            default="ceb")
+            default="postgres")
     parser.add_argument("--pwd", type=str, required=False,
-            default="password")
+            default="postgres")
     parser.add_argument("--card_cache_dir", type=str, required=False,
             default="./cardinality_cache")
     parser.add_argument("--port", type=str, required=False,
@@ -130,6 +130,7 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if sample_num is not None:
         key_name = str(sampling_type) + str(sample_num)
 
+    print(user, pwd)
     con = pg.connect(user=user, host=db_host, port=port,
             password=pwd, database=db_name)
     cursor = con.cursor()
@@ -154,6 +155,11 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg)
+
+        if "postHistory" in subsql:
+            subsql = subsql.replace("postHistory", "posthistory")
+        if "postLinks" in subsql:
+            subsql = subsql.replace("postLinks", "postlinks")
 
         for k,v in sg.nodes(data=True):
             table = v["real_name"]

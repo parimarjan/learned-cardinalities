@@ -43,7 +43,7 @@ CACHE_TIMEOUT = 4
 # CACHE_CARD_TYPES = ["actual"]
 CACHE_CARD_TYPES = []
 
-DEBUG_CHECK_TIMES = True
+DEBUG_CHECK_TIMES = False
 CONF_ALPHA = 0.99
 TABLE_PG12=True
 
@@ -236,6 +236,11 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         execs = info["exec_time"]
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg, table_pg12=TABLE_PG12)
+
+        if "postHistory" in subsql:
+            subsql = subsql.replace("postHistory", "posthistory")
+        if "postLinks" in subsql:
+            subsql = subsql.replace("postLinks", "postlinks")
 
         if sampling_percentage is not None:
             table_names = []

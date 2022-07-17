@@ -64,17 +64,18 @@ def main():
     # tables = ["complete_cast"]
     # tables = ["aka_title"]
 
-    tables = ["title", "name", "aka_name", "keyword", "movie_info",
-            "movie_companies", "company_type", "kind_type", "info_type",
-            "role_type", "company_name", "cast_info", "char_name",
-            "link_type", "movie_info_idx", "comp_cast_type",
-            "person_info",
-            "movie_link", "movie_keyword",
-            "aka_title", "complete_cast"
-            ]
+    # tables = ["title", "name", "aka_name", "keyword", "movie_info",
+            # "movie_companies", "company_type", "kind_type", "info_type",
+            # "role_type", "company_name", "cast_info", "char_name",
+            # "link_type", "movie_info_idx", "comp_cast_type",
+            # "person_info",
+            # "movie_link", "movie_keyword",
+            # "aka_title", "complete_cast"
+            # ]
 
-    # tables = ["badges", "comments", "posthistory", "postlinks", "posts",
-            # "tags", "users","votes"]
+    ## 5440 stats db
+    tables = ["badges", "comments", "posthistory", "postlinks", "posts",
+            "tags", "users","votes"]
 
     # tables = ["badges", "comments", "postHistory", "postLinks", "posts",
             # "tags", "users","votes"]

@@ -111,69 +111,69 @@ JOIN_COL_MAP_IMDB["complete_cast.status_id"] = "subject"
 JOIN_COL_MAP_IMDB["complete_cast.subject_id"] = "subject"
 JOIN_COL_MAP_IMDB["comp_cast_type.id"] = "subject"
 
-
+#### port:5440 stuff;
 JOIN_COL_MAP_STATS = {}
-# JOIN_COL_MAP_STATS["badges.id"] = "badge_id"
-# JOIN_COL_MAP_STATS["badges.userid"] = "user_id"
+JOIN_COL_MAP_STATS["badges.id"] = "badge_id"
+JOIN_COL_MAP_STATS["badges.userid"] = "user_id"
 
-# JOIN_COL_MAP_STATS["comments.userid"] = "user_id"
-# JOIN_COL_MAP_STATS["comments.postid"] = "post_id"
-# JOIN_COL_MAP_STATS["comments.id"] = "comment_id"
+JOIN_COL_MAP_STATS["comments.userid"] = "user_id"
+JOIN_COL_MAP_STATS["comments.postid"] = "post_id"
+JOIN_COL_MAP_STATS["comments.id"] = "comment_id"
 
-# JOIN_COL_MAP_STATS["posthistory.id"] = "history_id"
-# JOIN_COL_MAP_STATS["posthistory.postid"] = "post_id"
-# JOIN_COL_MAP_STATS["posthistory.userid"] = "user_id"
+JOIN_COL_MAP_STATS["posthistory.id"] = "history_id"
+JOIN_COL_MAP_STATS["posthistory.postid"] = "post_id"
+JOIN_COL_MAP_STATS["posthistory.userid"] = "user_id"
 
-# JOIN_COL_MAP_STATS["postlinks.id"] = "link_id"
-# JOIN_COL_MAP_STATS["postlinks.postid"] = "post_id"
-# JOIN_COL_MAP_STATS["postlinks.relatedpostid"] = "post_id"
-# JOIN_COL_MAP_STATS["postlinks.linktypeid"] = "link_type_id"
+JOIN_COL_MAP_STATS["postlinks.id"] = "link_id"
+JOIN_COL_MAP_STATS["postlinks.postid"] = "post_id"
+JOIN_COL_MAP_STATS["postlinks.relatedpostid"] = "post_id"
+JOIN_COL_MAP_STATS["postlinks.linktypeid"] = "link_type_id"
 
-# JOIN_COL_MAP_STATS["posts.id"] = "post_id"
-# JOIN_COL_MAP_STATS["posts.posttypeid"] = "post_type_id"
-# JOIN_COL_MAP_STATS["posts.owneruserid"] = "user_id"
-# JOIN_COL_MAP_STATS["posts.lasteditoruserid"] = "user_id"
+JOIN_COL_MAP_STATS["posts.id"] = "post_id"
+JOIN_COL_MAP_STATS["posts.posttypeid"] = "post_type_id"
+JOIN_COL_MAP_STATS["posts.owneruserid"] = "user_id"
+JOIN_COL_MAP_STATS["posts.lasteditoruserid"] = "user_id"
 
-# JOIN_COL_MAP_STATS["tags.id"] = "tag_id"
-# # JOIN_COL_MAP_STATS["tags.excerptpostid"] = "post_id"
+JOIN_COL_MAP_STATS["tags.id"] = "tag_id"
+JOIN_COL_MAP_STATS["tags.excerptpostid"] = "post_id"
 
-# JOIN_COL_MAP_STATS["users.id"] = "user_id"
+JOIN_COL_MAP_STATS["users.id"] = "user_id"
 
-# JOIN_COL_MAP_STATS["votes.id"] = "vote_id"
-# JOIN_COL_MAP_STATS["votes.postid"] = "post_id"
-# JOIN_COL_MAP_STATS["votes.userid"] = "user_id"
+JOIN_COL_MAP_STATS["votes.id"] = "vote_id"
+JOIN_COL_MAP_STATS["votes.postid"] = "post_id"
+JOIN_COL_MAP_STATS["votes.userid"] = "user_id"
 
-JOIN_COL_MAP_STATS["badges.Id"] = "badge_id"
-JOIN_COL_MAP_STATS["badges.UserId"] = "user_id"
+# JOIN_COL_MAP_STATS["badges.Id"] = "badge_id"
+# JOIN_COL_MAP_STATS["badges.UserId"] = "user_id"
 
-JOIN_COL_MAP_STATS["comments.UserId"] = "user_id"
-JOIN_COL_MAP_STATS["comments.PostId"] = "post_id"
+# JOIN_COL_MAP_STATS["comments.UserId"] = "user_id"
+# JOIN_COL_MAP_STATS["comments.PostId"] = "post_id"
 
 JOIN_COL_MAP_STATS["comments.id"] = "comment_id"
-JOIN_COL_MAP_STATS["postHistory.Id"] = "history_id"
-JOIN_COL_MAP_STATS["postHistory.PostId"] = "post_id"
-JOIN_COL_MAP_STATS["postHistory.UserId"] = "user_id"
+# JOIN_COL_MAP_STATS["postHistory.Id"] = "history_id"
+# JOIN_COL_MAP_STATS["postHistory.PostId"] = "post_id"
+# JOIN_COL_MAP_STATS["postHistory.UserId"] = "user_id"
 
-JOIN_COL_MAP_STATS["postLinks.Id"] = "link_id"
-JOIN_COL_MAP_STATS["postLinks.PostId"] = "post_id"
-JOIN_COL_MAP_STATS["postLinks.RelatedPostId"] = "post_id"
+# JOIN_COL_MAP_STATS["postLinks.Id"] = "link_id"
+# JOIN_COL_MAP_STATS["postLinks.PostId"] = "post_id"
+# JOIN_COL_MAP_STATS["postLinks.RelatedPostId"] = "post_id"
 #JOIN_COL_MAP_STATS["postLinks.LinkTypeId"] = "link_type_id"
 
-JOIN_COL_MAP_STATS["posts.Id"] = "post_id"
-JOIN_COL_MAP_STATS["posts.PostTypeId"] = "post_type_id"
-JOIN_COL_MAP_STATS["posts.OwnerUserId"] = "user_id"
-JOIN_COL_MAP_STATS["posts.LastEditorUserId"] = "user_id"
+# JOIN_COL_MAP_STATS["posts.Id"] = "post_id"
+# JOIN_COL_MAP_STATS["posts.PostTypeId"] = "post_type_id"
+# JOIN_COL_MAP_STATS["posts.OwnerUserId"] = "user_id"
+# JOIN_COL_MAP_STATS["posts.LastEditorUserId"] = "user_id"
 
 
-JOIN_COL_MAP_STATS["tags.Id"] = "tag_id"
-JOIN_COL_MAP_STATS["tags.ExcerptPostId"] = "post_id"
-JOIN_COL_MAP_STATS["users.Id"] = "user_id"
-JOIN_COL_MAP_STATS["votes.Id"] = "vote_id"
-JOIN_COL_MAP_STATS["votes.PostId"] = "post_id"
-JOIN_COL_MAP_STATS["votes.UserId"] = "user_id"
+# JOIN_COL_MAP_STATS["tags.Id"] = "tag_id"
+# JOIN_COL_MAP_STATS["tags.ExcerptPostId"] = "post_id"
+# JOIN_COL_MAP_STATS["users.Id"] = "user_id"
+# JOIN_COL_MAP_STATS["votes.Id"] = "vote_id"
+# JOIN_COL_MAP_STATS["votes.PostId"] = "post_id"
+# JOIN_COL_MAP_STATS["votes.UserId"] = "user_id"
 
-# JOIN_COL_MAP = JOIN_COL_MAP_STATS
-JOIN_COL_MAP = JOIN_COL_MAP_IMDB
+JOIN_COL_MAP = JOIN_COL_MAP_STATS
+#JOIN_COL_MAP = JOIN_COL_MAP_IMDB
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -183,9 +183,9 @@ def read_flags():
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
-            default="ceb")
+            default="postgres")
     parser.add_argument("--pwd", type=str, required=False,
-            default="password")
+            default="postgres")
     parser.add_argument("--card_cache_dir", type=str, required=False,
             default="./cardinality_cache")
     parser.add_argument("--port", type=str, required=False,
@@ -271,6 +271,11 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg)
+
+        if "postHistory" in subsql:
+            subsql = subsql.replace("postHistory", "posthistory")
+        if "postLinks" in subsql:
+            subsql = subsql.replace("postLinks", "postlinks")
 
         assert len(sg.nodes()) == 1
         for k,v in sg.nodes(data=True):

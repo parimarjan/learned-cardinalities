@@ -114,9 +114,10 @@ def main():
             # if len(info) > 1:
                 # print(info.keys())
             cards = info["cardinality"]
-            del cards["actual"]
-            del cards["expected"]
-            del cards["total"]
+            if "actual" in cards:
+                del cards["actual"]
+                del cards["expected"]
+                del cards["total"]
 
             # handle actuals
             # if not "actual" in cards:
