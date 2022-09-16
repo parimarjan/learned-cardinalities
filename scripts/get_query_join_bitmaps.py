@@ -172,8 +172,8 @@ JOIN_COL_MAP_STATS["comments.id"] = "comment_id"
 # JOIN_COL_MAP_STATS["votes.PostId"] = "post_id"
 # JOIN_COL_MAP_STATS["votes.UserId"] = "user_id"
 
-JOIN_COL_MAP = JOIN_COL_MAP_STATS
-#JOIN_COL_MAP = JOIN_COL_MAP_IMDB
+# JOIN_COL_MAP = JOIN_COL_MAP_STATS
+JOIN_COL_MAP = JOIN_COL_MAP_IMDB
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -279,6 +279,8 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
 
         assert len(sg.nodes()) == 1
         for k,v in sg.nodes(data=True):
+            if "real_name" not in v:
+                return
             table = v["real_name"]
             break
             # sample_table = table + "_" + sampling_type + str(sample_num)

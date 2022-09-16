@@ -29,9 +29,10 @@ table_aliases["comp_cast_type"] = "cct"
 FROM_FMT = "{} AS {}"
 SQL_FMT = "{AGG} FROM {FROMS} WHERE {WHERES}"
 
-# FN = "/flash1/ziniuw/zero-shot-data/runs/raw/imdb_full/complex_queries_training_50k.json"
+FN = "/flash1/ziniuw/zero-shot-data/runs/raw/imdb_full/complex_queries_training_50k.json"
 FN = "/flash1/ziniuw/zero-shot-data/runs/raw/imdb_full/complex_queries_testing_2k.json"
-OUTDIR = "./queries/zero-shot-test/all/"
+# OUTDIR = "./queries/zero-shot-test2/zero-shot-test-all"
+OUTDIR = "./queries/zero-shot-train2/zero-shot-train-all"
 
 with open(FN, "r") as f:
     data = json.load(f)
@@ -65,7 +66,10 @@ for di, d in enumerate(data):
     elif " JOIN " in from_sql:
         joins = from_sql.split("JOIN")
     else:
-        pass
+        joins = []
+
+    if len(joins) < 1:
+        continue
 
     tables = set()
     where_conds = []
@@ -117,6 +121,12 @@ for di, d in enumerate(data):
                    WHERES = where_sql)
     new_sql = new_sql.replace("'\'", "")
     new_sql = new_sql.replace("\n", "")
+
+    if di == 10:
+        print(sql)
+        print(new_sql)
+        pdb.set_trace()
+
 
     outfn = os.path.join(OUTDIR, str(di) + ".sql")
 

@@ -38,6 +38,7 @@ def get_all_totals(qrep):
         cards = info["cardinality"]
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg)
+        subsql = subsql.replace(";","")
         tsql = get_total_count_query(subsql)
         par_args.append((tsql, user, db_host, port, pwd, db, []))
         par_subsets.append(subset)
@@ -78,12 +79,14 @@ def update_qrep(qrep, total_sample=None):
 
         subg = qrep["join_graph"].subgraph(node)
         node_sql = nx_graph_to_query(subg)
+        node_sql = node_sql.replace(";","")
         try:
             pred_cols, pred_types, pred_vals = extract_predicates(node_sql)
             qrep["join_graph"].nodes[node]["pred_cols"] = pred_cols
             qrep["join_graph"].nodes[node]["pred_types"] = pred_types
             qrep["join_graph"].nodes[node]["pred_vals"] = pred_vals
         except Exception as e:
+            print("exception in extract_predicates")
             print(e)
             qrep["join_graph"].nodes[node]["pred_cols"] = []
             qrep["join_graph"].nodes[node]["pred_types"] = []

@@ -236,6 +236,8 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         execs = info["exec_time"]
         sg = qrep["join_graph"].subgraph(subset)
         subsql = nx_graph_to_query(sg, table_pg12=TABLE_PG12)
+        if ";" in subsql:
+            subsql = subsql.replace(";","")
 
         if "postHistory" in subsql:
             subsql = subsql.replace("postHistory", "posthistory")

@@ -162,6 +162,8 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
             subsql = subsql.replace("postLinks", "postlinks")
 
         for k,v in sg.nodes(data=True):
+            if "real_name" not in v:
+                return
             table = v["real_name"]
             sample_table = table + "_" + sampling_type + str(sample_num)
 

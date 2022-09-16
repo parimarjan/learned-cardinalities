@@ -43,7 +43,7 @@ def read_flags():
             default="sb")
 
     parser.add_argument("--input_bitmap_dir", type=str, required=False,
-            default=None)
+            default="./output_bitmap_ids")
 
     return parser.parse_args()
 
@@ -119,7 +119,9 @@ def main():
             vals = ",".join(vals)
             vals = "({})".format(vals)
 
-            sel_sql = "SELECT * FROM \"{}\" WHERE \"Id\" IN {}".format(\
+            # sel_sql = "SELECT * FROM \"{}\" WHERE \"Id\" IN {}".format(\
+                    # table, vals)
+            sel_sql = "SELECT * FROM \"{}\" WHERE \"id\" IN {}".format(\
                     table, vals)
             # print(sel_sql)
             create_sql = CREATE_TEMPLATE.format(TABLE_NAME = new_table,
