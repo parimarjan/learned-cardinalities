@@ -336,9 +336,27 @@ def explain_to_nx(explain):
             G.nodes[node]["Actual Rows"] = plan["Actual Rows"]
         else:
             G.nodes[node]["Actual Rows"] = -1.0
+        if "Actual Total Time" in plan:
+            G.nodes[node]["total_time"] = plan["Actual Total Time"]
+
+            if "Plans" not in plan:
+                children_time = 0.0
+            elif len(plan["Plans"]) == 2:
+                children_time = plan["Plans"][0]["Actual Total Time"] \
+                        + plan["Plans"][1]["Actual Total Time"]
+            elif len(plan["Plans"]) == 1:
+                children_time = plan["Plans"][0]["Actual Total Time"]
+            else:
+                assert False
+
+            G.nodes[node]["cur_time"] = plan["Actual Total Time"]-children_time
+
+        else:
+            G.nodes[node]["Actual Total Time"] = -1.0
 
         if "Node Type" in plan:
             G.nodes[node]["Node Type"] = plan["Node Type"]
+
         total_cost = plan["Total Cost"]
         G.nodes[node]["Total Cost"] = total_cost
         aliases = G.nodes[node]["aliases"]
@@ -355,7 +373,6 @@ def explain_to_nx(explain):
             G.nodes[node]["node_label"] = plan["Node Type"][0]
             G.nodes[node]["scan_type"] = ""
         else:
-            # FIXME: debug
             G.nodes[node]["cur_cost"] = total_cost
             G.nodes[node]["node_label"] = node
             # what type of scan was this?
