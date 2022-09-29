@@ -30,7 +30,7 @@ FROM_FMT = "{} AS {}"
 SQL_FMT = "{AGG} FROM {FROMS} WHERE {WHERES}"
 
 FN = "/flash1/ziniuw/zero-shot-data/runs/raw/imdb_full/complex_queries_training_50k.json"
-FN = "/flash1/ziniuw/zero-shot-data/runs/raw/imdb_full/complex_queries_testing_2k.json"
+# FN = "/flash1/ziniuw/zero-shot-data/runs/raw/imdb_full/complex_queries_testing_2k.json"
 # OUTDIR = "./queries/zero-shot-test2/zero-shot-test-all"
 OUTDIR = "./queries/zero-shot-train2/zero-shot-train-all"
 
