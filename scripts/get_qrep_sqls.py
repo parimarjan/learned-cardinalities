@@ -1,9 +1,17 @@
 import sys
 sys.path.append(".")
+
+import collections.abc
+#hyper needs the four following aliases to be done manually.
+collections.Iterable = collections.abc.Iterable
+collections.Mapping = collections.abc.Mapping
+collections.MutableSet = collections.abc.MutableSet
+collections.MutableMapping = collections.abc.MutableMapping
+
 import argparse
 import psycopg2 as pg
 # from db_utils.utils import *
-from utils.utils import *
+# from utils.utils import *
 from db_utils.query_storage import *
 from utils.utils import *
 import pdb
@@ -33,31 +41,39 @@ def main():
     print(dirs)
     for dirname in dirs:
         cur_name = os.path.basename(dirname)
-        cur_output_dir = os.path.join(args.output_query_dir, cur_name)
-        make_dir(cur_output_dir)
+        # cur_output_dir = os.path.join(args.output_query_dir, cur_name)
+        # make_dir(cur_output_dir)
         fns = list(glob.glob(dirname + "/*"))
-        print(cur_name)
+        # print(cur_name)
+        fns = random.sample(fns, min(len(fns), 10))
         for i, fn in enumerate(fns):
             if ".pkl" not in fn:
                 continue
             if i % 100 == 0:
                 print(i)
+
             qrep = load_sql_rep(fn)
-            cur_fn_name = os.path.basename(fn).replace(".pkl", "")
-            output_dir = os.path.join(cur_output_dir, cur_fn_name)
-            make_dir(output_dir)
+            # cur_fn_name = os.path.basename(fn).replace(".pkl", "")
 
-            nodes = list(qrep["subset_graph"].nodes())
-            if SOURCE_NODE in nodes:
-                nodes.remove(SOURCE_NODE)
-            nodes.sort()
-            for j, node in enumerate(nodes):
-                sg = qrep["join_graph"].subgraph(node)
-                subsql = nx_graph_to_query(sg)
+            cur_fn_name = os.path.basename(fn).replace(".pkl", ".sql")
+            # output_fn = os.path.join(cur_output_dir, cur_fn_name)
 
-                out_fn = os.path.join(output_dir, str(j) + ".sql")
-                with open(out_fn, "w") as f:
-                    f.write(subsql)
+            output_fn = os.path.join(args.output_query_dir, cur_fn_name)
+            with open(output_fn, "w") as f:
+                f.write(qrep["sql"])
+
+            # make_dir(output_dir)
+            # nodes = list(qrep["subset_graph"].nodes())
+            # if SOURCE_NODE in nodes:
+                # nodes.remove(SOURCE_NODE)
+            # nodes.sort()
+            # for j, node in enumerate(nodes):
+                # sg = qrep["join_graph"].subgraph(node)
+                # subsql = nx_graph_to_query(sg)
+
+                # out_fn = os.path.join(output_dir, str(j) + ".sql")
+                # with open(out_fn, "w") as f:
+                    # f.write(subsql)
 
 args = read_flags()
 main()

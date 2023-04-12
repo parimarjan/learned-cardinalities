@@ -176,7 +176,11 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
         # subsql = subsql.replace(table, sample_table, 1)
 
         # subsql = subsql.replace("COUNT(*)", "\"Id\"")
-        subsql = subsql.replace("COUNT(*)", "\"id\"")
+        # subsql = subsql.replace("COUNT(*)", "\"id\"")
+
+        ### ergast-f1
+        subsql = subsql.replace("COUNT(*)", "\"index\"")
+
         subsql = subsql.replace(table, "\"" + sample_table + "\"" , 1)
 
         try:
@@ -189,7 +193,8 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
             print(table)
             print(subset)
             print(e)
-            pdb.set_trace()
+            continue
+            # pdb.set_trace()
 
         # if "where" not in subsql.lower():
             # print(subsql)

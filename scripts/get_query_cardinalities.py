@@ -43,7 +43,7 @@ CACHE_TIMEOUT = 4
 # CACHE_CARD_TYPES = ["actual"]
 CACHE_CARD_TYPES = []
 
-DEBUG_CHECK_TIMES = False
+DEBUG_CHECK_TIMES = True
 CONF_ALPHA = 0.99
 TABLE_PG12=True
 
@@ -199,9 +199,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         print("query: ", idx)
 
     # load the cache for few types
-    if card_type in CACHE_CARD_TYPES:
-        sql_cache = klepto.archives.dir_archive(cache_dir,
-                cached=True, serialized=True)
+    # if card_type in CACHE_CARD_TYPES:
+        # sql_cache = klepto.archives.dir_archive(cache_dir,
+                # cached=True, serialized=True)
 
     found_in_cache = 0
     existing = 0
@@ -226,6 +226,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
     # pdb.set_trace()
     # for subqi, (subset, info) in enumerate(qrep["subset_graph"].nodes().items()):
     for subqi, subset in enumerate(node_list):
+        if len(subset) > 1:
+            continue
+
         info = qrep["subset_graph"].nodes()[subset]
         if "cardinality" not in info:
             info["cardinality"] = {}
@@ -412,6 +415,9 @@ def get_cardinality(qrep, card_type, key_name, db_host, db_name, user, pwd,
         else:
             assert False
 
+    # print(fn, "total: ", len(qrep["subset_graph"].nodes()))
+    # print("***********")
+
     if card_type == "actual":
         print("total: {}, skip_zeros: {}, timeout: {}, existing: {}, found in cache: {}".format(\
                 len(qrep["subset_graph"].nodes()), zeros, num_timeout, existing, found_in_cache))
@@ -454,6 +460,7 @@ def main():
                         compute_ground_truth=False)
             except Exception as e:
                 print(e)
+                pdb.set_trace()
                 continue
 
             qrep["subset_graph"] = \

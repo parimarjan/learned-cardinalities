@@ -1,5 +1,13 @@
 import sys
 sys.path.append(".")
+
+import collections.abc
+#hyper needs the four following aliases to be done manually.
+collections.Iterable = collections.abc.Iterable
+collections.Mapping = collections.abc.Mapping
+collections.MutableSet = collections.abc.MutableSet
+collections.MutableMapping = collections.abc.MutableMapping
+
 import argparse
 import psycopg2 as pg
 # from db_utils.utils import *
@@ -483,7 +491,7 @@ def get_sample_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
         if len(newecards) > 0:
             einfo["join_key_cardinality"] = newecards
 
-        continue
+        #continue
 
         for ei, esql in enumerate(execsqls):
             try:

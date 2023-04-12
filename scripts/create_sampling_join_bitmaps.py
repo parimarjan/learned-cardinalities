@@ -140,14 +140,11 @@ def main():
                             NUM = str(args.sample_num))
         print("new table name: ", new_table)
 
-
         drop_sql = DROP_TEMPLATE.format(TABLE_NAME = new_table)
         cursor.execute(drop_sql)
 
         sel_sql = "SELECT * FROM {} WHERE {} IN (SELECT id from {});".format(\
                 table, join_key, pk_sample_table)
-
-        print(sel_sql)
 
         create_sql = CREATE_TEMPLATE.format(TABLE_NAME = new_table,
                                                 SEL_SQL=sel_sql)

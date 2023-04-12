@@ -2,6 +2,14 @@ import argparse
 import psycopg2 as pg
 import sys
 sys.path.append(".")
+
+import collections.abc
+#hyper needs the four following aliases to be done manually.
+collections.Iterable = collections.abc.Iterable
+collections.Mapping = collections.abc.Mapping
+collections.MutableSet = collections.abc.MutableSet
+collections.MutableMapping = collections.abc.MutableMapping
+
 import pdb
 import random
 import klepto

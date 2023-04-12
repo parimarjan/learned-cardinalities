@@ -28,7 +28,7 @@ def read_flags():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--db_name", type=str, required=False,
-            default="imdb1950")
+            default="ergastf1")
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
@@ -38,12 +38,12 @@ def read_flags():
     parser.add_argument("--port", type=str, required=False,
             default=5432)
     parser.add_argument("--sample_num", type=int, required=False,
-            default=1000)
+            default=100)
     parser.add_argument("--sampling_type", type=str, required=False,
             default="sb")
 
     parser.add_argument("--input_bitmap_dir", type=str, required=False,
-            default="./output_bitmap_ids")
+            default=None)
 
     return parser.parse_args()
 
@@ -74,11 +74,30 @@ def main():
             # ]
 
     ## 5440 stats db
-    tables = ["badges", "comments", "posthistory", "postlinks", "posts",
-            "tags", "users","votes"]
+    # tables = ["badges", "comments", "posthistory", "postlinks", "posts",
+            # "tags", "users","votes"]
 
     # tables = ["badges", "comments", "postHistory", "postLinks", "posts",
             # "tags", "users","votes"]
+
+     # public | circuits             | table | ceb
+	 # public | constructorResults   | table | ceb
+	 # public | constructorStandings | table | ceb
+	 # public | constructors         | table | ceb
+	 # public | driverStandings      | table | ceb
+	 # public | drivers              | table | ceb
+	 # public | lapTimes             | table | ceb
+	 # public | pitStops             | table | ceb
+	 # public | qualifying           | table | ceb
+	 # public | races                | table | ceb
+	 # public | results              | table | ceb
+	 # public | status               | table | ceb
+
+    ## 5432, ergast
+    tables = ["circuits", "constructorResults", "constructorStandings",
+				"constructors", "driverStandings", "drivers",
+				"lapTimes", "pitStops", "qualifying",
+				"races", "results", "status"]
 
     # let's build all the tables on primary keys first
     for table in tables:

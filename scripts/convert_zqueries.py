@@ -29,10 +29,13 @@ table_aliases["comp_cast_type"] = "cct"
 FROM_FMT = "{} AS {}"
 SQL_FMT = "{AGG} FROM {FROMS} WHERE {WHERES}"
 
-FN = "/flash1/ziniuw/zero-shot-data/runs/raw/imdb_full/complex_queries_training_50k.json"
+# FN = "/flash1/ziniuw/zero-shot-data/runs/raw/imdb_full/complex_queries_training_50k.json"
+
+FN = "/flash1/ziniuw/data_transfer/ErgastF1/workloads/workload_50k_s1.sql"
 # FN = "/flash1/ziniuw/zero-shot-data/runs/raw/imdb_full/complex_queries_testing_2k.json"
 # OUTDIR = "./queries/zero-shot-test2/zero-shot-test-all"
-OUTDIR = "./queries/zero-shot-train2/zero-shot-train-all"
+# OUTDIR = "./queries/zero-shot-train2/zero-shot-train-all"
+OUTDIR = "./queries/ergastf1_train/all"
 
 with open(FN, "r") as f:
     data = json.load(f)

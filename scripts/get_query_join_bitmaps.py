@@ -173,7 +173,52 @@ JOIN_COL_MAP_STATS["comments.id"] = "comment_id"
 # JOIN_COL_MAP_STATS["votes.UserId"] = "user_id"
 
 # JOIN_COL_MAP = JOIN_COL_MAP_STATS
-JOIN_COL_MAP = JOIN_COL_MAP_IMDB
+
+JOIN_COL_MAP_ERGAST = {}
+JOIN_REAL_MAP = {}
+
+JOIN_REAL_MAP["result_id"] = "results.resultId"
+JOIN_COL_MAP_ERGAST["results.resultId"] = "result_id"
+
+JOIN_REAL_MAP["driver_id"] = "drivers.driverId"
+JOIN_COL_MAP_ERGAST["drivers.driverId"] = "driver_id"
+JOIN_COL_MAP_ERGAST["results.driverId"] = "driver_id"
+JOIN_COL_MAP_ERGAST["lapTimes.driverId"] = "driver_id"
+JOIN_COL_MAP_ERGAST["qualifying.driverId"] = "driver_id"
+JOIN_COL_MAP_ERGAST["pitStops.driverId"] = "driver_id"
+
+JOIN_REAL_MAP["race_id"] = "races.raceId"
+JOIN_COL_MAP_ERGAST["races.raceId"] = "race_id"
+JOIN_COL_MAP_ERGAST["results.raceId"] = "race_id"
+JOIN_COL_MAP_ERGAST["lapTimes.raceId"] = "race_id"
+JOIN_COL_MAP_ERGAST["qualifying.raceId"] = "race_id"
+JOIN_COL_MAP_ERGAST["constructorResults.raceId"] = "race_id"
+JOIN_COL_MAP_ERGAST["constructorStandings.raceId"] = "race_id"
+JOIN_COL_MAP_ERGAST["pitStops.raceId"] = "race_id"
+JOIN_COL_MAP_ERGAST["driverStandings.raceId"] = "race_id"
+
+JOIN_REAL_MAP["constructor_id"] = "constructors.constructorId"
+JOIN_COL_MAP_ERGAST["constructors.constructorId"] = "constructor_id"
+JOIN_COL_MAP_ERGAST["results.constructorId"] = "constructor_id"
+JOIN_COL_MAP_ERGAST["constructorStandings.constructorId"] = "constructor_id"
+JOIN_COL_MAP_ERGAST["constructorResults.constructorId"] = "constructor_id"
+JOIN_COL_MAP_ERGAST["qualifying.constructorId"] = "constructor_id"
+
+JOIN_REAL_MAP["circuit_id"] = "circuits.circuitId"
+JOIN_COL_MAP_ERGAST["circuits.circuitId"] = "circuit_id"
+JOIN_COL_MAP_ERGAST["races.circuitId"] = "circuit_id"
+
+JOIN_REAL_MAP["status_id"] = "status.statusId"
+JOIN_COL_MAP_ERGAST["status.statusId"] = "status_id"
+JOIN_COL_MAP_ERGAST["results.statusId"] = "status_id"
+
+# JOIN_COL_MAP = JOIN_COL_MAP_ERGAST
+
+JOIN_COL_MAP_SYNTH = {}
+JOIN_COL_MAP_SYNTH["synth_primary.id"] = "pid"
+JOIN_COL_MAP_SYNTH["synth_foreign.tid"] = "pid"
+
+JOIN_COL_MAP = JOIN_COL_MAP_SYNTH
 
 def read_flags():
     parser = argparse.ArgumentParser()
@@ -183,9 +228,9 @@ def read_flags():
     parser.add_argument("--db_host", type=str, required=False,
             default="localhost")
     parser.add_argument("--user", type=str, required=False,
-            default="postgres")
+            default="ceb")
     parser.add_argument("--pwd", type=str, required=False,
-            default="postgres")
+            default="password")
     parser.add_argument("--card_cache_dir", type=str, required=False,
             default="./cardinality_cache")
     parser.add_argument("--port", type=str, required=False,
@@ -213,7 +258,7 @@ def read_flags():
     parser.add_argument("--seed", type=int,
             required=False, default=1234)
     parser.add_argument("--sample_num", type=int,
-            required=False, default=1000)
+            required=False, default=100)
     parser.add_argument("--sampling_type", type=str,
             required=False, default="sb")
 
@@ -282,6 +327,8 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
             if "real_name" not in v:
                 return
             table = v["real_name"]
+            # if len(v["predicates"]) == 0:
+                # pdb.set_trace()
             break
             # sample_table = table + "_" + sampling_type + str(sample_num)
 
@@ -311,12 +358,12 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
                                                # JOINKEY = join_key_col,
                                                JOINKEY = join_real,
                                                SS = "sb",
-                                               NUM = "1000")
+                                               NUM = sample_num)
                 exectab = newtab
                 if newid in SMALL_FIDS:
                     exectab = NEW_TABLE_TEMPLATE.format(TABLE=table,
                             SS = "sb",
-                            NUM = "1000")
+                            NUM = sample_num)
 
                 sample_tables.append(newtab)
                 exec_tables.append(exectab)
@@ -339,7 +386,9 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 cursor.execute(execsql)
                 outputs = cursor.fetchall()
                 bitmaps = [int(o[0]) for o in outputs if o[0] is not None]
-                print(len(bitmaps))
+
+                if idx % 10 == 0:
+                    print("Num qualifying tuples in bitmap: ", len(bitmaps))
 
             except Exception as e:
                 print("Exception!")
@@ -347,7 +396,7 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
                 print(table)
                 print(subset)
                 print(e)
-                pdb.set_trace()
+                # pdb.set_trace()
                 cursor.close()
                 con.close()
                 con = pg.connect(user=user, host=db_host, port=port,
@@ -361,7 +410,7 @@ def get_join_bitmaps(qrep, card_type, key_name, db_host, db_name, user, pwd,
     if fn is not None:
         update_qrep(qrep)
         save_sql_rep(fn, qrep)
-        print("saved new qrep!")
+        # print("saved new qrep!")
 
     con.close()
     cursor.close()
