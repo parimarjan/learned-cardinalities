@@ -2,7 +2,7 @@ moz-sql-parser
 sqlparse
 klepto
 psycopg2-binary
-numpy==1.16
+numpy==1.22.0
 pandas
 torch
 torchvision
